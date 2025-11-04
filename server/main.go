@@ -115,7 +115,9 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		ctx := context.Background()
 		agent, err := serverStore.GetAgentByToken(ctx, token)
 		if err != nil {
-			serverLogger.Warn("Invalid authentication attempt", "token", token[:8]+"...", "error", err)
+			if serverLogger != nil {
+				serverLogger.Warn("Invalid authentication attempt", "token", token[:8]+"...", "error", err)
+			}
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
 			return
 		}
@@ -137,7 +139,9 @@ func logAuditEntry(ctx context.Context, agentID, action, details, ipAddress stri
 	}
 
 	if err := serverStore.SaveAuditEntry(ctx, entry); err != nil {
-		serverLogger.Error("Failed to save audit entry", "agent_id", agentID, "action", action, "error", err)
+		if serverLogger != nil {
+			serverLogger.Error("Failed to save audit entry", "agent_id", agentID, "action", action, "error", err)
+		}
 	}
 }
 
@@ -217,16 +221,22 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		serverLogger.Warn("Invalid JSON in agent register", "error", err)
+		if serverLogger != nil {
+			serverLogger.Warn("Invalid JSON in agent register", "error", err)
+		}
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	serverLogger.Info("Agent registering", "agent_id", req.AgentID, "version", req.AgentVersion, "host", req.Hostname)
+	if serverLogger != nil {
+		serverLogger.Info("Agent registering", "agent_id", req.AgentID, "version", req.AgentVersion, "host", req.Hostname)
+	}
 
 	// Check protocol version compatibility
 	if req.ProtocolVersion != ProtocolVersion {
-		serverLogger.Warn("Protocol version mismatch", "agent", req.ProtocolVersion, "server", ProtocolVersion)
+		if serverLogger != nil {
+			serverLogger.Warn("Protocol version mismatch", "agent", req.ProtocolVersion, "server", ProtocolVersion)
+		}
 		http.Error(w, fmt.Sprintf("Protocol mismatch: server supports v%s, agent uses v%s",
 			ProtocolVersion, req.ProtocolVersion), http.StatusBadRequest)
 		return
@@ -235,7 +245,9 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	// Generate secure token for this agent
 	token, err := generateToken()
 	if err != nil {
-		serverLogger.Error("Failed to generate token", "agent_id", req.AgentID, "error", err)
+		if serverLogger != nil {
+			serverLogger.Error("Failed to generate token", "agent_id", req.AgentID, "error", err)
+		}
 		http.Error(w, "Failed to generate authentication token", http.StatusInternalServerError)
 		return
 	}
@@ -256,7 +268,9 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 	if err := serverStore.RegisterAgent(ctx, agent); err != nil {
-		serverLogger.Error("Failed to register agent", "agent_id", req.AgentID, "error", err)
+		if serverLogger != nil {
+			serverLogger.Error("Failed to register agent", "agent_id", req.AgentID, "error", err)
+		}
 		http.Error(w, "Failed to register agent", http.StatusInternalServerError)
 		return
 	}
@@ -266,7 +280,9 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	logAuditEntry(ctx, req.AgentID, "register", fmt.Sprintf("Agent registered: %s v%s on %s",
 		req.Hostname, req.AgentVersion, req.Platform), clientIP)
 
-	serverLogger.Info("Agent registered successfully", "agent_id", req.AgentID, "token", token[:8]+"...")
+	if serverLogger != nil {
+		serverLogger.Info("Agent registered successfully", "agent_id", req.AgentID, "token", token[:8]+"...")
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -301,7 +317,9 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Update agent last_seen
 	ctx := context.Background()
 	if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, req.Status); err != nil {
-		serverLogger.Warn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
+		if serverLogger != nil {
+			serverLogger.Warn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
+		}
 		// Don't fail the request, just log it
 	}
 
@@ -310,7 +328,9 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	clientIP := extractClientIP(r)
 	logAuditEntry(ctx, agent.AgentID, "heartbeat", fmt.Sprintf("Status: %s", req.Status), clientIP)
 
-	serverLogger.Debug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
+	if serverLogger != nil {
+		serverLogger.Debug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -332,12 +352,16 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		serverLogger.Warn("Invalid JSON in devices batch", "error", err)
+		if serverLogger != nil {
+			serverLogger.Warn("Invalid JSON in devices batch", "error", err)
+		}
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	serverLogger.Info("Devices batch received", "agent_id", req.AgentID, "count", len(req.Devices))
+	if serverLogger != nil {
+		serverLogger.Info("Devices batch received", "agent_id", req.AgentID, "count", len(req.Devices))
+	}
 
 	// Store each device
 	ctx := context.Background()
@@ -376,12 +400,16 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		device.RawData = deviceMap
 
 		if device.Serial == "" {
-			serverLogger.Warn("Device missing serial, skipping", "ip", device.IP)
+			if serverLogger != nil {
+				serverLogger.Warn("Device missing serial, skipping", "ip", device.IP)
+			}
 			continue
 		}
 
 		if err := serverStore.UpsertDevice(ctx, device); err != nil {
-			serverLogger.Error("Failed to store device", "serial", device.Serial, "error", err)
+			if serverLogger != nil {
+				serverLogger.Error("Failed to store device", "serial", device.Serial, "error", err)
+			}
 			continue
 		}
 		stored++
@@ -390,7 +418,9 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated agent from context
 	agent := r.Context().Value("agent").(*storage.Agent)
 
-	serverLogger.Info("Devices stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Devices))
+	if serverLogger != nil {
+		serverLogger.Info("Devices stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Devices))
+	}
 
 	// Log audit entry for device upload
 	clientIP := extractClientIP(r)
@@ -419,12 +449,16 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		serverLogger.Warn("Invalid JSON in metrics batch", "error", err)
+		if serverLogger != nil {
+			serverLogger.Warn("Invalid JSON in metrics batch", "error", err)
+		}
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	serverLogger.Info("Metrics batch received", "agent_id", req.AgentID, "count", len(req.Metrics))
+	if serverLogger != nil {
+		serverLogger.Info("Metrics batch received", "agent_id", req.AgentID, "count", len(req.Metrics))
+	}
 
 	// Store each metric snapshot
 	ctx := context.Background()
@@ -460,7 +494,9 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := serverStore.SaveMetrics(ctx, metric); err != nil {
-			serverLogger.Error("Failed to store metrics", "serial", metric.Serial, "error", err)
+			if serverLogger != nil {
+				serverLogger.Error("Failed to store metrics", "serial", metric.Serial, "error", err)
+			}
 			continue
 		}
 		stored++
@@ -469,7 +505,9 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated agent from context
 	agent := r.Context().Value("agent").(*storage.Agent)
 
-	serverLogger.Info("Metrics stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Metrics))
+	if serverLogger != nil {
+		serverLogger.Info("Metrics stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Metrics))
+	}
 
 	// Log audit entry for metrics upload
 	clientIP := extractClientIP(r)

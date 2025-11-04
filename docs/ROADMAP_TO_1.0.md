@@ -380,38 +380,50 @@ CREATE TABLE device_location_history (
 - SQLite storage
 - Windows builds
 
-### 0.2.0 - Multi-Agent Server ⚡ IN PROGRESS
+### 0.2.0 - Multi-Agent Server ✅ COMPLETE
 - ✅ Agent-server communication protocol (REST/JSON)
 - ✅ ServerClient implementation with Bearer token auth
-- ⚠️ Server token generation (in progress)
-- ⚠️ Server audit logging (in progress)
-- ⚠️ Agent upload worker (in progress)
-- Multi-site agent management
-- Centralized dashboard
-- **Target**: Ship this week
+- ✅ Server token generation (crypto/rand, base64)
+- ✅ Server audit logging (all agent operations)
+- ✅ Agent upload worker (heartbeat + metrics sync)
+- ✅ Multi-site agent management
+- ✅ Pure Go SQLite (modernc.org/sqlite, no CGO)
+- ✅ Comprehensive test suite (22 tests: 14 server + 8 client)
+- **Released**: November 2025
 
-### 0.3.0 - Local Printer Tracking & History
+### 0.3.0 - RFC 3805 SNMP Standards & Enhanced Discovery ⚡ IN PROGRESS
+- Standard OID library (200+ RFC 3805 Printer MIB OIDs)
+- Enhanced supply tracking (max capacity, percentage calculation, type/class)
+- Input tray discovery (capacity, levels, media types, status)
+- Expanded detection queries (15+ standard OIDs vs 4)
+- Smart vendor fallback (standard OIDs first, vendor-specific fallback)
+- Alert/error monitoring (real-time printer alerts)
+- Learned OID optimization (faster subsequent queries)
+- **Goal**: RFC 3805 compliance, richer printer data, better cross-vendor support
+- **Target**: 2-3 weeks
+
+### 0.4.0 - Local Printer Tracking & History
 - Track printer by serial number across IP changes
 - Device location history table
 - Alert when printer moves between sites
 - Last-seen timestamp tracking
 - DHCP environment support
-- **Target**: 2-3 weeks after v0.2.0
+- **Target**: 4-5 weeks after v0.3.0
 
-### 0.4.0 - Configuration Stability
+### 0.5.0 - Configuration Stability
 - Finalize config format
 - Config validation
 - Example configs for common setups
 - Environment variable support
 
-### 0.5.0 - Database Stability
+### 0.6.0 - Database Stability
 - Lock schema for devices table
 - Lock schema for metrics_history
 - Migration system in place
 - Backup/restore tools
 - Schema versioning system
 
-### 0.6.0 - Agent Deployment & Packaging 📦
+### 0.7.0 - Agent Deployment & Packaging 📦
 - Custom installer generator (per-site credentials)
 - One-time registration token system
 - Windows: NSIS/WiX installer with embedded config
@@ -421,7 +433,7 @@ CREATE TABLE device_location_history (
 - IP whitelisting and geo-validation
 - **Goal**: Zero-touch deployment for MSPs
 
-### 0.7.0 - Cross-Platform & Hardware
+### 0.8.0 - Cross-Platform & Hardware
 - Linux x64 support verified
 - macOS (Intel/ARM) support verified
 - Raspberry Pi 4/5 support verified
@@ -429,7 +441,7 @@ CREATE TABLE device_location_history (
 - Hardware recommendation guide
 - Platform-specific optimizations
 
-### 0.8.0 - gousbsnmp Side Project (Parallel Development)
+### 0.9.0 - gousbsnmp Side Project (Parallel Development)
 - Start gousbsnmp library development
 - USB device enumeration with gousb
 - IEEE 1284.4 packet framing implementation
@@ -438,7 +450,7 @@ CREATE TABLE device_location_history (
 - Test with 2-3 printer brands
 - **Note**: Development happens in parallel, doesn't block other milestones
 
-### 0.9.0 - Security Hardening & Production Polish
+### 0.10.0 - Security Hardening & Production Polish
 - HTTPS enforced
 - Certificate management
 - Multi-tenant isolation
@@ -449,7 +461,7 @@ CREATE TABLE device_location_history (
 - Performance benchmarking
 - Load testing (100+ agents, 1000+ printers)
 
-### 0.10.0 - Release Candidate
+### 0.11.0 - Release Candidate
 - All tests passing
 - Performance verified
 - Bug fix sprint

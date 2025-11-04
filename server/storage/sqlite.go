@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // Pure Go SQLite driver (no CGO required)
 )
 
 // SQLiteStore implements Store using SQLite
@@ -23,14 +23,24 @@ const schemaVersion = 1
 
 // NewSQLiteStore creates a new SQLite-backed store
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
-	// Ensure directory exists
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create db directory: %w", err)
+	// Ensure directory exists (unless in-memory)
+	if dbPath != ":memory:" {
+		dir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create db directory: %w", err)
+		}
+	}
+
+	// Build connection string with pragmas (skip for in-memory databases)
+	connStr := dbPath
+	if dbPath != ":memory:" {
+		connStr += "?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON"
+	} else {
+		connStr += "?_foreign_keys=ON"
 	}
 
 	// Open database
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON")
+	db, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
