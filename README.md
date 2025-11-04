@@ -29,12 +29,15 @@ PrintMaster is a cross-platform printer/copier fleet management system built for
 - `agent/` — the Go agent and web UI server (single binary, can run standalone)
 - `server/` — the Go server for multi-agent management (central hub)
 - `docs/` — detailed design notes, scanning pipeline, range syntax, and API/UI mapping. Key files:
+	- `docs/BUILD_WORKFLOW.md` — **build, test, and release procedures** ⭐
 	- `docs/SCAN_PIPELINE.md` — scan pipeline and stage design
 	- `docs/RANGE_SYNTAX.md` — range editor formats and parser behavior
 	- `docs/API_AND_UI.md` — endpoint reference and UI behavior
 	- `docs/DECISIONS.md` — design decisions and rationale
 
-Quick start (developer)
+## Quick Start
+
+### For Developers
 1. Install Go 1.21+
 2. Build components:
 
@@ -67,10 +70,24 @@ cd agent
 .\printmaster-agent.exe -port 8080
 ```
 
-Notes
+### Build & Release Workflow
+
+```powershell
+# Check project status
+.\status.ps1
+
+# Make a release (automated: test → build → commit → tag → push)
+.\release.ps1 agent patch
+
+# Or use VS Code: Ctrl+Shift+B for build tasks, F5 for debugging
+```
+
+See **[docs/BUILD_WORKFLOW.md](docs/BUILD_WORKFLOW.md)** for complete workflow guide.
+
+## Notes
 - The agent runs scans asynchronously. Use the web UI or the `/scan_status` endpoint to poll progress.
 - User ranges are saved to `config.json` and limited by a safe default expansion cap (4096 addresses).
 
-Contributing
+## Contributing
 - Follow Go formatting (gofmt) and add tests for new features. See `docs/` for design notes and planned next steps (producer/consumer scan pipeline, SNMP quick probes, mDNS/SSDP discovery, job control).
 
