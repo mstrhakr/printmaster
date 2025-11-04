@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>PrintMaster Agent</title>
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='16' y='8' width='32' height='12' fill='%234a5568' rx='2'/><rect x='12' y='20' width='40' height='24' fill='%23718096' rx='3'/><rect x='16' y='24' width='32' height='16' fill='%23cbd5e0' rx='2'/><rect x='20' y='28' width='8' height='2' fill='%234299e1'/><rect x='20' y='32' width='12' height='2' fill='%234299e1'/><rect x='20' y='36' width='10' height='2' fill='%234299e1'/><circle cx='46' cy='32' r='3' fill='%2348bb78'/><rect x='16' y='44' width='32' height='12' fill='%234a5568' rx='2'/><rect x='20' y='48' width='24' height='4' fill='%23e2e8f0'/></svg>">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="header-flex"
+        style="display: flex; align-items: center; margin-bottom: 12px; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <h1 style="margin: 0;">PrintMaster Agent UI</h1>
+            <div id="global_scan_status" class="scan-status-indicator idle">
+                <div id="global_scan_spinner" class="spinner" style="display: none;"></div>
+                <span id="global_scan_text">Idle</span>
+            </div>
+        </div>
+        <label class="theme-toggle">
+            <input type="checkbox" id="theme-toggle-checkbox">
+            <div class="theme-toggle-slider">
+                <div class="theme-toggle-icon"></div>
+            </div>
+        </label>
+    </div>
+
+    <!-- Main content container with floating appearance -->
+    <div class="content-container">
+        <div class="tabbar">
+            <!-- Hamburger menu for mobile -->
+            <div class="hamburger-menu">
+                <div class="hamburger-header">
+                    <span id="current_tab_label">Menu - Devices</span>
+                    <div class="hamburger-icon">
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                    </div>
+                </div>
+            </div>
+            <div class="mobile-nav" id="mobile_nav">
+                <button class="tab active" data-target="devices">Devices</button>
+                <button class="tab" data-target="settings">Settings</button>
+                <button class="tab" data-target="logs">Logs</button>
+            </div>
+            <!-- Desktop tabs -->
+            <button class="tab active" data-target="devices">Devices</button>
+            <button class="tab" data-target="settings">Settings</button>
+            <button class="tab" data-target="logs">Logs</button>
+        </div>
+
+        <div style="margin-top:12px;" data-tab="devices">
+            <h3>Devices</h3>
+
+            <!-- Discover controls -->
+            <div style="display:flex;gap:12px;align-items:flex-start;margin-top:6px;margin-bottom:12px;flex-wrap:wrap">
+                <button class="primary" id="discover_now_btn">Discover Now</button>
+            </div>
+
+            <!-- Discovered Printers Section -->
+            <div id="discovered_section" style="margin-bottom:20px;">
+                <div
+                    style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                    <h4 style="margin:0;color:var(--highlight)">Discovered Printers</h4>
+                    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                        <input type="text" id="discovered_search" placeholder="Search devices..."
+                            style="padding:6px 12px;width:200px;" />
+
+                        <!-- Compact Time Filter -->
+                        <div class="compact-time-filter">
+                            <span class="compact-time-filter-label">⏱️ <span id="time_filter_value">All
+                                    Time</span></span>
+                            <input type="range" class="compact-time-slider" id="time_slider" min="0" max="13" value="13"
+                                step="1" />
+                        </div>
+
+                        <label
+                            style="cursor:pointer;color:var(--text);display:flex;align-items:center;gap:6px;font-size:13px;">
+                            <input type="checkbox" id="show_saved_in_discovered">
+                            <span>Show Known Devices</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="discovered_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
+                <div class="device-cards-container" id="discovered_devices_cards"></div>
+                <div style="margin-top:16px;display:flex;gap:12px;align-items:center;">
+                    <button>Save All</button>
+                    <span style="color:var(--muted)">|</span>
+                    <button>Clear</button>
+                </div>
+            </div>
+
+            <!-- Separator -->
+            <hr style="border:none;border-top:1px solid #004b56;margin:20px 0" />
+
+            <!-- Saved Devices Section -->
+            <div style="margin-bottom:20px;">
+                <div
+                    style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                    <h4 style="margin:0;color:var(--highlight)">Saved Devices</h4>
+                    <input type="text" id="saved_search" placeholder="Search devices..."
+                        style="padding:6px 12px;width:200px;" />
+                </div>
+                <div id="saved_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
+                <div class="saved-device-cards-container" id="saved_devices_cards"></div>
+                <div style="margin-top:16px;display:flex;gap:8px;">
+                    <button class="delete" style="margin-left:auto;">Delete All Saved
+                        Devices</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sandbox UI removed -->
+
+        <div style="margin-top:12px;" data-tab="settings" class="hidden">
+            <h3>Settings</h3>
+
+            <!-- Settings Controls (Sticky) -->
+            <div class="settings-sticky-bar">
+                <label id="autosave_label">
+                    <input type="checkbox" id="settings_autosave" />
+                    <span style="font-weight:500;font-size:14px;">Auto-save</span>
+                </label>
+                <div id="settings_buttons" class="settings-buttons">
+                    <button id="settings_apply_btn">Apply</button>
+                    <button id="settings_revert_btn">Revert</button>
+                    <button id="settings_reset_btn">Reset</button>
+                </div>
+                <label id="advanced_toggle_label">
+                    <input type="checkbox" id="settings_advanced_toggle" />
+                    <span style="font-weight:500;font-size:14px;">Advanced</span>
+                </label>
+                <div id="autosave_feedback" class="autosave-feedback">✓ Settings saved</div>
+            </div>
+
+            <!-- Settings Grid Container -->
+            <div class="settings-grid">
+
+                <!-- Quick Actions -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Quick Actions</h4>
+                    <div style="display:flex;flex-direction:column;gap:12px;">
+                        <button class="primary" id="discover_now_settings_btn" style="width:100%;">Discover Now</button>
+                        <div style="color:var(--muted);font-size:12px;">
+                            Manually trigger a discovery scan with current settings.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IP Sources -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">IP Sources</h4>
+                    <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">What to scan</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <div>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="scan_local_subnet_enabled" />
+                                <span><strong>Scan detected local subnet</strong></span>
+                            </label>
+                            <div style="margin-left:24px;margin-top:4px;color:var(--muted);font-size:12px;">
+                                Detected: <span id="detected_subnet_display"
+                                    style="font-family:monospace;">(loading...)</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="manual_ranges_enabled" />
+                                <span>Manual IP ranges</span>
+                                <span style="color:var(--muted);font-size:12px;">(advanced: multi-subnet or
+                                    specific
+                                    targeting)</span>
+                            </label>
+                        </div>
+
+                        <!-- IP Ranges Configuration (shown when manual ranges enabled) -->
+                        <div id="ranges_config_section"
+                            style="margin:8px 0 0 12px;background:var(--panel);border:1px solid var(--border);border-radius:6px;display:none;">
+                            <div style="padding:12px;">
+                                <div style="color:var(--muted);font-size:12px;margin-bottom:8px">
+                                    Formats: <code>192.168.1.50</code> | <code>192.168.1.0/24</code> |
+                                    <code>192.168.1.1-50</code> | <code>192.168.1.x</code>
+                                </div>
+                                <textarea id="ranges_text"
+                                    style="width:100%;height:100px;font-family:monospace;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;box-sizing:border-box;"
+                                    placeholder="One entry per line"></textarea>
+                                <div style="margin-top:6px;">
+                                    <button onclick='clearRanges()'
+                                        style="font-size:12px;padding:4px 10px;">Clear</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Probes -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Active Probes</h4>
+                    <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">How to find devices</div>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="discovery_arp_enabled" />
+                            <span>ARP cache</span>
+                            <span style="color:var(--muted);font-size:12px;">(instant, no overhead)</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="discovery_icmp_enabled" />
+                            <span>ICMP ping</span>
+                            <span style="color:var(--muted);font-size:12px;">(reliable liveness check)</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="discovery_tcp_enabled" />
+                            <span>TCP ports</span>
+                            <span style="color:var(--muted);font-size:12px;">(9100, 80, 443, 515 - works when ICMP
+                                blocked)</span>
+                        </label>
+                        <label class="advanced-setting" style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="discovery_mdns_enabled" />
+                            <span>mDNS/DNS-SD</span>
+                            <span style="color:var(--muted);font-size:12px;">(5s scan window, optional - covered by
+                                live
+                                mDNS)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Device Identification -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Device Identification</h4>
+                    <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">What info to collect</div>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="discovery_snmp_enabled" />
+                            <span>SNMP queries</span>
+                            <span style="color:var(--muted);font-size:12px;">(essential: manufacturer, model,
+                                serial,
+                                metrics)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Auto Discovery -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Auto Discovery</h4>
+                    <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">Automatic scanning and saving</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:500;">
+                            <input type="checkbox" id="auto_discover_checkbox" />
+                            <span>Enable Auto Discover</span>
+                            <span style="color:var(--muted);font-size:12px;font-weight:normal;">(periodic scans +
+                                continuous listening)</span>
+                        </label>
+                        <label id="show_discover_button_anyway_container" class="mini-toggle-container">
+                            <input type="checkbox" id="show_discover_button_anyway" />
+                            <span>Show Discover Button Anyway</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:500;">
+                            <input type="checkbox" id="autosave_checkbox" />
+                            <span>Autosave Discovered Devices</span>
+                            <span style="color:var(--muted);font-size:12px;font-weight:normal;">(automatically save
+                                new
+                                devices as found)</span>
+                        </label>
+                        <label id="show_discovered_devices_anyway_container" class="mini-toggle-container">
+                            <input type="checkbox" id="show_discovered_devices_anyway" />
+                            <span>Show Discovered Devices Anyway</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Passive Discovery Methods -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Passive Discovery Methods</h4>
+                    <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">Listen for device announcements</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label style="display:flex;align-items:center;gap:8px;font-weight:500;">
+                            <input type="checkbox" id="passive_discovery_enabled" />
+                            <span>Enable Passive Discovery</span>
+                            <span style="color:var(--muted);font-size:12px;font-weight:normal;">(continuous listening)</span>
+                        </label>
+                    </div>
+                    <div id="passive_discovery_methods_container"
+                        style="display:none;margin-top:8px;">
+                        <div style="margin-bottom:8px;color:var(--muted);font-size:12px;">
+                            When enabled, these methods listen for device announcements continuously (no active
+                            scanning
+                            overhead).
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            <label class="mini-toggle-container" style="display:flex;">
+                                <input type="checkbox" id="discovery_live_wsd_enabled" />
+                                <span>WS-Discovery <span style="color:var(--muted);font-weight:normal;">(recommended:
+                                        Windows native,
+                                        HP/Canon/Epson)</span></span>
+                            </label>
+                            <label class="mini-toggle-container" style="display:flex;">
+                                <input type="checkbox" id="discovery_live_mdns_enabled" />
+                                <span>mDNS/DNS-SD <span style="color:var(--muted);font-weight:normal;">(recommended:
+                                        macOS/Linux, modern printers)</span></span>
+                            </label>
+                            <label class="mini-toggle-container advanced-setting" style="display:flex;">
+                                <input type="checkbox" id="discovery_live_ssdp_enabled" />
+                                <span>SSDP/UPnP <span style="color:var(--muted);font-weight:normal;">(optional:
+                                        broad discovery, lower printer coverage)</span></span>
+                            </label>
+                            <label class="mini-toggle-container advanced-setting" style="display:flex;">
+                                <input type="checkbox" id="discovery_live_snmptrap_enabled" />
+                                <span>SNMP Traps <span style="color:var(--muted);font-weight:normal;">(advanced:
+                                        requires admin/root, port 162)</span></span>
+                            </label>
+                            <label class="mini-toggle-container advanced-setting" style="display:flex;">
+                                <input type="checkbox" id="discovery_live_llmnr_enabled" />
+                                <span>LLMNR <span style="color:var(--muted);font-weight:normal;">(optional: Windows
+                                        hostname resolution, port 5355)</span></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+            <!-- Metrics Monitoring -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight)">Metrics Monitoring</h4>
+                <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+                    Periodically collect metrics (page counts, toner levels) from saved devices for historical
+                    tracking.
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="metrics_rescan_enabled" />
+                        <span>Enable Metrics Monitoring</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;margin-left:20px;">
+                        <span style="min-width:120px;">Rescan Interval:</span>
+                        <input type="number" id="metrics_rescan_interval" min="5" max="1440" step="5" value="60"
+                            style="width:80px;" />
+                        <span style="color:var(--muted);font-size:12px;">minutes (5-1440)</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- SNMP Settings -->
+            <div class="panel advanced-setting">
+                <h4 style="margin-top:0;color:var(--highlight)">SNMP Settings</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Configure default SNMP parameters for device discovery and monitoring.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Default Community String:</span>
+                        <input id="dev_snmp_community" type="text" style="width:220px" placeholder="public" />
+                        <span style="color:var(--muted);font-size:12px;">SNMP v1/v2c community (read-only
+                            access)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Timeout (milliseconds):</span>
+                        <input id="dev_snmp_timeout" type="number" style="width:120px" min="500" max="10000"
+                            step="100" />
+                        <span style="color:var(--muted);font-size:12px;">500-10000ms, affects network wait
+                            time</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Retry Attempts:</span>
+                        <input id="dev_snmp_retries" type="number" style="width:120px" min="0" max="5" step="1" />
+                        <span style="color:var(--muted);font-size:12px;">0-5, how many times to retry failed
+                            queries</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="snmp_walk_enabled" />
+                        <span>Enable full SNMP walks for unknown devices</span>
+                        <span style="color:var(--muted);font-size:12px;">Automatically walk MIB tree to gather all
+                            available
+                            data</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">Max OIDs per GET request:</span>
+                        <input id="snmp_max_oids" type="number" style="width:120px" min="1" max="60" step="1"
+                            value="20" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Bulk GET optimization (1-60
+                            OIDs)</span>
+                    </label>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced SNMP
+                            Settings
+                        </summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="snmp_v3_enabled" disabled />
+                                <span>Enable SNMP v3 support</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Encrypted/authenticated
+                                    SNMP</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">SNMP Port:</span>
+                                <input id="snmp_port" type="number" style="width:120px" min="1" max="65535"
+                                    value="161" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Default 161, change for
+                                    non-standard</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Walk rate limit (ms/OID):</span>
+                                <input id="snmp_walk_delay" type="number" style="width:120px" min="0" max="1000"
+                                    step="10" value="0" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Delay between OID queries
+                                    (0=no
+                                    delay)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="snmp_cache_enabled" checked disabled />
+                                <span>Cache SNMP responses</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Cache static data (sysDescr,
+                                    serial)
+                                    for faster rescans</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Cache TTL (minutes):</span>
+                                <input id="snmp_cache_ttl" type="number" style="width:120px" min="1" max="1440"
+                                    value="60" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: How long to cache SNMP
+                                    data</span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Logging Settings -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight)">Logging Settings</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Control logging levels and debug output.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Log Level:</span>
+                        <select id="dev_debug_logging" style="width:180px;">
+                            <option value="error">ERROR - Only errors</option>
+                            <option value="warn">WARN - Warnings and errors</option>
+                            <option value="info" selected>INFO - Normal operations</option>
+                            <option value="debug">DEBUG - Detailed debugging</option>
+                            <option value="trace">TRACE - Very verbose (use with tags)</option>
+                        </select>
+                        <span style="color:var(--muted);font-size:12px;">Set minimum log level to display</span>
+                    </label>
+                    <label class="advanced-setting" style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="dev_dump_parse_debug" />
+                        <span>Persist parse debug for every scan</span>
+                        <span style="color:var(--muted);font-size:12px;">Saves detailed JSON to logs/
+                            directory</span>
+                    </label>
+                    <label class="advanced-setting" style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">Log file rotation size:</span>
+                        <input id="log_rotation_mb" type="number" style="width:120px" min="1" max="1000" value="10" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: MB before rotating log files
+                            (1-1000)</span>
+                    </label>
+                    <label class="advanced-setting" style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">Keep rotated log files:</span>
+                        <input id="log_keep_files" type="number" style="width:120px" min="1" max="100" value="5" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Number of backup logs to retain
+                            (1-100)</span>
+                    </label>
+
+                    <div class="advanced-setting"
+                        style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                            <span style="font-weight:500;color:var(--highlight)">Trace Logging (Granular)</span>
+                            <button style="padding:2px 8px;font-size:12px">Refresh</button>
+                        </div>
+                        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">
+                            Enable specific trace categories to get detailed logs without noise. Changes persist
+                            across
+                            restarts.
+                        </div>
+                        <div id="trace_tags_container">
+                            <span style="color:var(--muted);font-size:12px">Loading...</span>
+                        </div>
+                        <button style="margin-top:8px">Save Trace Tags</button>
+                    </div>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Logging
+                            Settings
+                        </summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="log_to_console" checked disabled />
+                                <span>Log to console (stdout)</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Enable terminal output
+                                    (useful for
+                                    systemd/docker)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="log_to_file" checked disabled />
+                                <span>Log to file</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Write logs to agent/logs/
+                                    directory</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="log_json_format" disabled />
+                                <span>Use JSON log format</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Structured JSON logs for
+                                    parsing
+                                    tools</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="log_include_caller" disabled />
+                                <span>Include caller info in logs</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Show file:line in log
+                                    messages</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="log_compress_rotated" checked disabled />
+                                <span>Compress rotated logs</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Gzip old log files to save
+                                    space</span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Performance Settings -->
+            <div class="panel advanced-setting" style="margin-bottom:16px;">
+                <h4 style="margin-top:0;color:var(--highlight)">Performance Settings</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Adjust performance parameters for discovery and scanning operations.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Discovery Concurrency:</span>
+                        <input id="dev_discover_concurrency" type="number" style="width:120px" min="1" max="500"
+                            step="10" />
+                        <span style="color:var(--muted);font-size:12px;">Parallel device probes (1-500)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">ICMP ping timeout (ms):</span>
+                        <input id="icmp_timeout" type="number" style="width:120px" min="100" max="5000" step="100"
+                            value="1000" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Ping wait time (100-5000ms)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">TCP connect timeout (ms):</span>
+                        <input id="tcp_timeout" type="number" style="width:120px" min="100" max="10000" step="100"
+                            value="2000" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Port probe timeout
+                            (100-10000ms)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">HTTP request timeout (sec):</span>
+                        <input id="http_timeout" type="number" style="width:120px" min="5" max="120" step="5"
+                            value="30" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Web UI/API request timeout
+                            (5-120s)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">Database connection pool:</span>
+                        <input id="db_pool_size" type="number" style="width:120px" min="1" max="100" value="10" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Max concurrent DB connections
+                            (1-100)</span>
+                    </label>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Performance
+                            Settings</summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Memory buffer size (MB):</span>
+                                <input id="memory_buffer_mb" type="number" style="width:120px" min="1" max="1024"
+                                    value="64" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: In-memory cache for device
+                                    data
+                                    (1-1024MB)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="enable_disk_cache" disabled />
+                                <span>Enable disk caching</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Cache discovery results to
+                                    disk</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Worker pool size:</span>
+                                <input id="worker_pool_size" type="number" style="width:120px" min="1" max="100"
+                                    value="10" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Background task workers
+                                    (1-100)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="enable_rate_limiting" checked disabled />
+                                <span>Enable request rate limiting</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Prevent flooding target
+                                    devices</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Max requests per device/sec:</span>
+                                <input id="rate_limit_per_device" type="number" style="width:120px" min="1" max="100"
+                                    value="10" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Rate limit to prevent device
+                                    overload</span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Integration Settings -->
+            <div class="panel advanced-setting" style="margin-bottom:16px;">
+                <h4 style="margin-top:0;color:var(--highlight)">Integration Settings</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Configure integration with external systems and asset management.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Asset ID Regex Pattern:</span>
+                        <input id="dev_asset_id_regex" type="text" style="width:320px"
+                            placeholder="e.g. \\\b\\\d{5}\\\b" />
+                    </label>
+                    <div style="color:var(--muted);font-size:12px;margin-left:208px;margin-top:-6px;">
+                        Regular expression to extract asset IDs from device names or locations.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_webhook" />
+                        <span>Enable webhook notifications</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Send device events to external
+                            endpoint</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Webhook URL:</span>
+                        <input id="webhook_url" type="text" style="width:320px"
+                            placeholder="https://example.com/webhook" />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Endpoint for device
+                            notifications</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_syslog" />
+                        <span>Send logs to syslog server</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Forward logs to central syslog</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Syslog server:</span>
+                        <input id="syslog_server" type="text" style="width:220px"
+                            placeholder="syslog.example.com:514" />
+                        <span style="color:var(--muted);font-size:12px;">TODO: host:port for syslog
+                            forwarding</span>
+                    </label>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Integration
+                            Settings</summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="enable_mqtt" />
+                                <span>Enable MQTT publishing</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Publish device data to MQTT
+                                    broker</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">MQTT broker URL:</span>
+                                <input id="mqtt_broker" type="text" style="width:320px"
+                                    placeholder="mqtt://broker.example.com:1883" />
+                                <span style="color:var(--muted);font-size:12px;">TODO: MQTT connection string</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">MQTT topic prefix:</span>
+                                <input id="mqtt_topic_prefix" type="text" style="width:220px"
+                                    placeholder="printmaster/" />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Base topic for published
+                                    messages</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="enable_prometheus" />
+                                <span>Expose Prometheus metrics</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: /metrics endpoint for
+                                    monitoring</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Prometheus port:</span>
+                                <input id="prometheus_port" type="number" style="width:120px" min="1024" max="65535"
+                                    value="9090" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Metrics server port
+                                    (1024-65535)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="enable_api_auth" disabled />
+                                <span>Require API authentication</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Protect API with
+                                    tokens/keys</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">API key header name:</span>
+                                <input id="api_key_header" type="text" style="width:220px" placeholder="X-API-Key"
+                                    value="X-API-Key" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: HTTP header for API
+                                    key</span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Network Settings -->
+            <div class="panel advanced-setting" style="margin-bottom:16px;">
+                <h4 style="margin-top:0;color:var(--highlight)">Network Settings</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Configure network interfaces and proxy behavior.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_http" checked />
+                        <span>Enable HTTP</span>
+                        <span style="color:var(--muted);font-size:12px;">Serve web UI over HTTP</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">HTTP port:</span>
+                        <input id="http_port" type="text" style="width:120px" placeholder="8080" value="8080" />
+                        <span style="color:var(--muted);font-size:12px;">Port for HTTP server</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_https" checked />
+                        <span>Enable HTTPS/TLS</span>
+                        <span style="color:var(--muted);font-size:12px;">Serve web UI over encrypted connection (uses auto-generated self-signed certificate)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">HTTPS port:</span>
+                        <input id="https_port" type="text" style="width:120px" placeholder="8443" value="8443" />
+                        <span style="color:var(--muted);font-size:12px;">Port for HTTPS server</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="redirect_http_to_https" />
+                        <span>Auto-upgrade HTTP to HTTPS</span>
+                        <span style="color:var(--muted);font-size:12px;">Redirect HTTP requests to HTTPS (temporary redirect, can be toggled off)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="proxy_verify_ssl" />
+                        <span>Verify SSL certificates when proxying to devices</span>
+                        <span style="color:var(--muted);font-size:12px;">Strict SSL validation for device connections (currently allows self-signed)</span>
+                    </label>
+                    <div style="margin-top:8px;padding:8px;background:var(--bg-subtle);border-radius:4px;font-size:12px;color:var(--muted);">
+                        <strong>Certificate Info:</strong> Self-signed certificates are auto-generated on first run and stored in 
+                        <code style="background:var(--bg);padding:2px 4px;border-radius:2px;">%LOCALAPPDATA%\PrintMaster\</code>
+                        <button id="regenerate_certs_btn" style="margin-left:12px;padding:4px 8px;font-size:11px;cursor:pointer;background:var(--highlight);color:white;border:none;border-radius:3px;">
+                            Regenerate Certificates
+                        </button>
+                    </div>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Custom Certificate</summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">Custom certificate path:</span>
+                                <input id="custom_cert_path" type="text" style="width:320px" placeholder="Leave empty to use auto-generated" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">Custom key path:</span>
+                                <input id="custom_key_path" type="text" style="width:320px" placeholder="Leave empty to use auto-generated" />
+                            </label>
+                            <div style="color:var(--muted);font-size:12px;">
+                                Provide absolute paths to your own certificate and key files. Leave empty to use auto-generated self-signed certificates.
+                            </div>
+                        </div>
+                    </details>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Network
+                            Settings
+                        </summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="enable_ipv6" checked />
+                                <span>Enable IPv6 support</span>
+                                <span style="color:var(--muted);font-size:12px;">Discover and connect to devices via IPv6</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="bind_all_interfaces" />
+                                <span>Bind to all network interfaces (0.0.0.0)</span>
+                                <span style="color:var(--muted);font-size:12px;">⚠️ Allow external connections (security risk)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">Network interface filter:</span>
+                                <input id="network_interface_filter" type="text" style="width:220px"
+                                    placeholder="eth0,wlan0" />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Comma-separated interface
+                                    names to
+                                    use</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">Custom DNS servers:</span>
+                                <input id="custom_dns_servers" type="text" style="width:320px"
+                                    placeholder="8.8.8.8,1.1.1.1" />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Override system DNS
+                                    (comma-separated)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="enable_cors" />
+                                <span>Enable CORS for API</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Allow cross-origin
+                                    requests</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">CORS allowed origins:</span>
+                                <input id="cors_origins" type="text" style="width:320px"
+                                    placeholder="https://example.com" />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Comma-separated allowed
+                                    origins</span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Security Settings -->
+            <div class="panel advanced-setting" style="margin-bottom:16px;">
+                <h4 style="margin-top:0;color:var(--highlight)">Security Settings</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Configure security and authentication options.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <input type="checkbox" id="require_login" disabled />
+                        <span>Require login for web UI</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Password-protect agent
+                            interface</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <span style="min-width:200px;">Session timeout (minutes):</span>
+                        <input id="session_timeout" type="number" style="width:120px" min="5" max="1440" value="60" disabled />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Auto-logout after inactivity
+                            (5-1440min)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <input type="checkbox" id="encrypt_credentials" checked disabled />
+                        <span>Encrypt stored credentials</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: AES-256 encryption for
+                            passwords</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                        <input type="checkbox" id="auto_lock_devices" disabled />
+                        <span>Auto-lock device configs after save</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Prevent accidental overwrites</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_saved_credentials" checked />
+                        <span>Enable saved credentials</span>
+                        <span style="color:var(--muted);font-size:12px;">Allow saving/using web UI credentials for proxy auto-login</span>
+                    </label>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Security
+                            Settings
+                        </summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="enable_2fa" disabled />
+                                <span>Enable two-factor authentication</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: TOTP-based 2FA for
+                                    login</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="audit_logging" disabled />
+                                <span>Enable audit logging</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Log all configuration
+                                    changes</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Max login attempts:</span>
+                                <input id="max_login_attempts" type="number" style="width:120px" min="1" max="20"
+                                    value="5" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Lockout after N failed
+                                    attempts
+                                    (1-20)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Lockout duration (minutes):</span>
+                                <input id="lockout_duration" type="number" style="width:120px" min="1" max="1440"
+                                    value="15" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: How long to block after
+                                    failed
+                                    logins</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <input type="checkbox" id="ip_whitelist_enabled" disabled />
+                                <span>Enable IP whitelist</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Only allow specific IPs to
+                                    access
+                                    UI</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
+                                <span style="min-width:200px;">Allowed IP addresses:</span>
+                                <input id="ip_whitelist" type="text" style="width:320px"
+                                    placeholder="192.168.1.0/24,10.0.0.0/8" disabled />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Comma-separated CIDRs</span>
+                            </label>
+                        </div>
+                    </details>
+                </div>
+            </div>
+
+            <!-- Data Management Settings -->
+            <div class="panel advanced-setting" style="margin-bottom:16px;">
+                <h4 style="margin-top:0;color:var(--highlight)">Data Management</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Configure database backend and data retention policies.
+                    </div>
+
+                    <!-- Database Backend Selection -->
+                    <div
+                        style="border:1px solid var(--border);padding:12px;border-radius:4px;background:rgba(0,75,86,0.1);">
+                        <div style="color:var(--highlight);margin-bottom:8px;font-weight:bold;">Database Backend
+                        </div>
+                        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                            <span style="min-width:200px;">Database Type:</span>
+                            <select id="db_backend_type" style="width:220px;">
+                                <option value="sqlite" selected>SQLite (Local File)</option>
+                                <option value="postgresql">PostgreSQL (Remote)</option>
+                                <option value="mysql">MySQL (Remote)</option>
+                                <option value="mssql">MS SQL Server (Remote)</option>
+                                <option value="mongodb">MongoDB (Remote)</option>
+                            </select>
+                        </label>
+
+                        <!-- SQLite-specific fields (default visible) -->
+                        <div id="db_sqlite_fields" style="margin-left:12px;display:flex;flex-direction:column;gap:8px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Database file path:</span>
+                                <input id="sqlite_db_path" type="text" style="width:320px;" value="printmaster.db"
+                                    readonly />
+                                <span style="color:var(--muted);font-size:12px;">Local SQLite database</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="sqlite_wal_mode" checked disabled />
+                                <span>WAL mode (Write-Ahead Logging)</span>
+                                <span style="color:var(--muted);font-size:12px;">Better concurrency for local
+                                    DB</span>
+                            </label>
+                        </div>
+
+                        <!-- PostgreSQL fields (hidden by default) -->
+                        <div id="db_postgresql_fields"
+                            style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Host:</span>
+                                <input id="pg_host" type="text" style="width:220px;" placeholder="localhost" />
+                                <span style="min-width:60px;">Port:</span>
+                                <input id="pg_port" type="number" style="width:100px;" placeholder="5432"
+                                    value="5432" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Database name:</span>
+                                <input id="pg_database" type="text" style="width:220px;" placeholder="printmaster" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Username:</span>
+                                <input id="pg_username" type="text" style="width:220px;" placeholder="postgres" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Password:</span>
+                                <input id="pg_password" type="password" style="width:220px;" placeholder="••••••••" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="pg_ssl_mode" />
+                                <span>Enable SSL/TLS connection</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Secure remote
+                                    connection</span>
+                            </label>
+                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
+                                ⚠️ Requires PostgreSQL driver and application restart
+                            </div>
+                        </div>
+
+                        <!-- MySQL fields (hidden by default) -->
+                        <div id="db_mysql_fields" style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Host:</span>
+                                <input id="mysql_host" type="text" style="width:220px;" placeholder="localhost" />
+                                <span style="min-width:60px;">Port:</span>
+                                <input id="mysql_port" type="number" style="width:100px;" placeholder="3306"
+                                    value="3306" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Database name:</span>
+                                <input id="mysql_database" type="text" style="width:220px;" placeholder="printmaster" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Username:</span>
+                                <input id="mysql_username" type="text" style="width:220px;" placeholder="root" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Password:</span>
+                                <input id="mysql_password" type="password" style="width:220px;"
+                                    placeholder="••••••••" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="mysql_ssl_mode" />
+                                <span>Enable SSL/TLS connection</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Secure remote
+                                    connection</span>
+                            </label>
+                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
+                                ⚠️ Requires MySQL driver and application restart
+                            </div>
+                        </div>
+
+                        <!-- MS SQL fields (hidden by default) -->
+                        <div id="db_mssql_fields" style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Server:</span>
+                                <input id="mssql_server" type="text" style="width:220px;" placeholder="localhost" />
+                                <span style="min-width:60px;">Port:</span>
+                                <input id="mssql_port" type="number" style="width:100px;" placeholder="1433"
+                                    value="1433" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Database name:</span>
+                                <input id="mssql_database" type="text" style="width:220px;" placeholder="printmaster" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Username:</span>
+                                <input id="mssql_username" type="text" style="width:220px;" placeholder="sa" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Password:</span>
+                                <input id="mssql_password" type="password" style="width:220px;"
+                                    placeholder="••••••••" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="mssql_encrypt" />
+                                <span>Encrypt connection</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Force encrypted
+                                    connection</span>
+                            </label>
+                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
+                                ⚠️ Requires SQL Server driver and application restart
+                            </div>
+                        </div>
+
+                        <!-- MongoDB fields (hidden by default) -->
+                        <div id="db_mongodb_fields"
+                            style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Connection String:</span>
+                                <input id="mongodb_uri" type="text" style="width:420px;"
+                                    placeholder="mongodb://localhost:27017/printmaster" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Database name:</span>
+                                <input id="mongodb_database" type="text" style="width:220px;"
+                                    placeholder="printmaster" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Username (optional):</span>
+                                <input id="mongodb_username" type="text" style="width:220px;" placeholder="admin" />
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:188px;">Password (optional):</span>
+                                <input id="mongodb_password" type="password" style="width:220px;"
+                                    placeholder="••••••••" />
+                            </label>
+                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
+                                ⚠️ Requires MongoDB driver and application restart. NoSQL schema - different query
+                                patterns.
+                            </div>
+                        </div>
+                    </div>
+
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="auto_backup_enabled" />
+                        <span>Enable automatic database backups</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Daily backup of database</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Backup retention (days):</span>
+                        <input id="backup_retention_days" type="number" style="width:120px" min="1" max="365"
+                            value="30" />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Keep backups for N days
+                            (1-365)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Metrics history retention:</span>
+                        <input id="metrics_retention_days" type="number" style="width:120px" min="7" max="1825"
+                            value="365" />
+                        <span style="color:var(--muted);font-size:12px;">Keep metrics for N days (7-1825)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="compress_old_metrics" checked />
+                        <span>Compress old metrics data</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Reduce storage for historical
+                            data</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="auto_prune_stale" />
+                        <span>Auto-delete stale devices</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Remove devices not seen in N
+                            days</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Stale device threshold (days):</span>
+                        <input id="stale_device_days" type="number" style="width:120px" min="30" max="365" value="90" />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Mark as stale after N days
+                            offline</span>
+                    </label>
+
+                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Data
+                            Management
+                            (For Advanced Users)</summary>
+                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">Database vacuum schedule:</span>
+                                <select id="db_vacuum_schedule" style="width:180px;">
+                                    <option value="never">Never</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly" selected>Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                </select>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Optimize database file size
+                                    (SQLite
+                                    only)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="export_metrics_csv" />
+                                <span>Auto-export metrics to CSV</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Daily CSV export for external
+                                    analysis</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <span style="min-width:200px;">CSV export path:</span>
+                                <input id="csv_export_path" type="text" style="width:320px" placeholder="exports/" />
+                                <span style="color:var(--muted);font-size:12px;">TODO: Directory for CSV
+                                    files</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="anonymize_exports" />
+                                <span>Anonymize exported data</span>
+                                <span style="color:var(--muted);font-size:12px;">TODO: Hash IPs/serials in
+                                    exports</span>
+                            </label>
+
+                            <!-- Clear Database - SQLite Only -->
+                            <div id="clear_db_section"
+                                style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+                                <div style="color:var(--highlight);margin-bottom:8px;font-weight:bold;">⚠️ Dangerous
+                                    Operations (SQLite Only)</div>
+                                <div style="color:var(--muted);font-size:13px;margin-bottom:8px;">
+                                    <strong style="color:var(--text);">Clear Database</strong> - Backs up the
+                                    current SQLite
+                                    database and starts fresh. All devices, metrics, and history will be saved to a
+                                    backup
+                                    file (printmaster.db.backup_TIMESTAMP).
+                                </div>
+                                <button id="clear_database_btn" class="delete" style="padding:8px 16px;">
+                                    🗑️ Clear Database (Backup & Reset)
+                                </button>
+                                <div style="color:var(--muted);font-size:11px;margin-top:6px;">
+                                    This operation only works with SQLite backend. Remote databases require manual
+                                    cleanup.
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div> <!-- UI Preferences -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight)">UI Preferences</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Customize the web interface appearance and behavior.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Theme:</span>
+                        <select id="ui_theme" style="width:180px;">
+                            <option value="dark" selected>Dark (Solarized)</option>
+                            <option value="light">Light</option>
+                            <option value="auto">Auto (System)</option>
+                        </select>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Color scheme preference</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Default tab on load:</span>
+                        <select id="default_tab" style="width:180px;">
+                            <option value="devices" selected>Devices</option>
+                            <option value="discovery">Discovery</option>
+                            <option value="settings">Settings</option>
+                            <option value="logs">Logs</option>
+                        </select>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Which tab to show first</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Devices per page:</span>
+                        <input id="devices_per_page" type="number" style="width:120px" min="10" max="500" value="50" />
+                        <span style="color:var(--muted);font-size:12px;">TODO: Pagination size (10-500)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="auto_refresh_devices" checked />
+                        <span>Auto-refresh device list</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Poll for updates every N
+                            seconds</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <span style="min-width:200px;">Refresh interval (seconds):</span>
+                        <input id="refresh_interval" type="number" style="width:120px" min="5" max="300" value="30" />
+                        <span style="color:var(--muted);font-size:12px;">TODO: How often to update (5-300s)</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="dev_show_legacy" />
+                        <span>Show legacy main-page components</span>
+                        <span style="color:var(--muted);font-size:12px;">For backward compatibility</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="show_advanced_columns" />
+                        <span>Show advanced device columns</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: MAC, firmware, page counts,
+                            etc.</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_notifications" checked />
+                        <span>Enable browser notifications</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Alert on scan complete, errors,
+                            etc.</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Experimental Features -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight)">Experimental Features</h4>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
+                        Bleeding-edge features that may be unstable. Use with caution.
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_ml_predictions" />
+                        <span>Enable ML-based toner predictions</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Predict replacement dates</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_auto_grouping" />
+                        <span>Auto-group devices by location</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Parse location strings for
+                            hierarchies</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_anomaly_detection" />
+                        <span>Enable anomaly detection</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Alert on unusual metrics
+                            patterns</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_smart_scheduling" />
+                        <span>Smart scan scheduling</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Optimize scan times based on
+                            usage</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="enable_cloud_sync" />
+                        <span>Cloud sync (experimental)</span>
+                        <span style="color:var(--muted);font-size:12px;">TODO: Sync data across multiple
+                            agents</span>
+                    </label>
+                </div>
+            </div>
+        </div> <!-- End settings-grid -->
+    </div>
+
+    <div class="hidden" style="margin-top:12px;" data-tab="logs">
+        <h3>Scan Log</h3>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap;">
+            <label style="font-size:13px;color:var(--muted)"><input type="checkbox" id="pause_autoscroll" /> Pause
+                auto-scroll</label>
+            <select id="log_level_filter" style="padding:4px 8px;font-size:13px;">
+                <option value="">All Levels</option>
+                <option value="ERROR">ERROR</option>
+                <option value="WARN">WARN</option>
+                <option value="INFO">INFO</option>
+                <option value="DEBUG">DEBUG</option>
+                <option value="TRACE">TRACE</option>
+            </select>
+            <input type="text" id="log_search_filter" placeholder="Search logs..." 
+                style="padding:4px 8px;font-size:13px;width:150px;" />
+            <button id="copy_logs_btn">Copy Logs</button>
+            <button id="download_logs_btn">Download Log Package</button>
+            <button id="clear_log_btn">Clear Log</button>
+        </div>
+        <pre id="log"
+            style="max-height:360px; overflow:auto; background:#073642; color:var(--text); padding:10px; border-radius:6px; border:1px solid #002b36; font-family:monospace; white-space:pre-wrap;"></pre>
+    </div>
+
+    <!-- Candidate modal removed -->
+
+    <!-- Toast notification container -->
+    <div class="toast-container" id="toast_container"></div>
+
+    <script src="/static/app.js"></script>
+
+    </div> <!-- End content-container -->
+
+    <!-- Confirmation Modal - positioned outside content-container for proper viewport centering -->
+    <div id="confirm_modal" class="modal-overlay" style="display:none;">
+        <div class="modal-dialog">
+            <button class="modal-close-x" id="confirm_modal_close_x" title="Close">&times;</button>
+            <h3 id="confirm_modal_title" class="modal-title">Confirm Action</h3>
+            <p id="confirm_modal_message" class="modal-message"></p>
+            <div class="modal-buttons">
+                <button id="confirm_modal_cancel" class="modal-button modal-button-secondary">Cancel</button>
+                <button id="confirm_modal_confirm" class="modal-button modal-button-primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- WebUI Modal - positioned outside content-container for proper viewport centering -->
+    <div id="webui_modal" class="webui-modal">
+        <div class="webui-modal-content">
+            <button class="modal-close-x" id="webui_modal_close_x" title="Close">&times;</button>
+            <h3 class="webui-modal-title">Open Web Interface</h3>
+            <div class="webui-modal-buttons">
+                <button id="webui_proxy_btn" class="webui-modal-button">
+                    <div class="webui-modal-button-title">🔐 Proxy UI</div>
+                    <div class="webui-modal-button-desc">Access through PrintMaster proxy (recommended)</div>
+                </button>
+                <button id="webui_direct_btn" class="webui-modal-button">
+                    <div class="webui-modal-button-title">🌐 Direct UI</div>
+                    <div class="webui-modal-button-desc">Open printer's web interface directly</div>
+                </button>
+            </div>
+            <button class="webui-modal-close">Cancel</button>
+        </div>
+    </div>
+
+    <!-- Printer Details modal with overlay - positioned outside content-container for proper viewport centering -->
+    <div id="printer_details_overlay" class="modal-overlay" style="display:none;">
+        <div id="printer_details_modal" class="printer-details-dialog">
+            <button class="modal-close-x" id="printer_details_close_x" title="Close">&times;</button>
+            <h3 id="printer_details_title" style="margin-top:0;color:var(--highlight)">Printer Details</h3>
+            <div id="printer_details_body"
+                style="overflow-x:hidden;overflow-y:auto;font-family:system-ui;color:var(--text);word-wrap:break-word;flex:1">
+            </div>
+            <div id="printer_details_actions" style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0">
+                <button>Close</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+
+</html>

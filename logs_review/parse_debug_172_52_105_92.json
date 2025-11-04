@@ -1,0 +1,43 @@
+{
+  "ip": "172.52.105.92",
+  "timestamp": "2025-11-03T06:43:29-05:00",
+  "raw_pdus": [
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.17.1",
+      "type": "Null",
+      "str_value": "\u003cnil\u003e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.4.1.1",
+      "type": "Null",
+      "str_value": "\u003cnil\u003e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1",
+      "type": "Null",
+      "str_value": "\u003cnil\u003e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1",
+      "type": "Null",
+      "str_value": "\u003cnil\u003e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.4.1",
+      "type": "Null",
+      "str_value": "\u003cnil\u003e"
+    }
+  ],
+  "steps": [
+    "ParsePDUs:start",
+    "initial_guesses: mfgGuess=\"\" modelGuess=\"\" serialGuess=\"\"",
+    "collected_counts: marker_counts=0 supply_desc=0 supply_levels=0",
+    "ParsePDUs:finish"
+  ],
+  "manufacturer_hints": [],
+  "final_manufacturer": "",
+  "model": "",
+  "serial": "",
+  "is_printer": false,
+  "detection_reasons": []
+}

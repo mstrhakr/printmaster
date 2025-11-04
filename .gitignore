@@ -1,0 +1,105 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace file
+go.work
+
+# Build artifacts
+agent/printmaster-agent
+agent/printmaster-agent.exe
+server/printmaster-server
+server/printmaster-server.exe
+
+# Dependency directories (vendor is optional)
+vendor/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+agent/logs/
+server/logs/
+
+# Database files (runtime data, not schema)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Configuration files with secrets (keep examples)
+config.ini
+agent/config.ini
+server/config.ini
+# Keep the examples:
+!config.ini.example
+!agent/config.ini.example
+
+# OS-specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.Trashes
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build output
+dist/
+build/
+bin/
+
+# Windows service resources (generated)
+agent/rsrc_windows_*.syso
+
+# MIB walk files (optional - these can be large)
+agent/walks/
+*.walk
+
+# Archive files
+*.har
+
+# Python (for tools/scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Testing
+testdata/
+*_test_output/
+
+# Coverage
+*.coverprofile
+
+# Comments extraction (workspace-specific)
+all_comments.txt
+comments_legacy.txt
+agent/comments_list.txt

@@ -1,0 +1,1302 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	_ "modernc.org/sqlite" // Pure Go SQLite driver
+)
+
+// Logger interface for storage operations
+type Logger interface {
+	Error(msg string, context ...interface{})
+	Warn(msg string, context ...interface{})
+	Info(msg string, context ...interface{})
+	Debug(msg string, context ...interface{})
+	WarnRateLimited(key string, interval time.Duration, msg string, context ...interface{})
+}
+
+// Global logger for storage package
+var storageLogger Logger
+
+// SetLogger sets the logger for the storage package
+func SetLogger(logger Logger) {
+	storageLogger = logger
+}
+
+// SQLiteStore implements DeviceStore using SQLite
+type SQLiteStore struct {
+	db     *sql.DB
+	dbPath string // Store path for backup operations
+}
+
+// NewSQLiteStore creates a new SQLite-based device store
+// If dbPath is empty, uses in-memory database (:memory:)
+func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
+	if dbPath == "" {
+		dbPath = ":memory:"
+	}
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Enable foreign keys and set pragmas for better performance
+	pragmas := []string{
+		"PRAGMA foreign_keys = ON",
+		"PRAGMA journal_mode = WAL",
+		"PRAGMA synchronous = NORMAL",
+		"PRAGMA cache_size = -64000", // 64MB cache
+	}
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("failed to set pragma: %w", err)
+		}
+	}
+
+	store := &SQLiteStore{
+		db:     db,
+		dbPath: dbPath,
+	}
+
+	// Initialize schema
+	if err := store.initSchema(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+	}
+
+	// Run auto-migration
+	if err := store.autoMigrate(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to migrate schema: %w", err)
+	}
+
+	// Seed default metrics for devices without any
+	if err := store.seedDefaultMetrics(); err != nil {
+		storageLogger.Warn("Failed to seed default metrics", "error", err)
+		// Non-fatal, continue
+	}
+
+	return store, nil
+}
+
+// initSchema creates the database schema
+func (s *SQLiteStore) initSchema() error {
+	schema := `
+	CREATE TABLE IF NOT EXISTS devices (
+		serial TEXT PRIMARY KEY,
+		ip TEXT NOT NULL,
+		manufacturer TEXT,
+		model TEXT,
+		hostname TEXT,
+		firmware TEXT,
+		mac_address TEXT,
+		subnet_mask TEXT,
+		gateway TEXT,
+		dns_servers TEXT,
+		dhcp_server TEXT,
+		page_count INTEGER DEFAULT 0,
+		toner_levels TEXT,
+		consumables TEXT,
+		status_messages TEXT,
+		last_seen DATETIME NOT NULL,
+		created_at DATETIME NOT NULL,
+		first_seen DATETIME NOT NULL,
+		is_saved BOOLEAN DEFAULT 0,
+		visible BOOLEAN DEFAULT 1,
+		discovery_method TEXT,
+		walk_filename TEXT,
+		last_scan_id INTEGER,
+		raw_data TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_devices_is_saved ON devices(is_saved);
+	CREATE INDEX IF NOT EXISTS idx_devices_visible ON devices(visible);
+	CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip);
+	CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
+	CREATE INDEX IF NOT EXISTS idx_devices_manufacturer ON devices(manufacturer);
+
+	CREATE TABLE IF NOT EXISTS scan_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		serial TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		ip TEXT NOT NULL,
+		hostname TEXT,
+		firmware TEXT,
+		page_count INTEGER DEFAULT 0,
+		toner_levels TEXT,
+		consumables TEXT,
+		status_messages TEXT,
+		discovery_method TEXT,
+		walk_filename TEXT,
+		raw_data TEXT,
+		FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_scan_history_serial ON scan_history(serial);
+	CREATE INDEX IF NOT EXISTS idx_scan_history_created ON scan_history(created_at);
+
+	CREATE TABLE IF NOT EXISTS schema_version (
+		version INTEGER PRIMARY KEY,
+		applied_at DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS metrics_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		serial TEXT NOT NULL,
+		timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		page_count INTEGER DEFAULT 0,
+		color_pages INTEGER DEFAULT 0,
+		mono_pages INTEGER DEFAULT 0,
+		scan_count INTEGER DEFAULT 0,
+		toner_levels TEXT,
+		FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_metrics_serial ON metrics_history(serial);
+	CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics_history(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_metrics_serial_timestamp ON metrics_history(serial, timestamp);
+	`
+
+	_, err := s.db.Exec(schema)
+	if err != nil {
+		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Run migrations if needed
+	if err := s.runMigrations(); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
+}
+
+// runMigrations handles schema migrations for existing databases
+func (s *SQLiteStore) runMigrations() error {
+	// Check current version
+	var currentVersion int
+	err := s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&currentVersion)
+	if err != nil {
+		// Table might not exist yet, treat as version 0
+		currentVersion = 0
+	}
+
+	// Migration 1 -> 2: Add visible and first_seen columns
+	if currentVersion < 2 {
+		// Check if devices table exists
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// Add visible column if it doesn't exist
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN visible BOOLEAN DEFAULT 1`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add visible column: %w", err)
+			}
+
+			// Add first_seen column if it doesn't exist
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN first_seen DATETIME`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add first_seen column: %w", err)
+			}
+
+			// Populate first_seen with created_at for existing records
+			_, err = s.db.Exec(`UPDATE devices SET first_seen = created_at WHERE first_seen IS NULL`)
+			if err != nil {
+				return fmt.Errorf("failed to populate first_seen: %w", err)
+			}
+		}
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (2, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+	}
+
+	// Migration 2 -> 3: Add asset_number, location, and web_ui_url columns
+	if currentVersion < 3 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// Add asset_number column if it doesn't exist
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN asset_number TEXT`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add asset_number column: %w", err)
+			}
+
+			// Add location column if it doesn't exist
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN location TEXT`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add location column: %w", err)
+			}
+
+			// Add web_ui_url column if it doesn't exist
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN web_ui_url TEXT`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add web_ui_url column: %w", err)
+			}
+		}
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (3, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+	}
+
+	// Migration 3 -> 4: Add locked_fields column for field locking
+	if currentVersion < 4 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// Add locked_fields column (JSON) if it doesn't exist
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN locked_fields TEXT`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add locked_fields column: %w", err)
+			}
+		}
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (4, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+	}
+
+	// Migration 4 -> 5: Add detailed impression counter fields to metrics_history
+	if currentVersion < 5 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='metrics_history'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// Add new counter columns
+			columns := []string{
+				"fax_pages INTEGER DEFAULT 0",
+				"copy_pages INTEGER DEFAULT 0",
+				"other_pages INTEGER DEFAULT 0",
+				"copy_mono_pages INTEGER DEFAULT 0",
+				"copy_flatbed_scans INTEGER DEFAULT 0",
+				"copy_adf_scans INTEGER DEFAULT 0",
+				"fax_flatbed_scans INTEGER DEFAULT 0",
+				"fax_adf_scans INTEGER DEFAULT 0",
+				"scan_to_host_flatbed INTEGER DEFAULT 0",
+				"scan_to_host_adf INTEGER DEFAULT 0",
+				"duplex_sheets INTEGER DEFAULT 0",
+				"jam_events INTEGER DEFAULT 0",
+				"scanner_jam_events INTEGER DEFAULT 0",
+			}
+
+			for _, col := range columns {
+				_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE metrics_history ADD COLUMN %s`, col))
+				if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+					return fmt.Errorf("failed to add column %s: %w", col, err)
+				}
+			}
+		}
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (5, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+	}
+
+	// Migration 5 -> 6: Add description column to devices table
+	if currentVersion < 6 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// Add description column if it doesn't exist
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN description TEXT`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add description column: %w", err)
+			}
+		}
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (6, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+	}
+
+	// Migration 6 -> 7: Remove page_count and toner_levels from devices table
+	// These fields now live exclusively in metrics_history table
+	if currentVersion < 7 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// SQLite doesn't support DROP COLUMN directly, so we need to recreate the table
+			// First, check if columns exist
+			var hasPageCount, hasTonerLevels bool
+			rows, err := s.db.Query("PRAGMA table_info(devices)")
+			if err == nil {
+				defer rows.Close()
+				for rows.Next() {
+					var cid int
+					var name string
+					var ctype string
+					var notnull int
+					var dfltValue interface{}
+					var pk int
+					if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+						if name == "page_count" {
+							hasPageCount = true
+						}
+						if name == "toner_levels" {
+							hasTonerLevels = true
+						}
+					}
+				}
+			}
+
+			// Only migrate if columns exist
+			if hasPageCount || hasTonerLevels {
+				// Create new table without page_count and toner_levels
+				_, err = s.db.Exec(`
+					CREATE TABLE devices_new (
+						serial TEXT PRIMARY KEY,
+						ip TEXT NOT NULL,
+						manufacturer TEXT,
+						model TEXT,
+						hostname TEXT,
+						firmware TEXT,
+						mac_address TEXT,
+						subnet_mask TEXT,
+						gateway TEXT,
+						dns_servers TEXT,
+						dhcp_server TEXT,
+						consumables TEXT,
+						status_messages TEXT,
+						last_seen DATETIME NOT NULL,
+						created_at DATETIME NOT NULL,
+						first_seen DATETIME NOT NULL,
+						is_saved BOOLEAN DEFAULT 0,
+						visible BOOLEAN DEFAULT 1,
+						discovery_method TEXT,
+						walk_filename TEXT,
+						last_scan_id INTEGER,
+						asset_number TEXT,
+						location TEXT,
+						description TEXT,
+						web_ui_url TEXT,
+						locked_fields TEXT,
+						raw_data TEXT
+					)
+				`)
+				if err != nil {
+					return fmt.Errorf("failed to create devices_new table: %w", err)
+				}
+
+				// Copy data (excluding page_count and toner_levels)
+				_, err = s.db.Exec(`
+					INSERT INTO devices_new 
+					SELECT serial, ip, manufacturer, model, hostname, firmware, mac_address, subnet_mask, gateway, dns_servers, dhcp_server,
+					       consumables, status_messages, last_seen, created_at, first_seen, is_saved, visible, discovery_method, walk_filename,
+					       last_scan_id, asset_number, location, description, web_ui_url, locked_fields, raw_data
+					FROM devices
+				`)
+				if err != nil {
+					return fmt.Errorf("failed to copy data to devices_new: %w", err)
+				}
+
+				// Drop old table and rename new one
+				_, err = s.db.Exec(`DROP TABLE devices`)
+				if err != nil {
+					return fmt.Errorf("failed to drop old devices table: %w", err)
+				}
+
+				_, err = s.db.Exec(`ALTER TABLE devices_new RENAME TO devices`)
+				if err != nil {
+					return fmt.Errorf("failed to rename devices_new: %w", err)
+				}
+
+				// Recreate indexes
+				_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_is_saved ON devices(is_saved)`)
+				_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_visible ON devices(visible)`)
+				_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip)`)
+				_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen)`)
+				_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_manufacturer ON devices(manufacturer)`)
+			}
+		}
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (7, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Create adds a new device
+func (s *SQLiteStore) Create(ctx context.Context, device *Device) error {
+	if device.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	now := time.Now()
+	if device.CreatedAt.IsZero() {
+		device.CreatedAt = now
+	}
+	if device.FirstSeen.IsZero() {
+		device.FirstSeen = now
+	}
+	if device.LastSeen.IsZero() {
+		device.LastSeen = now
+	}
+
+	consumablesJSON, _ := json.Marshal(device.Consumables)
+	statusJSON, _ := json.Marshal(device.StatusMessages)
+	dnsJSON, _ := json.Marshal(device.DNSServers)
+	rawJSON, _ := json.Marshal(device.RawData)
+	lockedFieldsJSON, _ := json.Marshal(device.LockedFields)
+
+	query := `
+		INSERT INTO devices (
+			serial, ip, manufacturer, model, hostname, firmware,
+			mac_address, subnet_mask, gateway, dns_servers, dhcp_server,
+			consumables, status_messages,
+			last_seen, created_at, first_seen, is_saved, visible,
+			discovery_method, walk_filename, last_scan_id, raw_data,
+			asset_number, location, description, web_ui_url, locked_fields
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := s.db.ExecContext(ctx, query,
+		device.Serial, device.IP, device.Manufacturer, device.Model,
+		device.Hostname, device.Firmware, device.MACAddress, device.SubnetMask,
+		device.Gateway, string(dnsJSON), device.DHCPServer,
+		string(consumablesJSON), string(statusJSON),
+		device.LastSeen, device.CreatedAt, device.FirstSeen, device.IsSaved, device.Visible,
+		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
+		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
+	)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			if storageLogger != nil {
+				storageLogger.Debug("Device already exists", "serial", device.Serial, "ip", device.IP)
+			}
+			return ErrDuplicate
+		}
+		if storageLogger != nil {
+			storageLogger.Error("Failed to create device", "serial", device.Serial, "ip", device.IP, "error", err)
+		}
+		return fmt.Errorf("failed to create device: %w", err)
+	}
+
+	if storageLogger != nil {
+		storageLogger.Info("Device created", "serial", device.Serial, "ip", device.IP, "model", device.Model)
+	}
+
+	return nil
+}
+
+// Get retrieves a device by serial
+func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
+	if serial == "" {
+		return nil, ErrInvalidSerial
+	}
+
+	query := `
+		SELECT serial, ip, manufacturer, model, hostname, firmware,
+			   mac_address, subnet_mask, gateway, dns_servers, dhcp_server,
+			   consumables, status_messages,
+			   last_seen, created_at, first_seen, is_saved, visible,
+			   discovery_method, walk_filename, last_scan_id, raw_data,
+			   asset_number, location, description, web_ui_url, locked_fields
+		FROM devices WHERE serial = ?
+	`
+
+	device := &Device{}
+	var consumablesJSON, statusJSON, dnsJSON, rawJSON sql.NullString
+	var assetNumber, location, description, webUIURL, lockedFieldsJSON sql.NullString
+
+	err := s.db.QueryRowContext(ctx, query, serial).Scan(
+		&device.Serial, &device.IP, &device.Manufacturer, &device.Model,
+		&device.Hostname, &device.Firmware, &device.MACAddress, &device.SubnetMask,
+		&device.Gateway, &dnsJSON, &device.DHCPServer,
+		&consumablesJSON, &statusJSON,
+		&device.LastSeen, &device.CreatedAt, &device.FirstSeen, &device.IsSaved, &device.Visible,
+		&device.DiscoveryMethod, &device.WalkFilename, &device.LastScanID, &rawJSON,
+		&assetNumber, &location, &description, &webUIURL, &lockedFieldsJSON,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device: %w", err)
+	}
+
+	// Unmarshal JSON fields
+	if consumablesJSON.Valid && consumablesJSON.String != "" {
+		json.Unmarshal([]byte(consumablesJSON.String), &device.Consumables)
+	}
+	if statusJSON.Valid && statusJSON.String != "" {
+		json.Unmarshal([]byte(statusJSON.String), &device.StatusMessages)
+	}
+	if dnsJSON.Valid && dnsJSON.String != "" {
+		json.Unmarshal([]byte(dnsJSON.String), &device.DNSServers)
+	}
+	if rawJSON.Valid && rawJSON.String != "" {
+		json.Unmarshal([]byte(rawJSON.String), &device.RawData)
+	}
+	if assetNumber.Valid {
+		device.AssetNumber = assetNumber.String
+	}
+	if location.Valid {
+		device.Location = location.String
+	}
+	if description.Valid {
+		device.Description = description.String
+	}
+	if webUIURL.Valid {
+		device.WebUIURL = webUIURL.String
+	}
+	if lockedFieldsJSON.Valid && lockedFieldsJSON.String != "" {
+		json.Unmarshal([]byte(lockedFieldsJSON.String), &device.LockedFields)
+	}
+
+	return device, nil
+}
+
+// Update modifies an existing device
+func (s *SQLiteStore) Update(ctx context.Context, device *Device) error {
+	if device.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	device.LastSeen = time.Now()
+
+	consumablesJSON, _ := json.Marshal(device.Consumables)
+	statusJSON, _ := json.Marshal(device.StatusMessages)
+	dnsJSON, _ := json.Marshal(device.DNSServers)
+	rawJSON, _ := json.Marshal(device.RawData)
+	lockedFieldsJSON, _ := json.Marshal(device.LockedFields)
+
+	query := `
+		UPDATE devices SET
+			ip = ?, manufacturer = ?, model = ?, hostname = ?, firmware = ?,
+			mac_address = ?, subnet_mask = ?, gateway = ?, dns_servers = ?, dhcp_server = ?,
+			consumables = ?, status_messages = ?,
+			last_seen = ?, is_saved = ?, visible = ?,
+			discovery_method = ?, walk_filename = ?, last_scan_id = ?, raw_data = ?,
+			asset_number = ?, location = ?, description = ?, web_ui_url = ?, locked_fields = ?
+		WHERE serial = ?
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		device.IP, device.Manufacturer, device.Model, device.Hostname, device.Firmware,
+		device.MACAddress, device.SubnetMask, device.Gateway, string(dnsJSON), device.DHCPServer,
+		string(consumablesJSON), string(statusJSON),
+		device.LastSeen, device.IsSaved, device.Visible,
+		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
+		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON), device.Serial,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to update device: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// Upsert creates or updates a device
+func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
+	if device.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	// Try to get existing device to preserve important fields
+	existing, err := s.Get(ctx, device.Serial)
+	if err == nil {
+		// Device exists, preserve created_at, first_seen, is_saved status, and locked_fields
+		device.CreatedAt = existing.CreatedAt
+		device.FirstSeen = existing.FirstSeen
+		// IMPORTANT: Preserve is_saved - don't overwrite saved devices as unsaved
+		device.IsSaved = existing.IsSaved
+		// IMPORTANT: Preserve locked_fields - don't overwrite field locks
+		device.LockedFields = existing.LockedFields
+		return s.Update(ctx, device)
+	}
+
+	// Device doesn't exist, create new
+	now := time.Now()
+	if device.CreatedAt.IsZero() {
+		device.CreatedAt = now
+	}
+	if device.FirstSeen.IsZero() {
+		device.FirstSeen = now
+	}
+	return s.Create(ctx, device)
+}
+
+// Delete removes a device by serial
+func (s *SQLiteStore) Delete(ctx context.Context, serial string) error {
+	if serial == "" {
+		return ErrInvalidSerial
+	}
+
+	result, err := s.db.ExecContext(ctx, "DELETE FROM devices WHERE serial = ?", serial)
+	if err != nil {
+		return fmt.Errorf("failed to delete device: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// List returns devices matching the filter
+func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device, error) {
+	query := `
+		SELECT serial, ip, manufacturer, model, hostname, firmware,
+			   mac_address, subnet_mask, gateway, dns_servers, dhcp_server,
+			   consumables, status_messages,
+			   last_seen, created_at, first_seen, is_saved, visible,
+			   discovery_method, walk_filename, last_scan_id, raw_data,
+			   asset_number, location, description, web_ui_url, locked_fields
+		FROM devices WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if filter.IsSaved != nil {
+		query += " AND is_saved = ?"
+		args = append(args, *filter.IsSaved)
+	}
+	if filter.Visible != nil {
+		query += " AND visible = ?"
+		args = append(args, *filter.Visible)
+	}
+	if filter.IP != "" {
+		query += " AND ip = ?"
+		args = append(args, filter.IP)
+	}
+	if filter.Serial != "" {
+		query += " AND serial = ?"
+		args = append(args, filter.Serial)
+	}
+	if filter.Manufacturer != "" {
+		query += " AND manufacturer LIKE ?"
+		args = append(args, "%"+filter.Manufacturer+"%")
+	}
+	if filter.LastSeenAfter != nil {
+		query += " AND last_seen > ?"
+		args = append(args, *filter.LastSeenAfter)
+	}
+
+	query += " ORDER BY last_seen DESC"
+
+	if filter.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list devices: %w", err)
+	}
+	defer rows.Close()
+
+	devices := []*Device{}
+	for rows.Next() {
+		device := &Device{}
+		var consumablesJSON, statusJSON, dnsJSON, rawJSON sql.NullString
+		var assetNumber, location, description, webUIURL, lockedFieldsJSON sql.NullString
+
+		err := rows.Scan(
+			&device.Serial, &device.IP, &device.Manufacturer, &device.Model,
+			&device.Hostname, &device.Firmware, &device.MACAddress, &device.SubnetMask,
+			&device.Gateway, &dnsJSON, &device.DHCPServer,
+			&consumablesJSON, &statusJSON,
+			&device.LastSeen, &device.CreatedAt, &device.FirstSeen, &device.IsSaved, &device.Visible,
+			&device.DiscoveryMethod, &device.WalkFilename, &device.LastScanID, &rawJSON,
+			&assetNumber, &location, &description, &webUIURL, &lockedFieldsJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan device: %w", err)
+		}
+
+		// Unmarshal JSON fields
+		if consumablesJSON.Valid && consumablesJSON.String != "" {
+			json.Unmarshal([]byte(consumablesJSON.String), &device.Consumables)
+		}
+		if statusJSON.Valid && statusJSON.String != "" {
+			json.Unmarshal([]byte(statusJSON.String), &device.StatusMessages)
+		}
+		if dnsJSON.Valid && dnsJSON.String != "" {
+			json.Unmarshal([]byte(dnsJSON.String), &device.DNSServers)
+		}
+		if rawJSON.Valid && rawJSON.String != "" {
+			json.Unmarshal([]byte(rawJSON.String), &device.RawData)
+		}
+		if assetNumber.Valid {
+			device.AssetNumber = assetNumber.String
+		}
+		if location.Valid {
+			device.Location = location.String
+		}
+		if description.Valid {
+			device.Description = description.String
+		}
+		if webUIURL.Valid {
+			device.WebUIURL = webUIURL.String
+		}
+		if lockedFieldsJSON.Valid && lockedFieldsJSON.String != "" {
+			json.Unmarshal([]byte(lockedFieldsJSON.String), &device.LockedFields)
+		}
+
+		devices = append(devices, device)
+	}
+
+	return devices, rows.Err()
+}
+
+// MarkSaved sets is_saved=true for a device
+func (s *SQLiteStore) MarkSaved(ctx context.Context, serial string) error {
+	if serial == "" {
+		return ErrInvalidSerial
+	}
+
+	result, err := s.db.ExecContext(ctx, "UPDATE devices SET is_saved = 1, last_seen = ? WHERE serial = ?", time.Now(), serial)
+	if err != nil {
+		return fmt.Errorf("failed to mark device as saved: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// MarkAllSaved sets is_saved=true for all visible, unsaved devices
+func (s *SQLiteStore) MarkAllSaved(ctx context.Context) (int, error) {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE devices SET is_saved = 1, last_seen = ? WHERE is_saved = 0 AND visible = 1",
+		time.Now())
+	if err != nil {
+		return 0, fmt.Errorf("failed to mark all devices as saved: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
+// MarkDiscovered sets is_saved=false for a device
+func (s *SQLiteStore) MarkDiscovered(ctx context.Context, serial string) error {
+	if serial == "" {
+		return ErrInvalidSerial
+	}
+
+	result, err := s.db.ExecContext(ctx, "UPDATE devices SET is_saved = 0, last_seen = ? WHERE serial = ?", time.Now(), serial)
+	if err != nil {
+		return fmt.Errorf("failed to mark device as discovered: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+// DeleteAll removes all devices matching the filter
+func (s *SQLiteStore) DeleteAll(ctx context.Context, filter DeviceFilter) (int, error) {
+	query := "DELETE FROM devices WHERE 1=1"
+	args := []interface{}{}
+
+	if filter.IsSaved != nil {
+		query += " AND is_saved = ?"
+		args = append(args, *filter.IsSaved)
+	}
+	if filter.IP != "" {
+		query += " AND ip = ?"
+		args = append(args, filter.IP)
+	}
+	if filter.Manufacturer != "" {
+		query += " AND manufacturer LIKE ?"
+		args = append(args, "%"+filter.Manufacturer+"%")
+	}
+
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete devices: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
+// Stats returns storage statistics
+func (s *SQLiteStore) Stats(ctx context.Context) (map[string]interface{}, error) {
+	stats := make(map[string]interface{})
+
+	var total, saved, discovered, visible, hidden, totalScans int
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM devices").Scan(&total)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM devices WHERE is_saved = 1").Scan(&saved)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM devices WHERE is_saved = 0").Scan(&discovered)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM devices WHERE visible = 1").Scan(&visible)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM devices WHERE visible = 0").Scan(&hidden)
+	s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM scan_history").Scan(&totalScans)
+
+	stats["total_devices"] = total
+	stats["saved_devices"] = saved
+	stats["discovered_devices"] = discovered
+	stats["visible_devices"] = visible
+	stats["hidden_devices"] = hidden
+	stats["total_scans"] = totalScans
+
+	return stats, nil
+}
+
+// Close closes the database connection
+func (s *SQLiteStore) Close() error {
+	if s.db != nil {
+		return s.db.Close()
+	}
+	return nil
+}
+
+// AddScanHistory records a new scan snapshot for a device
+func (s *SQLiteStore) AddScanHistory(ctx context.Context, scan *ScanSnapshot) error {
+	if scan.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	// Marshal complex fields to JSON
+	tonerJSON, _ := json.Marshal(scan.TonerLevels)
+	consumablesJSON, _ := json.Marshal(scan.Consumables)
+	statusJSON, _ := json.Marshal(scan.StatusMessages)
+
+	query := `
+		INSERT INTO scan_history (
+			serial, created_at, ip, hostname, firmware, 
+			page_count, toner_levels, consumables, status_messages,
+			discovery_method, walk_filename, raw_data
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		scan.Serial,
+		scan.CreatedAt,
+		scan.IP,
+		scan.Hostname,
+		scan.Firmware,
+		scan.PageCount,
+		tonerJSON,
+		consumablesJSON,
+		statusJSON,
+		scan.DiscoveryMethod,
+		scan.WalkFilename,
+		scan.RawData,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to add scan history: %w", err)
+	}
+
+	// Update device's last_scan_id
+	lastInsertID, _ := result.LastInsertId()
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE devices SET last_scan_id = ? WHERE serial = ?",
+		lastInsertID, scan.Serial)
+
+	return err
+}
+
+// GetScanHistory returns the last N scan snapshots for a device, newest first
+func (s *SQLiteStore) GetScanHistory(ctx context.Context, serial string, limit int) ([]*ScanSnapshot, error) {
+	if serial == "" {
+		return nil, ErrInvalidSerial
+	}
+	if limit <= 0 {
+		limit = 10 // Default limit
+	}
+
+	query := `
+		SELECT id, serial, created_at, ip, hostname, firmware,
+		       page_count, toner_levels, consumables, status_messages,
+		       discovery_method, walk_filename, raw_data
+		FROM scan_history
+		WHERE serial = ?
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, serial, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query scan history: %w", err)
+	}
+	defer rows.Close()
+
+	var scans []*ScanSnapshot
+	for rows.Next() {
+		scan := &ScanSnapshot{}
+		var tonerJSON, consumablesJSON, statusJSON, rawDataJSON sql.NullString
+
+		err := rows.Scan(
+			&scan.ID,
+			&scan.Serial,
+			&scan.CreatedAt,
+			&scan.IP,
+			&scan.Hostname,
+			&scan.Firmware,
+			&scan.PageCount,
+			&tonerJSON,
+			&consumablesJSON,
+			&statusJSON,
+			&scan.DiscoveryMethod,
+			&scan.WalkFilename,
+			&rawDataJSON,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		// Unmarshal JSON fields
+		if tonerJSON.Valid {
+			json.Unmarshal([]byte(tonerJSON.String), &scan.TonerLevels)
+		}
+		if consumablesJSON.Valid {
+			json.Unmarshal([]byte(consumablesJSON.String), &scan.Consumables)
+		}
+		if statusJSON.Valid {
+			json.Unmarshal([]byte(statusJSON.String), &scan.StatusMessages)
+		}
+		if rawDataJSON.Valid {
+			scan.RawData = json.RawMessage(rawDataJSON.String)
+		}
+
+		scans = append(scans, scan)
+	}
+
+	return scans, rows.Err()
+}
+
+// GetScanAtTime returns the scan snapshot closest to the given timestamp
+func (s *SQLiteStore) GetScanAtTime(ctx context.Context, serial string, timestamp int64) (*ScanSnapshot, error) {
+	if serial == "" {
+		return nil, ErrInvalidSerial
+	}
+
+	targetTime := time.Unix(timestamp, 0)
+
+	query := `
+		SELECT id, serial, created_at, ip, hostname, firmware,
+		       page_count, toner_levels, consumables, status_messages,
+		       discovery_method, walk_filename, raw_data
+		FROM scan_history
+		WHERE serial = ?
+		ORDER BY ABS(strftime('%s', created_at) - ?) ASC
+		LIMIT 1
+	`
+
+	scan := &ScanSnapshot{}
+	var tonerJSON, consumablesJSON, statusJSON, rawDataJSON sql.NullString
+
+	err := s.db.QueryRowContext(ctx, query, serial, timestamp).Scan(
+		&scan.ID,
+		&scan.Serial,
+		&scan.CreatedAt,
+		&scan.IP,
+		&scan.Hostname,
+		&scan.Firmware,
+		&scan.PageCount,
+		&tonerJSON,
+		&consumablesJSON,
+		&statusJSON,
+		&scan.DiscoveryMethod,
+		&scan.WalkFilename,
+		&rawDataJSON,
+	)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get scan at time %v: %w", targetTime, err)
+	}
+
+	// Unmarshal JSON fields
+	if tonerJSON.Valid {
+		json.Unmarshal([]byte(tonerJSON.String), &scan.TonerLevels)
+	}
+	if consumablesJSON.Valid {
+		json.Unmarshal([]byte(consumablesJSON.String), &scan.Consumables)
+	}
+	if statusJSON.Valid {
+		json.Unmarshal([]byte(statusJSON.String), &scan.StatusMessages)
+	}
+	if rawDataJSON.Valid {
+		scan.RawData = json.RawMessage(rawDataJSON.String)
+	}
+
+	return scan, nil
+}
+
+// DeleteOldScans removes scan history older than the given timestamp
+func (s *SQLiteStore) DeleteOldScans(ctx context.Context, olderThan int64) (int, error) {
+	cutoffTime := time.Unix(olderThan, 0)
+
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM scan_history WHERE created_at < ?",
+		cutoffTime)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete old scans: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
+// HideDiscovered sets visible=false for all devices where is_saved=false
+func (s *SQLiteStore) HideDiscovered(ctx context.Context) (int, error) {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE devices SET visible = 0 WHERE is_saved = 0")
+	if err != nil {
+		return 0, fmt.Errorf("failed to hide discovered devices: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
+// ShowAll sets visible=true for all devices
+func (s *SQLiteStore) ShowAll(ctx context.Context) (int, error) {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE devices SET visible = 1")
+	if err != nil {
+		return 0, fmt.Errorf("failed to show all devices: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
+// MetricsSnapshot represents a point-in-time snapshot of device metrics
+type MetricsSnapshot struct {
+	ID          int64                  `json:"id"`
+	Serial      string                 `json:"serial"`
+	Timestamp   time.Time              `json:"timestamp"`
+	PageCount   int                    `json:"page_count"`
+	ColorPages  int                    `json:"color_pages"`
+	MonoPages   int                    `json:"mono_pages"`
+	ScanCount   int                    `json:"scan_count"`
+	TonerLevels map[string]interface{} `json:"toner_levels"`
+
+	// HP-specific detailed impression counters
+	FaxPages          int `json:"fax_pages"`
+	CopyPages         int `json:"copy_pages"`
+	OtherPages        int `json:"other_pages"`
+	CopyMonoPages     int `json:"copy_mono_pages"`
+	CopyFlatbedScans  int `json:"copy_flatbed_scans"`
+	CopyADFScans      int `json:"copy_adf_scans"`
+	FaxFlatbedScans   int `json:"fax_flatbed_scans"`
+	FaxADFScans       int `json:"fax_adf_scans"`
+	ScanToHostFlatbed int `json:"scan_to_host_flatbed"`
+	ScanToHostADF     int `json:"scan_to_host_adf"`
+	DuplexSheets      int `json:"duplex_sheets"`
+	JamEvents         int `json:"jam_events"`
+	ScannerJamEvents  int `json:"scanner_jam_events"`
+}
+
+// SaveMetricsSnapshot stores a metrics snapshot for a device
+func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *MetricsSnapshot) error {
+	if snapshot.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	if snapshot.Timestamp.IsZero() {
+		snapshot.Timestamp = time.Now()
+	}
+
+	tonerJSON, _ := json.Marshal(snapshot.TonerLevels)
+
+	query := `
+		INSERT INTO metrics_history (
+			serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels,
+			fax_pages, copy_pages, other_pages, copy_mono_pages, copy_flatbed_scans, copy_adf_scans,
+			fax_flatbed_scans, fax_adf_scans, scan_to_host_flatbed, scan_to_host_adf,
+			duplex_sheets, jam_events, scanner_jam_events
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	result, err := s.db.ExecContext(ctx, query,
+		snapshot.Serial, snapshot.Timestamp, snapshot.PageCount,
+		snapshot.ColorPages, snapshot.MonoPages, snapshot.ScanCount,
+		string(tonerJSON),
+		snapshot.FaxPages, snapshot.CopyPages, snapshot.OtherPages, snapshot.CopyMonoPages,
+		snapshot.CopyFlatbedScans, snapshot.CopyADFScans, snapshot.FaxFlatbedScans, snapshot.FaxADFScans,
+		snapshot.ScanToHostFlatbed, snapshot.ScanToHostADF, snapshot.DuplexSheets,
+		snapshot.JamEvents, snapshot.ScannerJamEvents,
+	)
+
+	if err != nil {
+		if storageLogger != nil {
+			if strings.Contains(err.Error(), "FOREIGN KEY constraint failed") {
+				storageLogger.WarnRateLimited("metrics_fk_"+snapshot.Serial, 1*time.Minute,
+					"Metrics save failed: device not found", "serial", snapshot.Serial)
+			} else {
+				storageLogger.Error("Failed to save metrics snapshot", "serial", snapshot.Serial, "error", err)
+			}
+		}
+		return fmt.Errorf("failed to save metrics snapshot: %w", err)
+	}
+
+	id, _ := result.LastInsertId()
+	snapshot.ID = id
+
+	if storageLogger != nil {
+		storageLogger.Debug("Metrics snapshot saved", "serial", snapshot.Serial, "timestamp", snapshot.Timestamp)
+	}
+
+	return nil
+}
+
+// GetMetricsHistory retrieves metrics history for a device within a time range
+func (s *SQLiteStore) GetMetricsHistory(ctx context.Context, serial string, since time.Time, until time.Time) ([]*MetricsSnapshot, error) {
+	if serial == "" {
+		return nil, ErrInvalidSerial
+	}
+
+	// NOTE: We intentionally avoid time filtering in SQL because the stored timestamp
+	// format may include timezone names and monotonic clock info that SQLite's time
+	// functions cannot parse reliably. Instead, we fetch all snapshots for the serial
+	// and filter in Go using time.Time comparisons.
+	query := `
+		SELECT id, serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels,
+		       fax_pages, copy_pages, other_pages, copy_mono_pages, copy_flatbed_scans, copy_adf_scans,
+		       fax_flatbed_scans, fax_adf_scans, scan_to_host_flatbed, scan_to_host_adf,
+		       duplex_sheets, jam_events, scanner_jam_events
+		FROM metrics_history
+		WHERE serial = ?
+		ORDER BY timestamp ASC
+	`
+
+	rows, err := s.db.QueryContext(ctx, query, serial)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics history: %w", err)
+	}
+	defer rows.Close()
+
+	var snapshots []*MetricsSnapshot
+	for rows.Next() {
+		snapshot := &MetricsSnapshot{}
+		var tonerJSON sql.NullString
+
+		err := rows.Scan(
+			&snapshot.ID, &snapshot.Serial, &snapshot.Timestamp,
+			&snapshot.PageCount, &snapshot.ColorPages, &snapshot.MonoPages,
+			&snapshot.ScanCount, &tonerJSON,
+			&snapshot.FaxPages, &snapshot.CopyPages, &snapshot.OtherPages, &snapshot.CopyMonoPages,
+			&snapshot.CopyFlatbedScans, &snapshot.CopyADFScans, &snapshot.FaxFlatbedScans, &snapshot.FaxADFScans,
+			&snapshot.ScanToHostFlatbed, &snapshot.ScanToHostADF, &snapshot.DuplexSheets,
+			&snapshot.JamEvents, &snapshot.ScannerJamEvents,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan metrics row: %w", err)
+		}
+
+		if tonerJSON.Valid {
+			json.Unmarshal([]byte(tonerJSON.String), &snapshot.TonerLevels)
+		}
+
+		// Filter by requested time range (inclusive)
+		// Strip monotonic clock component for reliable comparison
+		ts := snapshot.Timestamp.Round(0)
+		sinceRound := since.Round(0)
+		untilRound := until.Round(0)
+
+		if !ts.Before(sinceRound) && !ts.After(untilRound) {
+			snapshots = append(snapshots, snapshot)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating metrics rows: %w", err)
+	}
+
+	return snapshots, nil
+}
+
+// GetLatestMetrics retrieves the most recent metrics snapshot for a device
+func (s *SQLiteStore) GetLatestMetrics(ctx context.Context, serial string) (*MetricsSnapshot, error) {
+	if serial == "" {
+		return nil, ErrInvalidSerial
+	}
+
+	query := `
+		SELECT id, serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
+		FROM metrics_history
+		WHERE serial = ?
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`
+
+	snapshot := &MetricsSnapshot{}
+	var tonerJSON sql.NullString
+
+	err := s.db.QueryRowContext(ctx, query, serial).Scan(
+		&snapshot.ID, &snapshot.Serial, &snapshot.Timestamp,
+		&snapshot.PageCount, &snapshot.ColorPages, &snapshot.MonoPages,
+		&snapshot.ScanCount, &tonerJSON,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get latest metrics: %w", err)
+	}
+
+	if tonerJSON.Valid {
+		json.Unmarshal([]byte(tonerJSON.String), &snapshot.TonerLevels)
+	}
+
+	return snapshot, nil
+}
+
+// DeleteOldMetrics removes metrics history older than the given timestamp
+func (s *SQLiteStore) DeleteOldMetrics(ctx context.Context, olderThan time.Time) (int, error) {
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM metrics_history WHERE timestamp < ?",
+		olderThan)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete old metrics: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
+// DeleteOldHiddenDevices removes devices that are hidden and older than timestamp
+func (s *SQLiteStore) DeleteOldHiddenDevices(ctx context.Context, olderThan int64) (int, error) {
+	cutoffTime := time.Unix(olderThan, 0)
+
+	result, err := s.db.ExecContext(ctx,
+		"DELETE FROM devices WHERE visible = 0 AND last_seen < ?",
+		cutoffTime)
+	if err != nil {
+		return 0, fmt.Errorf("failed to delete old hidden devices: %w", err)
+	}
+
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}

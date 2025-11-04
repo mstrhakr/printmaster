@@ -1,0 +1,7652 @@
+{
+  "ip": "172.52.105.153",
+  "timestamp": "2025-11-03T05:58:49-05:00",
+  "raw_pdus": [
+    {
+      "oid": "1.3.6.1.2.1.1.1.0",
+      "type": "OctetString",
+      "str_value": "EPSON Built-in 10Base-T/100Base-TX/1000Base-T Print Server",
+      "hex_value": "4550534f4e204275696c742d696e203130426173652d542f313030426173652d54582f31303030426173652d54205072696e7420536572766572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.1.2.0",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.4.1.1248.1.1.2.1.3.5.69.69.80.83.50"
+    },
+    {
+      "oid": "1.3.6.1.2.1.1.3.0",
+      "type": "TimeTicks",
+      "str_value": "301809700"
+    },
+    {
+      "oid": "1.3.6.1.2.1.1.4.0",
+      "type": "OctetString",
+      "str_value": "Asset ID # 06006\r\nPrinter Source Plus\r\n517-817-0680\r\n2903 W Michigan Ave\r\nJackson, MI 49202",
+      "hex_value": "417373657420494420232030363030360d0a5072696e74657220536f7572636520506c75730d0a3531372d3831372d303638300d0a323930332057204d6963686967616e204176650d0a4a61636b736f6e2c204d49203439323032"
+    },
+    {
+      "oid": "1.3.6.1.2.1.1.5.0",
+      "type": "OctetString",
+      "str_value": "EPSON5C698E",
+      "hex_value": "4550534f4e354336393845"
+    },
+    {
+      "oid": "1.3.6.1.2.1.1.6.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.1.7.0",
+      "type": "Integer",
+      "str_value": "72"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.1.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.2.1",
+      "type": "OctetString",
+      "str_value": "EEPS2 Hard Ver.1.00 Firm Ver.0.77",
+      "hex_value": "45455053322048617264205665722e312e3030204669726d205665722e302e3737"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.3.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.4.1",
+      "type": "Integer",
+      "str_value": "1500"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.5.1",
+      "type": "Gauge32",
+      "str_value": "100000000"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.6.1",
+      "type": "OctetString",
+      "str_value": "PW\\i",
+      "hex_value": "50579c5c698e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.7.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.8.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.9.1",
+      "type": "TimeTicks",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.10.1",
+      "type": "Counter32",
+      "str_value": "3485725276"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.11.1",
+      "type": "Counter32",
+      "str_value": "140841041"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.12.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.13.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.14.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.15.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.16.1",
+      "type": "Counter32",
+      "str_value": "283679165"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.17.1",
+      "type": "Counter32",
+      "str_value": "2700801"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.18.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.19.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.20.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.21.1",
+      "type": "Gauge32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.2.2.1.22.1",
+      "type": "ObjectIdentifier",
+      "str_value": ".0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.1.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.2.0",
+      "type": "Integer",
+      "str_value": "64"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.3.0",
+      "type": "Counter32",
+      "str_value": "14864927"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.4.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.5.0",
+      "type": "Counter32",
+      "str_value": "254"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.6.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.7.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.8.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.9.0",
+      "type": "Counter32",
+      "str_value": "14863352"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.10.0",
+      "type": "Counter32",
+      "str_value": "2352860"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.11.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.12.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.13.0",
+      "type": "Integer",
+      "str_value": "60"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.14.0",
+      "type": "Counter32",
+      "str_value": "2596"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.15.0",
+      "type": "Counter32",
+      "str_value": "1283"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.16.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.17.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.18.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.19.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.20.1.1.172.52.105.153",
+      "type": "IPAddress",
+      "str_value": "172.52.105.153"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.20.1.2.172.52.105.153",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.20.1.3.172.52.105.153",
+      "type": "IPAddress",
+      "str_value": "255.255.255.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.20.1.4.172.52.105.153",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.20.1.5.172.52.105.153",
+      "type": "Integer",
+      "str_value": "65535"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.1.172.52.105.0",
+      "type": "IPAddress",
+      "str_value": "172.52.105.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.2.172.52.105.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.3.172.52.105.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.4.172.52.105.0",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.5.172.52.105.0",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.6.172.52.105.0",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.7.172.52.105.0",
+      "type": "IPAddress",
+      "str_value": "172.52.105.153"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.8.172.52.105.0",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.9.172.52.105.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.10.172.52.105.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.11.172.52.105.0",
+      "type": "IPAddress",
+      "str_value": "255.255.255.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.12.172.52.105.0",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.21.1.13.172.52.105.0",
+      "type": "ObjectIdentifier",
+      "str_value": ".0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.1.1.172.52.105.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.1.1.172.52.105.120",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.2.1.172.52.105.2",
+      "type": "OctetString",
+      "str_value": ")Æ",
+      "hex_value": "000c2996c695"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.2.1.172.52.105.120",
+      "type": "OctetString",
+      "str_value": "û¦(ù",
+      "hex_value": "90fba68328f9"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.3.1.172.52.105.2",
+      "type": "IPAddress",
+      "str_value": "172.52.105.2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.3.1.172.52.105.120",
+      "type": "IPAddress",
+      "str_value": "172.52.105.120"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.4.1.172.52.105.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.22.1.4.1.172.52.105.120",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.4.23.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.1.0",
+      "type": "Counter32",
+      "str_value": "2485"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.2.0",
+      "type": "Counter32",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.3.0",
+      "type": "Counter32",
+      "str_value": "1908"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.4.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.5.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.6.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.7.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.8.0",
+      "type": "Counter32",
+      "str_value": "577"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.9.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.10.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.11.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.12.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.13.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.14.0",
+      "type": "Counter32",
+      "str_value": "716"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.15.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.16.0",
+      "type": "Counter32",
+      "str_value": "141"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.17.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.18.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.19.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.20.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.21.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.22.0",
+      "type": "Counter32",
+      "str_value": "575"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.23.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.24.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.25.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.5.26.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.1.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.2.0",
+      "type": "Integer",
+      "str_value": "200"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.3.0",
+      "type": "Integer",
+      "str_value": "120000"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.4.0",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.5.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.6.0",
+      "type": "Counter32",
+      "str_value": "4473"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.7.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.8.0",
+      "type": "Counter32",
+      "str_value": "197"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.9.0",
+      "type": "Gauge32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.10.0",
+      "type": "Counter32",
+      "str_value": "48504"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.11.0",
+      "type": "Counter32",
+      "str_value": "53376"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.12.0",
+      "type": "Counter32",
+      "str_value": "134"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.1.0.0.0.0.80.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.1.0.0.0.0.443.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.1.0.0.0.0.515.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.1.0.0.0.0.631.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.1.0.0.0.0.9100.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.2.0.0.0.0.80.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.2.0.0.0.0.443.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.2.0.0.0.0.515.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.2.0.0.0.0.631.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.2.0.0.0.0.9100.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.3.0.0.0.0.80.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "80"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.3.0.0.0.0.443.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "443"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.3.0.0.0.0.515.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "515"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.3.0.0.0.0.631.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "631"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.3.0.0.0.0.9100.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "9100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.4.0.0.0.0.80.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.4.0.0.0.0.443.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.4.0.0.0.0.515.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.4.0.0.0.0.631.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.4.0.0.0.0.9100.0.0.0.0.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.5.0.0.0.0.80.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.5.0.0.0.0.443.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.5.0.0.0.0.515.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.5.0.0.0.0.631.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.13.1.5.0.0.0.0.9100.0.0.0.0.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.14.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.6.15.0",
+      "type": "Counter32",
+      "str_value": "17138"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.1.0",
+      "type": "Counter32",
+      "str_value": "10406912"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.2.0",
+      "type": "Counter32",
+      "str_value": "120"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.3.0",
+      "type": "Counter32",
+      "str_value": "986606"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.4.0",
+      "type": "Counter32",
+      "str_value": "2304119"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.1.0.0.0.0.161",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.1.0.0.0.0.427",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.1.0.0.0.0.3289",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.1.0.0.0.0.3702",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.1.0.0.0.0.5353",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.1.0.0.0.0.5355",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.1.0.0.0.0.34219",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.2.0.0.0.0.161",
+      "type": "Integer",
+      "str_value": "161"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.2.0.0.0.0.427",
+      "type": "Integer",
+      "str_value": "427"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.2.0.0.0.0.3289",
+      "type": "Integer",
+      "str_value": "3289"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.2.0.0.0.0.3702",
+      "type": "Integer",
+      "str_value": "3702"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.2.0.0.0.0.5353",
+      "type": "Integer",
+      "str_value": "5353"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.2.0.0.0.0.5355",
+      "type": "Integer",
+      "str_value": "5355"
+    },
+    {
+      "oid": "1.3.6.1.2.1.7.5.1.2.0.0.0.0.34219",
+      "type": "Integer",
+      "str_value": "34219"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.1.0",
+      "type": "Counter32",
+      "str_value": "2270813"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.2.0",
+      "type": "Counter32",
+      "str_value": "2270813"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.3.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.4.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.5.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.6.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.8.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.9.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.10.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.11.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.12.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.13.0",
+      "type": "Counter32",
+      "str_value": "2318596"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.14.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.15.0",
+      "type": "Counter32",
+      "str_value": "235545"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.16.0",
+      "type": "Counter32",
+      "str_value": "2035282"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.17.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.18.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.19.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.20.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.21.0",
+      "type": "Counter32",
+      "str_value": "26158"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.22.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.24.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.25.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.26.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.27.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.28.0",
+      "type": "Counter32",
+      "str_value": "2270837"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.29.0",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.11.30.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.1.1.0",
+      "type": "TimeTicks",
+      "str_value": "301809800"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.1.2.0",
+      "type": "OctetString",
+      "str_value": "é\n:.+",
+      "hex_value": "07e90b030a3a2e002b0000"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.1.3.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.1.4.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.1.5.0",
+      "type": "Gauge32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.1.6.0",
+      "type": "Gauge32",
+      "str_value": "92"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.1.7.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.2.0",
+      "type": "Integer",
+      "str_value": "3145728"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.3.1.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.3.1.2.1",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.2.1.25.2.1.2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.3.1.3.1",
+      "type": "OctetString",
+      "str_value": "Storage RAM",
+      "hex_value": "53746f726167652052414d"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.3.1.4.1",
+      "type": "Integer",
+      "str_value": "1024"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.3.1.5.1",
+      "type": "Integer",
+      "str_value": "3145728"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.3.1.6.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.2.3.1.7.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.2.1",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.2.1.25.3.1.5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.2.2",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.2.1.25.3.1.1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.3.1",
+      "type": "OctetString",
+      "str_value": "EPSON CW-C6500Au",
+      "hex_value": "4550534f4e2043572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.3.2",
+      "type": "OctetString",
+      "str_value": "EPSON CW-C6500Au",
+      "hex_value": "4550534f4e2043572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.4.1",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.4.1.1248.1.2.1.10.67.87.45.67.54.53.48.48.65.117"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.4.2",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.4.1.1248.1.8.1.10.67.87.45.67.54.53.48.48.65.117"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.5.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.5.2",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.6.1",
+      "type": "Counter32",
+      "str_value": "43"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.2.1.6.2",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.5.1.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.25.3.5.1.2.1",
+      "type": "OctetString",
+      "hex_value": "02"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.1.1",
+      "type": "Counter32",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.3.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.4.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.5.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.6.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.7.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.8.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.9.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.10.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.11.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.12.1",
+      "type": "Integer",
+      "str_value": "40"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.13.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.14.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.15.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.16.1",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.17.1",
+      "type": "OctetString",
+      "str_value": "X7F4008528",
+      "hex_value": "58374634303038353238"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.18.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.19.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.3.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.1",
+      "type": "OctetString",
+      "str_value": "Printer Cover",
+      "hex_value": "5072696e74657220436f766572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.2",
+      "type": "OctetString",
+      "str_value": "Roll paper cover",
+      "hex_value": "526f6c6c20706170657220636f766572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.3",
+      "type": "OctetString",
+      "str_value": "Maintenance box cover",
+      "hex_value": "4d61696e74656e616e636520626f7820636f766572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.4",
+      "type": "OctetString",
+      "str_value": "Ink Cartridge Cover Home",
+      "hex_value": "496e6b2043617274726964676520436f76657220486f6d65"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.5",
+      "type": "OctetString",
+      "str_value": "Ink Cartridge Cover Full",
+      "hex_value": "496e6b2043617274726964676520436f7665722046756c6c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.5",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.1",
+      "type": "OctetString",
+      "str_value": "en",
+      "hex_value": "656e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.2",
+      "type": "OctetString",
+      "str_value": "ja",
+      "hex_value": "6a61"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.3",
+      "type": "OctetString",
+      "str_value": "fr",
+      "hex_value": "6672"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.4",
+      "type": "OctetString",
+      "str_value": "it",
+      "hex_value": "6974"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.5",
+      "type": "OctetString",
+      "str_value": "de",
+      "hex_value": "6465"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.6",
+      "type": "OctetString",
+      "str_value": "es",
+      "hex_value": "6573"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.7",
+      "type": "OctetString",
+      "str_value": "pt",
+      "hex_value": "7074"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.8",
+      "type": "OctetString",
+      "str_value": "nl",
+      "hex_value": "6e6c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.9",
+      "type": "OctetString",
+      "str_value": "ru",
+      "hex_value": "7275"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.10",
+      "type": "OctetString",
+      "str_value": "ko",
+      "hex_value": "6b6f"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.11",
+      "type": "OctetString",
+      "str_value": "zh",
+      "hex_value": "7a68"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.12",
+      "type": "OctetString",
+      "str_value": "zh",
+      "hex_value": "7a68"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.13",
+      "type": "OctetString",
+      "str_value": "tr",
+      "hex_value": "7472"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.14",
+      "type": "OctetString",
+      "str_value": "el",
+      "hex_value": "656c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.15",
+      "type": "OctetString",
+      "str_value": "pl",
+      "hex_value": "706c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "US",
+      "hex_value": "5553"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.2",
+      "type": "OctetString",
+      "str_value": "JP",
+      "hex_value": "4a50"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.3",
+      "type": "OctetString",
+      "str_value": "CA",
+      "hex_value": "4341"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.4",
+      "type": "OctetString",
+      "str_value": "IT",
+      "hex_value": "4954"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.5",
+      "type": "OctetString",
+      "str_value": "DE",
+      "hex_value": "4445"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.6",
+      "type": "OctetString",
+      "str_value": "MX",
+      "hex_value": "4d58"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.7",
+      "type": "OctetString",
+      "str_value": "BR",
+      "hex_value": "4252"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.8",
+      "type": "OctetString",
+      "str_value": "NL",
+      "hex_value": "4e4c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.9",
+      "type": "OctetString",
+      "str_value": "RU",
+      "hex_value": "5255"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.10",
+      "type": "OctetString",
+      "str_value": "KR",
+      "hex_value": "4b52"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.11",
+      "type": "OctetString",
+      "str_value": "CN",
+      "hex_value": "434e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.12",
+      "type": "OctetString",
+      "str_value": "TW",
+      "hex_value": "5457"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.13",
+      "type": "OctetString",
+      "str_value": "TR",
+      "hex_value": "5452"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.14",
+      "type": "OctetString",
+      "str_value": "GR",
+      "hex_value": "4752"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.15",
+      "type": "OctetString",
+      "str_value": "PL",
+      "hex_value": "504c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.2",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.3",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.4",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.5",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.6",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.7",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.8",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.9",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.10",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.11",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.12",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.13",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.14",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.15",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "7"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.2.1.2",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.3.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.3.1.2",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.4.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.4.1.2",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.5.1.2",
+      "type": "Integer",
+      "str_value": "10668"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.6.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.6.1.2",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.7.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.7.1.2",
+      "type": "Integer",
+      "str_value": "10668"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.8.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.8.1.2",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.9.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.9.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.10.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.10.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.11.1.1",
+      "type": "Integer",
+      "str_value": "19"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.11.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.12.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.12.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.13.1.1",
+      "type": "OctetString",
+      "str_value": "Tractor Rear",
+      "hex_value": "54726163746f722052656172"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.13.1.2",
+      "type": "OctetString",
+      "str_value": "Roll Sheet feeder",
+      "hex_value": "526f6c6c20536865657420666565646572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.14.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.14.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.15.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.15.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.16.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.16.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.17.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.17.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.18.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.18.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.19.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.19.1.2",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.20.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.20.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.21.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.21.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.22.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.22.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.23.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.23.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.3.1.1",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.4.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.6.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.7.1.1",
+      "type": "OctetString",
+      "str_value": "Output Front",
+      "hex_value": "4f75747075742046726f6e74"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.8.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.9.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.10.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.11.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.12.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.13.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.14.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.15.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.16.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.17.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.18.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.19.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.20.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.21.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.22.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.23.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.24.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "12"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.3.1.1",
+      "type": "Integer",
+      "str_value": "7"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.4.1.1",
+      "type": "Counter32",
+      "str_value": "22"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.5.1.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.6.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.7.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.8.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.9.1.1",
+      "type": "Integer",
+      "str_value": "1200"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.10.1.1",
+      "type": "Integer",
+      "str_value": "1200"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.11.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.12.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.13.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.14.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.15.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.4",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.5",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.4",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.5",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.1",
+      "type": "OctetString",
+      "str_value": "Black Ink Cartridge SJIC35P-BK",
+      "hex_value": "426c61636b20496e6b2043617274726964676520534a49433335502d424b"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.2",
+      "type": "OctetString",
+      "str_value": "Cyan Ink Cartridge SJIC35P-C",
+      "hex_value": "4379616e20496e6b2043617274726964676520534a49433335502d43"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.3",
+      "type": "OctetString",
+      "str_value": "Magenta Ink Cartridge SJIC35P-M",
+      "hex_value": "4d6167656e746120496e6b2043617274726964676520534a49433335502d4d"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.4",
+      "type": "OctetString",
+      "str_value": "Yellow Ink Cartridge SJIC35P-Y",
+      "hex_value": "59656c6c6f7720496e6b2043617274726964676520534a49433335502d59"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.5",
+      "type": "OctetString",
+      "str_value": "Maintenance Box SJMB6000/6500",
+      "hex_value": "4d61696e74656e616e636520426f7820534a4d42363030302f36353030"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.1",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.2",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.3",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.4",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.5",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.1",
+      "type": "Integer",
+      "str_value": "33"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.2",
+      "type": "Integer",
+      "str_value": "26"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.3",
+      "type": "Integer",
+      "str_value": "37"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.4",
+      "type": "Integer",
+      "str_value": "32"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.1",
+      "type": "OctetString",
+      "str_value": "black",
+      "hex_value": "626c61636b"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.2",
+      "type": "OctetString",
+      "str_value": "cyan",
+      "hex_value": "6379616e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.3",
+      "type": "OctetString",
+      "str_value": "magenta",
+      "hex_value": "6d6167656e7461"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.4",
+      "type": "OctetString",
+      "str_value": "yellow",
+      "hex_value": "79656c6c6f77"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.4",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.2.1.1",
+      "type": "Integer",
+      "str_value": "17"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.3.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.4.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.6.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.7.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.8.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.9.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.10.1.1",
+      "type": "OctetString",
+      "str_value": "Simplex",
+      "hex_value": "53696d706c6578"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.11.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "34"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "38"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "44"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.5",
+      "type": "Integer",
+      "str_value": "46"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "USB 2",
+      "hex_value": "5553422032"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.3",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.4",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.5",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.3",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.4",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.4",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.5",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.3",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.4",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.3",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.4",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.5",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "ESCLABEL",
+      "hex_value": "4553434c4142454c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.4.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.5.1.1",
+      "type": "OctetString",
+      "str_value": "ESC/LABEL",
+      "hex_value": "4553432f4c4142454c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.6.1.1",
+      "type": "OctetString",
+      "str_value": "TS20P2",
+      "hex_value": "545332305032"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.8.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.9.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.10.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.11.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.12.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.3",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.4",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.5",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.2.1.158",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.3.1.158",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.4.1.158",
+      "type": "Integer",
+      "str_value": "11"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.5.1.158",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.6.1.158",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.7.1.158",
+      "type": "Integer",
+      "str_value": "1110"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.8.1.158",
+      "type": "OctetString",
+      "str_value": "The Maintenance Box is at the end of its service life. You need to replace it.",
+      "hex_value": "546865204d61696e74656e616e636520426f782069732061742074686520656e64206f66206974732073657276696365206c6966652e20596f75206e65656420746f207265706c6163652069742e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.6.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.7.1.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.8.1.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.9.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.10.1.1",
+      "type": "OctetString",
+      "str_value": "Trimmer",
+      "hex_value": "5472696d6d6572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.1.1",
+      "type": "Counter32",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.3.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.4.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.5.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.6.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.7.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.8.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.9.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.10.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.11.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.12.1",
+      "type": "Integer",
+      "str_value": "40"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.13.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.14.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.15.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.16.1",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.17.1",
+      "type": "OctetString",
+      "str_value": "X7F4008528",
+      "hex_value": "58374634303038353238"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.18.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.1.1.19.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.5.3.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.1",
+      "type": "OctetString",
+      "str_value": "Printer Cover",
+      "hex_value": "5072696e74657220436f766572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.2",
+      "type": "OctetString",
+      "str_value": "Roll paper cover",
+      "hex_value": "526f6c6c20706170657220636f766572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.3",
+      "type": "OctetString",
+      "str_value": "Maintenance box cover",
+      "hex_value": "4d61696e74656e616e636520626f7820636f766572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.4",
+      "type": "OctetString",
+      "str_value": "Ink Cartridge Cover Home",
+      "hex_value": "496e6b2043617274726964676520436f76657220486f6d65"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.2.1.5",
+      "type": "OctetString",
+      "str_value": "Ink Cartridge Cover Full",
+      "hex_value": "496e6b2043617274726964676520436f7665722046756c6c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.6.1.1.3.1.5",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.1",
+      "type": "OctetString",
+      "str_value": "en",
+      "hex_value": "656e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.2",
+      "type": "OctetString",
+      "str_value": "ja",
+      "hex_value": "6a61"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.3",
+      "type": "OctetString",
+      "str_value": "fr",
+      "hex_value": "6672"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.4",
+      "type": "OctetString",
+      "str_value": "it",
+      "hex_value": "6974"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.5",
+      "type": "OctetString",
+      "str_value": "de",
+      "hex_value": "6465"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.6",
+      "type": "OctetString",
+      "str_value": "es",
+      "hex_value": "6573"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.7",
+      "type": "OctetString",
+      "str_value": "pt",
+      "hex_value": "7074"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.8",
+      "type": "OctetString",
+      "str_value": "nl",
+      "hex_value": "6e6c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.9",
+      "type": "OctetString",
+      "str_value": "ru",
+      "hex_value": "7275"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.10",
+      "type": "OctetString",
+      "str_value": "ko",
+      "hex_value": "6b6f"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.11",
+      "type": "OctetString",
+      "str_value": "zh",
+      "hex_value": "7a68"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.12",
+      "type": "OctetString",
+      "str_value": "zh",
+      "hex_value": "7a68"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.13",
+      "type": "OctetString",
+      "str_value": "tr",
+      "hex_value": "7472"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.14",
+      "type": "OctetString",
+      "str_value": "el",
+      "hex_value": "656c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.2.1.15",
+      "type": "OctetString",
+      "str_value": "pl",
+      "hex_value": "706c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "US",
+      "hex_value": "5553"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.2",
+      "type": "OctetString",
+      "str_value": "JP",
+      "hex_value": "4a50"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.3",
+      "type": "OctetString",
+      "str_value": "CA",
+      "hex_value": "4341"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.4",
+      "type": "OctetString",
+      "str_value": "IT",
+      "hex_value": "4954"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.5",
+      "type": "OctetString",
+      "str_value": "DE",
+      "hex_value": "4445"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.6",
+      "type": "OctetString",
+      "str_value": "MX",
+      "hex_value": "4d58"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.7",
+      "type": "OctetString",
+      "str_value": "BR",
+      "hex_value": "4252"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.8",
+      "type": "OctetString",
+      "str_value": "NL",
+      "hex_value": "4e4c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.9",
+      "type": "OctetString",
+      "str_value": "RU",
+      "hex_value": "5255"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.10",
+      "type": "OctetString",
+      "str_value": "KR",
+      "hex_value": "4b52"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.11",
+      "type": "OctetString",
+      "str_value": "CN",
+      "hex_value": "434e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.12",
+      "type": "OctetString",
+      "str_value": "TW",
+      "hex_value": "5457"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.13",
+      "type": "OctetString",
+      "str_value": "TR",
+      "hex_value": "5452"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.14",
+      "type": "OctetString",
+      "str_value": "GR",
+      "hex_value": "4752"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.3.1.15",
+      "type": "OctetString",
+      "str_value": "PL",
+      "hex_value": "504c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.2",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.3",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.4",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.5",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.6",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.7",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.8",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.9",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.10",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.11",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.12",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.13",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.14",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.7.1.1.4.1.15",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "7"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.2.1.2",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.3.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.3.1.2",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.4.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.4.1.2",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.5.1.2",
+      "type": "Integer",
+      "str_value": "10668"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.6.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.6.1.2",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.7.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.7.1.2",
+      "type": "Integer",
+      "str_value": "10668"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.8.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.8.1.2",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.9.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.9.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.10.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.10.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.11.1.1",
+      "type": "Integer",
+      "str_value": "19"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.11.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.12.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.12.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.13.1.1",
+      "type": "OctetString",
+      "str_value": "Tractor Rear",
+      "hex_value": "54726163746f722052656172"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.13.1.2",
+      "type": "OctetString",
+      "str_value": "Roll Sheet feeder",
+      "hex_value": "526f6c6c20536865657420666565646572"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.14.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.14.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.15.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.15.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.16.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.16.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.17.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.17.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.18.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.18.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.19.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.19.1.2",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.20.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.20.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.21.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.21.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.22.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.22.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.23.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.8.2.1.23.1.2",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.3.1.1",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.4.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.6.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.7.1.1",
+      "type": "OctetString",
+      "str_value": "Output Front",
+      "hex_value": "4f75747075742046726f6e74"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.8.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.9.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.10.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.11.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.12.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.13.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.14.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.15.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.16.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.17.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.18.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.19.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.20.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.21.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.22.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.23.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.9.2.1.24.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.2.1.1",
+      "type": "Integer",
+      "str_value": "12"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.3.1.1",
+      "type": "Integer",
+      "str_value": "7"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.4.1.1",
+      "type": "Counter32",
+      "str_value": "22"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.5.1.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.6.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.7.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.8.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.9.1.1",
+      "type": "Integer",
+      "str_value": "1200"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.10.1.1",
+      "type": "Integer",
+      "str_value": "1200"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.11.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.12.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.13.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.14.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.10.2.1.15.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.2.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.3.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.4",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.4.1.5",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.4",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.5.1.5",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.1",
+      "type": "OctetString",
+      "str_value": "Black Ink Cartridge SJIC35P-BK",
+      "hex_value": "426c61636b20496e6b2043617274726964676520534a49433335502d424b"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.2",
+      "type": "OctetString",
+      "str_value": "Cyan Ink Cartridge SJIC35P-C",
+      "hex_value": "4379616e20496e6b2043617274726964676520534a49433335502d43"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.3",
+      "type": "OctetString",
+      "str_value": "Magenta Ink Cartridge SJIC35P-M",
+      "hex_value": "4d6167656e746120496e6b2043617274726964676520534a49433335502d4d"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.4",
+      "type": "OctetString",
+      "str_value": "Yellow Ink Cartridge SJIC35P-Y",
+      "hex_value": "59656c6c6f7720496e6b2043617274726964676520534a49433335502d59"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.6.1.5",
+      "type": "OctetString",
+      "str_value": "Maintenance Box SJMB6000/6500",
+      "hex_value": "4d61696e74656e616e636520426f7820534a4d42363030302f36353030"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.7.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.1",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.2",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.3",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.4",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.8.1.5",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.1",
+      "type": "Integer",
+      "str_value": "33"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.2",
+      "type": "Integer",
+      "str_value": "26"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.3",
+      "type": "Integer",
+      "str_value": "37"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.4",
+      "type": "Integer",
+      "str_value": "32"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.11.1.1.9.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.1",
+      "type": "OctetString",
+      "str_value": "black",
+      "hex_value": "626c61636b"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.2",
+      "type": "OctetString",
+      "str_value": "cyan",
+      "hex_value": "6379616e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.3",
+      "type": "OctetString",
+      "str_value": "magenta",
+      "hex_value": "6d6167656e7461"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.4.1.4",
+      "type": "OctetString",
+      "str_value": "yellow",
+      "hex_value": "79656c6c6f77"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.12.1.1.5.1.4",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.2.1.1",
+      "type": "Integer",
+      "str_value": "17"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.3.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.4.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.6.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.7.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.8.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.9.1.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.10.1.1",
+      "type": "OctetString",
+      "str_value": "Simplex",
+      "hex_value": "53696d706c6578"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.13.4.1.11.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "34"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "38"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "44"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.2.1.5",
+      "type": "Integer",
+      "str_value": "46"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "USB 2",
+      "hex_value": "5553422032"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.3",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.4",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.3.1.5",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.3",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.4",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.4.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.5.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.4",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.6.1.5",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.7.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.3",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.4",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.8.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.3",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.4",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.14.1.1.9.1.5",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "ESCLABEL",
+      "hex_value": "4553434c4142454c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.4.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.5.1.1",
+      "type": "OctetString",
+      "str_value": "ESC/LABEL",
+      "hex_value": "4553432f4c4142454c"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.6.1.1",
+      "type": "OctetString",
+      "str_value": "TS20P2",
+      "hex_value": "545332305032"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.8.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.9.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.10.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.11.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.15.1.1.12.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.3",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.4",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.16.5.1.2.1.5",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.2.1.158",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.3.1.158",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.4.1.158",
+      "type": "Integer",
+      "str_value": "11"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.5.1.158",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.6.1.158",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.7.1.158",
+      "type": "Integer",
+      "str_value": "1110"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.18.1.1.8.1.158",
+      "type": "OctetString",
+      "str_value": "The Maintenance Box is at the end of its service life. You need to replace it.",
+      "hex_value": "546865204d61696e74656e616e636520426f782069732061742074686520656e64206f66206974732073657276696365206c6966652e20596f75206e65656420746f207265706c6163652069742e"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.6.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.7.1.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.8.1.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.9.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.2.1.43.30.1.1.10.1.1",
+      "type": "OctetString",
+      "str_value": "Trimmer",
+      "hex_value": "5472696d6d6572"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.1.0",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.1.0",
+      "type": "OctetString",
+      "str_value": "EP5C698EENSN3",
+      "hex_value": "4550354336393845454e534e33"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.5.0",
+      "type": "OctetString",
+      "str_value": "PW\\i",
+      "hex_value": "50579c5c698e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.6.0",
+      "type": "Integer",
+      "str_value": "33"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.7.0",
+      "type": "Integer",
+      "str_value": "33"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.8.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.9.0",
+      "type": "Integer",
+      "str_value": "131328"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.10.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.11.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.20.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.21.0",
+      "type": "Integer",
+      "str_value": "20"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.22.0",
+      "type": "IPAddress",
+      "str_value": "192.168.192.168"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.23.0",
+      "type": "IPAddress",
+      "str_value": "255.255.255.0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.24.0",
+      "type": "IPAddress",
+      "str_value": "255.255.255.255"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.34.0",
+      "type": "Integer",
+      "str_value": "32790"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.38.1.2.1",
+      "type": "IPAddress",
+      "str_value": "255.255.255.255"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.38.1.2.2",
+      "type": "IPAddress",
+      "str_value": "255.255.255.255"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.41.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.42.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.43.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.44.0",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.45.0",
+      "type": "Integer",
+      "str_value": "559"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.46.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.47.0",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.48.0",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.49.0",
+      "type": "Integer",
+      "str_value": "33014"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.50.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.51.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.52.0",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.53.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.54.1.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.54.1.2.2",
+      "type": "Integer",
+      "str_value": "256"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.54.1.2.3",
+      "type": "Integer",
+      "str_value": "65536"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.54.1.2.4",
+      "type": "Integer",
+      "str_value": "65792"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.54.1.2.5",
+      "type": "Integer",
+      "str_value": "131328"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.55.0",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.57.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.58.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.59.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.63.0",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.64.0",
+      "type": "OctetString",
+      "str_value": "ÀÀ",
+      "hex_value": "c0c0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.65.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.66.0",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "8000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.68.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.69.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.70.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.71.0",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e0000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.72.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.73.0",
+      "type": "OctetString",
+      "str_value": "EPSON5C698E",
+      "hex_value": "4550534f4e354336393845"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.74.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.76.1.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.76.1.2.2",
+      "type": "Integer",
+      "str_value": "256"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.76.1.2.3",
+      "type": "Integer",
+      "str_value": "65536"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.76.1.2.4",
+      "type": "Integer",
+      "str_value": "65792"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.77.0",
+      "type": "OctetString",
+      "hex_value": "00000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.78.0",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "9c000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.79.0",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "9c000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.80.0",
+      "type": "IPAddress",
+      "str_value": "172.52.105.153"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.81.0",
+      "type": "IPAddress",
+      "str_value": "255.255.255.0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.85.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.1.86.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.1.0",
+      "type": "OctetString",
+      "str_value": "public",
+      "hex_value": "7075626c6963"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.2.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.3.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.4.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.2.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.2.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.2.3",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.2.4",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.3.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.3.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.3.3",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.3.4",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.4.1",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.4.2",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.4.3",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.4.4",
+      "type": "IPAddress",
+      "str_value": "0.0.0.0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.5.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.5.2",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.5.3",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.5.4",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.8.1",
+      "type": "Integer",
+      "str_value": "162"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.8.2",
+      "type": "Integer",
+      "str_value": "162"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.8.3",
+      "type": "Integer",
+      "str_value": "162"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.8.4",
+      "type": "Integer",
+      "str_value": "162"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.9.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.9.2",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.9.3",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.16.1.9.4",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.17.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.18.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.19.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.20.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.21.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.2.23.0",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.3.8.0",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.1.0",
+      "type": "Integer",
+      "str_value": "83918848"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.2.0",
+      "type": "Integer",
+      "str_value": "83918848"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.3.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.5.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.6.1",
+      "type": "Integer",
+      "str_value": "300"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.7.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.8.1",
+      "type": "Integer",
+      "str_value": "3600"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.9.1",
+      "type": "OctetString",
+      "str_value": "ipp/print",
+      "hex_value": "6970702f7072696e74"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.19.1.10.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.20.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.21.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.22.0",
+      "type": "Integer",
+      "str_value": "300"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.23.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.24.0",
+      "type": "Integer",
+      "str_value": "3600"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.37.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.38.0",
+      "type": "Integer",
+      "str_value": "300"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.39.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.40.0",
+      "type": "Integer",
+      "str_value": "3600"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.41.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.46.1.2.1",
+      "type": "OctetString",
+      "str_value": "http://172.52.105.153:631/ipp/print",
+      "hex_value": "687474703a2f2f3137322e35322e3130352e3135333a3633312f6970702f7072696e74"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.46.1.2.2",
+      "type": "OctetString",
+      "str_value": "http://[fe80::5257:9cff:fe5c:698e]:631/ipp/print",
+      "hex_value": "687474703a2f2f5b666538303a3a353235373a396366663a666535633a363938655d3a3633312f6970702f7072696e74"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.46.1.2.3",
+      "type": "OctetString",
+      "str_value": "https://172.52.105.153:631/ipp/print",
+      "hex_value": "68747470733a2f2f3137322e35322e3130352e3135333a3633312f6970702f7072696e74"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.4.46.1.2.4",
+      "type": "OctetString",
+      "str_value": "https://[fe80::5257:9cff:fe5c:698e]:631/ipp/print",
+      "hex_value": "68747470733a2f2f5b666538303a3a353235373a396366663a666535633a363938655d3a3633312f6970702f7072696e74"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.1.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.2.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.3.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.4.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.5.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.6.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.7.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.5.8.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.13.1.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.13.1.1.3.1",
+      "type": "OctetString",
+      "str_value": "time.cloudflare.com",
+      "hex_value": "74696d652e636c6f7564666c6172652e636f6d"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.13.1.1.4.1",
+      "type": "Integer",
+      "str_value": "60"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.13.1.1.5.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.13.1.1.6.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.13.1.1.7.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.13.2.0",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.1.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.2.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.4.1.2.1",
+      "type": "OctetString",
+      "str_value": "EPSON CW-C6500Au",
+      "hex_value": "4550534f4e2043572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.4.1.5.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.4.1.6.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.7.0",
+      "type": "OctetString",
+      "str_value": "EPSON5C698E",
+      "hex_value": "4550534f4e354336393845"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.8.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.9.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.14.10.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.19.1.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.19.1.1.3.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.20.1.1.2.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.20.1.1.3.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.20.1.1.4.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.20.1.1.5.1",
+      "type": "Integer",
+      "str_value": "252"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.20.1.1.6.1",
+      "type": "Integer",
+      "str_value": "255"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.20.1.1.7.1",
+      "type": "Integer",
+      "str_value": "256"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.2.1",
+      "type": "OctetString",
+      "str_value": "TS20P2",
+      "hex_value": "545332305032"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.2.2",
+      "type": "OctetString",
+      "str_value": "03",
+      "hex_value": "3033"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.2.3",
+      "type": "OctetString",
+      "str_value": "77",
+      "hex_value": "3737"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.2.4",
+      "type": "OctetString",
+      "str_value": "03.77.TS20P2",
+      "hex_value": "30332e37372e545332305032"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.3.1",
+      "type": "OctetString",
+      "str_value": "Main FW",
+      "hex_value": "4d61696e204657"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.3.2",
+      "type": "OctetString",
+      "str_value": "NW Kernel FW",
+      "hex_value": "4e57204b65726e656c204657"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.3.3",
+      "type": "OctetString",
+      "str_value": "NW Appli FW",
+      "hex_value": "4e57204170706c69204657"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.3.4",
+      "type": "OctetString",
+      "str_value": "Firmware",
+      "hex_value": "4669726d77617265"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.5.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "86"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.5.2",
+      "type": "OctetString",
+      "hex_value": "85"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.5.3",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "87"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.5.4",
+      "type": "OctetString",
+      "str_value": "×",
+      "hex_value": "d7"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.21.1.1.6.4",
+      "type": "OctetString",
+      "str_value": "1:1.1,3",
+      "hex_value": "313a312e312c33"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.3.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.4.1",
+      "type": "OctetString",
+      "hex_value": "00000004"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.5.1",
+      "type": "OctetString",
+      "str_value": "¨",
+      "hex_value": "000000a8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.6.1",
+      "type": "OctetString",
+      "str_value": "EPSON5C698E",
+      "hex_value": "4550534f4e354336393845"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.7.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.8.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "00000088"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.25.1.1.9.1",
+      "type": "OctetString",
+      "str_value": "EPSON5C698E",
+      "hex_value": "4550534f4e354336393845"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.1.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.1.1.3.1",
+      "type": "OctetString",
+      "hex_value": "0003"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.2.1.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.2.1.2.1",
+      "type": "OctetString",
+      "hex_value": "03"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.2.1.3.1",
+      "type": "OctetString",
+      "str_value": "EPSON5C698E (CW-C6500Au)",
+      "hex_value": "4550534f4e354336393845202843572d4336353030417529"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.2.1.4.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.2.1.5.1",
+      "type": "Integer",
+      "str_value": "300"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.2.1.6.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.2.1.7.1",
+      "type": "Integer",
+      "str_value": "3600"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.3.1.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.3.1.2.1",
+      "type": "OctetString",
+      "hex_value": "03"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.26.3.1.3.1",
+      "type": "OctetString",
+      "str_value": "EPSON5C698E",
+      "hex_value": "4500500053004f004e00350043003600390038004500"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.1.1.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.1.2.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.1.3.0",
+      "type": "OctetString",
+      "hex_value": "00"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.1.5.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.1.10.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.1.11.0",
+      "type": "OctetString",
+      "str_value": "ÀÀ",
+      "hex_value": "c0c0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.1.13.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.2.1.2.1",
+      "type": "OctetString",
+      "str_value": "þRWÿþ\\i",
+      "hex_value": "fe8000000000000052579cfffe5c698e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.2.1.3.1",
+      "type": "Integer",
+      "str_value": "64"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.2.1.4.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.3.1.2.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.3.1.3.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.4.1.2.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.4.1.2.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.28.6.1.2.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.30.1.1.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.30.1.3.0",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.30.1.8.0",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.30.2.5.0",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "80e0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.36.1.12.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.37.4.1.0",
+      "type": "Integer",
+      "str_value": "255"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.37.4.3.0",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.37.4.4.0",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.1.2.0",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.1.3.0",
+      "type": "Integer",
+      "str_value": "32"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.1.4.0",
+      "type": "Integer",
+      "str_value": "32"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.1.5.0",
+      "type": "Integer",
+      "str_value": "32"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.3.1.2.1",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.6.3.10.1.1.2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.3.1.2.2",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.6.3.10.1.2.2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.3.1.2.3",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.6.3.10.1.1.3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.3.1.2.4",
+      "type": "ObjectIdentifier",
+      "str_value": ".1.3.6.1.6.3.10.1.2.4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.1.3.1.38.4.1.3.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.1.1.1.1.1",
+      "type": "OctetString",
+      "str_value": "MFG:EPSON;CMD:ESCLABEL;MDL:CW-C6500Au;CLS:PRINTER;DES:EPSON CW-C6500Au;CID:EpsonCWC6500Au;",
+      "hex_value": "4d46473a4550534f4e3b434d443a4553434c4142454c3b4d444c3a43572d433635303041753b434c533a5052494e5445523b4445533a4550534f4e2043572d433635303041753b4349443a4570736f6e4357433635303041753b"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.1.1.1.2.1",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.1.1.1.3.1",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.1.1.1.4.1",
+      "type": "OctetString",
+      "str_value": "^S(SMA,S,ER\r\n^S(SEA,E,MF\r\nWN\r\n^S(CLM,P,IR\r\n^S(IMF,V,TS20P2\r\nMN,RR\r\nIQ,21,1A,25,20\r\n^S(IMP,S,X7F4008528\r\n^S(SPA,P,F\r\n^S(SPA,S,T\r\n^S(SPA,O,NW\r\n^S(SEA,F,0000",
+      "hex_value": "025e5328534d412c532c4552030d0a025e53285345412c452c4d46030d0a02574e030d0a025e5328434c4d2c502c4952030d0a025e5328494d462c562c545332305032030d0a024d4e2c5252030d0a0249512c32312c31412c32352c3230030d0a025e5328494d502c532c58374634303038353238030d0a025e53285350412c502c46030d0a025e53285350412c532c54030d0a025e53285350412c4f2c4e57030d0a025e53285345412c462c30303030030d0a"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.1.1.1.5.1",
+      "type": "OctetString",
+      "str_value": "X7F4008528",
+      "hex_value": "58374634303038353238"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.2.1.1",
+      "type": "OctetString",
+      "str_value": "TS20P2",
+      "hex_value": "545332305032"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.2.1.2",
+      "type": "OctetString",
+      "str_value": "X7F4008528",
+      "hex_value": "58374634303038353238"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.2.1.3",
+      "type": "OctetString",
+      "str_value": "03.77",
+      "hex_value": "30332e3737"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.2.1.4",
+      "type": "OctetString",
+      "str_value": "03.77.TS20P2.FY19",
+      "hex_value": "30332e37372e5453323050322e46593139"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "Main FW",
+      "hex_value": "4d61696e204657"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.3.1.2",
+      "type": "OctetString",
+      "str_value": "Serial No",
+      "hex_value": "53657269616c204e6f"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.3.1.3",
+      "type": "OctetString",
+      "str_value": "Network FW",
+      "hex_value": "4e6574776f726b204657"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.3.1.4",
+      "type": "OctetString",
+      "str_value": "FW Package",
+      "hex_value": "4657205061636b616765"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.5.1.1",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "86"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.5.1.2",
+      "type": "OctetString",
+      "hex_value": "00"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.5.1.3",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "80"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.5.1.4",
+      "type": "OctetString",
+      "str_value": "Ð",
+      "hex_value": "d0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.6.1.4",
+      "type": "OctetString",
+      "str_value": "1,3",
+      "hex_value": "312c33"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.11.1.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.11.1.2",
+      "type": "Integer",
+      "str_value": "7"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.11.1.3",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.2.1.1.11.1.4",
+      "type": "Integer",
+      "str_value": "9"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.9.1",
+      "type": "Integer",
+      "str_value": "10"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.11.1",
+      "type": "OctetString",
+      "str_value": "é:/-",
+      "hex_value": "07e90b03073a2f002d0400"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.13.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.14.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.15.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.16.1",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.31.1",
+      "type": "Integer",
+      "str_value": "-240"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.34.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.49.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.50.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.56.1",
+      "type": "OctetString",
+      "hex_value": "18"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.73.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.74.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.75.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.77.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.78.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.79.1",
+      "type": "OctetString",
+      "hex_value": "0000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.80.1",
+      "type": "Integer",
+      "str_value": "10"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.81.1",
+      "type": "Integer",
+      "str_value": "10"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.82.1",
+      "type": "Integer",
+      "str_value": "150"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.1.1.83.1",
+      "type": "Integer",
+      "str_value": "10"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.3.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.3.1.3.1.1",
+      "type": "Integer",
+      "str_value": "240"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.3.3.1.4.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "7"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "ø",
+      "hex_value": "f800"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.4.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.5.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.6.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.7.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.8.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.9.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.10.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.11.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.12.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.13.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.14.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.17.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.18.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.19.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.20.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.21.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.22.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.23.1.1",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.24.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.25.1.1",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.26.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.27.1.1",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.28.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.29.1.1",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.30.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.31.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.32.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.33.1.1",
+      "type": "OctetString",
+      "str_value": "À",
+      "hex_value": "c000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.34.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.35.1.1",
+      "type": "OctetString",
+      "str_value": "ø",
+      "hex_value": "f800"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.4.4.1.36.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.17.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.26.1.1",
+      "type": "Integer",
+      "str_value": "600"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.58.1.1",
+      "type": "Integer",
+      "str_value": "-25"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.59.1.1",
+      "type": "Integer",
+      "str_value": "25"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.60.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.61.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.63.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.70.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.71.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.72.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.73.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.74.1.1",
+      "type": "Integer",
+      "str_value": "-6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.75.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.76.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.77.1.1",
+      "type": "Integer",
+      "str_value": "-6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.78.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.79.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.80.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.81.1.1",
+      "type": "Integer",
+      "str_value": "50"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.82.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.83.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.84.1.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.85.1.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.86.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.87.1.1",
+      "type": "OctetString",
+      "str_value": "ä",
+      "hex_value": "e4000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.88.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.89.1.1",
+      "type": "Integer",
+      "str_value": "-10"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.90.1.1",
+      "type": "Integer",
+      "str_value": "10"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.91.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.92.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.93.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.96.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.97.1.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.98.1.1",
+      "type": "Counter32",
+      "str_value": "10"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.99.1.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.100.1.1",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.101.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.102.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.107.1.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.108.1.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.109.1.1",
+      "type": "OctetString",
+      "str_value": "Ð",
+      "hex_value": "d000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.114.1.1",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e0000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.134.1.1",
+      "type": "OctetString",
+      "str_value": "ü",
+      "hex_value": "fc000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.1.1.135.1.1",
+      "type": "OctetString",
+      "str_value": "ü",
+      "hex_value": "fc000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.3.1.1.1",
+      "type": "Integer",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.5.3.1.2.1",
+      "type": "Counter32",
+      "str_value": "15"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.2.1.1",
+      "type": "OctetString",
+      "str_value": "Plain",
+      "hex_value": "506c61696e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.2.1.2",
+      "type": "OctetString",
+      "str_value": "Labels",
+      "hex_value": "4c6162656c73"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.2.1.3",
+      "type": "OctetString",
+      "str_value": "Synthetic",
+      "hex_value": "53796e746865746963"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.2.1.4",
+      "type": "OctetString",
+      "str_value": "High Quality",
+      "hex_value": "48696768205175616c697479"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.2.1.5",
+      "type": "OctetString",
+      "str_value": "PGPP",
+      "hex_value": "50475050"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.2.1.6",
+      "type": "OctetString",
+      "str_value": "Glossy Film",
+      "hex_value": "476c6f7373792046696c6d"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.2.1.7",
+      "type": "OctetString",
+      "str_value": "High Glossy",
+      "hex_value": "4869676820476c6f737379"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.11.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.11.1.2",
+      "type": "Integer",
+      "str_value": "60"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.11.1.3",
+      "type": "Integer",
+      "str_value": "70"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.11.1.4",
+      "type": "Integer",
+      "str_value": "57"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.11.1.5",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.11.1.6",
+      "type": "Integer",
+      "str_value": "71"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.7.1.1.11.1.7",
+      "type": "Integer",
+      "str_value": "72"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "103"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "150"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "101"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "154"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.2.1.5",
+      "type": "Integer",
+      "str_value": "108"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.2.1.6",
+      "type": "Integer",
+      "str_value": "155"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.3.1.5",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.21.1.1.3.1.6",
+      "type": "Integer",
+      "str_value": "-1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.3.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.4.1",
+      "type": "Counter32",
+      "str_value": "508"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.5.1",
+      "type": "Counter32",
+      "str_value": "508"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.6.1",
+      "type": "Counter32",
+      "str_value": "30"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.7.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.8.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.9.1",
+      "type": "Counter32",
+      "str_value": "100"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.10.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.23.10.1.16.1",
+      "type": "Integer",
+      "str_value": "20"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.25.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "11"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.25.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "Trimmer",
+      "hex_value": "5472696d6d6572"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.25.1.1.4.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.25.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "49"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.25.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.1.1.33.1.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.1.1.34.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.1.1.35.1.1",
+      "type": "Integer",
+      "str_value": "14"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.5.1.3.1.1",
+      "type": "Integer",
+      "str_value": "14"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.5.1.4.1.1",
+      "type": "Integer",
+      "str_value": "1287"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.15.1.2.1.1.1",
+      "type": "Counter32",
+      "str_value": "22"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.15.1.2.1.1.2",
+      "type": "Counter32",
+      "str_value": "22"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.15.1.3.1.1.1",
+      "type": "Counter32",
+      "str_value": "1287"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.27.15.1.3.1.1.2",
+      "type": "Counter32",
+      "str_value": "1287"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "33"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "26"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "37"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "32"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.2.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.3.1.5",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.5.1.1",
+      "type": "OctetString",
+      "str_value": "Black Ink Cartridge SJIC35P-BK",
+      "hex_value": "426c61636b20496e6b2043617274726964676520534a49433335502d424b"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.5.1.2",
+      "type": "OctetString",
+      "str_value": "Cyan Ink Cartridge SJIC35P-C",
+      "hex_value": "4379616e20496e6b2043617274726964676520534a49433335502d43"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.5.1.3",
+      "type": "OctetString",
+      "str_value": "Magenta Ink Cartridge SJIC35P-M",
+      "hex_value": "4d6167656e746120496e6b2043617274726964676520534a49433335502d4d"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.5.1.4",
+      "type": "OctetString",
+      "str_value": "Yellow Ink Cartridge SJIC35P-Y",
+      "hex_value": "59656c6c6f7720496e6b2043617274726964676520534a49433335502d59"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.5.1.5",
+      "type": "OctetString",
+      "str_value": "Maintenance Box SJMB6000/6500",
+      "hex_value": "4d61696e74656e616e636520426f7820534a4d42363030302f36353030"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.6.1.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.6.1.2",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.6.1.3",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.6.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.6.1.5",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.9.1.1",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.9.1.2",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.9.1.3",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.9.1.4",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.9.1.5",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.17.1.1",
+      "type": "OctetString",
+      "str_value": "é",
+      "hex_value": "07e9090200000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.17.1.2",
+      "type": "OctetString",
+      "str_value": "é",
+      "hex_value": "07e9090200000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.17.1.3",
+      "type": "OctetString",
+      "str_value": "é",
+      "hex_value": "07e9090200000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.17.1.4",
+      "type": "OctetString",
+      "str_value": "é",
+      "hex_value": "07e9090200000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.18.1.1",
+      "type": "OctetString",
+      "str_value": "Black Ink Cartridge SJIC35P-BK",
+      "hex_value": "426c61636b20496e6b2043617274726964676520534a49433335502d424b"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.18.1.2",
+      "type": "OctetString",
+      "str_value": "Cyan Ink Cartridge SJIC35P-C",
+      "hex_value": "4379616e20496e6b2043617274726964676520534a49433335502d43"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.18.1.3",
+      "type": "OctetString",
+      "str_value": "Magenta Ink Cartridge SJIC35P-M",
+      "hex_value": "4d6167656e746120496e6b2043617274726964676520534a49433335502d4d"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.18.1.4",
+      "type": "OctetString",
+      "str_value": "Yellow Ink Cartridge SJIC35P-Y",
+      "hex_value": "59656c6c6f7720496e6b2043617274726964676520534a49433335502d59"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.18.1.5",
+      "type": "OctetString",
+      "str_value": "Maintenance Box SJMB6000/6500",
+      "hex_value": "4d61696e74656e616e636520426f7820534a4d42363030302f36353030"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.21.1.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.21.1.2",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.21.1.3",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.21.1.4",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.21.1.5",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.24.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.24.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.24.1.3",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.24.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.24.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.25.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.25.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.25.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.25.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.25.1.5",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.26.1.1",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.26.1.2",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.26.1.3",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.26.1.4",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.26.1.5",
+      "type": "OctetString",
+      "str_value": "EPSON",
+      "hex_value": "4550534f4e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.27.1.1",
+      "type": "OctetString",
+      "str_value": "é\"",
+      "hex_value": "07e9021507220000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.27.1.2",
+      "type": "OctetString",
+      "str_value": "é*",
+      "hex_value": "07e90103082a0000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.27.1.3",
+      "type": "OctetString",
+      "str_value": "é",
+      "hex_value": "07e9010314160000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.27.1.4",
+      "type": "OctetString",
+      "str_value": "è",
+      "hex_value": "07e80c1c031c0000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.28.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.28.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.28.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.28.1.4",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.28.1.1.28.1.5",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.2.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.3.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.3.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.4.1.1",
+      "type": "OctetString",
+      "str_value": "Black",
+      "hex_value": "426c61636b"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.4.1.2",
+      "type": "OctetString",
+      "str_value": "Cyan",
+      "hex_value": "4379616e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.4.1.3",
+      "type": "OctetString",
+      "str_value": "Magenta",
+      "hex_value": "4d6167656e7461"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.4.1.4",
+      "type": "OctetString",
+      "str_value": "Yellow",
+      "hex_value": "59656c6c6f77"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "65535"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "16711935"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.5.1.4",
+      "type": "Integer",
+      "str_value": "16776960"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.18.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.18.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.18.1.3",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.18.1.4",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.19.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.19.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.19.1.3",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.30.1.1.19.1.4",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.2.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.19.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.20.1",
+      "type": "OctetString",
+      "hex_value": "a000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.21.1",
+      "type": "Counter32",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.22.1",
+      "type": "Counter32",
+      "str_value": "13000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.23.1",
+      "type": "Counter32",
+      "str_value": "500"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.24.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.25.1",
+      "type": "Counter32",
+      "str_value": "16"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.26.1",
+      "type": "Counter32",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.27.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.28.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.33.1",
+      "type": "OctetString",
+      "hex_value": "0000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.34.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.51.3.1.35.1",
+      "type": "Integer",
+      "str_value": "60"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.3.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.4.1.1",
+      "type": "Counter32",
+      "str_value": "214"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.4.1.2",
+      "type": "Counter32",
+      "str_value": "84"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.5.1.1",
+      "type": "Counter32",
+      "str_value": "2159"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.5.1.2",
+      "type": "Counter32",
+      "str_value": "850"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.6.1.1",
+      "type": "Counter32",
+      "str_value": "80"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.6.1.2",
+      "type": "Counter32",
+      "str_value": "31"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.7.1.1",
+      "type": "Counter32",
+      "str_value": "6096"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.7.1.2",
+      "type": "Counter32",
+      "str_value": "2400"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.8.1.1",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.8.1.2",
+      "type": "Counter32",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.9.1.1",
+      "type": "Counter32",
+      "str_value": "60"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.9.1.2",
+      "type": "Counter32",
+      "str_value": "24"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.10.1.1",
+      "type": "Counter32",
+      "str_value": "20"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.10.1.2",
+      "type": "Counter32",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.11.1.1",
+      "type": "Counter32",
+      "str_value": "60"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.11.1.2",
+      "type": "Counter32",
+      "str_value": "24"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.12.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.12.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.13.1.1",
+      "type": "Integer",
+      "str_value": "-109"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.13.1.2",
+      "type": "Integer",
+      "str_value": "-43"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.14.1.1",
+      "type": "Integer",
+      "str_value": "109"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.14.1.2",
+      "type": "Integer",
+      "str_value": "43"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.15.1.1",
+      "type": "Integer",
+      "str_value": "-20"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.15.1.2",
+      "type": "Integer",
+      "str_value": "-8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.16.1.1",
+      "type": "Integer",
+      "str_value": "20"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.16.1.2",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.17.1.1",
+      "type": "Integer",
+      "str_value": "-15"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.17.1.2",
+      "type": "Integer",
+      "str_value": "-6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.18.1.1",
+      "type": "Integer",
+      "str_value": "15"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.18.1.2",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.19.1.1",
+      "type": "Integer",
+      "str_value": "-2119"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.19.1.2",
+      "type": "Integer",
+      "str_value": "-834"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.20.1.1",
+      "type": "Integer",
+      "str_value": "2119"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.20.1.2",
+      "type": "Integer",
+      "str_value": "834"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.21.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.21.1.2",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.22.1.1",
+      "type": "Integer",
+      "str_value": "-108"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.22.1.2",
+      "type": "Integer",
+      "str_value": "-425"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.23.1.1",
+      "type": "Integer",
+      "str_value": "108"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.23.1.2",
+      "type": "Integer",
+      "str_value": "425"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.29.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.29.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.30.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.30.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.31.1.1",
+      "type": "Integer",
+      "str_value": "60"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.31.1.2",
+      "type": "Integer",
+      "str_value": "24"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.32.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.58.1.1.32.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.59.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.59.1.1.3.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.59.1.1.4.1.1",
+      "type": "OctetString",
+      "str_value": "~",
+      "hex_value": "7e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.59.1.1.5.1.1",
+      "type": "OctetString",
+      "str_value": "^",
+      "hex_value": "5e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.2.2.59.1.1.6.1.1",
+      "type": "OctetString",
+      "str_value": ",",
+      "hex_value": "2c"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.2.2",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.3.1",
+      "type": "Integer",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.3.2",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.5.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.7.2",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "88000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.8.2",
+      "type": "OctetString",
+      "str_value": "",
+      "hex_value": "88000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.10.2",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.1.1.1.11.2",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.1",
+      "type": "OctetString",
+      "str_value": "en",
+      "hex_value": "656e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.2",
+      "type": "OctetString",
+      "str_value": "ja",
+      "hex_value": "6a61"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.3",
+      "type": "OctetString",
+      "str_value": "fr",
+      "hex_value": "6672"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.4",
+      "type": "OctetString",
+      "str_value": "it",
+      "hex_value": "6974"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.5",
+      "type": "OctetString",
+      "str_value": "de",
+      "hex_value": "6465"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.6",
+      "type": "OctetString",
+      "str_value": "es",
+      "hex_value": "6573"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.7",
+      "type": "OctetString",
+      "str_value": "pt",
+      "hex_value": "7074"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.8",
+      "type": "OctetString",
+      "str_value": "nl",
+      "hex_value": "6e6c"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.9",
+      "type": "OctetString",
+      "str_value": "ru",
+      "hex_value": "7275"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.10",
+      "type": "OctetString",
+      "str_value": "ko",
+      "hex_value": "6b6f"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.11",
+      "type": "OctetString",
+      "str_value": "zh",
+      "hex_value": "7a68"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.12",
+      "type": "OctetString",
+      "str_value": "zh",
+      "hex_value": "7a68"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.13",
+      "type": "OctetString",
+      "str_value": "tr",
+      "hex_value": "7472"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.14",
+      "type": "OctetString",
+      "str_value": "el",
+      "hex_value": "656c"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.2.2.15",
+      "type": "OctetString",
+      "str_value": "pl",
+      "hex_value": "706c"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.1",
+      "type": "OctetString",
+      "str_value": "US",
+      "hex_value": "5553"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.2",
+      "type": "OctetString",
+      "str_value": "JP",
+      "hex_value": "4a50"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.3",
+      "type": "OctetString",
+      "str_value": "CA",
+      "hex_value": "4341"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.4",
+      "type": "OctetString",
+      "str_value": "IT",
+      "hex_value": "4954"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.5",
+      "type": "OctetString",
+      "str_value": "DE",
+      "hex_value": "4445"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.6",
+      "type": "OctetString",
+      "str_value": "MX",
+      "hex_value": "4d58"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.7",
+      "type": "OctetString",
+      "str_value": "BR",
+      "hex_value": "4252"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.8",
+      "type": "OctetString",
+      "str_value": "NL",
+      "hex_value": "4e4c"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.9",
+      "type": "OctetString",
+      "str_value": "RU",
+      "hex_value": "5255"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.10",
+      "type": "OctetString",
+      "str_value": "KR",
+      "hex_value": "4b52"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.11",
+      "type": "OctetString",
+      "str_value": "CN",
+      "hex_value": "434e"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.12",
+      "type": "OctetString",
+      "str_value": "TW",
+      "hex_value": "5457"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.13",
+      "type": "OctetString",
+      "str_value": "TR",
+      "hex_value": "5452"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.14",
+      "type": "OctetString",
+      "str_value": "GR",
+      "hex_value": "4752"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.3.2.15",
+      "type": "OctetString",
+      "str_value": "PL",
+      "hex_value": "504c"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.1",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.2",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.3",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.4",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.5",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.6",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.7",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.8",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.9",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.10",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.11",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.12",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.13",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.14",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.2.1.1.4.2.15",
+      "type": "Integer",
+      "str_value": "106"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.14.2",
+      "type": "OctetString",
+      "hex_value": "00000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.15.2",
+      "type": "OctetString",
+      "hex_value": "00000000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.17.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.38.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.39.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.41.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.42.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.1.1.46.2",
+      "type": "OctetString",
+      "str_value": "à",
+      "hex_value": "e000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.2.2.1",
+      "type": "Integer",
+      "str_value": "13"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.2.2.2",
+      "type": "Integer",
+      "str_value": "5"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.3.2.1",
+      "type": "Integer",
+      "str_value": "4"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.3.2.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.4.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.4.2.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.5.2.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.5.2.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.3.2.1.6.2.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.4.1.1.2.2.1",
+      "type": "Integer",
+      "str_value": "403"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.4.1.1.3.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.4.1.1.4.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.16.1.1.2.2.722",
+      "type": "Integer",
+      "str_value": "722"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.16.1.1.2.2.768",
+      "type": "Integer",
+      "str_value": "768"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.16.1.1.2.2.769",
+      "type": "Integer",
+      "str_value": "769"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.16.1.1.3.2.722",
+      "type": "Counter32",
+      "str_value": "1444"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.16.1.1.3.2.768",
+      "type": "Counter32",
+      "str_value": "49"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.16.1.1.3.2.769",
+      "type": "Counter32",
+      "str_value": "126"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.19.1.1.1.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.19.1.1.2.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.19.1.1.3.2.1",
+      "type": "Integer",
+      "str_value": "3000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.19.1.1.4.2.1",
+      "type": "Integer",
+      "str_value": "60000"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.21.1.1.2.2.1",
+      "type": "Integer",
+      "str_value": "6"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.21.1.1.3.2.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.21.1.1.4.2.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.21.1.1.24.2.1",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.1248.1.8.2.21.1.1.25.2.1",
+      "type": "Integer",
+      "str_value": "-2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.1.1.0",
+      "type": "OctetString",
+      "str_value": "en-US",
+      "hex_value": "656e2d5553"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.1.2.0",
+      "type": "Gauge32",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.1.3.0",
+      "type": "Gauge32",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.2.1.1.2.1",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au",
+      "hex_value": "43572d43363530304175"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.2.1.1.3.1",
+      "type": "OctetString",
+      "str_value": "MFG:EPSON;CMD:ESCLABEL;MDL:CW-C6500Au;CLS:PRINTER;DES:EPSON CW-C6500Au;CID:EpsonCWC6500Au;",
+      "hex_value": "4d46473a4550534f4e3b434d443a4553434c4142454c3b4d444c3a43572d433635303041753b434c533a5052494e5445523b4445533a4550534f4e2043572d433635303041753b4349443a4570736f6e4357433635303041753b"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.2.1.1.4.1",
+      "type": "Gauge32",
+      "str_value": "3"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.2.1.1.5.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.2.1.1.6.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.2.1.1.7.1",
+      "type": "OctetString",
+      "str_value": "public",
+      "hex_value": "7075626c6963"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.2.1.1.8.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.2.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.2.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.2.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.3.1.1",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au-LPR",
+      "hex_value": "43572d433635303041752d4c5052"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.3.1.2",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au-RAW",
+      "hex_value": "43572d433635303041752d524157"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.3.1.3",
+      "type": "OctetString",
+      "str_value": "CW-C6500Au-IPP",
+      "hex_value": "43572d433635303041752d495050"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.4.1.1",
+      "type": "OctetString",
+      "str_value": "lpr://172.52.105.153:515/PASSTHRU",
+      "hex_value": "6c70723a2f2f3137322e35322e3130352e3135333a3531352f5041535354485255"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.4.1.2",
+      "type": "OctetString"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.4.1.3",
+      "type": "OctetString",
+      "str_value": "http://172.52.105.153:631/ipp/print",
+      "hex_value": "687474703a2f2f3137322e35322e3130352e3135333a3633312f6970702f7072696e74"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.5.1.1",
+      "type": "Integer",
+      "str_value": "8"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.5.1.2",
+      "type": "Integer",
+      "str_value": "11"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.5.1.3",
+      "type": "Integer",
+      "str_value": "44"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.6.1.1",
+      "type": "Integer",
+      "str_value": "515"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.6.1.2",
+      "type": "Integer",
+      "str_value": "9100"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.6.1.3",
+      "type": "Integer",
+      "str_value": "631"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.7.1.1",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.7.1.2",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.7.1.3",
+      "type": "Integer",
+      "str_value": "1"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.8.1.1",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.8.1.2",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.8.1.3",
+      "type": "Integer",
+      "str_value": "0"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.9.1.1",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.9.1.2",
+      "type": "Integer",
+      "str_value": "2"
+    },
+    {
+      "oid": "1.3.6.1.4.1.2699.1.2.1.3.1.1.9.1.3",
+      "type": "Integer",
+      "str_value": "2"
+    }
+  ],
+  "steps": [
+    "ParsePDUs:start",
+    "initial_guesses: mfgGuess=\"epson\" modelGuess=\"Asset ID # 06006\\r\\nPrinter Source Plus\\r\\n517-817-0680\\r\\n2903 W Michigan Ave\\r\\nJackson, MI 49202\" serialGuess=\"301809700\"",
+    "sysDescr: oid=1.3.6.1.2.1.1.1.0 value=\"EPSON Built-in 10Base-T/100Base-TX/1000Base-T Print Server\"",
+    "adminContact: \"Asset ID # 06006\\r\\nPrinter Source Plus\\r\\n517-817-0680\\r\\n2903 W Michigan Ave\\r\\nJackson, MI 49202\"",
+    "collected_counts: marker_counts=1 supply_desc=5 supply_levels=5",
+    "model_from_hrDeviceDescr idx=1 val=EPSON CW-C6500Au",
+    "ParsePDUs:finish"
+  ],
+  "manufacturer_hints": [
+    "sysObjectID:.1.3.6.1.4.1.1248.1.1.2.1.3.5.69.69.80.83.50",
+    "sysDescr:EPSON Built-in 10Base-T/100Base-TX/1000Base-T Print Server",
+    "mfgGuess:epson",
+    "enterprise_oid:1.3.6.1.4.1.1248.1.1.1.0 -\u003e 3",
+    "enterprise_oid:1.3.6.1.4.1.1248.1.1.3.1.1.1.0 -\u003e EP5C698EENSN3",
+    "enterprise_oid:1.3.6.1.4.1.1248.1.1.3.1.1.5.0 -\u003e PW\\i"
+  ],
+  "final_manufacturer": "Epson",
+  "model": "EPSON CW-C6500Au",
+  "serial": "X7F4008528",
+  "is_printer": true,
+  "detection_reasons": [
+    "marker_counts",
+    "supply_descriptions",
+    "serial"
+  ],
+  "extra": {
+    "provenance": {
+      "asset_id": "adminContact",
+      "model": "1.3.6.1.2.1.25.3.2.1.3.1",
+      "serial": "1.3.6.1.2.1.43.5.1.1.17.1"
+    }
+  }
+}

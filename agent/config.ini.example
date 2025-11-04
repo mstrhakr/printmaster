@@ -1,0 +1,24 @@
+# PrintMaster Agent Configuration
+# This file allows deployment-specific overrides without modifying the database.
+# Rename to config.ini to use. All settings are optional.
+
+# Asset ID extraction regex (default: \b\d{5}\b for 5-digit numeric tags)
+#asset_id_regex=\b\d{5}\b
+
+# SNMP community string (default: public)
+#snmp_community=public
+
+# Enable debug logging (true/false, default: false)
+#debug_logging=false
+
+# Enable parse debug dumps (true/false, default: false)
+#dump_parse_debug=false
+
+# SNMP timeout in milliseconds (default: 2000)
+#snmp_timeout_ms=2000
+
+# SNMP retries (default: 1)
+#snmp_retries=1
+
+# Discovery concurrency (number of parallel workers, default: 50)
+#discover_concurrency=50

@@ -1,0 +1,35 @@
+[Unit]
+Description=PrintMaster Agent
+Documentation=https://github.com/yourorg/printmaster
+After=network.target
+
+[Service]
+Type=simple
+User=printmaster
+Group=printmaster
+ExecStart=/usr/local/bin/printmaster-agent --service run
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+# Working directory
+WorkingDirectory=/var/lib/printmaster
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=printmaster-agent
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/printmaster /var/log/printmaster
+
+# Allow raw socket capabilities for ICMP ping and ARP (optional)
+# AmbientCapabilities=CAP_NET_RAW
+# CapabilityBoundingSet=CAP_NET_RAW
+
+[Install]
+WantedBy=multi-user.target
