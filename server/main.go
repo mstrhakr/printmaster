@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"printmaster/server/logger"
 	"printmaster/server/storage"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -81,18 +84,95 @@ func main() {
 	}
 }
 
+// generateToken creates a secure random token for agent authentication
+func generateToken() (string, error) {
+	b := make([]byte, 32) // 256 bits of entropy
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// requireAuth is middleware that validates Bearer token authentication
+func requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract Bearer token from Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
+			return
+		}
+
+		token := parts[1]
+
+		// Validate token against database
+		ctx := context.Background()
+		agent, err := serverStore.GetAgentByToken(ctx, token)
+		if err != nil {
+			serverLogger.Warn("Invalid authentication attempt", "token", token[:8]+"...", "error", err)
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+
+		// Store agent info in request context for handlers to use
+		ctx = context.WithValue(r.Context(), "agent", agent)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+// logAuditEntry is a helper to log agent operations to the audit log
+func logAuditEntry(ctx context.Context, agentID, action, details, ipAddress string) {
+	entry := &storage.AuditEntry{
+		Timestamp: time.Now(),
+		AgentID:   agentID,
+		Action:    action,
+		Details:   details,
+		IPAddress: ipAddress,
+	}
+
+	if err := serverStore.SaveAuditEntry(ctx, entry); err != nil {
+		serverLogger.Error("Failed to save audit entry", "agent_id", agentID, "action", action, "error", err)
+	}
+}
+
+// extractClientIP gets the client IP address from the request
+func extractClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header (if behind proxy)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	// Fall back to RemoteAddr
+	ip := r.RemoteAddr
+	// Strip port if present
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	return ip
+}
+
 func setupRoutes() {
-	// Health check
+	// Health check (no auth required)
 	http.HandleFunc("/health", handleHealth)
 
-	// Version info
+	// Version info (no auth required)
 	http.HandleFunc("/api/version", handleVersion)
 
 	// Agent API (v1)
-	http.HandleFunc("/api/v1/agents/register", handleAgentRegister)
-	http.HandleFunc("/api/v1/agents/heartbeat", handleAgentHeartbeat)
-	http.HandleFunc("/api/v1/devices/batch", handleDevicesBatch)
-	http.HandleFunc("/api/v1/metrics/batch", handleMetricsBatch)
+	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
+	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
+	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
+	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
 	// Web UI endpoints (future)
 	http.HandleFunc("/", handleWebUI)
@@ -152,7 +232,15 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save agent to database
+	// Generate secure token for this agent
+	token, err := generateToken()
+	if err != nil {
+		serverLogger.Error("Failed to generate token", "agent_id", req.AgentID, "error", err)
+		http.Error(w, "Failed to generate authentication token", http.StatusInternalServerError)
+		return
+	}
+
+	// Save agent to database with token
 	agent := &storage.Agent{
 		AgentID:         req.AgentID,
 		Hostname:        req.Hostname,
@@ -160,6 +248,7 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		Platform:        req.Platform,
 		Version:         req.AgentVersion,
 		ProtocolVersion: req.ProtocolVersion,
+		Token:           token,
 		RegisteredAt:    time.Now(),
 		LastSeen:        time.Now(),
 		Status:          "active",
@@ -172,12 +261,18 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serverLogger.Info("Agent registered successfully", "agent_id", req.AgentID)
+	// Log audit entry for registration
+	clientIP := extractClientIP(r)
+	logAuditEntry(ctx, req.AgentID, "register", fmt.Sprintf("Agent registered: %s v%s on %s",
+		req.Hostname, req.AgentVersion, req.Platform), clientIP)
+
+	serverLogger.Info("Agent registered successfully", "agent_id", req.AgentID, "token", token[:8]+"...")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"agent_id": req.AgentID,
+		"token":    token,
 		"message":  "Agent registered successfully",
 	})
 }
@@ -200,14 +295,22 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get authenticated agent from context
+	agent := r.Context().Value("agent").(*storage.Agent)
+
 	// Update agent last_seen
 	ctx := context.Background()
-	if err := serverStore.UpdateAgentHeartbeat(ctx, req.AgentID, req.Status); err != nil {
-		serverLogger.Warn("Failed to update heartbeat", "agent_id", req.AgentID, "error", err)
+	if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, req.Status); err != nil {
+		serverLogger.Warn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
 		// Don't fail the request, just log it
 	}
 
-	serverLogger.Debug("Heartbeat received", "agent_id", req.AgentID, "status", req.Status)
+	// Log audit entry for heartbeat (only occasionally to reduce log volume)
+	// Could add logic here to only log every Nth heartbeat
+	clientIP := extractClientIP(r)
+	logAuditEntry(ctx, agent.AgentID, "heartbeat", fmt.Sprintf("Status: %s", req.Status), clientIP)
+
+	serverLogger.Debug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -284,7 +387,15 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		stored++
 	}
 
-	serverLogger.Info("Devices stored", "agent_id", req.AgentID, "stored", stored, "total", len(req.Devices))
+	// Get authenticated agent from context
+	agent := r.Context().Value("agent").(*storage.Agent)
+
+	serverLogger.Info("Devices stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Devices))
+
+	// Log audit entry for device upload
+	clientIP := extractClientIP(r)
+	logAuditEntry(ctx, agent.AgentID, "upload_devices",
+		fmt.Sprintf("Uploaded %d devices (%d stored)", len(req.Devices), stored), clientIP)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -355,7 +466,15 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 		stored++
 	}
 
-	serverLogger.Info("Metrics stored", "agent_id", req.AgentID, "stored", stored, "total", len(req.Metrics))
+	// Get authenticated agent from context
+	agent := r.Context().Value("agent").(*storage.Agent)
+
+	serverLogger.Info("Metrics stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Metrics))
+
+	// Log audit entry for metrics upload
+	clientIP := extractClientIP(r)
+	logAuditEntry(ctx, agent.AgentID, "upload_metrics",
+		fmt.Sprintf("Uploaded %d metric snapshots (%d stored)", len(req.Metrics), stored), clientIP)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

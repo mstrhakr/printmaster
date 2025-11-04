@@ -1868,6 +1868,46 @@ func runInteractive() {
 					"agent_id", serverConfig.AgentID,
 					"upload_interval", serverConfig.UploadInterval,
 					"heartbeat_interval", serverConfig.HeartbeatInterval)
+
+				// Start upload worker for server communication
+				go func() {
+					serverClient := agent.NewServerClient(
+						serverConfig.URL,
+						serverConfig.AgentID,
+						serverConfig.Token,
+					)
+
+					workerConfig := UploadWorkerConfig{
+						HeartbeatInterval: time.Duration(serverConfig.HeartbeatInterval) * time.Second,
+						UploadInterval:    time.Duration(serverConfig.UploadInterval) * time.Second,
+						RetryAttempts:     3,
+						RetryBackoff:      2 * time.Second,
+					}
+
+					uploadWorker := NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig)
+
+					// Start worker (will register if needed)
+					ctx := context.Background()
+					if err := uploadWorker.Start(ctx, Version); err != nil {
+						appLogger.Error("Failed to start upload worker", "error", err)
+						return
+					}
+
+					// Save token after successful registration
+					if token := serverClient.GetToken(); token != "" && token != serverConfig.Token {
+						serverConfig.Token = token
+						if agentConfigStore != nil {
+							if err := agentConfigStore.SetConfigValue("server_config", serverConfig); err != nil {
+								appLogger.Warn("Failed to save server token", "error", err)
+							} else {
+								appLogger.Info("Server token saved to config")
+							}
+						}
+					}
+
+					// Worker runs until agent shuts down
+					// TODO: Add graceful shutdown handler
+				}()
 			}
 		}
 	}

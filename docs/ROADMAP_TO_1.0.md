@@ -95,8 +95,8 @@
 
 ---
 
-### 4. Feature Completeness
-**Status**: Core features work, but some gaps
+### 4. Feature Completeness ⭐ CRITICAL
+**Status**: Core features work, USB support is MAKE-OR-BREAK for 1.0
 
 **Must Complete:**
 - [ ] **Discovery Methods** - All protocols stable
@@ -137,6 +137,16 @@
   - History: "This printer was at Site A, now at Site B"
   - Alert when printer disappears from expected location
   - Support for mobile/DHCP environments
+
+- [ ] **USB Printer Support** ⭐ **CRITICAL FOR 1.0** 🚀 **GAME CHANGER**
+  - **Problem**: Many clients have USB printers with NO network visibility
+  - **Solution**: Cross-platform USB printer monitoring with full metrics
+  - **Architecture**: **Pure Go** with gousbsnmp library (SNMP-over-USB via IEEE 1284.4)
+  - **Strategy**: Build gousbsnmp as side project during v0.3.0-v0.9.0, integrate in v1.0
+  - **Rationale**: Single cross-platform solution, super lightweight, avoids double work
+  - **Deliverable**: Same rich metrics (page counts, toner levels) as network printers
+  - **Target**: v1.0 (gousbsnmp development during earlier versions)
+  - See: `docs/USB_IMPLEMENTATION.md` for detailed plan
 
 ---
 
@@ -370,46 +380,92 @@ CREATE TABLE device_location_history (
 - SQLite storage
 - Windows builds
 
-### 0.2.0 - Configuration Stability
+### 0.2.0 - Multi-Agent Server ⚡ IN PROGRESS
+- ✅ Agent-server communication protocol (REST/JSON)
+- ✅ ServerClient implementation with Bearer token auth
+- ⚠️ Server token generation (in progress)
+- ⚠️ Server audit logging (in progress)
+- ⚠️ Agent upload worker (in progress)
+- Multi-site agent management
+- Centralized dashboard
+- **Target**: Ship this week
+
+### 0.3.0 - Local Printer Tracking & History
+- Track printer by serial number across IP changes
+- Device location history table
+- Alert when printer moves between sites
+- Last-seen timestamp tracking
+- DHCP environment support
+- **Target**: 2-3 weeks after v0.2.0
+
+### 0.4.0 - Configuration Stability
 - Finalize config format
 - Config validation
 - Example configs for common setups
+- Environment variable support
 
-### 0.3.0 - Database Stability
+### 0.5.0 - Database Stability
 - Lock schema for devices table
 - Lock schema for metrics_history
 - Migration system in place
 - Backup/restore tools
+- Schema versioning system
 
-### 0.4.0 - Cross-Platform
-- Linux support verified
-- macOS support verified
-- Platform-specific installers
+### 0.6.0 - Agent Deployment & Packaging 📦
+- Custom installer generator (per-site credentials)
+- One-time registration token system
+- Windows: NSIS/WiX installer with embedded config
+- Linux/macOS: Universal shell script installer
+- Raspberry Pi: Pre-configured SD card image generator
+- Agent licensing/revocation system
+- IP whitelisting and geo-validation
+- **Goal**: Zero-touch deployment for MSPs
 
-### 0.5.0 - API Stability
-- API versioning implemented
-- All endpoints documented
-- Response format standardized
+### 0.7.0 - Cross-Platform & Hardware
+- Linux x64 support verified
+- macOS (Intel/ARM) support verified
+- Raspberry Pi 4/5 support verified
+- Raspberry Pi deployment documentation
+- Hardware recommendation guide
+- Platform-specific optimizations
 
-### 0.6.0 - Security Hardening
+### 0.8.0 - gousbsnmp Side Project (Parallel Development)
+- Start gousbsnmp library development
+- USB device enumeration with gousb
+- IEEE 1284.4 packet framing implementation
+- SNMP marshaling integration with gosnmp
+- Basic SNMP query/response over USB
+- Test with 2-3 printer brands
+- **Note**: Development happens in parallel, doesn't block other milestones
+
+### 0.9.0 - Security Hardening & Production Polish
 - HTTPS enforced
-- Authentication options
+- Certificate management
+- Multi-tenant isolation
 - Security audit complete
-
-### 0.7.0 - Vendor Support
-- Top 7 vendors fully tested
+- Vendor support (top 7 vendors fully tested)
 - OID mappings verified
 - Known limitations documented
+- Performance benchmarking
+- Load testing (100+ agents, 1000+ printers)
 
-### 0.8.0 - Documentation Complete
-- User guide written
-- Admin guide written
-- API reference complete
-
-### 0.9.0 - Release Candidate
+### 0.10.0 - Release Candidate
 - All tests passing
 - Performance verified
 - Bug fix sprint
+- Documentation complete (user guide, admin guide, API reference)
+
+### 1.0.0 - USB Printer Support Integration 🚀 GAME CHANGER
+- Integrate mature gousbsnmp library (from v0.8.0 parallel development)
+- Agent USB discovery with pure Go implementation
+- Cross-platform USB printer enumeration
+- Same rich metrics as network printers (page counts, toner levels)
+- No C++ dependencies - 100% pure Go, super lightweight
+- Single binary works on Windows, Linux, macOS, Raspberry Pi
+- USB printer configuration and management
+- USB printer troubleshooting tools
+- **Final deliverable**: World's first open-source tool with comprehensive USB printer monitoring
+- Beta testing with friendly MSPs
 
 ### 1.0.0 - Stable Release 🎉
 - All above complete

@@ -67,6 +67,7 @@ func (s *SQLiteStore) initSchema() error {
 		platform TEXT NOT NULL,
 		version TEXT NOT NULL,
 		protocol_version TEXT NOT NULL,
+		token TEXT NOT NULL,
 		registered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		status TEXT NOT NULL DEFAULT 'active'
@@ -74,6 +75,7 @@ func (s *SQLiteStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_agents_agent_id ON agents(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_agents_last_seen ON agents(last_seen);
+	CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token);
 
 	-- Devices discovered by agents
 	CREATE TABLE IF NOT EXISTS devices (
@@ -123,6 +125,21 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_metrics_serial ON metrics_history(serial);
 	CREATE INDEX IF NOT EXISTS idx_metrics_agent_id ON metrics_history(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics_history(timestamp);
+
+	-- Audit log for agent operations
+	CREATE TABLE IF NOT EXISTS audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		agent_id TEXT NOT NULL,
+		action TEXT NOT NULL,
+		details TEXT,
+		ip_address TEXT,
+		FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_audit_agent_id ON audit_log(agent_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -150,21 +167,22 @@ func (s *SQLiteStore) initSchema() error {
 // RegisterAgent registers a new agent or updates existing
 func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 	query := `
-		INSERT INTO agents (agent_id, hostname, ip, platform, version, protocol_version, registered_at, last_seen, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agents (agent_id, hostname, ip, platform, version, protocol_version, token, registered_at, last_seen, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(agent_id) DO UPDATE SET
 			hostname = excluded.hostname,
 			ip = excluded.ip,
 			platform = excluded.platform,
 			version = excluded.version,
 			protocol_version = excluded.protocol_version,
+			token = excluded.token,
 			last_seen = excluded.last_seen,
 			status = excluded.status
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
 		agent.AgentID, agent.Hostname, agent.IP, agent.Platform,
-		agent.Version, agent.ProtocolVersion, agent.RegisteredAt,
+		agent.Version, agent.ProtocolVersion, agent.Token, agent.RegisteredAt,
 		agent.LastSeen, agent.Status)
 
 	return err
@@ -174,7 +192,7 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, error) {
 	query := `
 		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
-		       registered_at, last_seen, status
+		       token, registered_at, last_seen, status
 		FROM agents
 		WHERE agent_id = ?
 	`
@@ -183,7 +201,7 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 	err := s.db.QueryRowContext(ctx, query, agentID).Scan(
 		&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
 		&agent.Platform, &agent.Version, &agent.ProtocolVersion,
-		&agent.RegisteredAt, &agent.LastSeen, &agent.Status,
+		&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
 	)
 
 	if err == sql.ErrNoRows {
@@ -200,7 +218,7 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	query := `
 		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
-		       registered_at, last_seen, status
+		       token, registered_at, last_seen, status
 		FROM agents
 		ORDER BY last_seen DESC
 	`
@@ -217,7 +235,7 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 		err := rows.Scan(
 			&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
 			&agent.Platform, &agent.Version, &agent.ProtocolVersion,
-			&agent.RegisteredAt, &agent.LastSeen, &agent.Status,
+			&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
 		)
 		if err != nil {
 			return nil, err
@@ -226,6 +244,32 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	}
 
 	return agents, rows.Err()
+}
+
+// GetAgentByToken retrieves an agent by bearer token
+func (s *SQLiteStore) GetAgentByToken(ctx context.Context, token string) (*Agent, error) {
+	query := `
+		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
+		       token, registered_at, last_seen, status
+		FROM agents
+		WHERE token = ?
+	`
+
+	var agent Agent
+	err := s.db.QueryRowContext(ctx, query, token).Scan(
+		&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
+		&agent.Platform, &agent.Version, &agent.ProtocolVersion,
+		&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("invalid token")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &agent, nil
 }
 
 // UpdateAgentHeartbeat updates agent's last_seen timestamp
@@ -485,6 +529,74 @@ func (s *SQLiteStore) GetMetricsHistory(ctx context.Context, serial string, sinc
 	}
 
 	return history, rows.Err()
+}
+
+// SaveAuditEntry saves an audit log entry to the database
+func (s *SQLiteStore) SaveAuditEntry(ctx context.Context, entry *AuditEntry) error {
+	query := `
+		INSERT INTO audit_log (timestamp, agent_id, action, details, ip_address)
+		VALUES (?, ?, ?, ?, ?)
+	`
+
+	_, err := s.db.ExecContext(ctx, query,
+		entry.Timestamp, entry.AgentID, entry.Action, entry.Details, entry.IPAddress)
+	return err
+}
+
+// GetAuditLog retrieves audit log entries for an agent since a given time
+func (s *SQLiteStore) GetAuditLog(ctx context.Context, agentID string, since time.Time) ([]*AuditEntry, error) {
+	var query string
+	var args []interface{}
+
+	if agentID != "" {
+		query = `
+			SELECT id, timestamp, agent_id, action, details, ip_address
+			FROM audit_log
+			WHERE agent_id = ? AND timestamp >= ?
+			ORDER BY timestamp DESC
+		`
+		args = []interface{}{agentID, since}
+	} else {
+		// Get all audit entries if no agent_id specified
+		query = `
+			SELECT id, timestamp, agent_id, action, details, ip_address
+			FROM audit_log
+			WHERE timestamp >= ?
+			ORDER BY timestamp DESC
+		`
+		args = []interface{}{since}
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []*AuditEntry
+	for rows.Next() {
+		var entry AuditEntry
+		var details, ipAddress sql.NullString
+
+		err := rows.Scan(
+			&entry.ID, &entry.Timestamp, &entry.AgentID,
+			&entry.Action, &details, &ipAddress,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if details.Valid {
+			entry.Details = details.String
+		}
+		if ipAddress.Valid {
+			entry.IPAddress = ipAddress.String
+		}
+
+		entries = append(entries, &entry)
+	}
+
+	return entries, rows.Err()
 }
 
 // Close closes the database connection

@@ -14,6 +14,7 @@ type Agent struct {
 	Platform        string    `json:"platform"`         // windows, linux, darwin
 	Version         string    `json:"version"`          // Agent version
 	ProtocolVersion string    `json:"protocol_version"` // Protocol compatibility
+	Token           string    `json:"token"`            // Bearer token for authentication
 	RegisteredAt    time.Time `json:"registered_at"`
 	LastSeen        time.Time `json:"last_seen"`
 	Status          string    `json:"status"` // active, inactive, offline
@@ -57,11 +58,22 @@ type MetricsSnapshot struct {
 	TonerLevels map[string]interface{} `json:"toner_levels,omitempty"`
 }
 
+// AuditEntry represents an audit log entry for agent operations
+type AuditEntry struct {
+	ID        int64     `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	AgentID   string    `json:"agent_id"`
+	Action    string    `json:"action"` // register, heartbeat, upload_devices, upload_metrics, etc.
+	Details   string    `json:"details,omitempty"`
+	IPAddress string    `json:"ip_address,omitempty"`
+}
+
 // Store defines the interface for server data storage
 type Store interface {
 	// Agent management
 	RegisterAgent(ctx context.Context, agent *Agent) error
 	GetAgent(ctx context.Context, agentID string) (*Agent, error)
+	GetAgentByToken(ctx context.Context, token string) (*Agent, error)
 	ListAgents(ctx context.Context) ([]*Agent, error)
 	UpdateAgentHeartbeat(ctx context.Context, agentID string, status string) error
 
@@ -75,6 +87,10 @@ type Store interface {
 	SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) error
 	GetLatestMetrics(ctx context.Context, serial string) (*MetricsSnapshot, error)
 	GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error)
+
+	// Audit logging
+	SaveAuditEntry(ctx context.Context, entry *AuditEntry) error
+	GetAuditLog(ctx context.Context, agentID string, since time.Time) ([]*AuditEntry, error)
 
 	// Utility
 	Close() error
