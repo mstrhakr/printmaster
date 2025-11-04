@@ -1,9 +1,20 @@
 # PrintMaster
 
-PrintMaster is a cross-platform printer/copier fleet management system implemented in Go. It consists of two components:
+> 🚧 **Pre-release Development** - This project will go public at v0.9.0
 
-- **Agent** - Discovers network printers, collects device metadata (model, serial, life counters) via SNMP, and can run standalone or report to server
-- **Server** - Central hub for managing multiple agents, aggregating data, reporting, and alerting
+PrintMaster is a cross-platform printer/copier fleet management system built for **MSPs**, **MPS providers**, **copier dealers**, and **IT departments** managing large print fleets. Implemented in Go with automated discovery and centralized monitoring.
+
+## Who This Is For
+
+- **Managed Service Providers (MSPs)** - Monitor client print infrastructure across multiple sites
+- **Managed Print Services (MPS)** - Track usage, supplies, and service needs proactively  
+- **Print Solutions Providers / Copier Dealers** - Monitor devices under maintenance agreements, integrate with PaperCut, provide tier-2 support
+- **IT Departments** - Manage corporate print fleets with automated discovery and reporting
+
+## Components
+
+- **Agent** - Discovers network printers, collects device metadata (model, serial, life counters) via SNMP, can run standalone or report to server
+- **Server** - Central hub for managing multiple agents across sites, aggregating data, reporting, and alerting
 
 ## Architecture
 
