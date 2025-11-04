@@ -112,12 +112,141 @@ c:\temp\printmaster\
 - TonerLevels map[string]interface{}
 - Time-series data separated from device identity in metrics_history table
 
+## Build & Release Workflow
+
+### Daily Development Workflow
+
+**Use the new automation tools for all build and release tasks:**
+
+1. **Building Code**:
+   - Use VS Code tasks (Ctrl+Shift+B) → "Build: Agent (Dev)" or "Build: Server (Dev)"
+   - Or run: `.\build.ps1 agent` / `.\build.ps1 server` / `.\build.ps1 both`
+   - Build script automatically injects version, git commit, build time into binaries
+
+2. **Running Tests**:
+   - ALWAYS use `runTests` tool for Go tests (pre-approved, no prompts)
+   - Or use VS Code task: "Test: Agent (all)" / "Test: Server (all)"
+   - Tests must pass before any release
+
+3. **Debugging**:
+   - Use VS Code launch configs (F5)
+   - Available: "Debug: Agent (Default Port)", "Debug: Server (Default Port)", "Debug: Agent + Server Together"
+   - All configs auto-kill existing processes via preLaunchTask
+
+4. **Checking Status**:
+   - Run `.\status.ps1` to see versions, git status, build artifacts, running processes
+   - Use before starting work or before making releases
+
+### Making Releases
+
+**IMPORTANT: Use `release.ps1` for all version bumps and releases**
+
+**When to Release:**
+- **PATCH** (0.1.0 → 0.1.1): After bug fixes, performance improvements, docs updates
+- **MINOR** (0.1.0 → 0.2.0): After adding new features (backward compatible)
+- **MAJOR** (0.1.0 → 1.0.0): After breaking changes or API changes (rare pre-1.0)
+
+**How to Release:**
+```powershell
+# Patch release (bug fixes)
+.\release.ps1 agent patch
+
+# Minor release (new features)
+.\release.ps1 agent minor
+
+# Major release (breaking changes)
+.\release.ps1 agent major
+
+# Release server component
+.\release.ps1 server patch
+
+# Release both components together
+.\release.ps1 both patch
+```
+
+**What `release.ps1` Does Automatically:**
+1. ✅ Checks git status (warns if uncommitted changes)
+2. ✅ Bumps version in VERSION file(s) (using SemVer)
+3. ✅ Runs all tests (fails if any test fails)
+4. ✅ Builds optimized release binary (stripped, production-ready)
+5. ✅ Commits VERSION file with message like "chore: Release agent v0.2.0"
+6. ✅ Creates git tag (e.g., v0.2.0 for agent, server-v0.2.0 for server)
+7. ✅ Pushes commit and tags to GitHub
+
+**Release Flags:**
+- `--DryRun` - Preview what would happen without doing it
+- `--SkipTests` - Skip test execution (NOT recommended!)
+- `--SkipPush` - Commit and tag locally but don't push to GitHub
+
+**Release Checklist for Copilot:**
+- [ ] Ask user which component (agent/server/both) and bump type (patch/minor/major)
+- [ ] Ensure working directory is clean (or warn user)
+- [ ] Let `release.ps1` handle the entire workflow
+- [ ] DO NOT manually edit VERSION files - let the script do it
+- [ ] DO NOT manually commit/tag - let the script do it
+- [ ] After successful release, verify with `git log --oneline -1` and `git tag -l`
+
+### Git Workflow Integration
+
+**When making code changes:**
+1. Make changes and test locally (`.\build.ps1 agent`, `runTests`)
+2. Commit regularly with meaningful messages:
+   - `feat:` for new features
+   - `fix:` for bug fixes
+   - `docs:` for documentation
+   - `chore:` for maintenance tasks
+   - `refactor:` for code restructuring
+3. Push to GitHub: `git push`
+4. When ready to release: Use `.\release.ps1` (never manual version bumps)
+
+**Available VS Code Git Tasks:**
+- "Git: Status" - Check current status
+- "Git: Commit All" - Stage and commit all changes
+- "Git: Push" - Push to GitHub
+- "Git: Pull" - Pull latest changes
+
+**Copilot Should:**
+- Suggest using `release.ps1` when user asks to "bump version" or "make a release"
+- Remind user to commit working changes before releasing
+- Use git commands directly for normal commits, but ALWAYS use `release.ps1` for releases
+- Check `.\status.ps1` output when unclear about project state
+
+### VS Code Integration Reference
+
+**Tasks (Ctrl+Shift+B):**
+- Build: Agent/Server/Both (Dev)
+- Test: Agent/Server (all)
+- Release: Agent/Server/Both Patch/Minor/Major
+- Git: Status/Commit/Push/Pull
+- Utility: Kill processes, Show logs, Show version
+
+**Launch Configs (F5):**
+- Debug: Agent (Default Port) / Agent (Port 9090) / Agent (Custom Config)
+- Debug: Server (Default Port) / Server (Port 8080)
+- Debug: Current Test Function / All Tests in Package
+- Debug: Agent + Server Together (compound config)
+
+**Helper Scripts:**
+- `status.ps1` - Quick project overview
+- `build.ps1` - Build components (dev or release mode)
+- `release.ps1` - Automated release workflow
+- `version.ps1` - Show current versions
+
 ## Contribution Guidelines
 
 - All code should be clean, well-documented, and follow project structure
 - New features should include tests and documentation
 - Roadmap and structure files should be updated with major changes
+- Use `release.ps1` for all version bumps and releases (never manual)
+- Commit often with conventional commit messages (feat:, fix:, docs:, chore:)
+- Test locally before pushing (`runTests` tool or VS Code tasks)
+
+## Documentation Reference
+
+- `docs/BUILD_WORKFLOW.md` - Complete build, test, and release guide
+- `GIT_INTEGRATION_SUMMARY.md` - Git/GitHub integration reference
+- `docs/ROADMAP_TO_1.0.md` - Feature roadmap and milestones
 
 ---
 
-These instructions ensure the project remains organized, professional, and easy to maintain as it grows.
+These instructions ensure the project remains organized, professional, and easy to maintain as it grows. The automated build and release workflow keeps versioning consistent and reduces human error.
