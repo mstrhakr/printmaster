@@ -1,0 +1,297 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    // ========== Build Tasks ==========
+    {
+      "label": "Build: Agent (Dev)",
+      "type": "shell",
+      "command": ".\\build.ps1",
+      "args": ["agent"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Build: Server (Dev)",
+      "type": "shell",
+      "command": ".\\build.ps1",
+      "args": ["server"],
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Build: Both (Dev)",
+      "type": "shell",
+      "command": ".\\build.ps1",
+      "args": ["both"],
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Build: Clean artifacts",
+      "type": "shell",
+      "command": ".\\build.ps1",
+      "args": ["clean"],
+      "group": "build",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    
+    // ========== Test Tasks ==========
+    {
+      "label": "Test: Agent (all)",
+      "type": "shell",
+      "command": "cd agent; go test ./... -v",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Test: Server (all)",
+      "type": "shell",
+      "command": "cd server; go test ./... -v",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    
+    // ========== Release Tasks ==========
+    {
+      "label": "Release: Agent Patch",
+      "type": "shell",
+      "command": ".\\release.ps1",
+      "args": ["agent", "patch"],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Release: Agent Minor",
+      "type": "shell",
+      "command": ".\\release.ps1",
+      "args": ["agent", "minor"],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Release: Agent Major",
+      "type": "shell",
+      "command": ".\\release.ps1",
+      "args": ["agent", "major"],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Release: Server Patch",
+      "type": "shell",
+      "command": ".\\release.ps1",
+      "args": ["server", "patch"],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Release: Both Patch",
+      "type": "shell",
+      "command": ".\\release.ps1",
+      "args": ["both", "patch"],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    
+    // ========== Git Tasks ==========
+    {
+      "label": "Git: Status",
+      "type": "shell",
+      "command": "git status",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Git: Commit All",
+      "type": "shell",
+      "command": "git add -A; git commit",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Git: Push",
+      "type": "shell",
+      "command": "git push",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Git: Pull",
+      "type": "shell",
+      "command": "git pull",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    
+    // ========== Utility Tasks ==========
+    {
+      "label": "Kill: PrintMaster processes",
+      "type": "shell",
+      "command": "Get-Process | Where-Object {$_.ProcessName -like '*printmaster*' -or $_.Path -like '*printmaster*' -or $_.ProcessName -like '*debug_bin*' -or $_.ProcessName -eq 'dlv'} | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host 'All PrintMaster and debug processes killed' -ForegroundColor Green",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Show Build Log",
+      "type": "shell",
+      "command": "Get-Content",
+      "args": ["logs\\build.log", "-Tail", "50"],
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    },
+    {
+      "label": "Show Version",
+      "type": "shell",
+      "command": "Write-Host 'Agent:' (Get-Content VERSION) '| Server:' (Get-Content server\\VERSION)",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": true
+      }
+    }
+  ]
+}

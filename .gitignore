@@ -27,7 +27,11 @@ server/printmaster-server.exe
 vendor/
 
 # IDE and editor files
-.vscode/
+# Keep .vscode/ tasks and launch configs for team consistency
+.vscode/*
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo

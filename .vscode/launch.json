@@ -1,0 +1,159 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    // ========== Agent Debugging ==========
+    {
+      "name": "Debug: Agent (Default Port)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}\\agent",
+      "cwd": "${workspaceFolder}\\agent",
+      "env": {},
+      "args": [],
+      "buildFlags": "",
+      "output": "${workspaceFolder}\\agent\\__debug_bin.exe",
+      "showLog": true,
+      "preLaunchTask": "Kill: PrintMaster processes"
+    },
+    {
+      "name": "Debug: Agent (Port 9090)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}\\agent",
+      "cwd": "${workspaceFolder}\\agent",
+      "env": {},
+      "args": ["-port", "9090"],
+      "buildFlags": "",
+      "output": "${workspaceFolder}\\agent\\__debug_bin.exe",
+      "showLog": true,
+      "preLaunchTask": "Kill: PrintMaster processes"
+    },
+    {
+      "name": "Debug: Agent (Custom Config)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}\\agent",
+      "cwd": "${workspaceFolder}\\agent",
+      "env": {},
+      "args": ["-config", "config.ini"],
+      "buildFlags": "",
+      "output": "${workspaceFolder}\\agent\\__debug_bin.exe",
+      "showLog": true,
+      "preLaunchTask": "Kill: PrintMaster processes"
+    },
+    {
+      "name": "Run: Agent (No Debug)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/agent",
+      "cwd": "${workspaceFolder}/agent",
+      "args": [],
+      "env": {},
+      "preLaunchTask": "Kill: PrintMaster processes"
+    },
+    
+    // ========== Server Debugging ==========
+    {
+      "name": "Debug: Server (Default Port)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}\\server",
+      "cwd": "${workspaceFolder}\\server",
+      "env": {},
+      "args": [],
+      "buildFlags": "",
+      "output": "${workspaceFolder}\\server\\__debug_bin.exe",
+      "showLog": true,
+      "preLaunchTask": "Kill: PrintMaster processes"
+    },
+    {
+      "name": "Debug: Server (Port 8080)",
+      "type": "go",
+      "request": "launch",
+      "mode": "debug",
+      "program": "${workspaceFolder}\\server",
+      "cwd": "${workspaceFolder}\\server",
+      "env": {},
+      "args": ["-port", "8080"],
+      "buildFlags": "",
+      "output": "${workspaceFolder}\\server\\__debug_bin.exe",
+      "showLog": true,
+      "preLaunchTask": "Kill: PrintMaster processes"
+    },
+    {
+      "name": "Run: Server (No Debug)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/server",
+      "cwd": "${workspaceFolder}/server",
+      "args": [],
+      "env": {},
+      "preLaunchTask": "Kill: PrintMaster processes"
+    },
+    
+    // ========== Test Debugging ==========
+    {
+      "name": "Debug: Current Test Function",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "args": [
+        "-test.v",
+        "-test.run",
+        "^${selectedText}$"
+      ],
+      "showLog": true
+    },
+    {
+      "name": "Debug: All Tests in Package",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "args": ["-test.v"],
+      "showLog": true
+    },
+    {
+      "name": "Debug: Current File Tests",
+      "type": "go",
+      "request": "launch",
+      "mode": "test",
+      "program": "${fileDirname}",
+      "args": [
+        "-test.v",
+        "-test.run",
+        "${fileBasenameNoExtension}"
+      ],
+      "showLog": true
+    },
+    
+    // ========== Attach Configurations ==========
+    {
+      "name": "Attach: Process (PID)",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "processId": "${command:pickProcess}"
+    }
+  ],
+  
+  // ========== Compound Configurations ==========
+  "compounds": [
+    {
+      "name": "Debug: Agent + Server Together",
+      "configurations": [
+        "Debug: Server (Default Port)",
+        "Debug: Agent (Port 9090)"
+      ],
+      "stopAll": true
+    }
+  ]
+}
+
