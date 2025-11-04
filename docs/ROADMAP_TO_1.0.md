@@ -124,6 +124,20 @@
   - Test: Auto-restart on failure
   - Verify: Runs under service account
 
+- [ ] **Multi-Agent Server** ⭐ **CRITICAL FOR 1.0**
+  - Agent→Server communication working
+  - Server tracks multiple agents across different sites
+  - Centralized dashboard showing all agents and their devices
+  - Agent status monitoring (online/offline/last-seen)
+  - Cross-site reporting and analytics
+
+- [ ] **Local Printer Tracking** ⭐ **CRITICAL FOR 1.0**
+  - Detect when printers move between network locations
+  - Track printer by serial number across IP changes
+  - History: "This printer was at Site A, now at Site B"
+  - Alert when printer disappears from expected location
+  - Support for mobile/DHCP environments
+
 ---
 
 ### 5. Cross-Platform Compatibility ✅
@@ -236,6 +250,115 @@
   - [ ] Test suite runs on every build
   - [ ] Known issues documented
   - [ ] No breaking changes without major version bump
+
+---
+
+## Enterprise Features for 1.0
+
+### Multi-Agent Architecture 🏢
+
+**The Problem:**
+MSPs and enterprise customers need to monitor printer fleets across **multiple physical locations** (headquarters, branch offices, warehouses, remote sites). Each site needs a local agent, but management needs centralized visibility.
+
+**The Solution:**
+```
+Site A (Office)              Central Server              Site B (Warehouse)
+┌─────────────┐                    │                    ┌─────────────┐
+│  Agent A    │────────────────────┼────────────────────│  Agent B    │
+│  - 25 printers                   │                    │  - 15 printers
+│  - 192.168.1.x                   │                    │  - 10.0.0.x
+└─────────────┘                    │                    └─────────────┘
+                                   │
+                          ┌────────▼────────┐
+                          │  PrintMaster    │
+                          │  Server         │
+                          │  - All agents   │
+                          │  - All devices  │
+                          │  - Reporting    │
+                          └─────────────────┘
+```
+
+**Requirements:**
+1. **Agent Registration** - Each agent registers with unique ID
+2. **Data Upload** - Agents periodically send devices/metrics to server
+3. **Agent Monitoring** - Server knows which agents are online/offline
+4. **Multi-Tenant UI** - Server UI shows all sites in one dashboard
+5. **Site Isolation** - Data from Site A doesn't interfere with Site B
+6. **Audit Trail** - Track which agent reported what
+
+**Implementation Status (v0.2.0):**
+- [x] Server database schema (agents, devices, metrics tables)
+- [x] Server API endpoints (register, heartbeat, upload)
+- [ ] Agent ServerClient (HTTP client to send data)
+- [ ] Upload worker (background sync)
+- [ ] Server dashboard UI
+
+**Critical for:** MSPs managing multiple customers, enterprises with branch offices
+
+---
+
+### Local Printer Tracking 📍
+
+**The Problem:**
+Printers **move around**:
+- Employee takes printer from Office A to Office B
+- DHCP assigns new IP when printer reconnects
+- Printer offline for maintenance, comes back with different IP
+- Mobile workers with portable printers
+
+**Current Behavior (BROKEN):**
+```
+Day 1: Printer S/N ABC123 found at 192.168.1.50
+Day 2: Same printer now at 192.168.1.75 (new DHCP lease)
+Result: Agent thinks there are TWO printers (old one "disappeared", new one "appeared")
+```
+
+**The Solution:**
+Track printers by **serial number**, not IP address:
+```
+Printer ABC123:
+  - First seen: 2025-11-01 at 192.168.1.50
+  - Now at: 192.168.1.75 (moved 2025-11-03)
+  - Location history:
+    - 192.168.1.50 (2025-11-01 to 2025-11-03)
+    - 192.168.1.75 (2025-11-03 to present)
+```
+
+**Requirements:**
+1. **Serial Number as Primary Key** - Already done in schema ✅
+2. **IP Change Detection** - Flag when printer's IP changes
+3. **Location History** - Track IP addresses over time
+4. **Movement Alerts** - "Printer XYZ moved to new location"
+5. **Offline Detection** - "Printer XYZ not seen for 7 days"
+6. **MAC Address Correlation** - Use MAC as secondary identifier
+
+**Implementation Status:**
+- [x] Serial number primary key in database
+- [ ] IP change detection logic
+- [ ] Location history table/tracking
+- [ ] Movement alerts in UI
+- [ ] MAC address tracking
+
+**Database Schema Addition Needed:**
+```sql
+CREATE TABLE device_location_history (
+    id INTEGER PRIMARY KEY,
+    serial TEXT NOT NULL,
+    ip TEXT,
+    mac_address TEXT,
+    hostname TEXT,
+    first_seen DATETIME,
+    last_seen DATETIME,
+    agent_id TEXT,  -- Which agent saw it (for multi-agent deployments)
+    FOREIGN KEY (serial) REFERENCES devices(serial)
+);
+```
+
+**Critical for:** 
+- DHCP environments
+- Mobile printer fleets
+- Multi-site organizations
+- Tracking stolen/missing equipment
 
 ---
 

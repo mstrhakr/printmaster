@@ -22,3 +22,23 @@
 
 # Discovery concurrency (number of parallel workers, default: 50)
 #discover_concurrency=50
+
+# ============================================================
+# Server Integration (for multi-agent deployments)
+# ============================================================
+
+# Enable server communication (true/false, default: false)
+#server_enabled=false
+
+# Server URL (required if server_enabled=true)
+#server_url=http://localhost:9090
+
+# Unique agent identifier (required if server_enabled=true)
+# Use descriptive names like: agent-headquarters, agent-warehouse-1
+#agent_id=agent-001
+
+# How often to upload devices to server (seconds, default: 300 = 5 minutes)
+#server_upload_interval=300
+
+# How often to send heartbeat to server (seconds, default: 60 = 1 minute)
+#server_heartbeat_interval=60

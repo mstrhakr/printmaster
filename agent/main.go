@@ -1788,6 +1788,90 @@ func runInteractive() {
 		}
 	}
 
+	// Load server configuration (for multi-agent deployments)
+	var serverConfig struct {
+		Enabled           bool   `json:"enabled"`
+		URL               string `json:"url"`
+		AgentID           string `json:"agent_id"`
+		UploadInterval    int    `json:"upload_interval"`    // seconds
+		HeartbeatInterval int    `json:"heartbeat_interval"` // seconds
+		Token             string `json:"token"`              // auth token (stored after registration)
+	}
+	{
+		// Load from database (if agent has registered before)
+		if agentConfigStore != nil {
+			_ = agentConfigStore.GetConfigValue("server_config", &serverConfig)
+		}
+
+		// Override with config.ini if it exists
+		configPath := filepath.Join(".", "config.ini")
+		if data, err := os.ReadFile(configPath); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+					continue
+				}
+				parts := strings.SplitN(line, "=", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				key := strings.TrimSpace(parts[0])
+				val := strings.TrimSpace(parts[1])
+
+				switch strings.ToLower(key) {
+				case "server_enabled":
+					serverConfig.Enabled = (strings.ToLower(val) == "true" || val == "1")
+					appLogger.Info("Server config override", "key", "enabled", "value", serverConfig.Enabled)
+				case "server_url":
+					serverConfig.URL = val
+					appLogger.Info("Server config override", "key", "url", "value", val)
+				case "agent_id":
+					serverConfig.AgentID = val
+					appLogger.Info("Server config override", "key", "agent_id", "value", val)
+				case "server_upload_interval":
+					if interval, err := strconv.Atoi(val); err == nil {
+						serverConfig.UploadInterval = interval
+						appLogger.Info("Server config override", "key", "upload_interval", "value", val)
+					}
+				case "server_heartbeat_interval":
+					if interval, err := strconv.Atoi(val); err == nil {
+						serverConfig.HeartbeatInterval = interval
+						appLogger.Info("Server config override", "key", "heartbeat_interval", "value", val)
+					}
+				}
+			}
+		}
+
+		// Apply defaults
+		if serverConfig.UploadInterval == 0 {
+			serverConfig.UploadInterval = 300 // Default 5 minutes
+		}
+		if serverConfig.HeartbeatInterval == 0 {
+			serverConfig.HeartbeatInterval = 60 // Default 1 minute
+		}
+
+		// Validate configuration
+		if serverConfig.Enabled {
+			if serverConfig.URL == "" {
+				appLogger.Error("Server enabled but no URL configured")
+				serverConfig.Enabled = false
+			}
+			if serverConfig.AgentID == "" {
+				appLogger.Error("Server enabled but no agent_id configured")
+				serverConfig.Enabled = false
+			}
+
+			if serverConfig.Enabled {
+				appLogger.Info("Server integration enabled",
+					"url", serverConfig.URL,
+					"agent_id", serverConfig.AgentID,
+					"upload_interval", serverConfig.UploadInterval,
+					"heartbeat_interval", serverConfig.HeartbeatInterval)
+			}
+		}
+	}
+
 	// Check discovery settings and start auto-discovery and live discovery methods if enabled
 	{
 		var discoverySettings map[string]interface{}
