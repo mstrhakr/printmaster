@@ -104,13 +104,11 @@ function Build-Component {
     Write-Status "Building $Component..." "STEP"
     
     # Build with -Release flag for optimized, stripped binaries
-    $buildArgs = @($Component, '-Release')
-    
     if ($VerbosePreference -eq 'Continue') {
-        $buildArgs += '-VerboseBuild'
+        $buildResult = & "$ProjectRoot\build.ps1" $Component -Release -VerboseBuild
+    } else {
+        $buildResult = & "$ProjectRoot\build.ps1" $Component -Release
     }
-    
-    $buildResult = & "$ProjectRoot\build.ps1" @buildArgs
     
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed for $Component"
