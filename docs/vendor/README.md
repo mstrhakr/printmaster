@@ -1,0 +1,53 @@
+# Vendor-Specific OID Documentation
+
+This directory contains vendor-specific SNMP OID mappings and analysis for printer manufacturers.
+
+## Files
+
+### EPSON_OID_MAPPING.md
+Epson-specific OID mappings for enhanced metrics collection.
+- Enterprise OID base: `1.3.6.1.4.1.231.*`
+- Custom counters and supply tracking
+- Vendor quirks and workarounds
+
+### KYOCERA_OID_MAPPING.md
+Kyocera-specific OID mappings and meter analysis.
+- Enterprise OID discovery
+- Counter mappings
+- Vendor-specific behaviors
+
+### VENDOR_METER_ANALYSIS.md
+Cross-vendor meter analysis and counter normalization strategies.
+- Comparison of meter implementations across vendors
+- PrintAudit category mappings
+- Heuristics for counter detection
+
+## Usage
+
+These documents serve as reference material for:
+- Adding new vendor support
+- Understanding vendor-specific SNMP implementations
+- Debugging vendor-specific issues
+- Improving parser heuristics
+
+## Implementation
+
+Vendor-specific code is implemented in:
+- `agent/scanner/vendor/hp.go`
+- `agent/scanner/vendor/canon.go`
+- `agent/scanner/vendor/brother.go`
+- `agent/scanner/vendor/generic.go` (fallback)
+- `agent/scanner/vendor/registry.go` (vendor detection)
+
+## Adding New Vendors
+
+1. Identify vendor enterprise OID from `sysObjectID`
+2. Document OID mappings in this directory
+3. Create vendor module in `agent/scanner/vendor/`
+4. Add detection logic to `registry.go`
+5. Test with real hardware
+6. Update main SNMP reference: `docs/SNMP_REFERENCE.md`
+
+---
+
+*See*: `docs/SNMP_REFERENCE.md` for general SNMP documentation

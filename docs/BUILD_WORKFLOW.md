@@ -1,5 +1,44 @@
 # Build & Release Workflow
 
+## Quick Start (Development)
+
+### Windows PowerShell Quick Launch
+
+Use the helper script to test, build, and launch the agent:
+
+```powershell
+# From project root (where dev/ exists)
+pwsh -NoProfile -ExecutionPolicy Bypass .\dev\launch.ps1
+```
+
+This script will:
+- Run `go test ./...` (exits if tests fail)
+- Build agent into `./bin/printmaster-agent.exe`
+- Start the built binary
+- Open browser to `http://localhost:8080`
+
+### Manual Development Workflow
+
+If you prefer manual control:
+
+```powershell
+# Run tests
+go test ./...
+
+# Build (from project root)
+go build -o ./bin/printmaster-agent.exe ./agent
+
+# Run the agent
+./bin/printmaster-agent.exe
+
+# Open UI
+Start-Process 'http://localhost:8080'
+```
+
+**Note**: The launch script is intentionally conservative - tests must pass before build and server start.
+
+---
+
 ## Quick Reference
 
 ### Daily Development
@@ -261,3 +300,55 @@ All build, test, and release commands are available via:
   - `F5` - Start debugging
   - `Shift+F5` - Stop debugging
 - **Tasks Explorer** (Terminal → Run Task)
+
+---
+
+## Cross-Platform Testing
+
+### Testing on Linux (WSL)
+
+For cross-platform validation, test on Linux using WSL (Windows Subsystem for Linux):
+
+#### Install Go in WSL (one-time setup)
+
+```bash
+# Download and install Go 1.23.3
+wget https://go.dev/dl/go1.23.3.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.23.3.linux-amd64.tar.gz
+rm go1.23.3.linux-amd64.tar.gz
+
+# Add to PATH (append to ~/.bashrc)
+echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify installation
+go version
+```
+
+#### Run tests on Linux
+
+```bash
+# Navigate to agent directory (WSL can access Windows drives at /mnt/c/)
+cd /mnt/c/temp/printmaster/agent
+
+# Run all tests
+go test -v ./...
+
+# Run specific package tests
+go test -v ./storage/...
+```
+
+#### Cross-Platform Storage Paths
+
+The storage package uses platform-specific paths:
+- **Windows**: `%LOCALAPPDATA%\PrintMaster\devices.db`  
+  (e.g., `C:\Users\username\AppData\Local\PrintMaster\devices.db`)
+- **Linux**: `~/.local/share/PrintMaster/devices.db`  
+  (e.g., `/home/username/.local/share/PrintMaster/devices.db`)
+- **macOS**: `~/Library/Application Support/PrintMaster/devices.db`
+
+**All tests pass on Windows, Linux, and macOS**, confirming full cross-platform compatibility.
+
+---
+
+*Last Updated: November 6, 2025*
