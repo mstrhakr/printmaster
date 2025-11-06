@@ -94,8 +94,6 @@ type ScanSnapshot struct {
     IP              string
     Hostname        string
     Firmware        string
-    PageCount       int                 // Snapshot of page count at scan time
-    TonerLevels     map[string]int      // Snapshot of toner at scan time
     Consumables     []string
     StatusMessages  []string
     DiscoveryMethod string
@@ -105,9 +103,11 @@ type ScanSnapshot struct {
 ```
 
 **Use Cases**:
-- Track device changes over time
-- Calculate page count deltas (usage between scans)
-- Monitor supply level trends
+- Track device state changes over time (IP, hostname, firmware updates)
+- Audit trail of device configuration changes
+- Discovery method tracking
+
+**Note**: Metrics data (page counts, toner levels) are stored separately in the tiered metrics system (metrics_raw, metrics_hourly, metrics_daily, metrics_monthly tables) for efficient time-series analysis.
 - Audit trail for device modifications
 - Rollback/compare historical states
 
@@ -278,23 +278,35 @@ devices, err := store.List(ctx, filter)
 ### Scan History
 
 ```go
-// Record scan snapshot
+// Record scan snapshot (device state)
 snapshot := &ScanSnapshot{
     Serial:     "JPBHM12345",
     IP:         "192.168.1.100",
-    PageCount:  12543,
-    TonerLevels: map[string]int{"Black": 85, "Cyan": 60},
+    Hostname:   "office-printer-01",
+    Firmware:   "2.4.1",
     CreatedAt:  time.Now(),
 }
 store.AddScanHistory(ctx, snapshot)
 
-// Retrieve last 10 scans for device
+// Record metrics snapshot (separate from scan history)
+metrics := &MetricsSnapshot{
+    Serial:      "JPBHM12345",
+    PageCount:   12543,
+    TonerLevels: map[string]interface{}{"Black": 85, "Cyan": 60},
+    Timestamp:   time.Now(),
+}
+store.SaveMetricsSnapshot(ctx, metrics)
+
+// Retrieve last 10 scans for device (state changes)
 history, err := store.GetScanHistory(ctx, "JPBHM12345", 10)
 
-// Calculate page usage between scans
-if len(history) >= 2 {
-    pagesUsed := history[0].PageCount - history[1].PageCount
-    fmt.Printf("Printed %d pages since last scan\n", pagesUsed)
+// Retrieve metrics history (for page count analysis)
+since := time.Now().Add(-30 * 24 * time.Hour)
+until := time.Now()
+metricsHistory, err := store.GetTieredMetricsHistory(ctx, "JPBHM12345", since, until)
+if len(metricsHistory) >= 2 {
+    pagesUsed := metricsHistory[0].PageCount - metricsHistory[len(metricsHistory)-1].PageCount
+    fmt.Printf("Printed %d pages in last 30 days\n", pagesUsed)
 }
 ```
 
