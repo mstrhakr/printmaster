@@ -25,6 +25,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"printmaster/agent/agent"
@@ -502,8 +503,8 @@ func main() {
 		return
 	}
 
-	// Running interactively, start normally
-	runInteractive()
+	// Running interactively, start normally (no context means run forever)
+	runInteractive(context.Background())
 }
 
 // handleServiceCommand processes service install/uninstall/start/stop commands
@@ -518,19 +519,66 @@ func handleServiceCommand(cmd string) {
 
 	switch cmd {
 	case "install":
-		// Create service directories first
-		if err := setupServiceDirectories(); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to setup service directories: %v\n", err)
-			os.Exit(1)
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		// Check if service already exists and handle gracefully
+		status, _ := s.Status()
+		if status != service.StatusUnknown {
+			util.ShowWarning("Service already exists, removing first...")
+			
+			// Stop if running
+			if status == service.StatusRunning {
+				util.ShowInfo("Stopping existing service...")
+				_ = s.Stop()
+				time.Sleep(2 * time.Second)
+				util.ShowSuccess("Service stopped")
+			}
+
+			// Uninstall existing
+			util.ShowInfo("Removing existing service...")
+			if err := s.Uninstall(); err != nil {
+				// Ignore "marked for deletion" errors - we can still install over it
+				if !strings.Contains(err.Error(), "marked for deletion") {
+					util.ShowError(fmt.Sprintf("Failed to remove existing service: %v", err))
+					util.ShowCompletionScreen(false, "Installation Failed")
+					os.Exit(1)
+				}
+				util.ShowWarning("Service marked for deletion, will install anyway")
+			} else {
+				util.ShowSuccess("Existing service removed")
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
 
-		err = s.Install()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to install service: %v\n", err)
+		// Create service directories first
+		util.ShowInfo("Setting up directories...")
+		time.Sleep(300 * time.Millisecond)
+		if err := setupServiceDirectories(); err != nil {
+			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			util.ShowCompletionScreen(false, "Installation Failed")
 			os.Exit(1)
 		}
-		fmt.Println("PrintMaster Agent service installed successfully")
-		fmt.Println("Use '--service start' to start the service")
+		util.ShowSuccess("Directories ready")
+
+		util.ShowInfo("Installing service...")
+		time.Sleep(500 * time.Millisecond)
+		err = s.Install()
+		if err != nil {
+			// If service already exists, that's actually okay for install
+			if strings.Contains(err.Error(), "already exists") {
+				util.ShowWarning("Service already exists (this is normal)")
+			} else {
+				util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+				util.ShowCompletionScreen(false, "Installation Failed")
+				os.Exit(1)
+			}
+		}
+		util.ShowSuccess("Service installed")
+
+		util.ShowCompletionScreen(true, "Service Installed!")
+		fmt.Println()
+		util.ShowInfo("Use '--service start' to start the service")
 
 	case "uninstall":
 		err = s.Uninstall()
@@ -541,20 +589,228 @@ func handleServiceCommand(cmd string) {
 		fmt.Println("PrintMaster Agent service uninstalled successfully")
 
 	case "start":
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		util.ShowInfo("Starting service...")
 		err = s.Start()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to start service: %v\n", err)
+			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			util.ShowCompletionScreen(false, "Start Failed")
 			os.Exit(1)
 		}
-		fmt.Println("PrintMaster Agent service started successfully")
+		util.ShowSuccess("Service started")
+
+		util.ShowCompletionScreen(true, "Service Started!")
 
 	case "stop":
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		util.ShowInfo("Stopping service...")
+		done := make(chan bool)
+		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
 		err = s.Stop()
+		done <- true
+
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to stop service: %v\n", err)
+			util.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
+			util.ShowCompletionScreen(false, "Stop Failed")
 			os.Exit(1)
 		}
-		fmt.Println("PrintMaster Agent service stopped successfully")
+		util.ShowSuccess("Service stopped")
+
+		util.ShowCompletionScreen(true, "Service Stopped!")
+
+	case "status":
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		// Get service status
+		status, statusErr := s.Status()
+
+		fmt.Println()
+		util.ShowInfo("Service Status Information")
+		fmt.Println()
+
+		// Service state
+		var statusText, statusColor string
+		switch status {
+		case service.StatusRunning:
+			statusText = "RUNNING"
+			statusColor = util.ColorGreen
+		case service.StatusStopped:
+			statusText = "STOPPED"
+			statusColor = util.ColorYellow
+		case service.StatusUnknown:
+			statusText = "NOT INSTALLED"
+			statusColor = util.ColorRed
+		default:
+			statusText = "UNKNOWN"
+			statusColor = util.ColorDim
+		}
+
+		if statusErr != nil {
+			fmt.Printf("  %sService State:%s %s%s%s (%v)\n",
+				util.ColorDim, util.ColorReset,
+				statusColor, statusText, util.ColorReset,
+				statusErr)
+		} else {
+			fmt.Printf("  %sService State:%s %s%s%s\n",
+				util.ColorDim, util.ColorReset,
+				statusColor, util.ColorBold+statusText, util.ColorReset)
+		}
+
+		// Service configuration
+		cfg := getServiceConfig()
+		fmt.Printf("  %sService Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.Name)
+		fmt.Printf("  %sDisplay Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.DisplayName)
+		fmt.Printf("  %sDescription:%s   %s\n", util.ColorDim, util.ColorReset, cfg.Description)
+		fmt.Printf("  %sData Directory:%s %s\n", util.ColorDim, util.ColorReset, cfg.WorkingDirectory)
+
+		// Try to get more details on Windows
+		if runtime.GOOS == "windows" && status == service.StatusRunning {
+			fmt.Println()
+			util.ShowInfo("Checking service details...")
+
+			// Use sc.exe to query service for more info
+			cmd := exec.Command("sc", "query", cfg.Name)
+			output, err := cmd.Output()
+			if err == nil {
+				lines := strings.Split(string(output), "\n")
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if strings.Contains(line, "PID") {
+						fmt.Printf("  %s%s%s\n", util.ColorDim, line, util.ColorReset)
+					}
+				}
+			}
+
+			// Try to get uptime via wmic
+			cmd = exec.Command("wmic", "service", "where", fmt.Sprintf("name='%s'", cfg.Name), "get", "ProcessId,Started", "/value")
+			output, err = cmd.Output()
+			if err == nil {
+				fmt.Printf("  %s%s%s\n", util.ColorDim, strings.TrimSpace(string(output)), util.ColorReset)
+			}
+		}
+
+		fmt.Println()
+
+		// Show helpful next steps based on status
+		if status == service.StatusRunning {
+			util.ShowInfo("Service is running normally")
+			fmt.Println()
+			fmt.Printf("  %sWeb UI:%s http://localhost:8080 or https://localhost:8443\n", util.ColorDim, util.ColorReset)
+		} else if status == service.StatusStopped {
+			util.ShowWarning("Service is installed but not running")
+			fmt.Println()
+			util.ShowInfo("Use '--service start' to start the service")
+		} else {
+			util.ShowWarning("Service is not installed")
+			fmt.Println()
+			util.ShowInfo("Use '--service install' to install the service")
+		}
+
+		fmt.Println()
+		util.PromptToContinue()
+
+	case "restart":
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		util.ShowInfo("Stopping service...")
+		if err := s.Stop(); err != nil {
+			util.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
+			util.ShowCompletionScreen(false, "Restart Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service stopped")
+
+		time.Sleep(1 * time.Second)
+
+		util.ShowInfo("Starting service...")
+		if err := s.Start(); err != nil {
+			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			util.ShowCompletionScreen(false, "Restart Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service started")
+
+		util.ShowCompletionScreen(true, "Service Restarted!")
+
+	case "update":
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		// Stop service if running
+		util.ShowInfo("Stopping service...")
+		done := make(chan bool)
+		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
+		
+		stopErr := s.Stop()
+		if stopErr != nil {
+			done <- true
+			util.ShowWarning("Service not running or already stopped")
+		} else {
+			// Wait for service to fully stop (max 30 seconds)
+			for i := 0; i < 30; i++ {
+				time.Sleep(1 * time.Second)
+
+				// Check service status (Windows-specific check)
+				if runtime.GOOS == "windows" {
+					status, _ := s.Status()
+					if status == service.StatusStopped {
+						break
+					}
+				}
+			}
+			done <- true
+			util.ShowSuccess("Service stopped")
+		}
+
+		// Uninstall existing service
+		util.ShowInfo("Uninstalling old service...")
+		time.Sleep(500 * time.Millisecond)
+		if err := s.Uninstall(); err != nil {
+			util.ShowWarning("Service not installed or already removed")
+		} else {
+			util.ShowSuccess("Service uninstalled")
+		}
+
+		// Setup directories
+		util.ShowInfo("Setting up directories...")
+		time.Sleep(300 * time.Millisecond)
+		if err := setupServiceDirectories(); err != nil {
+			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			util.ShowCompletionScreen(false, "Update Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Directories ready")
+
+		// Reinstall service
+		util.ShowInfo("Installing updated service...")
+		time.Sleep(500 * time.Millisecond)
+		err = s.Install()
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+			util.ShowCompletionScreen(false, "Update Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service installed")
+
+		// Start service
+		util.ShowInfo("Starting service...")
+		time.Sleep(500 * time.Millisecond)
+		err = s.Start()
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			util.ShowCompletionScreen(false, "Update Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service started")
+
+		// Show completion screen
+		util.ShowCompletionScreen(true, "Service Updated Successfully!")
 
 	case "run":
 		// Run as service (called by service manager)
@@ -576,6 +832,9 @@ func handleServiceCommand(cmd string) {
 		fmt.Println("  uninstall  Remove the PrintMaster Agent service")
 		fmt.Println("  start      Start the PrintMaster Agent service")
 		fmt.Println("  stop       Stop the PrintMaster Agent service")
+		fmt.Println("  restart    Restart the PrintMaster Agent service")
+		fmt.Println("  status     Show service status and information")
+		fmt.Println("  update     Full reinstall cycle (stop, remove, install, start)")
 		fmt.Println("  run        Run as service (used by service manager)")
 		fmt.Println("  help       Show this help message")
 		fmt.Println()
@@ -604,6 +863,9 @@ func handleServiceCommand(cmd string) {
 			fmt.Println("  .\\printmaster-agent.exe --service install")
 			fmt.Println("  .\\printmaster-agent.exe --service start")
 			fmt.Println()
+			fmt.Println("  # Update running service")
+			fmt.Println("  .\\printmaster-agent.exe --service update")
+			fmt.Println()
 			fmt.Println("  # Check service status")
 			fmt.Println("  Get-Service PrintMasterAgent")
 		} else {
@@ -616,7 +878,7 @@ func handleServiceCommand(cmd string) {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown service command: %s\n", cmd)
 		fmt.Println()
-		fmt.Println("Valid commands: install, uninstall, start, stop, run, help")
+		fmt.Println("Valid commands: install, uninstall, start, stop, restart, status, update, run, help")
 		fmt.Println("Run 'printmaster-agent --service help' for more information")
 		os.Exit(1)
 	}
@@ -638,7 +900,7 @@ func runAsService() {
 }
 
 // runInteractive starts the agent in foreground mode (normal operation)
-func runInteractive() {
+func runInteractive(ctx context.Context) {
 	// Initialize SSE hub for real-time UI updates
 	sseHub = NewSSEHub()
 
@@ -4392,6 +4654,11 @@ window.top.location.href = '/proxy/%s/';
 		appLogger.Warn("Both HTTP and HTTPS disabled in settings, enabling HTTP as fallback")
 	}
 
+	// Create server instances for graceful shutdown
+	var httpServer *http.Server
+	var httpsServer *http.Server
+	var wg sync.WaitGroup
+
 	// Start HTTP server
 	if enableHTTP {
 		// Create HTTP server with optional redirect to HTTPS
@@ -4415,13 +4682,20 @@ window.top.location.href = '/proxy/%s/';
 			})
 			appLogger.Info("HTTP server will redirect to HTTPS", "httpPort", httpPort, "httpsPort", httpsPort)
 		} else {
-			// Use default handler
+			// Use default handler (http.DefaultServeMux with all registered routes)
 			httpHandler = nil
 		}
 
+		httpServer = &http.Server{
+			Addr:    ":" + httpPort,
+			Handler: httpHandler,
+		}
+
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			appLogger.Info("Starting HTTP server", "port", httpPort)
-			if err := http.ListenAndServe(":"+httpPort, httpHandler); err != nil {
+			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				appLogger.Error("HTTP server failed", "error", err.Error())
 			}
 		}()
@@ -4429,12 +4703,45 @@ window.top.location.href = '/proxy/%s/';
 
 	// Start HTTPS server
 	if enableHTTPS && certFile != "" && keyFile != "" {
-		appLogger.Info("Starting HTTPS server", "port", httpsPort)
-		if err := http.ListenAndServeTLS(":"+httpsPort, certFile, keyFile, nil); err != nil {
-			appLogger.Error("HTTPS server failed", "error", err.Error())
+		httpsServer = &http.Server{
+			Addr: ":" + httpsPort,
 		}
-	} else if enableHTTP {
-		// If only HTTP is enabled, block here
-		select {}
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			appLogger.Info("Starting HTTPS server", "port", httpsPort)
+			if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
+				appLogger.Error("HTTPS server failed", "error", err.Error())
+			}
+		}()
 	}
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+	appLogger.Info("Shutdown signal received, stopping servers...")
+
+	// Graceful shutdown with 25 second timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer shutdownCancel()
+
+	if httpServer != nil {
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			appLogger.Error("HTTP server shutdown error", "error", err.Error())
+		} else {
+			appLogger.Info("HTTP server stopped gracefully")
+		}
+	}
+
+	if httpsServer != nil {
+		if err := httpsServer.Shutdown(shutdownCtx); err != nil {
+			appLogger.Error("HTTPS server shutdown error", "error", err.Error())
+		} else {
+			appLogger.Info("HTTPS server stopped gracefully")
+		}
+	}
+
+	// Wait for servers to finish
+	wg.Wait()
+	appLogger.Info("All servers stopped")
 }

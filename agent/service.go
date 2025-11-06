@@ -40,9 +40,8 @@ func (p *program) run() {
 		p.svcLogger.Info("PrintMaster Agent service running")
 	}
 
-	// Call runInteractive which contains all the agent startup logic
-	// We'll need to refactor this to be stoppable via context
-	runInteractive()
+	// Call runInteractive with context for graceful shutdown
+	runInteractive(p.ctx)
 
 	if p.svcLogger != nil {
 		p.svcLogger.Info("PrintMaster Agent service stopping")

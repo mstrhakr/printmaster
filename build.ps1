@@ -18,33 +18,22 @@ param(
 $ErrorActionPreference = 'Continue'
 $ProjectRoot = $PSScriptRoot
 $LogDir = Join-Path $ProjectRoot "logs"
-$LogFile = Join-Path $LogDir "build.log"
-$MaxLogFiles = 5
-$MaxLogSizeMB = 10
+$LogFile = $null  # Will be set dynamically with version info
+$MaxLogFiles = 10
 
 # Ensure logs directory exists
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 }
 
-# Rotate log file if it's too large
-if (Test-Path $LogFile) {
-    $logSize = (Get-Item $LogFile).Length / 1MB
-    if ($logSize -gt $MaxLogSizeMB) {
-        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-        $archiveName = Join-Path $LogDir "build_$timestamp.log"
-        Move-Item $LogFile $archiveName -Force
-        
-        # Clean up old log files, keep only recent ones
-        Get-ChildItem $LogDir -Filter "build_*.log" | 
-            Sort-Object LastWriteTime -Descending | 
-            Select-Object -Skip $MaxLogFiles | 
-            Remove-Item -Force
-    }
-}
-
 function Write-BuildLog {
     param([string]$Message, [string]$Level = "INFO")
+    
+    # Use default log if $LogFile not set yet
+    if (-not $script:LogFile) {
+        $script:LogFile = Join-Path $LogDir "build.log"
+    }
+    
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "[$timestamp] [$Level] $Message"
     
@@ -57,7 +46,30 @@ function Write-BuildLog {
     }
     
     # Append to log file
-    Add-Content -Path $LogFile -Value $logMessage
+    Add-Content -Path $script:LogFile -Value $logMessage
+}
+
+function Set-BuildLogFile {
+    param(
+        [string]$Component,
+        [string]$Version,
+        [int]$BuildNumber
+    )
+    
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $logFileName = "build_${Component}_${Version}.${BuildNumber}_${timestamp}.log"
+    $script:LogFile = Join-Path $LogDir $logFileName
+    
+    Write-BuildLog "=== Build Log ===" "INFO"
+    Write-BuildLog "Component: $Component" "INFO"
+    Write-BuildLog "Version: $Version.$BuildNumber" "INFO"
+    Write-BuildLog "Log File: $logFileName" "INFO"
+    
+    # Clean up old log files, keep only recent ones
+    Get-ChildItem $LogDir -Filter "build_*.log" | 
+        Sort-Object LastWriteTime -Descending | 
+        Select-Object -Skip $MaxLogFiles | 
+        Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 function Remove-BuildArtifacts {
@@ -122,8 +134,45 @@ function Build-Agent {
             }
         }
         
-        # Append -dev suffix for dev builds
-        $versionString = if ($IsRelease) { $version } else { "$version-dev" }
+        # Get or increment build number (reset on version change)
+        $buildNumberFile = Join-Path $ProjectRoot "agent\.buildnumber"
+        $lastVersionFile = Join-Path $ProjectRoot "agent\.lastversion"
+        
+        # Check if version changed
+        $lastVersion = ""
+        if (Test-Path $lastVersionFile) {
+            $lastVersion = (Get-Content $lastVersionFile -Raw).Trim()
+        }
+        
+        if ($lastVersion -ne $version) {
+            # Version changed, reset build number
+            $buildNumber = 1
+            Write-BuildLog "Version changed from $lastVersion to $version, resetting build number" "INFO"
+        } else {
+            # Same version, increment build number
+            if (Test-Path $buildNumberFile) {
+                $buildNumber = [int](Get-Content $buildNumberFile -Raw).Trim()
+                $buildNumber++
+            } else {
+                $buildNumber = 1
+            }
+        }
+        
+        # Save build number and version
+        Set-Content -Path $buildNumberFile -Value $buildNumber -NoNewline
+        Set-Content -Path $lastVersionFile -Value $version -NoNewline
+        
+        # Create version string with build number
+        # Release: x.y.z.build (e.g., 0.2.5.123)
+        # Dev: x.y.z.build-dev (e.g., 0.2.5.123-dev)
+        if ($IsRelease) {
+            $versionString = "$version.$buildNumber"
+        } else {
+            $versionString = "$version.$buildNumber-dev"
+        }
+        
+        # Set versioned log file
+        Set-BuildLogFile -Component "agent" -Version $version -BuildNumber $buildNumber
         
         # Get build metadata
         $buildTime = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
@@ -158,7 +207,7 @@ function Build-Agent {
         $buildArgs += "-o", "printmaster-agent.exe"
         $buildArgs += "."
         
-        Write-BuildLog "Version: $versionString"
+        Write-BuildLog "Version: $versionString (build #$buildNumber)"
         Write-BuildLog "Command: go $($buildArgs -join ' ')"
         Write-BuildLog "Build Time: $buildTime"
         Write-BuildLog "Git Commit: $gitCommit"
@@ -240,8 +289,45 @@ function Build-Server {
             }
         }
         
-        # Append -dev suffix for dev builds
-        $versionString = if ($IsRelease) { $version } else { "$version-dev" }
+        # Get or increment build number (reset on version change)
+        $buildNumberFile = Join-Path $ProjectRoot "server\.buildnumber"
+        $lastVersionFile = Join-Path $ProjectRoot "server\.lastversion"
+        
+        # Check if version changed
+        $lastVersion = ""
+        if (Test-Path $lastVersionFile) {
+            $lastVersion = (Get-Content $lastVersionFile -Raw).Trim()
+        }
+        
+        if ($lastVersion -ne $version) {
+            # Version changed, reset build number
+            $buildNumber = 1
+            Write-BuildLog "Version changed from $lastVersion to $version, resetting build number" "INFO"
+        } else {
+            # Same version, increment build number
+            if (Test-Path $buildNumberFile) {
+                $buildNumber = [int](Get-Content $buildNumberFile -Raw).Trim()
+                $buildNumber++
+            } else {
+                $buildNumber = 1
+            }
+        }
+        
+        # Save build number and version
+        Set-Content -Path $buildNumberFile -Value $buildNumber -NoNewline
+        Set-Content -Path $lastVersionFile -Value $version -NoNewline
+        
+        # Create version string with build number
+        # Release: x.y.z.build (e.g., 0.2.5.123)
+        # Dev: x.y.z.build-dev (e.g., 0.2.5.123-dev)
+        if ($IsRelease) {
+            $versionString = "$version.$buildNumber"
+        } else {
+            $versionString = "$version.$buildNumber-dev"
+        }
+        
+        # Set versioned log file
+        Set-BuildLogFile -Component "server" -Version $version -BuildNumber $buildNumber
         
         # Get build metadata
         $buildTime = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"

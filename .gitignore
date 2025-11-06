@@ -107,3 +107,6 @@ testdata/
 all_comments.txt
 comments_legacy.txt
 agent/comments_list.txt
+
+# Build number tracking
+.buildnumber
