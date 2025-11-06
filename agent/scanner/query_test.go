@@ -3,9 +3,8 @@ package scanner
 import (
 	"context"
 	"errors"
-	"testing"
-
 	"printmaster/agent/scanner/vendor"
+	"testing"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -273,65 +272,73 @@ func TestQueryDevice_AllVendors(t *testing.T) {
 func TestBuildQueryOIDs_Minimal(t *testing.T) {
 	t.Parallel()
 
-	vendorMod := vendor.GetVendor("generic")
-	oids := buildQueryOIDs(QueryMinimal, vendorMod)
+	oids := buildQueryOIDs(QueryMinimal)
 
 	if len(oids) == 0 {
 		t.Error("expected non-empty OID list for QueryMinimal")
 	}
 
-	// QueryMinimal should include serial OIDs
-	serialOIDs := vendorMod.GetSerialOIDs()
-	if len(oids) < len(serialOIDs) {
-		t.Errorf("expected at least %d OIDs, got %d", len(serialOIDs), len(oids))
+	// QueryMinimal should include serial OID
+	expectedSerial := "1.3.6.1.2.1.43.5.1.1.17.1"
+	found := false
+	for _, oid := range oids {
+		if oid == expectedSerial {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected serial OID %s in minimal query", expectedSerial)
 	}
 }
 
 func TestBuildQueryOIDs_Essential(t *testing.T) {
 	t.Parallel()
 
-	vendorMod := vendor.GetVendor("hp")
-	oids := buildQueryOIDs(QueryEssential, vendorMod)
+	oids := buildQueryOIDs(QueryEssential)
 
 	if len(oids) == 0 {
 		t.Error("expected non-empty OID list for QueryEssential")
 	}
 
-	// QueryEssential should include essential + serial OIDs
-	// The actual implementation may deduplicate OIDs, so just check we have some OIDs
+	// QueryEssential should include serial + toner + pages + status
 	if len(oids) < 3 {
 		t.Errorf("expected at least 3 OIDs for QueryEssential, got %d", len(oids))
 	}
 
-	t.Logf("QueryEssential for HP returned %d OIDs", len(oids))
+	t.Logf("QueryEssential returned %d OIDs", len(oids))
 }
 
 func TestBuildQueryOIDs_Metrics(t *testing.T) {
 	t.Parallel()
 
-	vendorMod := vendor.GetVendor("hp")
-	oids := buildQueryOIDs(QueryMetrics, vendorMod)
+	oids := buildQueryOIDs(QueryMetrics)
 
 	if len(oids) == 0 {
 		t.Error("expected non-empty OID list for QueryMetrics")
 	}
 
-	// QueryMetrics should include vendor-specific metrics OIDs
-	metricsOIDs := vendorMod.GetMetricsOIDs()
-	if len(oids) < len(metricsOIDs) {
-		t.Errorf("expected at least %d OIDs, got %d", len(metricsOIDs), len(oids))
+	// QueryMetrics should include standard metrics OIDs
+	expectedMetrics := "1.3.6.1.2.1.43.10.2.1.4.1" // page count OID
+	found := false
+	for _, oid := range oids {
+		if oid == expectedMetrics {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected page count OID %s in metrics query", expectedMetrics)
 	}
 }
 
 func TestBuildQueryOIDs_Full(t *testing.T) {
 	t.Parallel()
 
-	vendorMod := vendor.GetVendor("generic")
-	oids := buildQueryOIDs(QueryFull, vendorMod)
+	oids := buildQueryOIDs(QueryFull)
 
-	// QueryFull uses Walk, so OID list should be empty or contain root OIDs only
-	// The actual implementation returns empty list since Walk doesn't use Get
-	if len(oids) > 0 {
-		t.Log("QueryFull returned OIDs (acceptable, may be used for Walk roots):", oids)
+	// QueryFull uses Walk, so OID list should be nil
+	if oids != nil {
+		t.Errorf("expected nil for QueryFull (walk mode), got %v", oids)
 	}
 }

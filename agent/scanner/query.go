@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"printmaster/agent/scanner/capabilities"
-	"printmaster/agent/scanner/vendor"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -113,24 +112,21 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 	default:
 	}
 
-	// 1. Get vendor module
-	vendorMod := vendor.GetVendor(vendorHint)
-
-	// 2. Get SNMP config
+	// 1. Get SNMP config
 	cfg, err := GetSNMPConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get SNMP config: %w", err)
 	}
 
-	// 3. Setup SNMP client
+	// 2. Setup SNMP client
 	client, err := clientFactory(cfg, ip, timeoutSeconds)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SNMP client: %w", err)
 	}
 	defer client.Close()
 
-	// 4. Build OID list based on profile + vendor + capabilities
-	oids := buildQueryOIDsWithCapabilities(profile, vendorMod, caps)
+	// 4. Build OID list based on profile + capabilities
+	oids := buildQueryOIDsWithCapabilities(profile, caps)
 
 	// 5. Query SNMP (Walk for Full, Get for others)
 	var pdus []gosnmp.SnmpPDU
@@ -206,34 +202,48 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 	return result, nil
 }
 
-// buildQueryOIDs constructs the list of OIDs to query based on profile and vendor.
-func buildQueryOIDs(profile QueryProfile, vendorMod vendor.VendorModule) []string {
-	return buildQueryOIDsWithCapabilities(profile, vendorMod, nil)
+// buildQueryOIDs constructs the list of OIDs to query based on profile.
+// Uses standard Printer-MIB OIDs only (no vendor-specific modules).
+func buildQueryOIDs(profile QueryProfile) []string {
+	return buildQueryOIDsWithCapabilities(profile, nil)
 }
 
 // buildQueryOIDsWithCapabilities constructs the list of OIDs with optional capability-aware filtering.
-func buildQueryOIDsWithCapabilities(profile QueryProfile, vendorMod vendor.VendorModule, caps *capabilities.DeviceCapabilities) []string {
+// Hardcoded standard Printer-MIB OIDs for simplicity and maintainability.
+func buildQueryOIDsWithCapabilities(profile QueryProfile, caps *capabilities.DeviceCapabilities) []string {
 	var oids []string
 
 	switch profile {
 	case QueryMinimal:
-		// Just serial number OIDs
-		oids = vendorMod.GetSerialOIDs()
+		// Just serial number OID (fastest detection)
+		oids = []string{
+			"1.3.6.1.2.1.43.5.1.1.17.1", // prtGeneralSerialNumber
+		}
 
 	case QueryEssential:
-		// Serial + toner + pages + status
-		oids = vendorMod.GetEssentialOIDs()
+		// Serial + basic device info + toner + pages + status
+		oids = []string{
+			"1.3.6.1.2.1.1.1.0",         // sysDescr
+			"1.3.6.1.2.1.1.5.0",         // sysName
+			"1.3.6.1.2.1.25.3.2.1.3.1",  // hrDeviceDescr (model)
+			"1.3.6.1.2.1.43.5.1.1.17.1", // prtGeneralSerialNumber
+			"1.3.6.1.2.1.43.10.2.1.4.1", // prtMarkerLifeCount (page count)
+			"1.3.6.1.2.1.43.11.1.1.6.1", // prtMarkerSuppliesLevel (toner level)
+			"1.3.6.1.2.1.43.11.1.1.9.1", // prtMarkerSuppliesMaxCapacity
+			"1.3.6.1.2.1.25.3.5.1.1.1",  // hrPrinterStatus
+		}
 
 	case QueryFull:
 		// Full walk - return nil to indicate walk mode
 		return nil
 
 	case QueryMetrics:
-		// Use capability-aware OIDs if capabilities provided
-		if caps != nil {
-			oids = vendorMod.GetCapabilityAwareMetricsOIDs(caps)
-		} else {
-			oids = vendorMod.GetMetricsOIDs()
+		// Standard metrics (page counts + toner levels + status)
+		oids = []string{
+			"1.3.6.1.2.1.43.10.2.1.4.1", // prtMarkerLifeCount
+			"1.3.6.1.2.1.43.11.1.1.6.1", // prtMarkerSuppliesLevel
+			"1.3.6.1.2.1.43.11.1.1.9.1", // prtMarkerSuppliesMaxCapacity
+			"1.3.6.1.2.1.25.3.5.1.1.1",  // hrPrinterStatus
 		}
 	}
 
