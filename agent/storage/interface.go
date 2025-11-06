@@ -18,6 +18,7 @@ var (
 
 // ScanSnapshot represents a point-in-time snapshot of a device scan.
 // Each scan creates a new history entry, allowing for change tracking over time.
+// Note: Metrics data (page counts, toner levels) are stored separately in the tiered metrics system.
 type ScanSnapshot struct {
 	ID              int64           `json:"id"`
 	Serial          string          `json:"serial"`
@@ -25,8 +26,6 @@ type ScanSnapshot struct {
 	IP              string          `json:"ip"`
 	Hostname        string          `json:"hostname"`
 	Firmware        string          `json:"firmware"`
-	PageCount       int             `json:"page_count,omitempty"`
-	TonerLevels     map[string]int  `json:"toner_levels,omitempty"`
 	Consumables     []string        `json:"consumables,omitempty"`
 	StatusMessages  []string        `json:"status_messages,omitempty"`
 	DiscoveryMethod string          `json:"discovery_method"`

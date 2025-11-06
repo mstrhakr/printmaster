@@ -167,6 +167,8 @@ func DeviceToPrinterInfo(device *Device) agent.PrinterInfo {
 }
 
 // PrinterInfoToScanSnapshot converts agent.PrinterInfo to storage.ScanSnapshot
+// Note: Only device state (IP, hostname, firmware) is stored in scan_history.
+// Metrics data (page counts, toner levels) should be stored separately using SaveMetricsSnapshot.
 func PrinterInfoToScanSnapshot(pi agent.PrinterInfo) *ScanSnapshot {
 	snapshot := &ScanSnapshot{
 		Serial:          pi.Serial,
@@ -174,8 +176,6 @@ func PrinterInfoToScanSnapshot(pi agent.PrinterInfo) *ScanSnapshot {
 		IP:              pi.IP,
 		Hostname:        pi.Hostname,
 		Firmware:        pi.Firmware,
-		PageCount:       pi.PageCount,
-		TonerLevels:     pi.TonerLevels,
 		Consumables:     pi.Consumables,
 		StatusMessages:  pi.StatusMessages,
 		DiscoveryMethod: "snmp",
@@ -183,6 +183,27 @@ func PrinterInfoToScanSnapshot(pi agent.PrinterInfo) *ScanSnapshot {
 
 	if len(pi.DiscoveryMethods) > 0 {
 		snapshot.DiscoveryMethod = pi.DiscoveryMethods[0]
+	}
+
+	return snapshot
+}
+
+// PrinterInfoToMetricsSnapshot converts agent.PrinterInfo to storage.MetricsSnapshot
+// This extracts only metrics data (page counts, toner levels) for time-series storage.
+func PrinterInfoToMetricsSnapshot(pi agent.PrinterInfo) *MetricsSnapshot {
+	// Convert TonerLevels map[string]int to map[string]interface{} for storage
+	tonerLevels := make(map[string]interface{})
+	for k, v := range pi.TonerLevels {
+		tonerLevels[k] = v
+	}
+
+	snapshot := &MetricsSnapshot{
+		Serial:      pi.Serial,
+		Timestamp:   pi.LastSeen,
+		PageCount:   pi.PageCount,
+		ColorPages:  pi.ColorImpressions,
+		MonoPages:   pi.MonoImpressions,
+		TonerLevels: tonerLevels,
 	}
 
 	return snapshot
