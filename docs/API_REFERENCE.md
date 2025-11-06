@@ -332,6 +332,52 @@ Download complete log file from disk.
 
 ---
 
+## Database Management API
+
+### Check Database Rotation Warning
+
+Check if a database rotation event occurred and needs user acknowledgment.
+
+**Endpoint**: `GET /database/rotation_warning`
+
+**Response**: `200 OK`
+```json
+{
+  "rotated": true,
+  "rotated_at": "2025-11-06T10-37-28",
+  "backup_path": "C:\\Users\\Username\\AppData\\Local\\PrintMaster\\devices.db.backup.2025-11-06T10-37-28"
+}
+```
+
+Or if no rotation occurred:
+```json
+{
+  "rotated": false,
+  "rotated_at": null,
+  "backup_path": null
+}
+```
+
+---
+
+### Clear Database Rotation Warning
+
+Clear the rotation warning flag after user has been notified.
+
+**Endpoint**: `POST /database/rotation_warning`
+
+**Response**: `200 OK`
+```json
+{
+  "success": true,
+  "message": "Rotation warning cleared"
+}
+```
+
+**Usage**: The UI automatically calls this endpoint after showing the rotation warning popup to the user.
+
+---
+
 ## Database Schema
 
 ### devices Table

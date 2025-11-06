@@ -357,7 +357,7 @@ func (s *SQLiteStore) seedDefaultMetrics() error {
 	query := `
 		SELECT d.serial 
 		FROM devices d 
-		LEFT JOIN metrics_history m ON d.serial = m.serial 
+		LEFT JOIN metrics_raw m ON d.serial = m.serial 
 		WHERE m.serial IS NULL
 	`
 

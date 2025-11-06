@@ -101,6 +101,36 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
     });
 }
 
+// Check for database rotation warning on page load
+async function checkDatabaseRotationWarning() {
+    try {
+        const response = await fetch('/database/rotation_warning');
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        if (data.rotated) {
+            const message = `The database was rotated due to a migration failure on ${data.rotated_at || 'recently'}.\n\nA fresh database has been created and the old database has been backed up to:\n${data.backup_path || 'unknown location'}\n\nAll discovered devices and historical metrics data from the previous database are not available in the current session. If you need to recover data, you can manually restore the backup file.\n\nClick OK to acknowledge this warning.`;
+            
+            const confirmed = await showConfirm(
+                message,
+                'Database Rotation Notice',
+                false // Not dangerous, just informational
+            );
+            
+            if (confirmed) {
+                // Clear the rotation warning flag so it doesn't show again
+                await fetch('/database/rotation_warning', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+        }
+    } catch (err) {
+        console.error('Failed to check rotation warning:', err);
+        // Non-fatal - don't interrupt page load
+    }
+}
+
 // Run a one-off scan using the current ranges textarea (without saving).
 // Posts JSON to /scan so the server will use the new pipeline (liveness->detection->deep-scan).
 // client-side state for device table sorting
@@ -3317,6 +3347,9 @@ function applyMasonryLayout(targetGrid) {
 document.addEventListener('DOMContentLoaded', function () {
     loadThemePreference();
     toggleDatabaseFields(); // Initialize database field visibility
+
+    // Check for database rotation warning on first page load
+    checkDatabaseRotationWarning();
 
     // Initialize advanced settings visibility
     const advancedVisible = localStorage.getItem('settingsAdvancedVisible') === 'true';

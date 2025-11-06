@@ -981,14 +981,7 @@ func runInteractive(ctx context.Context) {
 	// Set logger for storage package
 	storage.SetLogger(appLogger)
 
-	deviceStore, err = storage.NewSQLiteStore(dbPath)
-	if err != nil {
-		appLogger.Error("Failed to initialize device storage", "error", err, "path", dbPath)
-		os.Exit(1)
-	}
-	defer deviceStore.Close()
-
-	// Initialize agent config storage (separate database for agent settings)
+	// Initialize agent config storage first (needed for rotation tracking)
 	agentDBPath := filepath.Join(filepath.Dir(dbPath), "agent.db")
 	if dbPath == ":memory:" {
 		agentDBPath = ":memory:"
@@ -1000,6 +993,19 @@ func runInteractive(ctx context.Context) {
 	}
 	defer agentConfigStore.Close()
 	appLogger.Info("Agent config database initialized", "path", agentDBPath)
+
+	// Clean up old database backups (keep 10 most recent)
+	if err := storage.CleanupOldBackups(dbPath, 10); err != nil {
+		appLogger.Warn("Failed to cleanup old database backups", "error", err)
+	}
+
+	// Initialize device storage with config store for rotation tracking
+	deviceStore, err = storage.NewSQLiteStoreWithConfig(dbPath, agentConfigStore)
+	if err != nil {
+		appLogger.Error("Failed to initialize device storage", "error", err, "path", dbPath)
+		os.Exit(1)
+	}
+	defer deviceStore.Close()
 
 	// Load and restore trace tags from config
 	var savedTraceTags map[string]bool
@@ -2711,6 +2717,46 @@ func runInteractive(ctx context.Context) {
 		}
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write(data)
+	})
+
+	// Check for database rotation event (GET) or clear the warning (POST)
+	http.HandleFunc("/database/rotation_warning", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method == "GET" {
+			// Check if rotation flag is set
+			var rotationInfo map[string]interface{}
+			err := agentConfigStore.GetConfigValue("database_rotation", &rotationInfo)
+			if err != nil || rotationInfo == nil {
+				// No rotation event
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"rotated":     false,
+					"rotated_at":  nil,
+					"backup_path": nil,
+				})
+				return
+			}
+
+			// Rotation event found
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"rotated":     true,
+				"rotated_at":  rotationInfo["rotated_at"],
+				"backup_path": rotationInfo["backup_path"],
+			})
+		} else if r.Method == "POST" {
+			// Clear the rotation warning flag
+			if err := agentConfigStore.SetConfigValue("database_rotation", nil); err != nil {
+				appLogger.Error("Failed to clear rotation warning", "error", err)
+				http.Error(w, "Failed to clear warning", http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"message": "Rotation warning cleared",
+			})
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	appLogger.Info("Web UI running", "url", "http://localhost:8080")

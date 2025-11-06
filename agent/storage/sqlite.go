@@ -37,6 +37,13 @@ type SQLiteStore struct {
 // NewSQLiteStore creates a new SQLite-based device store
 // If dbPath is empty, uses in-memory database (:memory:)
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
+	return NewSQLiteStoreWithConfig(dbPath, nil)
+}
+
+// NewSQLiteStoreWithConfig creates a new SQLite-based device store with optional config store
+// for tracking rotation events. If configStore is provided, rotation events will set a flag
+// that the UI can use to warn users.
+func NewSQLiteStoreWithConfig(dbPath string, configStore AgentConfigStore) (*SQLiteStore, error) {
 	if dbPath == "" {
 		dbPath = ":memory:"
 	}
@@ -68,6 +75,31 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	// Initialize schema
 	if err := store.initSchema(); err != nil {
 		db.Close()
+
+		// If schema initialization fails and we have a real database file (not in-memory),
+		// rotate the corrupted database and try again with a fresh one
+		if dbPath != ":memory:" {
+			if storageLogger != nil {
+				storageLogger.Error("Database schema initialization failed, attempting to rotate database",
+					"error", err, "path", dbPath)
+			}
+
+			backupPath, rotateErr := RotateDatabase(dbPath, configStore)
+			if rotateErr != nil {
+				return nil, fmt.Errorf("failed to initialize schema and unable to rotate database: %w (rotation error: %v)", err, rotateErr)
+			}
+
+			if storageLogger != nil {
+				storageLogger.Warn("Database rotated due to migration failure - starting with fresh database",
+					"backupPath", backupPath,
+					"newPath", dbPath,
+					"originalError", err.Error())
+			}
+
+			// Try to open the new database (pass config store through)
+			return NewSQLiteStoreWithConfig(dbPath, configStore)
+		}
+
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 
