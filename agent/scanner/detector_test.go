@@ -231,53 +231,54 @@ func TestEnrichFunc(t *testing.T) {
 	}
 }
 
-func TestMetricsFunc(t *testing.T) {
-	t.Skip("Skipping - vendor module removed, MetricsFunc now returns QueryResult instead of DeviceMetricsSnapshot")
-
-	// Cannot run in parallel - modifies global NewSNMPClientFunc
-
-	// Save and restore original NewSNMPClient
-	originalNewSNMPClient := NewSNMPClientFunc
-	defer func() { NewSNMPClientFunc = originalNewSNMPClient }()
-
-	// Mock SNMP client with metrics data
-	mockClient := &mockSNMPClient{
-		getResult: &gosnmp.SnmpPacket{
-			Variables: []gosnmp.SnmpPDU{
-				{Name: ".1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 10000},
-				{Name: ".1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.5.0", Type: gosnmp.Integer, Value: 250}, // HP fax pages
-			},
-		},
-	}
-
-	NewSNMPClientFunc = func(cfg *SNMPConfig, target string, timeoutSeconds int) (SNMPClient, error) {
-		return mockClient, nil
-	}
-
-	cfg := DetectorConfig{
-		SNMPTimeout: 10,
-	}
-
-	metricsFunc := MetricsFunc(cfg)
-
-	snapshot, err := metricsFunc(context.Background(), "10.0.0.6", "hp")
-
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if snapshot == nil {
-		t.Fatal("expected non-nil snapshot")
-	}
-
-	// Check that we got metrics - commented out due to vendor module removal
-	// QueryResult doesn't have PageCount/FaxPages fields
-	// if snapshot.PageCount != 10000 {
-	// 	t.Errorf("expected PageCount=10000, got %d", snapshot.PageCount)
-	// }
-	// if snapshot.FaxPages != 250 {
-	// 	t.Errorf("expected FaxPages=250, got %d", snapshot.FaxPages)
-	// }
-}
+// TestMetricsFunc - REMOVED: Vendor module removed, MetricsFunc now returns QueryResult instead of DeviceMetricsSnapshot
+// func TestMetricsFunc(t *testing.T) {
+// 	t.Skip("Skipping - vendor module removed, MetricsFunc now returns QueryResult instead of DeviceMetricsSnapshot")
+//
+// 	// Cannot run in parallel - modifies global NewSNMPClientFunc
+//
+// 	// Save and restore original NewSNMPClient
+// 	originalNewSNMPClient := NewSNMPClientFunc
+// 	defer func() { NewSNMPClientFunc = originalNewSNMPClient }()
+//
+// 	// Mock SNMP client with metrics data
+// 	mockClient := &mockSNMPClient{
+// 		getResult: &gosnmp.SnmpPacket{
+// 			Variables: []gosnmp.SnmpPDU{
+// 				{Name: ".1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 10000},
+// 				{Name: ".1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.5.0", Type: gosnmp.Integer, Value: 250}, // HP fax pages
+// 			},
+// 		},
+// 	}
+//
+// 	NewSNMPClientFunc = func(cfg *SNMPConfig, target string, timeoutSeconds int) (SNMPClient, error) {
+// 		return mockClient, nil
+// 	}
+//
+// 	cfg := DetectorConfig{
+// 		SNMPTimeout: 10,
+// 	}
+//
+// 	metricsFunc := MetricsFunc(cfg)
+//
+// 	snapshot, err := metricsFunc(context.Background(), "10.0.0.6", "hp")
+//
+// 	if err != nil {
+// 		t.Fatalf("unexpected error: %v", err)
+// 	}
+// 	if snapshot == nil {
+// 		t.Fatal("expected non-nil snapshot")
+// 	}
+//
+// 	// Check that we got metrics - commented out due to vendor module removal
+// 	// QueryResult doesn't have PageCount/FaxPages fields
+// 	// if snapshot.PageCount != 10000 {
+// 	// 	t.Errorf("expected PageCount=10000, got %d", snapshot.PageCount)
+// 	// }
+// 	// if snapshot.FaxPages != 250 {
+// 	// 	t.Errorf("expected FaxPages=250, got %d", snapshot.FaxPages)
+// 	// }
+// }
 
 func TestEnumerateIPs(t *testing.T) {
 	t.Parallel()
