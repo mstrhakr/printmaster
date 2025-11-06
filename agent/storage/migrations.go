@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite" // Ensure driver is imported for BackupAndReset
 )
 
-const targetSchemaVersion = 7
+const targetSchemaVersion = 8
 
 // expectedSchema defines the target schema structure for auto-migration
 var expectedSchema = map[string][]string{
@@ -74,8 +74,6 @@ var expectedSchema = map[string][]string{
 		"ip TEXT NOT NULL",
 		"hostname TEXT",
 		"firmware TEXT",
-		"page_count INTEGER DEFAULT 0",
-		"toner_levels TEXT",
 		"consumables TEXT",
 		"status_messages TEXT",
 		"discovery_method TEXT",
@@ -389,13 +387,17 @@ func (s *SQLiteStore) seedDefaultMetrics() error {
 		}
 
 		if err := s.SaveMetricsSnapshot(ctx, snapshot); err != nil {
-			storageLogger.Warn("Failed to seed default metrics", "serial", serial, "error", err)
+			if storageLogger != nil {
+				storageLogger.Warn("Failed to seed default metrics", "serial", serial, "error", err)
+			}
 		} else {
-			storageLogger.Debug("Seeded default metrics", "serial", serial)
+			if storageLogger != nil {
+				storageLogger.Debug("Seeded default metrics", "serial", serial)
+			}
 		}
 	}
 
-	if len(serials) > 0 {
+	if len(serials) > 0 && storageLogger != nil {
 		storageLogger.Info("Seeded default metrics for devices", "count", len(serials))
 	}
 
