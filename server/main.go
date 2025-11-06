@@ -5,10 +5,12 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +21,9 @@ import (
 	"strings"
 	"time"
 )
+
+//go:embed web
+var webFS embed.FS
 
 // Version information (set at build time via -ldflags)
 var (
@@ -178,8 +183,9 @@ func setupRoutes() {
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
-	// Web UI endpoints (future)
+	// Web UI endpoints
 	http.HandleFunc("/", handleWebUI)
+	http.HandleFunc("/static/", handleStatic)
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -522,44 +528,55 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Web UI placeholder
+// Web UI handlers
 func handleWebUI(w http.ResponseWriter, r *http.Request) {
-	html := `<!DOCTYPE html>
-<html>
-<head>
-	<title>PrintMaster Server</title>
-	<style>
-		body { font-family: system-ui; max-width: 1200px; margin: 50px auto; padding: 20px; }
-		h1 { color: #333; }
-		.info { background: #f0f0f0; padding: 20px; border-radius: 8px; }
-		.info p { margin: 10px 0; }
-		code { background: #e0e0e0; padding: 2px 6px; border-radius: 3px; }
-	</style>
-</head>
-<body>
-	<h1>🖨️ PrintMaster Server</h1>
-	<div class="info">
-		<p><strong>Version:</strong> ` + Version + `</p>
-		<p><strong>Protocol:</strong> v` + ProtocolVersion + `</p>
-		<p><strong>Status:</strong> Running</p>
-		<p><strong>Build:</strong> ` + BuildTime + ` (` + GitCommit + `)</p>
-	</div>
-	<h2>API Endpoints</h2>
-	<ul>
-		<li><code>GET /health</code> - Health check</li>
-		<li><code>GET /api/version</code> - Version info</li>
-		<li><code>POST /api/v1/agents/register</code> - Register agent</li>
-		<li><code>POST /api/v1/agents/heartbeat</code> - Agent heartbeat</li>
-		<li><code>POST /api/v1/devices/batch</code> - Upload devices</li>
-		<li><code>POST /api/v1/metrics/batch</code> - Upload metrics</li>
-	</ul>
-	<h2>Next Steps</h2>
-	<p>🚧 Web UI under development</p>
-	<p>Configure agents to point to: <code>http://this-server:9090</code></p>
-</body>
-</html>`
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(html))
+	// Only serve index.html for root path
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Parse and execute index.html template
+	tmpl, err := template.ParseFS(webFS, "web/index.html")
+	if err != nil {
+		serverLogger.Error("Failed to parse index.html template", "error", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, nil); err != nil {
+		serverLogger.Error("Failed to execute index.html template", "error", err)
+	}
+}
+
+func handleStatic(w http.ResponseWriter, r *http.Request) {
+	// Remove /static/ prefix to get file path
+	filePath := "web" + r.URL.Path[len("/static"):]
+
+	// Read file from embedded FS
+	content, err := webFS.ReadFile(filePath)
+	if err != nil {
+		serverLogger.Warn("Static file not found", "path", filePath)
+		http.NotFound(w, r)
+		return
+	}
+
+	// Set content type based on extension
+	contentType := "text/plain"
+	if strings.HasSuffix(filePath, ".css") {
+		contentType = "text/css; charset=utf-8"
+	} else if strings.HasSuffix(filePath, ".js") {
+		contentType = "application/javascript; charset=utf-8"
+	} else if strings.HasSuffix(filePath, ".json") {
+		contentType = "application/json; charset=utf-8"
+	} else if strings.HasSuffix(filePath, ".html") {
+		contentType = "text/html; charset=utf-8"
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Write(content)
 }
 
 // getDefaultDBPath returns platform-specific database path
