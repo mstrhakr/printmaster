@@ -24,10 +24,10 @@ This document lists the key HTTP endpoints the agent exposes and the correspondi
 - `POST /devices/delete` - Delete device by serial (accepts `{serial: "XXX"}`)
 
 ### Network Scanning
-- `GET /saved_ranges` - Returns saved IP ranges from `config.json`
-- `POST /save_ranges` - Persist ranges (JSON: `{"mode": "add"|"override", "text": "..."}`)
-- `POST /scan_ips` - Start scan using saved IP list (UI: "Scan Now")
-- `POST /discover` - Start auto-discovery on local network (UI: "Auto Discover")
+- `POST /discover` - Start network discovery (saved ranges and/or local subnet)
+  - Scans saved IP ranges when `manual_ranges` enabled in settings
+  - Auto-discovers local subnet when `subnet_scan` enabled in settings
+  - Respects discovery method toggles (ARP, TCP, SNMP, mDNS)
 - `GET /scan_status` - Current scan progress (`{running, source, total_queued, completed}`)
 
 ## Data Storage
@@ -64,10 +64,11 @@ This document lists the key HTTP endpoints the agent exposes and the correspondi
 - "Apply Discovered" button merges IPs from discovered devices into ranges
 
 ### Scanning
-- **"Scan Now"**: Scan saved IP ranges
-- **"Auto Discover"**: Scan local network (ARP + subnet enumeration)
-- **"Clear Ranges"**: Clear saved IP ranges
-- Scans run asynchronously, use `/scan_status` to poll progress
+- **"Discover Now"**: Triggers network discovery using current settings
+  - Scans saved IP ranges if `manual_ranges` enabled
+  - Scans local subnet if `subnet_scan` enabled
+  - Both sources can be used simultaneously
+- Discovery settings control which methods are used (ARP, TCP, SNMP, mDNS)
 
 ### Device Management
 - **Discovered Devices Tab**: Shows devices with `is_saved=false, visible=true`

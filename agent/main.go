@@ -2409,66 +2409,8 @@ func runInteractive(ctx context.Context) {
 		fmt.Fprint(w, "no active scan")
 	})
 
-	// Scan saved IPs (user ranges) - starts async scan using saved ranges from database
-	http.HandleFunc("/scan_ips", func(w http.ResponseWriter, r *http.Request) {
-		var ranges []string
-		if agentConfigStore != nil {
-			savedRanges, err := agentConfigStore.GetRangesList()
-			if err == nil {
-				ranges = savedRanges
-			}
-		}
-		if len(ranges) == 0 {
-			http.Error(w, "no saved IP ranges to scan; please save ranges first", http.StatusBadRequest)
-			return
-		}
-		conc := 50
-		probes := []int{}
-		timeoutSeconds := 5
-		// log starting scan of saved ranges
-		agent.Info("Starting Scan Now (saved ranges): count=" + fmt.Sprintf("%d", len(ranges)))
-		go func(ranges []string, conc int, probes []int, timeoutSeconds int) {
-			ctx, cancel := context.WithCancel(context.Background())
-			scanCancelMu.Lock()
-			if scanCancelFunc != nil {
-				scanCancelFunc()
-			}
-			scanCancelFunc = cancel
-			scanCancelMu.Unlock()
-
-			scanState.mu.Lock()
-			scanState.Running = true
-			scanState.Source = "ips"
-			scanState.TotalQueued = 0
-			scanState.Completed = 0
-			scanState.mu.Unlock()
-
-			// Default discovery config (all methods enabled)
-			defaultCfg := &agent.DiscoveryConfig{
-				ARPEnabled:  true,
-				ICMPEnabled: true,
-				TCPEnabled:  true,
-				SNMPEnabled: true,
-				MDNSEnabled: false,
-			}
-			_, err := Discover(ctx, ranges, "full", defaultCfg, deviceStore, conc, timeoutSeconds)
-			if err != nil {
-				appLogger.Error("Scan failed", "error", err.Error())
-			}
-
-			scanState.mu.Lock()
-			scanState.Running = false
-			scanState.mu.Unlock()
-			// clear cancel func
-			scanCancelMu.Lock()
-			scanCancelFunc = nil
-			scanCancelMu.Unlock()
-		}(ranges, conc, probes, timeoutSeconds)
-		w.WriteHeader(http.StatusAccepted)
-		fmt.Fprint(w, "scan started")
-	})
-
-	// Auto discovery endpoint - scans the local subnet using discovery pipeline
+	// Discovery endpoint - scans saved IP ranges and/or local subnet using discovery pipeline
+	// Respects discovery_settings from database (manual_ranges, subnet_scan, method toggles)
 	http.HandleFunc("/discover", func(w http.ResponseWriter, r *http.Request) {
 		conc := 50
 		timeoutSeconds := 5

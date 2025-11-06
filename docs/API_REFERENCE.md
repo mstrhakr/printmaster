@@ -220,48 +220,37 @@ hidden 5 devices
 
 ## Scanning API
 
-### Start IP Range Scan
+### Discover Network Devices
 
-Start scanning a list of saved IP ranges.
-
-**Endpoint**: `POST /scan_ips`
-
-**Request Body**: None (uses saved ranges from config)
-
-**Response**: `200 OK`
-```json
-{
-  "message": "Scan started",
-  "total_queued": 254
-}
-```
-
-**Notes**:
-- Uses IP ranges from `config.json`
-- Non-blocking - returns immediately
-- Poll `/scan_status` for progress
-
----
-
-### Auto-Discover Network
-
-Scan local network using ARP and subnet enumeration.
+Discovers devices on the network using saved IP ranges and/or local subnet scanning.
 
 **Endpoint**: `POST /discover`
 
 **Request Body**: None
 
+**Query Parameters**:
+- `mode` - `"quick"` or `"full"` (default: `"full"`)
+
 **Response**: `200 OK`
 ```json
-{
-  "message": "Discovery started"
-}
+[
+  {
+    "IP": "10.0.0.1",
+    "Manufacturer": "HP",
+    "Model": "LaserJet Pro M404n",
+    "Serial": "JPBCD12345",
+    ...
+  }
+]
 ```
 
 **Notes**:
-- Discovers devices on local subnet automatically
-- Non-blocking - returns immediately
-- Poll `/scan_status` for progress
+- **Discovery Sources** (configurable in Settings):
+  - **Saved IP Ranges** - Scans configured IP ranges (when `manual_ranges` enabled)
+  - **Local Subnet** - Auto-discovers local network (when `subnet_scan` enabled)
+- Respects discovery method toggles (ARP, TCP, SNMP, mDNS)
+- Returns discovered devices synchronously
+- For async operation, use live discovery endpoints
 
 ---
 
@@ -283,7 +272,7 @@ Check progress of currently running scan.
 
 **Fields**:
 - `running` - Boolean indicating if scan is active
-- `source` - Origin of scan (`"scan_ips"`, `"discover"`, or `""`)
+- `source` - Origin of scan (`"ips"`, `"discover"`, or `""`)
 - `total_queued` - Total IPs to scan
 - `completed` - Number of IPs scanned so far
 
