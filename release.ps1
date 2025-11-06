@@ -13,6 +13,9 @@ param(
     [ValidateSet('patch', 'minor', 'major')]
     [string]$BumpType,
     
+    [Parameter(Position=2)]
+    [string]$Message = "",
+    
     [Parameter()]
     [switch]$SkipTests,
     
@@ -158,13 +161,25 @@ function Commit-And-Tag {
     # Add VERSION files
     if ($Component -eq 'both') {
         git add VERSION server/VERSION
-        $commitMsg = "chore: Release v$Version (agent + server)"
+        if ($Message) {
+            $commitMsg = "$Message - v$Version"
+        } else {
+            $commitMsg = "chore: Release v$Version (agent + server)"
+        }
     } elseif ($Component -eq 'server') {
         git add server/VERSION
-        $commitMsg = "chore: Release server v$Version"
+        if ($Message) {
+            $commitMsg = "$Message - server v$Version"
+        } else {
+            $commitMsg = "chore: Release server v$Version"
+        }
     } else {
         git add VERSION
-        $commitMsg = "chore: Release agent v$Version"
+        if ($Message) {
+            $commitMsg = "$Message - v$Version"
+        } else {
+            $commitMsg = "chore: Release agent v$Version"
+        }
     }
     
     # Commit
@@ -179,7 +194,7 @@ function Commit-And-Tag {
     # Tag
     $tagName = if ($Component -eq 'server') { "server-v$Version" } else { "v$Version" }
     $tagMsg = if ($Component -eq 'both') {
-        "Release v$Version: Agent and Server"
+        "Release v${Version} - Agent and Server"
     } elseif ($Component -eq 'server') {
         "Server Release v$Version"
     } else {

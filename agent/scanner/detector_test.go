@@ -233,7 +233,7 @@ func TestEnrichFunc(t *testing.T) {
 
 func TestMetricsFunc(t *testing.T) {
 	t.Skip("Skipping - vendor module removed, MetricsFunc now returns QueryResult instead of DeviceMetricsSnapshot")
-	
+
 	// Cannot run in parallel - modifies global NewSNMPClientFunc
 
 	// Save and restore original NewSNMPClient
