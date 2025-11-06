@@ -28,7 +28,6 @@ This document lists the key HTTP endpoints the agent exposes and the correspondi
   - Scans saved IP ranges when `manual_ranges` enabled in settings
   - Auto-discovers local subnet when `subnet_scan` enabled in settings
   - Respects discovery method toggles (ARP, TCP, SNMP, mDNS)
-- `GET /scan_status` - Current scan progress (`{running, source, total_queued, completed}`)
 
 ## Data Storage
 

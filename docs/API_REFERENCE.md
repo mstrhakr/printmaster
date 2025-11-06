@@ -254,30 +254,6 @@ Discovers devices on the network using saved IP ranges and/or local subnet scann
 
 ---
 
-### Get Scan Status
-
-Check progress of currently running scan.
-
-**Endpoint**: `GET /scan_status`
-
-**Response**: `200 OK`
-```json
-{
-  "running": true,
-  "source": "scan_ips",
-  "total_queued": 254,
-  "completed": 127
-}
-```
-
-**Fields**:
-- `running` - Boolean indicating if scan is active
-- `source` - Origin of scan (`"ips"`, `"discover"`, or `""`)
-- `total_queued` - Total IPs to scan
-- `completed` - Number of IPs scanned so far
-
----
-
 ## Configuration API
 
 ### Get Saved Ranges

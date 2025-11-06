@@ -140,10 +140,6 @@ func (c *staticResourceCache) Set(key string, data []byte, contentType string, h
 var staticCache = newStaticResourceCache()
 
 var (
-	// cancellation for the currently running scan
-	scanCancelMu   sync.Mutex
-	scanCancelFunc func()
-
 	// deviceStore is the global device storage interface
 	deviceStore storage.DeviceStore
 	// agentConfigStore handles agent configuration (IP ranges, settings, etc.)
@@ -1077,8 +1073,6 @@ func runInteractive(ctx context.Context) {
 		autoDiscoverCancel   context.CancelFunc
 		autoDiscoverRunning  bool
 		autoDiscoverInterval = 15 * time.Minute // Configurable via settings
-		lastDiscoveryAction  = "None"           // Last discovery activity
-		lastDiscoveryTime    time.Time
 
 		liveMDNSMu      sync.Mutex
 		liveMDNSCancel  context.CancelFunc
@@ -1130,10 +1124,6 @@ func runInteractive(ctx context.Context) {
 			// Run immediately on start
 			runPeriodicScan := func() {
 				appLogger.Debug("Auto Discover: running periodic scan")
-				autoDiscoverMu.Lock()
-				lastDiscoveryAction = "Periodic scan"
-				lastDiscoveryTime = time.Now()
-				autoDiscoverMu.Unlock()
 
 				// Load discovery settings
 				var discoverySettings = map[string]interface{}{
@@ -1400,10 +1390,6 @@ func runInteractive(ctx context.Context) {
 				liveMDNSSeen[ip] = time.Now()
 				liveMDNSMu.Unlock()
 				agent.AppendScanEvent("LIVE MDNS: discovered " + ip)
-				autoDiscoverMu.Lock()
-				lastDiscoveryAction = "mDNS discovered " + ip
-				lastDiscoveryTime = time.Now()
-				autoDiscoverMu.Unlock()
 
 				// Call LiveDiscoveryDetect directly
 				go handleLiveDiscovery(ip, "mdns")
@@ -1455,10 +1441,6 @@ func runInteractive(ctx context.Context) {
 				liveWSDiscoverySeen[ip] = time.Now()
 				liveWSDiscoveryMu.Unlock()
 				agent.AppendScanEvent("LIVE WS-DISCOVERY: discovered " + ip)
-				autoDiscoverMu.Lock()
-				lastDiscoveryAction = "WS-Discovery found " + ip
-				lastDiscoveryTime = time.Now()
-				autoDiscoverMu.Unlock()
 
 				// Call LiveDiscoveryDetect directly
 				go handleLiveDiscovery(ip, "wsdiscovery")
@@ -1510,10 +1492,6 @@ func runInteractive(ctx context.Context) {
 				liveSSDPSeen[ip] = time.Now()
 				liveSSDPMu.Unlock()
 				agent.AppendScanEvent("LIVE SSDP: discovered " + ip)
-				autoDiscoverMu.Lock()
-				lastDiscoveryAction = "SSDP discovered " + ip
-				lastDiscoveryTime = time.Now()
-				autoDiscoverMu.Unlock()
 
 				// Call LiveDiscoveryDetect directly
 				go handleLiveDiscovery(ip, "ssdp")
@@ -2275,74 +2253,7 @@ func runInteractive(ctx context.Context) {
 	// Helper function to create bool pointer
 	boolPtr := func(b bool) *bool {
 		return &b
-	} // Scan control: start scans asynchronously so the UI doesn't block.
-	type ScanState struct {
-		mu          sync.Mutex
-		Running     bool   `json:"running"`
-		Source      string `json:"source"`
-		TotalQueued int    `json:"total_queued"`
-		Completed   int    `json:"completed"`
 	}
-	var scanState ScanState
-
-	// status endpoint for UI to poll progress
-	http.HandleFunc("/scan_status", func(w http.ResponseWriter, r *http.Request) {
-		scanState.mu.Lock()
-		defer scanState.mu.Unlock()
-
-		// Check auto-discovery and live discovery status
-		autoDiscoverMu.Lock()
-		isAutoDiscovering := autoDiscoverRunning
-		lastAction := lastDiscoveryAction
-		lastTime := lastDiscoveryTime
-		autoDiscoverMu.Unlock()
-
-		// Check which live discovery methods are running
-		liveMDNSMu.Lock()
-		mdnsRunning := liveMDNSRunning
-		liveMDNSMu.Unlock()
-
-		liveWSDiscoveryMu.Lock()
-		wsdRunning := liveWSDiscoveryRunning
-		liveWSDiscoveryMu.Unlock()
-
-		liveSSDPMu.Lock()
-		ssdpRunning := liveSSDPRunning
-		liveSSDPMu.Unlock()
-
-		liveDiscoveryActive := mdnsRunning || wsdRunning || ssdpRunning
-
-		// Build list of active methods
-		var activeMethods []string
-		if mdnsRunning {
-			activeMethods = append(activeMethods, "mDNS")
-		}
-		if wsdRunning {
-			activeMethods = append(activeMethods, "WS-Discovery")
-		}
-		if ssdpRunning {
-			activeMethods = append(activeMethods, "SSDP")
-		}
-
-		pendingTasks := scanState.TotalQueued - scanState.Completed
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"running":               scanState.Running,
-			"source":                scanState.Source,
-			"total_queued":          scanState.TotalQueued,
-			"completed":             scanState.Completed,
-			"auto_discover_running": isAutoDiscovering,
-			"live_discovery_active": liveDiscoveryActive,
-			"mdns_running":          mdnsRunning,
-			"wsd_running":           wsdRunning,
-			"ssdp_running":          ssdpRunning,
-			"active_methods":        activeMethods,
-			"pending_tasks":         pendingTasks,
-			"last_action":           lastAction,
-			"last_action_time":      lastTime,
-		})
-	})
 
 	// SSE endpoint for real-time UI updates
 	http.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
@@ -2388,27 +2299,6 @@ func runInteractive(ctx context.Context) {
 	})
 
 	// cancel currently running scan (if any)
-	http.HandleFunc("/scan_cancel", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		scanCancelMu.Lock()
-		if scanCancelFunc != nil {
-			// log cancel request
-			agent.Info("Scan cancel requested via /scan_cancel")
-			scanCancelFunc()
-			scanCancelFunc = nil
-			scanCancelMu.Unlock()
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprint(w, "canceled")
-			return
-		}
-		scanCancelMu.Unlock()
-		w.WriteHeader(http.StatusConflict)
-		fmt.Fprint(w, "no active scan")
-	})
-
 	// Discovery endpoint - scans saved IP ranges and/or local subnet using discovery pipeline
 	// Respects discovery_settings from database (manual_ranges, subnet_scan, method toggles)
 	http.HandleFunc("/discover", func(w http.ResponseWriter, r *http.Request) {
@@ -2803,6 +2693,8 @@ func runInteractive(ctx context.Context) {
 	})
 
 	// Endpoint to return current scan metrics snapshot
+	// TODO(deprecate): Remove /scan_metrics endpoint - superseded by metrics API
+	// Still used by UI metrics display, needs replacement before removal
 	http.HandleFunc("/scan_metrics", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(agent.GetMetricsSnapshot())

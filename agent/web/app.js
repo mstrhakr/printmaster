@@ -1580,26 +1580,6 @@ async function downloadLogs() {
         showToast('Failed to download logs: ' + e.message, 'error');
     }
 }
-function updateStatus() {
-    // Status indicator is now updated via SSE, this just handles progress bar
-    fetch('/scan_status').then(r => r.json()).then(s => {
-        // update progress bar if we have total queued
-        try {
-            const total = s.total_queued || 0;
-            const comp = s.completed || 0;
-            const prog = document.getElementById('scan_progress');
-            if (prog) {
-                if (total > 0) {
-                    const pct = Math.min(100, Math.round((comp / total) * 100));
-                    prog.value = pct;
-                    prog.max = 100;
-                } else {
-                    prog.value = 0;
-                }
-            }
-        } catch (e) { }
-    }).catch(() => { })
-}
 
 function updateMetrics() {
     fetch('/scan_metrics').then(r => r.ok ? r.json() : Promise.resolve(null)).then(m => {
@@ -3193,61 +3173,6 @@ eventSource.addEventListener('device_discovering', (e) => {
     showDiscoveringCard(data);
 });
 
-eventSource.addEventListener('scan_status', (e) => {
-    const status = JSON.parse(e.data);
-    // Update global scan status indicator directly from SSE
-    const globalStatus = document.getElementById('global_scan_status');
-    const globalSpinner = document.getElementById('global_scan_spinner');
-    const globalText = document.getElementById('global_scan_text');
-    if (globalStatus && globalSpinner && globalText) {
-        if (status.running) {
-            // Show scan progress with pending task count
-            globalStatus.classList.remove('idle');
-            globalStatus.classList.add('active');
-            globalSpinner.style.display = 'block';
-            const total = status.total_queued || 0;
-            const comp = status.completed || 0;
-            const pending = status.pending_tasks || 0;
-            if (total > 0) {
-                const pct = Math.round((comp / total) * 100);
-                let scanText = 'Scanning: ' + comp + '/' + total + ' (' + pct + '%)';
-                if (pending > 0) {
-                    scanText += ' • ' + pending + ' pending';
-                }
-                globalText.textContent = scanText;
-            } else {
-                globalText.textContent = 'Scanning...';
-            }
-        } else if (status.live_discovery_active) {
-            // Show active live discovery methods
-            globalStatus.classList.remove('idle');
-            globalStatus.classList.add('active');
-            globalSpinner.style.display = 'none';
-            const indicator = '🟢';
-            const methods = status.active_methods || [];
-            let methodText = methods.length > 0 ? methods.join(', ') : 'Live Discovery';
-            if (status.last_action && status.last_action !== 'None') {
-                methodText += ' • ' + status.last_action;
-            }
-            globalText.textContent = indicator + ' ' + methodText;
-        } else if (status.auto_discover_running && !status.live_discovery_active) {
-            globalStatus.classList.remove('idle');
-            globalStatus.classList.add('active');
-            globalSpinner.style.display = 'none';
-            if (status.last_action && status.last_action !== 'None') {
-                globalText.textContent = '🟢 Auto Discovery • ' + status.last_action;
-            } else {
-                globalText.textContent = '🟢 Auto Discovery Enabled';
-            }
-        } else {
-            globalStatus.classList.remove('active');
-            globalStatus.classList.add('idle');
-            globalSpinner.style.display = 'none';
-            globalText.textContent = 'Idle';
-        }
-    }
-});
-
 eventSource.addEventListener('metrics_update', (e) => {
     const data = JSON.parse(e.data);
     updateMetricsChart(data);
@@ -3256,9 +3181,6 @@ eventSource.addEventListener('metrics_update', (e) => {
 eventSource.onerror = (e) => {
     console.error('SSE connection error, will auto-reconnect');
 };
-
-// Still poll status once per second as fallback (SSE will push when changes happen)
-setInterval(updateStatus, 1000);
 
 // Load auto-discover checkbox state on page load (from unified settings)
 fetch('/settings').then(r => r.json()).then(all => {
@@ -3428,7 +3350,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (discoverBtn) {
         discoverBtn.addEventListener('click', function () {
             fetch("/discover", { method: "POST" }).then(() => {
-                updateStatus();
                 setTimeout(updatePrinters, 500);
             });
         });
@@ -3438,7 +3359,6 @@ document.addEventListener('DOMContentLoaded', function () {
     if (discoverSettingsBtn) {
         discoverSettingsBtn.addEventListener('click', function () {
             fetch("/discover", { method: "POST" }).then(() => {
-                updateStatus();
                 setTimeout(updatePrinters, 500);
             });
         });
