@@ -10,22 +10,22 @@ import (
 
 // AggregatedMetrics represents aggregated metrics with min/max/avg values
 type AggregatedMetrics struct {
-	ID           int64     `json:"id"`
-	Serial       string    `json:"serial"`
-	BucketStart  time.Time `json:"bucket_start"`
-	SampleCount  int       `json:"sample_count"`
-	PageCountMin int       `json:"page_count_min"`
-	PageCountMax int       `json:"page_count_max"`
-	PageCountAvg int       `json:"page_count_avg"`
-	ColorMin     int       `json:"color_pages_min"`
-	ColorMax     int       `json:"color_pages_max"`
-	ColorAvg     int       `json:"color_pages_avg"`
-	MonoMin      int       `json:"mono_pages_min"`
-	MonoMax      int       `json:"mono_pages_max"`
-	MonoAvg      int       `json:"mono_pages_avg"`
-	ScanMin      int       `json:"scan_count_min"`
-	ScanMax      int       `json:"scan_count_max"`
-	ScanAvg      int       `json:"scan_count_avg"`
+	ID           int64                  `json:"id"`
+	Serial       string                 `json:"serial"`
+	BucketStart  time.Time              `json:"bucket_start"`
+	SampleCount  int                    `json:"sample_count"`
+	PageCountMin int                    `json:"page_count_min"`
+	PageCountMax int                    `json:"page_count_max"`
+	PageCountAvg int                    `json:"page_count_avg"`
+	ColorMin     int                    `json:"color_pages_min"`
+	ColorMax     int                    `json:"color_pages_max"`
+	ColorAvg     int                    `json:"color_pages_avg"`
+	MonoMin      int                    `json:"mono_pages_min"`
+	MonoMax      int                    `json:"mono_pages_max"`
+	MonoAvg      int                    `json:"mono_pages_avg"`
+	ScanMin      int                    `json:"scan_count_min"`
+	ScanMax      int                    `json:"scan_count_max"`
+	ScanAvg      int                    `json:"scan_count_avg"`
 	TonerAvg     map[string]interface{} `json:"toner_levels_avg"`
 }
 
