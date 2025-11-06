@@ -197,6 +197,36 @@ func doGarbageCollection(store storage.DeviceStore, config *agent.RetentionConfi
 	}
 }
 
+// runMetricsDownsampler runs periodic downsampling of metrics data
+// This implements Netdata-style tiered storage: raw → hourly → daily → monthly
+func runMetricsDownsampler(store storage.DeviceStore) {
+	// Run every 6 hours (4 times per day)
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+
+	// Run immediately on startup (with a small delay to let the app initialize)
+	time.Sleep(30 * time.Second)
+	doMetricsDownsampling(store)
+
+	for range ticker.C {
+		doMetricsDownsampling(store)
+	}
+}
+
+// doMetricsDownsampling performs the actual downsampling work
+func doMetricsDownsampling(store storage.DeviceStore) {
+	ctx := context.Background()
+
+	appLogger.Info("Metrics downsampling: Starting tiered aggregation")
+
+	// Perform full downsampling: raw→hourly, hourly→daily, daily→monthly, cleanup
+	if err := store.PerformFullDownsampling(ctx); err != nil {
+		appLogger.Error("Metrics downsampling: Failed", "error", err)
+	} else {
+		appLogger.Info("Metrics downsampling: Completed successfully")
+	}
+}
+
 // ensureTLSCertificates generates or loads TLS certificates for HTTPS
 // If customCertPath and customKeyPath are provided, uses those instead
 func ensureTLSCertificates(customCertPath, customKeyPath string) (certFile, keyFile string, err error) {
@@ -526,7 +556,7 @@ func handleServiceCommand(cmd string) {
 		status, _ := s.Status()
 		if status != service.StatusUnknown {
 			util.ShowWarning("Service already exists, removing first...")
-			
+
 			// Stop if running
 			if status == service.StatusRunning {
 				util.ShowInfo("Stopping existing service...")
@@ -746,7 +776,7 @@ func handleServiceCommand(cmd string) {
 		util.ShowInfo("Stopping service...")
 		done := make(chan bool)
 		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
-		
+
 		stopErr := s.Stop()
 		if stopErr != nil {
 			done <- true
@@ -1029,6 +1059,9 @@ func runInteractive(ctx context.Context) {
 	// Start garbage collection goroutine
 	retentionConfig := agent.GetRetentionConfig()
 	go runGarbageCollection(deviceStore, retentionConfig)
+
+	// Start metrics downsampler goroutine (runs every 6 hours)
+	go runMetricsDownsampler(deviceStore)
 
 	// Auto-discovery management (periodic scanning + optional live discovery methods)
 	// Controlled by discovery setting: auto_discover_enabled (bool) - master switch
@@ -1752,13 +1785,13 @@ func runInteractive(ctx context.Context) {
 	}
 
 	// Define the collection function
+	// Collect metrics from ALL devices (saved + discovered) for tiered storage
 	collectMetricsForSavedDevices = func() {
-		appLogger.Debug("Metrics rescan: collecting snapshots from saved devices")
+		appLogger.Debug("Metrics rescan: collecting snapshots from all devices")
 		ctx := context.Background()
 
-		// Get all saved devices
-		isSaved := true
-		devices, err := deviceStore.List(ctx, storage.DeviceFilter{IsSaved: &isSaved})
+		// Get all devices (no IsSaved filter - collect from discovered devices too)
+		devices, err := deviceStore.List(ctx, storage.DeviceFilter{})
 		if err != nil {
 			appLogger.Error("Metrics rescan: failed to list devices", "error", err)
 			return

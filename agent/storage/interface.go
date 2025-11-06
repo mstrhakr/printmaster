@@ -111,4 +111,24 @@ type DeviceStore interface {
 
 	// DeleteOldMetrics removes metrics history older than the given timestamp
 	DeleteOldMetrics(ctx context.Context, olderThan time.Time) (int, error)
+
+	// Tiered Metrics Downsampling (Netdata-style)
+
+	// PerformFullDownsampling runs all downsampling operations: raw→hourly, hourly→daily, daily→monthly, cleanup
+	PerformFullDownsampling(ctx context.Context) error
+
+	// DownsampleRawToHourly aggregates raw 5-minute metrics into hourly buckets
+	DownsampleRawToHourly(ctx context.Context, olderThan time.Time) (int, error)
+
+	// DownsampleHourlyToDaily aggregates hourly metrics into daily buckets
+	DownsampleHourlyToDaily(ctx context.Context, olderThan time.Time) (int, error)
+
+	// DownsampleDailyToMonthly aggregates daily metrics into monthly buckets
+	DownsampleDailyToMonthly(ctx context.Context, olderThan time.Time) (int, error)
+
+	// CleanupOldTieredMetrics removes metrics from all tiers based on retention policies
+	CleanupOldTieredMetrics(ctx context.Context, rawRetentionDays, hourlyRetentionDays, dailyRetentionDays int) (map[string]int, error)
+
+	// GetTieredMetricsHistory retrieves metrics from appropriate tiers based on time range
+	GetTieredMetricsHistory(ctx context.Context, serial string, since time.Time, until time.Time) ([]*MetricsSnapshot, error)
 }
