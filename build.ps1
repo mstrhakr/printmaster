@@ -5,8 +5,11 @@
 
 param(
     [Parameter(Position=0)]
-    [ValidateSet('agent', 'server', 'both', 'release', 'bump', 'all', 'clean', 'test', 'test-storage', 'test-all')]
+    [ValidateSet('agent', 'server', 'both', 'all', 'clean', 'test', 'test-storage', 'test-all')]
     [string]$Target = 'agent',
+    
+    [Parameter()]
+    [switch]$Release,
     
     [Parameter()]
     [switch]$VerboseBuild,
@@ -162,11 +165,11 @@ function Build-Agent {
         Set-Content -Path $buildNumberFile -Value $buildNumber -NoNewline
         Set-Content -Path $lastVersionFile -Value $version -NoNewline
         
-        # Create version string with build number
-        # Release: x.y.z.build (e.g., 0.2.5.123)
-        # Dev: x.y.z.build-dev (e.g., 0.2.5.123-dev)
+        # Create version string
+        # Release: x.y.z (clean semantic version)
+        # Dev: x.y.z.build-dev (includes build number for tracking)
         if ($IsRelease) {
-            $versionString = "$version.$buildNumber"
+            $versionString = "$version"
         } else {
             $versionString = "$version.$buildNumber-dev"
         }
@@ -317,11 +320,11 @@ function Build-Server {
         Set-Content -Path $buildNumberFile -Value $buildNumber -NoNewline
         Set-Content -Path $lastVersionFile -Value $version -NoNewline
         
-        # Create version string with build number
-        # Release: x.y.z.build (e.g., 0.2.5.123)
-        # Dev: x.y.z.build-dev (e.g., 0.2.5.123-dev)
+        # Create version string
+        # Release: x.y.z (clean semantic version)
+        # Dev: x.y.z.build-dev (includes build number for tracking)
         if ($IsRelease) {
-            $versionString = "$version.$buildNumber"
+            $versionString = "$version"
         } else {
             $versionString = "$version.$buildNumber-dev"
         }
@@ -499,27 +502,17 @@ switch ($Target) {
         $success = $true
     }
     'agent' {
-        # Dev build (with debug info)
-        $success = Build-Agent -IsRelease $false -IncrementVersion:$IncrementVersion
+        $success = Build-Agent -IsRelease:$Release -IncrementVersion:$IncrementVersion
     }
     'server' {
-        # Server dev build (with debug info)
-        $success = Build-Server -IsRelease $false -IncrementVersion:$IncrementVersion
+        $success = Build-Server -IsRelease:$Release -IncrementVersion:$IncrementVersion
     }
     'both' {
         # Build both agent and server
-        $success = Build-Agent -IsRelease $false -IncrementVersion:$IncrementVersion
+        $success = Build-Agent -IsRelease:$Release -IncrementVersion:$IncrementVersion
         if ($success) {
-            $success = Build-Server -IsRelease $false -IncrementVersion:$IncrementVersion
+            $success = Build-Server -IsRelease:$Release -IncrementVersion:$IncrementVersion
         }
-    }
-    'release' {
-        # Optimized release build (stripped, production-ready) - agent only
-        $success = Build-Agent -IsRelease $true -IncrementVersion:$IncrementVersion
-    }
-    'bump' {
-        # Just increment version and build release (shorthand for: release -IncrementVersion)
-        $success = Build-Agent -IsRelease $true -IncrementVersion:$true
     }
     'test' {
         # Alias for test-storage
@@ -533,7 +526,7 @@ switch ($Target) {
     }
     'all' {
         # Build agent and run tests
-        $success = Build-Agent -IsRelease $false -IncrementVersion:$IncrementVersion
+        $success = Build-Agent -IsRelease:$Release -IncrementVersion:$IncrementVersion
         if ($success) {
             $success = Test-Storage
         }

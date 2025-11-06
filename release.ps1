@@ -103,7 +103,9 @@ function Build-Component {
     
     Write-Status "Building $Component..." "STEP"
     
-    $buildArgs = @($Component)
+    # Build with -Release flag for optimized, stripped binaries
+    $buildArgs = @($Component, '-Release')
+    
     if ($VerbosePreference -eq 'Continue') {
         $buildArgs += '-VerboseBuild'
     }
