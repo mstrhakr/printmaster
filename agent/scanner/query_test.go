@@ -3,7 +3,6 @@ package scanner
 import (
 	"context"
 	"errors"
-	"printmaster/agent/scanner/vendor"
 	"testing"
 
 	"github.com/gosnmp/gosnmp"
@@ -251,21 +250,17 @@ func TestQueryDevice_AllVendors(t *testing.T) {
 				return mockClient, nil
 			}
 
-			result, err := queryDeviceWithCapabilitiesAndClient(context.Background(), "10.0.0.6", QueryMinimal, v, 30, nil, mockFactory)
-			if err != nil {
-				t.Fatalf("unexpected error for vendor %s: %v", v, err)
-			}
+		result, err := queryDeviceWithCapabilitiesAndClient(context.Background(), "10.0.0.6", QueryMinimal, v, 30, nil, mockFactory)
+		if err != nil {
+			t.Fatalf("unexpected error for vendor %s: %v", v, err)
+		}
 
-			if result.VendorHint != v {
-				t.Errorf("expected vendor hint %s, got %s", v, result.VendorHint)
-			}
+		if result.VendorHint != v {
+			t.Errorf("expected vendor hint %s, got %s", v, result.VendorHint)
+		}
 
-			// Verify vendor module is resolved
-			vendorMod := vendor.GetVendor(v)
-			if vendorMod == nil {
-				t.Errorf("vendor module not found for %s", v)
-			}
-		})
+		// Vendor module verification removed (no longer using vendor package)
+	})
 	}
 }
 
