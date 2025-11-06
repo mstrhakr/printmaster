@@ -147,7 +147,8 @@ func (s *SQLiteStore) initSchema() error {
 		applied_at DATETIME NOT NULL
 	);
 
-	CREATE TABLE IF NOT EXISTS metrics_history (
+	-- Raw metrics: high-resolution 5-minute data, retained for 7 days
+	CREATE TABLE IF NOT EXISTS metrics_raw (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		serial TEXT NOT NULL,
 		timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -159,9 +160,90 @@ func (s *SQLiteStore) initSchema() error {
 		FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_metrics_serial ON metrics_history(serial);
-	CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics_history(timestamp);
-	CREATE INDEX IF NOT EXISTS idx_metrics_serial_timestamp ON metrics_history(serial, timestamp);
+	-- Hourly aggregates: 1-hour buckets, retained for 30 days
+	CREATE TABLE IF NOT EXISTS metrics_hourly (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		serial TEXT NOT NULL,
+		hour_start DATETIME NOT NULL,  -- Start of the hour bucket
+		sample_count INTEGER DEFAULT 0,  -- Number of raw samples aggregated
+		page_count_min INTEGER DEFAULT 0,
+		page_count_max INTEGER DEFAULT 0,
+		page_count_avg INTEGER DEFAULT 0,
+		color_pages_min INTEGER DEFAULT 0,
+		color_pages_max INTEGER DEFAULT 0,
+		color_pages_avg INTEGER DEFAULT 0,
+		mono_pages_min INTEGER DEFAULT 0,
+		mono_pages_max INTEGER DEFAULT 0,
+		mono_pages_avg INTEGER DEFAULT 0,
+		scan_count_min INTEGER DEFAULT 0,
+		scan_count_max INTEGER DEFAULT 0,
+		scan_count_avg INTEGER DEFAULT 0,
+		toner_levels_avg TEXT,  -- JSON with averaged toner levels
+		FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE,
+		UNIQUE(serial, hour_start)  -- One aggregate per device per hour
+	);
+
+	-- Daily aggregates: 1-day buckets, retained for 365 days
+	CREATE TABLE IF NOT EXISTS metrics_daily (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		serial TEXT NOT NULL,
+		day_start DATETIME NOT NULL,  -- Start of the day (midnight UTC)
+		sample_count INTEGER DEFAULT 0,  -- Number of hourly samples aggregated
+		page_count_min INTEGER DEFAULT 0,
+		page_count_max INTEGER DEFAULT 0,
+		page_count_avg INTEGER DEFAULT 0,
+		color_pages_min INTEGER DEFAULT 0,
+		color_pages_max INTEGER DEFAULT 0,
+		color_pages_avg INTEGER DEFAULT 0,
+		mono_pages_min INTEGER DEFAULT 0,
+		mono_pages_max INTEGER DEFAULT 0,
+		mono_pages_avg INTEGER DEFAULT 0,
+		scan_count_min INTEGER DEFAULT 0,
+		scan_count_max INTEGER DEFAULT 0,
+		scan_count_avg INTEGER DEFAULT 0,
+		toner_levels_avg TEXT,
+		FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE,
+		UNIQUE(serial, day_start)
+	);
+
+	-- Monthly aggregates: 1-month buckets, retained forever
+	CREATE TABLE IF NOT EXISTS metrics_monthly (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		serial TEXT NOT NULL,
+		month_start DATETIME NOT NULL,  -- Start of the month (first day, midnight UTC)
+		sample_count INTEGER DEFAULT 0,  -- Number of daily samples aggregated
+		page_count_min INTEGER DEFAULT 0,
+		page_count_max INTEGER DEFAULT 0,
+		page_count_avg INTEGER DEFAULT 0,
+		color_pages_min INTEGER DEFAULT 0,
+		color_pages_max INTEGER DEFAULT 0,
+		color_pages_avg INTEGER DEFAULT 0,
+		mono_pages_min INTEGER DEFAULT 0,
+		mono_pages_max INTEGER DEFAULT 0,
+		mono_pages_avg INTEGER DEFAULT 0,
+		scan_count_min INTEGER DEFAULT 0,
+		scan_count_max INTEGER DEFAULT 0,
+		scan_count_avg INTEGER DEFAULT 0,
+		toner_levels_avg TEXT,
+		FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE,
+		UNIQUE(serial, month_start)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_metrics_raw_serial ON metrics_raw(serial);
+	CREATE INDEX IF NOT EXISTS idx_metrics_raw_timestamp ON metrics_raw(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_metrics_raw_serial_timestamp ON metrics_raw(serial, timestamp);
+	
+	CREATE INDEX IF NOT EXISTS idx_metrics_hourly_serial ON metrics_hourly(serial);
+	CREATE INDEX IF NOT EXISTS idx_metrics_hourly_hour_start ON metrics_hourly(hour_start);
+	CREATE INDEX IF NOT EXISTS idx_metrics_hourly_serial_hour ON metrics_hourly(serial, hour_start);
+	
+	CREATE INDEX IF NOT EXISTS idx_metrics_daily_serial ON metrics_daily(serial);
+	CREATE INDEX IF NOT EXISTS idx_metrics_daily_day_start ON metrics_daily(day_start);
+	CREATE INDEX IF NOT EXISTS idx_metrics_daily_serial_day ON metrics_daily(serial, day_start);
+	
+	CREATE INDEX IF NOT EXISTS idx_metrics_monthly_serial ON metrics_monthly(serial);
+	CREATE INDEX IF NOT EXISTS idx_metrics_monthly_month_start ON metrics_monthly(month_start);
+	CREATE INDEX IF NOT EXISTS idx_metrics_monthly_serial_month ON metrics_monthly(serial, month_start);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -429,6 +511,136 @@ func (s *SQLiteStore) runMigrations() error {
 		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (7, ?)`, time.Now())
 		if err != nil {
 			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+	}
+
+	// Migration 7 -> 8: Rename metrics_history to metrics_raw, add tiered aggregation tables
+	// This implements Netdata-style tiered storage: raw (7d), hourly (30d), daily (365d), monthly (forever)
+	if currentVersion < 8 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='metrics_history'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// Rename existing metrics_history to metrics_raw
+			_, err = s.db.Exec(`ALTER TABLE metrics_history RENAME TO metrics_raw`)
+			if err != nil {
+				return fmt.Errorf("failed to rename metrics_history to metrics_raw: %w", err)
+			}
+
+			// Drop old indexes
+			_, _ = s.db.Exec(`DROP INDEX IF EXISTS idx_metrics_serial`)
+			_, _ = s.db.Exec(`DROP INDEX IF EXISTS idx_metrics_timestamp`)
+			_, _ = s.db.Exec(`DROP INDEX IF EXISTS idx_metrics_serial_timestamp`)
+
+			// Create new indexes for metrics_raw
+			_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_raw_serial ON metrics_raw(serial)`)
+			_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_raw_timestamp ON metrics_raw(timestamp)`)
+			_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_raw_serial_timestamp ON metrics_raw(serial, timestamp)`)
+		}
+
+		// Create hourly aggregation table
+		_, err = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS metrics_hourly (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				serial TEXT NOT NULL,
+				hour_start DATETIME NOT NULL,
+				sample_count INTEGER DEFAULT 0,
+				page_count_min INTEGER DEFAULT 0,
+				page_count_max INTEGER DEFAULT 0,
+				page_count_avg INTEGER DEFAULT 0,
+				color_pages_min INTEGER DEFAULT 0,
+				color_pages_max INTEGER DEFAULT 0,
+				color_pages_avg INTEGER DEFAULT 0,
+				mono_pages_min INTEGER DEFAULT 0,
+				mono_pages_max INTEGER DEFAULT 0,
+				mono_pages_avg INTEGER DEFAULT 0,
+				scan_count_min INTEGER DEFAULT 0,
+				scan_count_max INTEGER DEFAULT 0,
+				scan_count_avg INTEGER DEFAULT 0,
+				toner_levels_avg TEXT,
+				FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE,
+				UNIQUE(serial, hour_start)
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create metrics_hourly table: %w", err)
+		}
+
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_hourly_serial ON metrics_hourly(serial)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_hourly_hour_start ON metrics_hourly(hour_start)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_hourly_serial_hour ON metrics_hourly(serial, hour_start)`)
+
+		// Create daily aggregation table
+		_, err = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS metrics_daily (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				serial TEXT NOT NULL,
+				day_start DATETIME NOT NULL,
+				sample_count INTEGER DEFAULT 0,
+				page_count_min INTEGER DEFAULT 0,
+				page_count_max INTEGER DEFAULT 0,
+				page_count_avg INTEGER DEFAULT 0,
+				color_pages_min INTEGER DEFAULT 0,
+				color_pages_max INTEGER DEFAULT 0,
+				color_pages_avg INTEGER DEFAULT 0,
+				mono_pages_min INTEGER DEFAULT 0,
+				mono_pages_max INTEGER DEFAULT 0,
+				mono_pages_avg INTEGER DEFAULT 0,
+				scan_count_min INTEGER DEFAULT 0,
+				scan_count_max INTEGER DEFAULT 0,
+				scan_count_avg INTEGER DEFAULT 0,
+				toner_levels_avg TEXT,
+				FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE,
+				UNIQUE(serial, day_start)
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create metrics_daily table: %w", err)
+		}
+
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_daily_serial ON metrics_daily(serial)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_daily_day_start ON metrics_daily(day_start)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_daily_serial_day ON metrics_daily(serial, day_start)`)
+
+		// Create monthly aggregation table
+		_, err = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS metrics_monthly (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				serial TEXT NOT NULL,
+				month_start DATETIME NOT NULL,
+				sample_count INTEGER DEFAULT 0,
+				page_count_min INTEGER DEFAULT 0,
+				page_count_max INTEGER DEFAULT 0,
+				page_count_avg INTEGER DEFAULT 0,
+				color_pages_min INTEGER DEFAULT 0,
+				color_pages_max INTEGER DEFAULT 0,
+				color_pages_avg INTEGER DEFAULT 0,
+				mono_pages_min INTEGER DEFAULT 0,
+				mono_pages_max INTEGER DEFAULT 0,
+				mono_pages_avg INTEGER DEFAULT 0,
+				scan_count_min INTEGER DEFAULT 0,
+				scan_count_max INTEGER DEFAULT 0,
+				scan_count_avg INTEGER DEFAULT 0,
+				toner_levels_avg TEXT,
+				FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE,
+				UNIQUE(serial, month_start)
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create metrics_monthly table: %w", err)
+		}
+
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_monthly_serial ON metrics_monthly(serial)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_monthly_month_start ON metrics_monthly(month_start)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_monthly_serial_month ON metrics_monthly(serial, month_start)`)
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (8, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+
+		if storageLogger != nil {
+			storageLogger.Info("Applied schema migration 7->8: Tiered metrics storage (raw/hourly/daily/monthly)")
 		}
 	}
 
@@ -1130,7 +1342,7 @@ func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *Metrics
 	tonerJSON, _ := json.Marshal(snapshot.TonerLevels)
 
 	query := `
-		INSERT INTO metrics_history (
+		INSERT INTO metrics_raw (
 			serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels,
 			fax_pages, copy_pages, other_pages, copy_mono_pages, copy_flatbed_scans, copy_adf_scans,
 			fax_flatbed_scans, fax_adf_scans, scan_to_host_flatbed, scan_to_host_adf,
@@ -1180,12 +1392,13 @@ func (s *SQLiteStore) GetMetricsHistory(ctx context.Context, serial string, sinc
 	// format may include timezone names and monotonic clock info that SQLite's time
 	// functions cannot parse reliably. Instead, we fetch all snapshots for the serial
 	// and filter in Go using time.Time comparisons.
+	// TODO: Implement tiered query that selects appropriate table based on time range
 	query := `
 		SELECT id, serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels,
 		       fax_pages, copy_pages, other_pages, copy_mono_pages, copy_flatbed_scans, copy_adf_scans,
 		       fax_flatbed_scans, fax_adf_scans, scan_to_host_flatbed, scan_to_host_adf,
 		       duplex_sheets, jam_events, scanner_jam_events
-		FROM metrics_history
+		FROM metrics_raw
 		WHERE serial = ?
 		ORDER BY timestamp ASC
 	`
@@ -1244,7 +1457,7 @@ func (s *SQLiteStore) GetLatestMetrics(ctx context.Context, serial string) (*Met
 
 	query := `
 		SELECT id, serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
-		FROM metrics_history
+		FROM metrics_raw
 		WHERE serial = ?
 		ORDER BY timestamp DESC
 		LIMIT 1
@@ -1274,9 +1487,10 @@ func (s *SQLiteStore) GetLatestMetrics(ctx context.Context, serial string) (*Met
 }
 
 // DeleteOldMetrics removes metrics history older than the given timestamp
+// TODO: Update to handle tiered cleanup (raw>7d, hourly>30d, daily>365d)
 func (s *SQLiteStore) DeleteOldMetrics(ctx context.Context, olderThan time.Time) (int, error) {
 	result, err := s.db.ExecContext(ctx,
-		"DELETE FROM metrics_history WHERE timestamp < ?",
+		"DELETE FROM metrics_raw WHERE timestamp < ?",
 		olderThan)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete old metrics: %w", err)
