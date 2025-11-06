@@ -23,6 +23,12 @@ agent/printmaster-agent.exe
 server/printmaster-server
 server/printmaster-server.exe
 
+# Build metadata (local build tracking)
+.buildnumber
+.lastversion
+*.buildnumber
+*.lastversion
+
 # Dependency directories (vendor is optional)
 vendor/
 
