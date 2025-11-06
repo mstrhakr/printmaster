@@ -99,7 +99,7 @@ function Bump-Version {
 }
 
 function Build-Component {
-    param([string]$Component)
+    param([string]$Component, [string]$Version)
     
     Write-Status "Building $Component..." "STEP"
     
@@ -115,6 +115,16 @@ function Build-Component {
     }
     
     Write-Status "$Component built successfully" "SUCCESS"
+    
+    # Create versioned release binary
+    $componentDir = Join-Path $ProjectRoot $Component
+    $sourceBinary = Join-Path $componentDir "printmaster-$Component.exe"
+    $releaseBinary = Join-Path $componentDir "printmaster-$Component-v$Version.exe"
+    
+    if (Test-Path $sourceBinary) {
+        Copy-Item $sourceBinary $releaseBinary -Force
+        Write-Status "Created release binary: printmaster-$Component-v$Version.exe" "SUCCESS"
+    }
 }
 
 function Run-Tests {
@@ -319,10 +329,12 @@ try {
     
     # Build release binaries
     if ($Component -eq 'both') {
-        Build-Component -Component 'agent'
-        Build-Component -Component 'server'
+        $agentVersion = Get-Content (Join-Path $AgentDir 'VERSION') -Raw
+        $serverVersion = Get-Content (Join-Path $ServerDir 'VERSION') -Raw
+        Build-Component -Component 'agent' -Version $agentVersion.Trim()
+        Build-Component -Component 'server' -Version $serverVersion.Trim()
     } else {
-        Build-Component -Component $Component
+        Build-Component -Component $Component -Version $finalVersion
     }
     
     # Commit and tag
