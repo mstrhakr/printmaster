@@ -79,7 +79,9 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 
 	// Seed default metrics for devices without any
 	if err := store.seedDefaultMetrics(); err != nil {
-		storageLogger.Warn("Failed to seed default metrics", "error", err)
+		if storageLogger != nil {
+			storageLogger.Warn("Failed to seed default metrics", "error", err)
+		}
 		// Non-fatal, continue
 	}
 
@@ -129,8 +131,6 @@ func (s *SQLiteStore) initSchema() error {
 		ip TEXT NOT NULL,
 		hostname TEXT,
 		firmware TEXT,
-		page_count INTEGER DEFAULT 0,
-		toner_levels TEXT,
 		consumables TEXT,
 		status_messages TEXT,
 		discovery_method TEXT,
@@ -1089,22 +1089,23 @@ func (s *SQLiteStore) Close() error {
 }
 
 // AddScanHistory records a new scan snapshot for a device
+// Note: This tracks device state changes (IP, hostname, firmware) for audit purposes.
+// Metrics data (page counts, toner levels) should be stored using SaveMetricsSnapshot instead.
 func (s *SQLiteStore) AddScanHistory(ctx context.Context, scan *ScanSnapshot) error {
 	if scan.Serial == "" {
 		return ErrInvalidSerial
 	}
 
 	// Marshal complex fields to JSON
-	tonerJSON, _ := json.Marshal(scan.TonerLevels)
 	consumablesJSON, _ := json.Marshal(scan.Consumables)
 	statusJSON, _ := json.Marshal(scan.StatusMessages)
 
 	query := `
 		INSERT INTO scan_history (
 			serial, created_at, ip, hostname, firmware, 
-			page_count, toner_levels, consumables, status_messages,
+			consumables, status_messages,
 			discovery_method, walk_filename, raw_data
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.ExecContext(ctx, query,
@@ -1113,8 +1114,6 @@ func (s *SQLiteStore) AddScanHistory(ctx context.Context, scan *ScanSnapshot) er
 		scan.IP,
 		scan.Hostname,
 		scan.Firmware,
-		scan.PageCount,
-		tonerJSON,
 		consumablesJSON,
 		statusJSON,
 		scan.DiscoveryMethod,
@@ -1145,7 +1144,7 @@ func (s *SQLiteStore) GetScanHistory(ctx context.Context, serial string, limit i
 
 	query := `
 		SELECT id, serial, created_at, ip, hostname, firmware,
-		       page_count, toner_levels, consumables, status_messages,
+		       consumables, status_messages,
 		       discovery_method, walk_filename, raw_data
 		FROM scan_history
 		WHERE serial = ?
@@ -1162,7 +1161,7 @@ func (s *SQLiteStore) GetScanHistory(ctx context.Context, serial string, limit i
 	var scans []*ScanSnapshot
 	for rows.Next() {
 		scan := &ScanSnapshot{}
-		var tonerJSON, consumablesJSON, statusJSON, rawDataJSON sql.NullString
+		var consumablesJSON, statusJSON, rawDataJSON sql.NullString
 
 		err := rows.Scan(
 			&scan.ID,
@@ -1171,8 +1170,6 @@ func (s *SQLiteStore) GetScanHistory(ctx context.Context, serial string, limit i
 			&scan.IP,
 			&scan.Hostname,
 			&scan.Firmware,
-			&scan.PageCount,
-			&tonerJSON,
 			&consumablesJSON,
 			&statusJSON,
 			&scan.DiscoveryMethod,
@@ -1184,9 +1181,6 @@ func (s *SQLiteStore) GetScanHistory(ctx context.Context, serial string, limit i
 		}
 
 		// Unmarshal JSON fields
-		if tonerJSON.Valid {
-			json.Unmarshal([]byte(tonerJSON.String), &scan.TonerLevels)
-		}
 		if consumablesJSON.Valid {
 			json.Unmarshal([]byte(consumablesJSON.String), &scan.Consumables)
 		}
@@ -1213,7 +1207,7 @@ func (s *SQLiteStore) GetScanAtTime(ctx context.Context, serial string, timestam
 
 	query := `
 		SELECT id, serial, created_at, ip, hostname, firmware,
-		       page_count, toner_levels, consumables, status_messages,
+		       consumables, status_messages,
 		       discovery_method, walk_filename, raw_data
 		FROM scan_history
 		WHERE serial = ?
@@ -1222,7 +1216,7 @@ func (s *SQLiteStore) GetScanAtTime(ctx context.Context, serial string, timestam
 	`
 
 	scan := &ScanSnapshot{}
-	var tonerJSON, consumablesJSON, statusJSON, rawDataJSON sql.NullString
+	var consumablesJSON, statusJSON, rawDataJSON sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, serial, timestamp).Scan(
 		&scan.ID,
@@ -1231,8 +1225,6 @@ func (s *SQLiteStore) GetScanAtTime(ctx context.Context, serial string, timestam
 		&scan.IP,
 		&scan.Hostname,
 		&scan.Firmware,
-		&scan.PageCount,
-		&tonerJSON,
 		&consumablesJSON,
 		&statusJSON,
 		&scan.DiscoveryMethod,
@@ -1247,9 +1239,6 @@ func (s *SQLiteStore) GetScanAtTime(ctx context.Context, serial string, timestam
 	}
 
 	// Unmarshal JSON fields
-	if tonerJSON.Valid {
-		json.Unmarshal([]byte(tonerJSON.String), &scan.TonerLevels)
-	}
 	if consumablesJSON.Valid {
 		json.Unmarshal([]byte(consumablesJSON.String), &scan.Consumables)
 	}
@@ -1343,21 +1332,14 @@ func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *Metrics
 
 	query := `
 		INSERT INTO metrics_raw (
-			serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels,
-			fax_pages, copy_pages, other_pages, copy_mono_pages, copy_flatbed_scans, copy_adf_scans,
-			fax_flatbed_scans, fax_adf_scans, scan_to_host_flatbed, scan_to_host_adf,
-			duplex_sheets, jam_events, scanner_jam_events
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	result, err := s.db.ExecContext(ctx, query,
 		snapshot.Serial, snapshot.Timestamp, snapshot.PageCount,
 		snapshot.ColorPages, snapshot.MonoPages, snapshot.ScanCount,
 		string(tonerJSON),
-		snapshot.FaxPages, snapshot.CopyPages, snapshot.OtherPages, snapshot.CopyMonoPages,
-		snapshot.CopyFlatbedScans, snapshot.CopyADFScans, snapshot.FaxFlatbedScans, snapshot.FaxADFScans,
-		snapshot.ScanToHostFlatbed, snapshot.ScanToHostADF, snapshot.DuplexSheets,
-		snapshot.JamEvents, snapshot.ScannerJamEvents,
 	)
 
 	if err != nil {
