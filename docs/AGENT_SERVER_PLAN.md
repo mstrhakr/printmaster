@@ -397,3 +397,367 @@ printmaster_devices_total 347
 **My suggestion**: Let's start with basic communication (Sprint 1), add auth immediately after (Sprint 2), then iterate based on real usage patterns.
 
 Ready to start coding?
+
+---
+
+## Phase 4: Real-Time WebSocket Communication (Future Enhancement)
+
+### Overview
+Replace polling-based heartbeat with WebSocket connections for instant agent status updates and reduced server load.
+
+### Architecture
+
+#### **Hybrid Approach** (Recommended)
+- **Primary**: WebSocket for real-time bidirectional communication
+- **Fallback**: Keep existing HTTP heartbeat endpoints for compatibility
+
+#### **Connection Patterns**
+```
+Agent → Server:  /ws/agent  (persistent connection, auth via Bearer token)
+UI → Server:     /ws/ui     (persistent connection, broadcasts agent status changes)
+```
+
+### Scalability Considerations
+
+**Performance Characteristics**:
+- **Memory per connection**: ~2-8KB goroutine stack + ~few KB buffers
+- **1000 agents**: ~2-8MB goroutines + ~5-10MB buffers = ~15MB total
+- **10,000 agents**: ~150MB total (very manageable)
+- **Bottleneck**: Network bandwidth and JSON marshaling, not connections
+
+**Go's Advantages**:
+- Non-blocking I/O with efficient goroutines
+- Built-in concurrency primitives (channels, select)
+- Excellent WebSocket library ecosystem (gorilla/websocket)
+
+### Implementation Plan
+
+#### Server-Side Components (~200 lines)
+
+**1. Add Dependencies** (5 min)
+```bash
+cd server
+go get github.com/gorilla/websocket
+```
+
+**2. WebSocket Hub** (~100 lines)
+```go
+// server/websocket/hub.go
+type Hub struct {
+    // Agent connections
+    agents map[string]*AgentClient
+    
+    // UI connections
+    uiClients map[*UIClient]bool
+    
+    // Channels for thread-safe operations
+    registerAgent   chan *AgentClient
+    unregisterAgent chan *AgentClient
+    registerUI      chan *UIClient
+    unregisterUI    chan *UIClient
+    broadcast       chan AgentStatusUpdate
+}
+
+type AgentClient struct {
+    ID         string
+    Conn       *websocket.Conn
+    Send       chan []byte
+    LastSeen   time.Time
+    Hub        *Hub
+}
+
+type UIClient struct {
+    Conn *websocket.Conn
+    Send chan []byte
+    Hub  *Hub
+}
+```
+
+**3. WebSocket Endpoints** (~60 lines)
+
+```go
+// server/main.go
+
+// Agent WebSocket endpoint
+func handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
+    // Upgrade HTTP to WebSocket
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        return
+    }
+    
+    // Authenticate via Bearer token
+    agent := authenticateAgentConnection(r)
+    if agent == nil {
+        conn.Close()
+        return
+    }
+    
+    // Register agent connection
+    client := &AgentClient{
+        ID:   agent.AgentID,
+        Conn: conn,
+        Send: make(chan []byte, 256),
+        Hub:  wsHub,
+    }
+    
+    wsHub.registerAgent <- client
+    
+    // Start read/write pumps
+    go client.readPump()
+    go client.writePump()
+}
+
+// UI WebSocket endpoint
+func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
+    conn, err := upgrader.Upgrade(w, r, nil)
+    if err != nil {
+        return
+    }
+    
+    client := &UIClient{
+        Conn: conn,
+        Send: make(chan []byte, 256),
+        Hub:  wsHub,
+    }
+    
+    wsHub.registerUI <- client
+    
+    go client.readPump()
+    go client.writePump()
+}
+```
+
+**4. Connection Lifecycle** (~40 lines)
+```go
+// Agent disconnect = instant status update
+func (c *AgentClient) readPump() {
+    defer func() {
+        c.Hub.unregisterAgent <- c
+        c.Conn.Close()
+        
+        // Update DB: agent offline
+        updateAgentStatus(c.ID, "offline")
+        
+        // Broadcast to UI
+        c.Hub.broadcast <- AgentStatusUpdate{
+            AgentID: c.ID,
+            Status:  "offline",
+            Time:    time.Now(),
+        }
+    }()
+    
+    // Read messages from agent
+    for {
+        var msg AgentMessage
+        err := c.Conn.ReadJSON(&msg)
+        if err != nil {
+            break // Connection closed
+        }
+        
+        // Handle heartbeat, metrics, etc.
+        handleAgentMessage(c, msg)
+    }
+}
+```
+
+#### Client-Side Components (~100 lines)
+
+**Agent WebSocket Client** (agent/agent/websocket_client.go)
+```go
+type WebSocketClient struct {
+    URL      string
+    AgentID  string
+    Token    string
+    conn     *websocket.Conn
+    done     chan struct{}
+}
+
+func (c *WebSocketClient) Connect() error {
+    headers := http.Header{}
+    headers.Add("Authorization", "Bearer "+c.Token)
+    
+    conn, _, err := websocket.DefaultDialer.Dial(c.URL, headers)
+    if err != nil {
+        return err
+    }
+    
+    c.conn = conn
+    go c.readMessages()
+    go c.sendHeartbeats()
+    
+    return nil
+}
+
+func (c *WebSocketClient) sendHeartbeats() {
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ticker.C:
+            msg := AgentMessage{
+                Type:      "heartbeat",
+                AgentID:   c.AgentID,
+                Timestamp: time.Now(),
+            }
+            c.conn.WriteJSON(msg)
+        case <-c.done:
+            return
+        }
+    }
+}
+
+// Auto-reconnect on disconnect
+func (c *WebSocketClient) MaintainConnection(ctx context.Context) {
+    for {
+        err := c.Connect()
+        if err != nil {
+            log.Printf("WebSocket connection failed: %v, retrying in 5s", err)
+            time.Sleep(5 * time.Second)
+            continue
+        }
+        
+        // Wait for disconnect
+        <-c.done
+        
+        // Retry connection
+        time.Sleep(2 * time.Second)
+    }
+}
+```
+
+**UI WebSocket Client** (server/web/app.js)
+```javascript
+class AgentStatusWebSocket {
+    constructor() {
+        this.ws = null;
+        this.reconnectDelay = 1000;
+        this.maxReconnectDelay = 30000;
+    }
+    
+    connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${protocol}//${window.location.host}/ws/ui`;
+        
+        this.ws = new WebSocket(url);
+        
+        this.ws.onopen = () => {
+            console.log('WebSocket connected');
+            this.reconnectDelay = 1000; // Reset delay
+        };
+        
+        this.ws.onmessage = (event) => {
+            const update = JSON.parse(event.data);
+            this.handleAgentUpdate(update);
+        };
+        
+        this.ws.onclose = () => {
+            console.log('WebSocket disconnected, reconnecting...');
+            setTimeout(() => this.connect(), this.reconnectDelay);
+            this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+        };
+        
+        this.ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+    }
+    
+    handleAgentUpdate(update) {
+        // Update agent card in real-time
+        const card = document.querySelector(`[data-agent-id="${update.agent_id}"]`);
+        if (!card) {
+            // New agent - reload full list
+            loadAgents();
+            return;
+        }
+        
+        // Update status indicator
+        const statusEl = card.querySelector('.device-card-value[style*="color"]');
+        if (statusEl) {
+            const colors = {
+                'active': 'var(--success)',
+                'inactive': 'var(--muted)',
+                'offline': 'var(--error)'
+            };
+            statusEl.style.color = colors[update.status] || 'var(--muted)';
+            statusEl.textContent = `● ${update.status}`;
+        }
+        
+        // Update last seen
+        const lastSeenEl = card.querySelector('[title*="Last Seen"]');
+        if (lastSeenEl) {
+            lastSeenEl.textContent = 'Just now';
+            lastSeenEl.title = new Date().toLocaleString();
+        }
+        
+        // Flash animation for visual feedback
+        card.style.animation = 'flash 0.3s ease';
+        setTimeout(() => card.style.animation = '', 300);
+    }
+}
+
+// Initialize on page load
+const agentWS = new AgentStatusWebSocket();
+agentWS.connect();
+```
+
+### Benefits
+
+✅ **Instant Feedback**: Agent offline within 1-5 seconds (vs 60s polling)  
+✅ **Reduced Load**: No constant polling from UI (60+ requests/min → 0)  
+✅ **Lower Bandwidth**: Push updates only when state changes  
+✅ **Better UX**: Live pulsing indicators, smooth transitions  
+✅ **Scalable**: 1000 agents = ~15MB memory, well within server capacity  
+
+### Fallback Strategy
+
+**If WebSocket fails** (corporate firewall, proxy issues):
+1. Agent tries WebSocket first
+2. On failure, falls back to HTTP heartbeat (existing endpoint)
+3. UI detects WebSocket failure, continues polling `/api/v1/agents/list`
+
+**Detection**:
+```go
+// Agent side
+err := wsClient.Connect()
+if err != nil {
+    log.Warn("WebSocket failed, using HTTP heartbeat")
+    return NewHTTPHeartbeatClient(url, token)
+}
+```
+
+### Security Considerations
+
+1. **Authentication**: Bearer token in WebSocket upgrade request
+2. **Rate Limiting**: Max 1 heartbeat per 10s per agent
+3. **Timeout**: Auto-disconnect after 90s of silence
+4. **Validation**: JSON schema validation on all messages
+
+### Testing Plan
+
+1. **Unit tests**: Hub registration/unregistration, broadcast
+2. **Integration tests**: Agent connect/disconnect scenarios
+3. **Load tests**: 1000 concurrent connections
+4. **UI tests**: Status updates within 5s of agent disconnect
+
+### Implementation Timeline
+
+- **Server Hub & Endpoints**: 2 hours
+- **Agent WebSocket Client**: 1 hour
+- **UI WebSocket Client**: 1 hour
+- **Testing & Debug**: 2 hours
+- **Total**: ~6 hours (1 day)
+
+### Migration Path
+
+1. ✅ **v0.3.x**: Current state (HTTP polling)
+2. 🔄 **v0.4.0**: Add WebSocket support (opt-in)
+3. 🔄 **v0.5.0**: Make WebSocket default (HTTP fallback)
+4. 🔄 **v1.0.0**: WebSocket only (remove HTTP heartbeat)
+
+---
+
+**Status**: 📋 Planned (not yet implemented)  
+**Priority**: Medium (nice-to-have for v0.5.0, critical for v1.0)  
+**Owner**: TBD
