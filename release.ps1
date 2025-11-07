@@ -329,8 +329,8 @@ try {
     
     # Build release binaries
     if ($Component -eq 'both') {
-        $agentVersion = Get-Content (Join-Path $AgentDir 'VERSION') -Raw
-        $serverVersion = Get-Content (Join-Path $ServerDir 'VERSION') -Raw
+        $agentVersion = Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw
+        $serverVersion = Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw
         Build-Component -Component 'agent' -Version $agentVersion.Trim()
         Build-Component -Component 'server' -Version $serverVersion.Trim()
     } else {
