@@ -847,6 +847,7 @@ func setupRoutes() {
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
 	http.HandleFunc("/api/v1/agents/list", handleAgentsList) // List all agents (for UI)
+	http.HandleFunc("/api/v1/agents/", handleAgentDetails)   // Get single agent details (for UI)
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
@@ -925,6 +926,14 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		Hostname        string `json:"hostname"`
 		IP              string `json:"ip"`
 		Platform        string `json:"platform"`
+		// Additional metadata
+		OSVersion     string `json:"os_version,omitempty"`
+		GoVersion     string `json:"go_version,omitempty"`
+		Architecture  string `json:"architecture,omitempty"`
+		NumCPU        int    `json:"num_cpu,omitempty"`
+		TotalMemoryMB int64  `json:"total_memory_mb,omitempty"`
+		BuildType     string `json:"build_type,omitempty"`
+		GitCommit     string `json:"git_commit,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -971,6 +980,14 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		RegisteredAt:    time.Now(),
 		LastSeen:        time.Now(),
 		Status:          "active",
+		OSVersion:       req.OSVersion,
+		GoVersion:       req.GoVersion,
+		Architecture:    req.Architecture,
+		NumCPU:          req.NumCPU,
+		TotalMemoryMB:   req.TotalMemoryMB,
+		BuildType:       req.BuildType,
+		GitCommit:       req.GitCommit,
+		LastHeartbeat:   time.Now(),
 	}
 
 	ctx := context.Background()
@@ -984,8 +1001,8 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 
 	// Log audit entry for registration
 	clientIP := extractClientIP(r)
-	logAuditEntry(ctx, req.AgentID, "register", fmt.Sprintf("Agent registered: %s v%s on %s",
-		req.Hostname, req.AgentVersion, req.Platform), clientIP)
+	logAuditEntry(ctx, req.AgentID, "register", fmt.Sprintf("Agent registered: %s v%s on %s (%s)",
+		req.Hostname, req.AgentVersion, req.Platform, req.Architecture), clientIP)
 
 	if serverLogger != nil {
 		serverLogger.Info("Agent registered successfully", "agent_id", req.AgentID, "token", token[:8]+"...")
@@ -1069,6 +1086,44 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(agents)
+}
+
+// Get agent details by ID - for UI display (no auth required for now)
+func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract agent ID from URL path: /api/v1/agents/{agentID}
+	path := r.URL.Path
+	agentID := strings.TrimPrefix(path, "/api/v1/agents/")
+	if agentID == "" || agentID == path {
+		http.Error(w, "Agent ID required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+	agent, err := serverStore.GetAgent(ctx, agentID)
+	if err != nil {
+		if serverLogger != nil {
+			serverLogger.Error("Failed to get agent", "agent_id", agentID, "error", err)
+		}
+		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+
+	// Get device count for this agent
+	devices, err := serverStore.ListDevices(ctx, agentID)
+	if err == nil {
+		agent.DeviceCount = len(devices)
+	}
+
+	// Remove sensitive token from response
+	agent.Token = ""
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(agent)
 }
 
 // Devices batch upload - agent sends discovered devices

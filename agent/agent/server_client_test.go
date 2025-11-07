@@ -304,3 +304,87 @@ func TestServerClient_SetGetToken(t *testing.T) {
 
 	// Should not panic (thread safety test)
 }
+
+func TestServerClient_RegisterWithMetadata(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server that captures and validates metadata
+	var receivedRequest map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agents/register" {
+			t.Errorf("Expected path /api/v1/agents/register, got %s", r.URL.Path)
+		}
+
+		// Decode and store request
+		if err := json.NewDecoder(r.Body).Decode(&receivedRequest); err != nil {
+			t.Errorf("Failed to decode request: %v", err)
+		}
+
+		// Return success
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"agent_id": receivedRequest["agent_id"],
+			"token":    "metadata-token-789",
+		})
+	}))
+	defer server.Close()
+
+	// Create client
+	client := NewServerClient(server.URL, "metadata-test-agent", "")
+
+	// Register with metadata
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	token, err := client.Register(ctx, "v0.3.0")
+	if err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	if token != "metadata-token-789" {
+		t.Errorf("Expected token=metadata-token-789, got %s", token)
+	}
+
+	// Verify metadata fields were sent
+	if receivedRequest["agent_id"] != "metadata-test-agent" {
+		t.Errorf("Expected agent_id=metadata-test-agent, got %v", receivedRequest["agent_id"])
+	}
+	if receivedRequest["agent_version"] != "v0.3.0" {
+		t.Errorf("Expected agent_version=v0.3.0, got %v", receivedRequest["agent_version"])
+	}
+	if receivedRequest["protocol_version"] != "1" {
+		t.Errorf("Expected protocol_version=1, got %v", receivedRequest["protocol_version"])
+	}
+
+	// Check that metadata fields exist (values may vary by system)
+	if _, ok := receivedRequest["platform"]; !ok {
+		t.Error("Expected platform field in request")
+	}
+	if _, ok := receivedRequest["go_version"]; !ok {
+		t.Error("Expected go_version field in request")
+	}
+	if _, ok := receivedRequest["architecture"]; !ok {
+		t.Error("Expected architecture field in request")
+	}
+	if _, ok := receivedRequest["num_cpu"]; !ok {
+		t.Error("Expected num_cpu field in request")
+	}
+	if _, ok := receivedRequest["total_memory_mb"]; !ok {
+		t.Error("Expected total_memory_mb field in request")
+	}
+	if _, ok := receivedRequest["build_type"]; !ok {
+		t.Error("Expected build_type field in request")
+	}
+	if _, ok := receivedRequest["git_commit"]; !ok {
+		t.Error("Expected git_commit field in request")
+	}
+
+	// Verify numeric fields are numbers
+	if numCPU, ok := receivedRequest["num_cpu"].(float64); !ok || numCPU <= 0 {
+		t.Errorf("Expected num_cpu to be positive number, got %v", receivedRequest["num_cpu"])
+	}
+	if totalMem, ok := receivedRequest["total_memory_mb"].(float64); !ok || totalMem <= 0 {
+		t.Errorf("Expected total_memory_mb to be positive number, got %v", receivedRequest["total_memory_mb"])
+	}
+}

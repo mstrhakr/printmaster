@@ -31,6 +31,8 @@ func setupTestServer(t *testing.T) (*httptest.Server, storage.Store) {
 	mux.HandleFunc("/api/version", handleVersion)
 	mux.HandleFunc("/api/v1/agents/register", handleAgentRegister)
 	mux.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
+	mux.HandleFunc("/api/v1/agents/list", handleAgentsList)
+	mux.HandleFunc("/api/v1/agents/", handleAgentDetails)
 	mux.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	mux.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
@@ -512,5 +514,257 @@ func TestExtractClientIP(t *testing.T) {
 				t.Errorf("Expected IP %s, got %s", tt.expectedIP, ip)
 			}
 		})
+	}
+}
+
+func TestAgentRegistrationWithMetadata(t *testing.T) {
+	// Test that new metadata fields are properly stored
+	server, store := setupTestServer(t)
+
+	// Register agent with extended metadata
+	reqBody := map[string]interface{}{
+		"agent_id":         "test-agent-metadata",
+		"agent_version":    "v0.3.0",
+		"protocol_version": "1",
+		"hostname":         "test-metadata-host",
+		"ip":               "192.168.1.200",
+		"platform":         "linux",
+		"os_version":       "Ubuntu 22.04",
+		"go_version":       "go1.21.0",
+		"architecture":     "amd64",
+		"num_cpu":          8,
+		"total_memory_mb":  16384,
+		"build_type":       "release",
+		"git_commit":       "abc123def456",
+	}
+	body, _ := json.Marshal(reqBody)
+
+	resp, err := http.Post(server.URL+"/api/v1/agents/register", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("Failed to register agent: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if result["success"] != true {
+		t.Errorf("Expected success=true, got %v", result["success"])
+	}
+
+	// Verify all metadata is stored
+	ctx := context.Background()
+	agent, err := store.GetAgent(ctx, "test-agent-metadata")
+	if err != nil {
+		t.Fatalf("Failed to retrieve agent from store: %v", err)
+	}
+
+	// Check basic fields
+	if agent.AgentID != "test-agent-metadata" {
+		t.Errorf("Expected AgentID=test-agent-metadata, got %s", agent.AgentID)
+	}
+	if agent.Hostname != "test-metadata-host" {
+		t.Errorf("Expected Hostname=test-metadata-host, got %s", agent.Hostname)
+	}
+
+	// Check metadata fields
+	if agent.OSVersion != "Ubuntu 22.04" {
+		t.Errorf("Expected OSVersion=Ubuntu 22.04, got %s", agent.OSVersion)
+	}
+	if agent.GoVersion != "go1.21.0" {
+		t.Errorf("Expected GoVersion=go1.21.0, got %s", agent.GoVersion)
+	}
+	if agent.Architecture != "amd64" {
+		t.Errorf("Expected Architecture=amd64, got %s", agent.Architecture)
+	}
+	if agent.NumCPU != 8 {
+		t.Errorf("Expected NumCPU=8, got %d", agent.NumCPU)
+	}
+	if agent.TotalMemoryMB != 16384 {
+		t.Errorf("Expected TotalMemoryMB=16384, got %d", agent.TotalMemoryMB)
+	}
+	if agent.BuildType != "release" {
+		t.Errorf("Expected BuildType=release, got %s", agent.BuildType)
+	}
+	if agent.GitCommit != "abc123def456" {
+		t.Errorf("Expected GitCommit=abc123def456, got %s", agent.GitCommit)
+	}
+}
+
+func TestAgentDetailsEndpoint(t *testing.T) {
+	// Test the /api/v1/agents/{id} endpoint
+	_, store := setupTestServer(t)
+	ctx := context.Background()
+
+	// Create test agent with full metadata
+	agent := &storage.Agent{
+		AgentID:         "test-agent-details",
+		Hostname:        "details-host",
+		IP:              "192.168.1.150",
+		Platform:        "darwin",
+		Version:         "v0.3.0",
+		ProtocolVersion: "1",
+		Token:           "details-token-123",
+		RegisteredAt:    time.Now().Add(-24 * time.Hour),
+		LastSeen:        time.Now(),
+		Status:          "active",
+		OSVersion:       "macOS 14.0",
+		GoVersion:       "go1.21.0",
+		Architecture:    "arm64",
+		NumCPU:          10,
+		TotalMemoryMB:   32768,
+		BuildType:       "release",
+		GitCommit:       "xyz789abc123",
+		LastHeartbeat:   time.Now().Add(-5 * time.Minute),
+		DeviceCount:     5,
+		LastDeviceSync:  time.Now().Add(-10 * time.Minute),
+		LastMetricsSync: time.Now().Add(-15 * time.Minute),
+	}
+	if err := store.RegisterAgent(ctx, agent); err != nil {
+		t.Fatalf("Failed to register agent: %v", err)
+	}
+
+	// Setup the agent details handler
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/agents/", handleAgentDetails)
+	testServer := httptest.NewServer(mux)
+	defer testServer.Close()
+
+	// Fetch agent details
+	resp, err := http.Get(testServer.URL + "/api/v1/agents/test-agent-details")
+	if err != nil {
+		t.Fatalf("Failed to fetch agent details: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	var result storage.Agent
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Verify all fields are returned
+	if result.AgentID != "test-agent-details" {
+		t.Errorf("Expected AgentID=test-agent-details, got %s", result.AgentID)
+	}
+	if result.Hostname != "details-host" {
+		t.Errorf("Expected Hostname=details-host, got %s", result.Hostname)
+	}
+	if result.OSVersion != "macOS 14.0" {
+		t.Errorf("Expected OSVersion=macOS 14.0, got %s", result.OSVersion)
+	}
+	if result.Architecture != "arm64" {
+		t.Errorf("Expected Architecture=arm64, got %s", result.Architecture)
+	}
+	if result.NumCPU != 10 {
+		t.Errorf("Expected NumCPU=10, got %d", result.NumCPU)
+	}
+	if result.TotalMemoryMB != 32768 {
+		t.Errorf("Expected TotalMemoryMB=32768, got %d", result.TotalMemoryMB)
+	}
+
+	// Verify token is not exposed
+	if result.Token != "" {
+		t.Error("Token should not be exposed in API response")
+	}
+}
+
+func TestAgentDetailsNotFound(t *testing.T) {
+	t.Parallel()
+
+	_, _ = setupTestServer(t)
+
+	// Setup the agent details handler
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/agents/", handleAgentDetails)
+	testServer := httptest.NewServer(mux)
+	defer testServer.Close()
+
+	// Try to fetch non-existent agent
+	resp, err := http.Get(testServer.URL + "/api/v1/agents/non-existent-agent")
+	if err != nil {
+		t.Fatalf("Failed to fetch agent details: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected status 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestAgentsListEndpoint(t *testing.T) {
+	// Test the /api/v1/agents/list endpoint
+	server, store := setupTestServer(t)
+	ctx := context.Background()
+
+	// Create multiple test agents
+	agents := []*storage.Agent{
+		{
+			AgentID:         "list-agent-01",
+			Hostname:        "host-01",
+			IP:              "192.168.1.10",
+			Platform:        "windows",
+			Version:         "v0.3.0",
+			ProtocolVersion: "1",
+			Token:           "token-01",
+			RegisteredAt:    time.Now(),
+			LastSeen:        time.Now(),
+			Status:          "active",
+		},
+		{
+			AgentID:         "list-agent-02",
+			Hostname:        "host-02",
+			IP:              "192.168.1.11",
+			Platform:        "linux",
+			Version:         "v0.3.0",
+			ProtocolVersion: "1",
+			Token:           "token-02",
+			RegisteredAt:    time.Now(),
+			LastSeen:        time.Now().Add(-30 * time.Minute),
+			Status:          "inactive",
+		},
+	}
+
+	for _, agent := range agents {
+		if err := store.RegisterAgent(ctx, agent); err != nil {
+			t.Fatalf("Failed to register agent: %v", err)
+		}
+	}
+
+	// Fetch agents list
+	resp, err := http.Get(server.URL + "/api/v1/agents/list")
+	if err != nil {
+		t.Fatalf("Failed to fetch agents list: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+
+	var result []*storage.Agent
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Should have at least 2 agents (may have more from other tests)
+	if len(result) < 2 {
+		t.Errorf("Expected at least 2 agents, got %d", len(result))
+	}
+
+	// Verify tokens are not exposed
+	for _, agent := range result {
+		if agent.Token != "" {
+			t.Errorf("Token should not be exposed for agent %s", agent.AgentID)
+		}
 	}
 }

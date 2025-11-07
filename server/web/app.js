@@ -448,20 +448,232 @@ function renderAgentCard(agent) {
 // ====== Agent Details ======
 async function viewAgentDetails(agentId) {
     try {
+        // Show modal immediately with loading state
+        const modal = document.getElementById('agent_details_modal');
+        const body = document.getElementById('agent_details_body');
+        const title = document.getElementById('agent_details_title');
+        
+        modal.style.display = 'block';
+        body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Loading agent details...</div>';
+        title.textContent = 'Agent Details';
+        
         const response = await fetch(`/api/v1/agents/${agentId}`);
         if (!response.ok) {
-            showToast('Failed to load agent details', 'error');
-            return;
+            throw new Error(`HTTP ${response.status}`);
         }
         
         const agent = await response.json();
-        // TODO: Show detailed agent modal or navigate to details page
-        console.log('Agent details:', agent);
-        showToast('Agent details loaded (check console)', 'info');
+        renderAgentDetailsModal(agent);
     } catch (error) {
         console.error('Failed to load agent details:', error);
+        const body = document.getElementById('agent_details_body');
+        body.innerHTML = `<div style="color:var(--error);text-align:center;padding:20px;">Failed to load agent details: ${error.message}</div>`;
         showToast('Failed to load agent details', 'error');
     }
+}
+
+function renderAgentDetailsModal(agent) {
+    const title = document.getElementById('agent_details_title');
+    const body = document.getElementById('agent_details_body');
+    
+    title.textContent = `Agent: ${agent.hostname || agent.agent_id}`;
+    
+    const lastSeenDate = agent.last_seen ? new Date(agent.last_seen) : null;
+    const registeredDate = agent.registered_at ? new Date(agent.registered_at) : null;
+    const lastHeartbeatDate = agent.last_heartbeat ? new Date(agent.last_heartbeat) : null;
+    const lastDeviceSyncDate = agent.last_device_sync ? new Date(agent.last_device_sync) : null;
+    const lastMetricsSyncDate = agent.last_metrics_sync ? new Date(agent.last_metrics_sync) : null;
+    
+    // Calculate uptime
+    let uptimeText = 'N/A';
+    if (registeredDate && lastSeenDate) {
+        const uptimeMs = lastSeenDate - registeredDate;
+        const days = Math.floor(uptimeMs / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        uptimeText = `${days}d ${hours}h`;
+    }
+    
+    const statusColors = {
+        'active': 'var(--success)',
+        'inactive': 'var(--muted)',
+        'offline': 'var(--error)'
+    };
+    const statusColor = statusColors[agent.status] || 'var(--muted)';
+    
+    body.innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+            <!-- Basic Info -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">Basic Information</h4>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                    <div class="device-card-row">
+                        <span class="device-card-label">Agent ID</span>
+                        <span class="device-card-value copyable" onclick="copyToClipboard('${agent.agent_id}')" title="Click to copy">
+                            ${agent.agent_id}
+                        </span>
+                    </div>
+                    <div class="device-card-row">
+                        <span class="device-card-label">Hostname</span>
+                        <span class="device-card-value">${agent.hostname || 'N/A'}</span>
+                    </div>
+                    <div class="device-card-row">
+                        <span class="device-card-label">IP Address</span>
+                        <span class="device-card-value copyable" onclick="copyToClipboard('${agent.ip || ''}')" title="Click to copy">
+                            ${agent.ip || 'N/A'}
+                        </span>
+                    </div>
+                    <div class="device-card-row">
+                        <span class="device-card-label">Status</span>
+                        <span class="device-card-value" style="color:${statusColor}">
+                            ● ${agent.status || 'unknown'}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- System Info -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">System Information</h4>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                    <div class="device-card-row">
+                        <span class="device-card-label">Platform</span>
+                        <span class="device-card-value">${agent.platform || 'Unknown'}</span>
+                    </div>
+                    ${agent.os_version ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">OS Version</span>
+                        <span class="device-card-value">${agent.os_version}</span>
+                    </div>
+                    ` : ''}
+                    ${agent.architecture ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Architecture</span>
+                        <span class="device-card-value">${agent.architecture}</span>
+                    </div>
+                    ` : ''}
+                    ${agent.num_cpu ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">CPUs</span>
+                        <span class="device-card-value">${agent.num_cpu}</span>
+                    </div>
+                    ` : ''}
+                    ${agent.total_memory_mb ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Memory</span>
+                        <span class="device-card-value">${(agent.total_memory_mb / 1024).toFixed(2)} GB</span>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+            
+            <!-- Version Info -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">Version Information</h4>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                    <div class="device-card-row">
+                        <span class="device-card-label">Agent Version</span>
+                        <span class="device-card-value">${agent.version || 'N/A'}</span>
+                    </div>
+                    <div class="device-card-row">
+                        <span class="device-card-label">Protocol Version</span>
+                        <span class="device-card-value">${agent.protocol_version || 'N/A'}</span>
+                    </div>
+                    ${agent.go_version ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Go Version</span>
+                        <span class="device-card-value">${agent.go_version}</span>
+                    </div>
+                    ` : ''}
+                    ${agent.build_type ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Build Type</span>
+                        <span class="device-card-value">${agent.build_type}</span>
+                    </div>
+                    ` : ''}
+                    ${agent.git_commit && agent.git_commit !== 'unknown' ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Git Commit</span>
+                        <span class="device-card-value copyable" onclick="copyToClipboard('${agent.git_commit}')" title="Click to copy">
+                            ${agent.git_commit.substring(0, 8)}...
+                        </span>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+            
+            <!-- Activity -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">Activity</h4>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                    ${registeredDate ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Registered</span>
+                        <span class="device-card-value" title="${registeredDate.toLocaleString()}">
+                            ${registeredDate.toLocaleDateString()}
+                        </span>
+                    </div>
+                    ` : ''}
+                    ${lastSeenDate ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Last Seen</span>
+                        <span class="device-card-value" title="${lastSeenDate.toLocaleString()}">
+                            ${lastSeenDate.toLocaleString()}
+                        </span>
+                    </div>
+                    ` : ''}
+                    ${lastHeartbeatDate ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Last Heartbeat</span>
+                        <span class="device-card-value" title="${lastHeartbeatDate.toLocaleString()}">
+                            ${lastHeartbeatDate.toLocaleString()}
+                        </span>
+                    </div>
+                    ` : ''}
+                    <div class="device-card-row">
+                        <span class="device-card-label">Uptime</span>
+                        <span class="device-card-value">${uptimeText}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Data Sync -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">Data Synchronization</h4>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                    <div class="device-card-row">
+                        <span class="device-card-label">Devices</span>
+                        <span class="device-card-value">${agent.device_count || 0}</span>
+                    </div>
+                    ${lastDeviceSyncDate ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Last Device Sync</span>
+                        <span class="device-card-value" title="${lastDeviceSyncDate.toLocaleString()}">
+                            ${lastDeviceSyncDate.toLocaleString()}
+                        </span>
+                    </div>
+                    ` : `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Last Device Sync</span>
+                        <span class="device-card-value" style="color:var(--muted);">Never</span>
+                    </div>
+                    `}
+                    ${lastMetricsSyncDate ? `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Last Metrics Sync</span>
+                        <span class="device-card-value" title="${lastMetricsSyncDate.toLocaleString()}">
+                            ${lastMetricsSyncDate.toLocaleString()}
+                        </span>
+                    </div>
+                    ` : `
+                    <div class="device-card-row">
+                        <span class="device-card-label">Last Metrics Sync</span>
+                        <span class="device-card-value" style="color:var(--muted);">Never</span>
+                    </div>
+                    `}
+                </div>
+            </div>
+        </div>
+    `;
 }
 
 // ====== Devices Management ======
@@ -600,3 +812,25 @@ function renderLogs(logs) {
     // TODO: Implement log rendering
     container.innerHTML = '<div style="color:var(--muted);">Logs feature coming soon</div>';
 }
+
+// ====== Modal Handlers ======
+// Agent Details Modal
+document.getElementById('agent_details_close_x')?.addEventListener('click', () => {
+    document.getElementById('agent_details_modal').style.display = 'none';
+});
+document.getElementById('agent_details_close')?.addEventListener('click', () => {
+    document.getElementById('agent_details_modal').style.display = 'none';
+});
+
+// Click outside modal to close
+window.addEventListener('click', (event) => {
+    const agentModal = document.getElementById('agent_details_modal');
+    const confirmModal = document.getElementById('confirm_modal');
+    
+    if (event.target === agentModal) {
+        agentModal.style.display = 'none';
+    }
+    if (event.target === confirmModal) {
+        confirmModal.style.display = 'none';
+    }
+});

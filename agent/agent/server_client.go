@@ -104,6 +104,14 @@ func (c *ServerClient) Register(ctx context.Context, version string) (string, er
 		Hostname        string `json:"hostname"`
 		IP              string `json:"ip"`
 		Platform        string `json:"platform"`
+		// Additional metadata
+		OSVersion     string `json:"os_version,omitempty"`
+		GoVersion     string `json:"go_version,omitempty"`
+		Architecture  string `json:"architecture,omitempty"`
+		NumCPU        int    `json:"num_cpu,omitempty"`
+		TotalMemoryMB int64  `json:"total_memory_mb,omitempty"`
+		BuildType     string `json:"build_type,omitempty"`
+		GitCommit     string `json:"git_commit,omitempty"`
 	}
 
 	type RegisterResponse struct {
@@ -123,6 +131,13 @@ func (c *ServerClient) Register(ctx context.Context, version string) (string, er
 		Hostname:        hostname,
 		IP:              localIP,
 		Platform:        runtime.GOOS,
+		OSVersion:       getOSVersion(),
+		GoVersion:       runtime.Version(),
+		Architecture:    runtime.GOARCH,
+		NumCPU:          runtime.NumCPU(),
+		TotalMemoryMB:   getTotalMemoryMB(),
+		BuildType:       getBuildType(),
+		GitCommit:       getGitCommit(),
 	}
 
 	var resp RegisterResponse
@@ -351,4 +366,36 @@ var getHostnameInternal = func() (string, error) {
 var getLocalIPInternal = func() (string, error) {
 	// Implementation will use net.InterfaceAddrs()
 	return "192.168.1.100", nil
+}
+
+// getOSVersion returns the operating system version
+func getOSVersion() string {
+	// This is a placeholder - actual implementation would use platform-specific APIs
+	// For now, just return the OS name
+	return runtime.GOOS
+}
+
+// getTotalMemoryMB returns the total system memory in MB
+func getTotalMemoryMB() int64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	// This returns allocated memory, not total system memory
+	// For actual total system memory, would need platform-specific syscalls
+	return int64(m.Sys / 1024 / 1024)
+}
+
+// These variables will be set at build time via -ldflags
+var (
+	buildType = "dev"
+	gitCommit = "unknown"
+)
+
+// getBuildType returns the build type (dev or release)
+func getBuildType() string {
+	return buildType
+}
+
+// getGitCommit returns the git commit hash
+func getGitCommit() string {
+	return gitCommit
 }

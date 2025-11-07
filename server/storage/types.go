@@ -18,6 +18,19 @@ type Agent struct {
 	RegisteredAt    time.Time `json:"registered_at"`
 	LastSeen        time.Time `json:"last_seen"`
 	Status          string    `json:"status"` // active, inactive, offline
+
+	// Additional metadata
+	OSVersion       string    `json:"os_version,omitempty"`        // Detailed OS version
+	GoVersion       string    `json:"go_version,omitempty"`        // Go runtime version
+	Architecture    string    `json:"architecture,omitempty"`      // amd64, arm64, etc.
+	NumCPU          int       `json:"num_cpu,omitempty"`           // Number of CPUs
+	TotalMemoryMB   int64     `json:"total_memory_mb,omitempty"`   // Total system memory
+	BuildType       string    `json:"build_type,omitempty"`        // dev, release
+	GitCommit       string    `json:"git_commit,omitempty"`        // Git commit hash
+	LastHeartbeat   time.Time `json:"last_heartbeat,omitempty"`    // Last heartbeat time
+	DeviceCount     int       `json:"device_count,omitempty"`      // Number of devices managed
+	LastDeviceSync  time.Time `json:"last_device_sync,omitempty"`  // Last device upload
+	LastMetricsSync time.Time `json:"last_metrics_sync,omitempty"` // Last metrics upload
 }
 
 // Device represents a printer device discovered by an agent

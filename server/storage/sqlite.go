@@ -80,7 +80,18 @@ func (s *SQLiteStore) initSchema() error {
 		token TEXT NOT NULL,
 		registered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		status TEXT NOT NULL DEFAULT 'active'
+		status TEXT NOT NULL DEFAULT 'active',
+		os_version TEXT,
+		go_version TEXT,
+		architecture TEXT,
+		num_cpu INTEGER DEFAULT 0,
+		total_memory_mb INTEGER DEFAULT 0,
+		build_type TEXT,
+		git_commit TEXT,
+		last_heartbeat DATETIME,
+		device_count INTEGER DEFAULT 0,
+		last_device_sync DATETIME,
+		last_metrics_sync DATETIME
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_agents_agent_id ON agents(agent_id);
@@ -177,8 +188,13 @@ func (s *SQLiteStore) initSchema() error {
 // RegisterAgent registers a new agent or updates existing
 func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 	query := `
-		INSERT INTO agents (agent_id, hostname, ip, platform, version, protocol_version, token, registered_at, last_seen, status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agents (
+			agent_id, hostname, ip, platform, version, protocol_version, token, 
+			registered_at, last_seen, status,
+			os_version, go_version, architecture, num_cpu, total_memory_mb,
+			build_type, git_commit, last_heartbeat
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(agent_id) DO UPDATE SET
 			hostname = excluded.hostname,
 			ip = excluded.ip,
@@ -187,13 +203,23 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 			protocol_version = excluded.protocol_version,
 			token = excluded.token,
 			last_seen = excluded.last_seen,
-			status = excluded.status
+			status = excluded.status,
+			os_version = excluded.os_version,
+			go_version = excluded.go_version,
+			architecture = excluded.architecture,
+			num_cpu = excluded.num_cpu,
+			total_memory_mb = excluded.total_memory_mb,
+			build_type = excluded.build_type,
+			git_commit = excluded.git_commit,
+			last_heartbeat = excluded.last_heartbeat
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
 		agent.AgentID, agent.Hostname, agent.IP, agent.Platform,
 		agent.Version, agent.ProtocolVersion, agent.Token, agent.RegisteredAt,
-		agent.LastSeen, agent.Status)
+		agent.LastSeen, agent.Status,
+		agent.OSVersion, agent.GoVersion, agent.Architecture, agent.NumCPU,
+		agent.TotalMemoryMB, agent.BuildType, agent.GitCommit, agent.LastHeartbeat)
 
 	return err
 }
@@ -202,16 +228,27 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, error) {
 	query := `
 		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
-		       token, registered_at, last_seen, status
+		       token, registered_at, last_seen, status,
+		       os_version, go_version, architecture, num_cpu, total_memory_mb,
+		       build_type, git_commit, last_heartbeat, device_count,
+		       last_device_sync, last_metrics_sync
 		FROM agents
 		WHERE agent_id = ?
 	`
 
 	var agent Agent
+	var osVersion, goVersion, architecture, buildType, gitCommit sql.NullString
+	var numCPU, deviceCount sql.NullInt64
+	var totalMemoryMB sql.NullInt64
+	var lastHeartbeat, lastDeviceSync, lastMetricsSync sql.NullTime
+
 	err := s.db.QueryRowContext(ctx, query, agentID).Scan(
 		&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
 		&agent.Platform, &agent.Version, &agent.ProtocolVersion,
 		&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
+		&osVersion, &goVersion, &architecture, &numCPU, &totalMemoryMB,
+		&buildType, &gitCommit, &lastHeartbeat, &deviceCount,
+		&lastDeviceSync, &lastMetricsSync,
 	)
 
 	if err == sql.ErrNoRows {
@@ -221,6 +258,41 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 		return nil, err
 	}
 
+	// Handle nullable fields
+	if osVersion.Valid {
+		agent.OSVersion = osVersion.String
+	}
+	if goVersion.Valid {
+		agent.GoVersion = goVersion.String
+	}
+	if architecture.Valid {
+		agent.Architecture = architecture.String
+	}
+	if buildType.Valid {
+		agent.BuildType = buildType.String
+	}
+	if gitCommit.Valid {
+		agent.GitCommit = gitCommit.String
+	}
+	if numCPU.Valid {
+		agent.NumCPU = int(numCPU.Int64)
+	}
+	if totalMemoryMB.Valid {
+		agent.TotalMemoryMB = totalMemoryMB.Int64
+	}
+	if deviceCount.Valid {
+		agent.DeviceCount = int(deviceCount.Int64)
+	}
+	if lastHeartbeat.Valid {
+		agent.LastHeartbeat = lastHeartbeat.Time
+	}
+	if lastDeviceSync.Valid {
+		agent.LastDeviceSync = lastDeviceSync.Time
+	}
+	if lastMetricsSync.Valid {
+		agent.LastMetricsSync = lastMetricsSync.Time
+	}
+
 	return &agent, nil
 }
 
@@ -228,7 +300,10 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	query := `
 		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
-		       token, registered_at, last_seen, status
+		       token, registered_at, last_seen, status,
+		       os_version, go_version, architecture, num_cpu, total_memory_mb,
+		       build_type, git_commit, last_heartbeat, device_count,
+		       last_device_sync, last_metrics_sync
 		FROM agents
 		ORDER BY last_seen DESC
 	`
@@ -242,14 +317,58 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
+		var osVersion, goVersion, architecture, buildType, gitCommit sql.NullString
+		var numCPU, deviceCount sql.NullInt64
+		var totalMemoryMB sql.NullInt64
+		var lastHeartbeat, lastDeviceSync, lastMetricsSync sql.NullTime
+
 		err := rows.Scan(
 			&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
 			&agent.Platform, &agent.Version, &agent.ProtocolVersion,
 			&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
+			&osVersion, &goVersion, &architecture, &numCPU, &totalMemoryMB,
+			&buildType, &gitCommit, &lastHeartbeat, &deviceCount,
+			&lastDeviceSync, &lastMetricsSync,
 		)
 		if err != nil {
 			return nil, err
 		}
+
+		// Handle nullable fields
+		if osVersion.Valid {
+			agent.OSVersion = osVersion.String
+		}
+		if goVersion.Valid {
+			agent.GoVersion = goVersion.String
+		}
+		if architecture.Valid {
+			agent.Architecture = architecture.String
+		}
+		if buildType.Valid {
+			agent.BuildType = buildType.String
+		}
+		if gitCommit.Valid {
+			agent.GitCommit = gitCommit.String
+		}
+		if numCPU.Valid {
+			agent.NumCPU = int(numCPU.Int64)
+		}
+		if totalMemoryMB.Valid {
+			agent.TotalMemoryMB = totalMemoryMB.Int64
+		}
+		if deviceCount.Valid {
+			agent.DeviceCount = int(deviceCount.Int64)
+		}
+		if lastHeartbeat.Valid {
+			agent.LastHeartbeat = lastHeartbeat.Time
+		}
+		if lastDeviceSync.Valid {
+			agent.LastDeviceSync = lastDeviceSync.Time
+		}
+		if lastMetricsSync.Valid {
+			agent.LastMetricsSync = lastMetricsSync.Time
+		}
+
 		agents = append(agents, &agent)
 	}
 
