@@ -3,10 +3,13 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -26,13 +29,53 @@ type ServerClient struct {
 }
 
 // NewServerClient creates a new server uploader for this agent
+// If caCertPath is provided, uses it to validate server certificate (for self-signed certs)
+// If caCertPath is empty, uses system CA pool (works with Let's Encrypt)
 func NewServerClient(baseURL, agentID, token string) *ServerClient {
+	return NewServerClientWithCA(baseURL, agentID, token, "")
+}
+
+// NewServerClientWithCA creates a new server client with optional custom CA certificate
+func NewServerClientWithCA(baseURL, agentID, token, caCertPath string) *ServerClient {
+	return NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath, false)
+}
+
+// NewServerClientWithCAAndSkipVerify creates a new server client with optional custom CA and skip verify option
+func NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
+	var tlsConfig *tls.Config
+
+	if caCertPath != "" {
+		// Custom CA (self-signed server certificate)
+		caCert, err := os.ReadFile(caCertPath)
+		if err == nil {
+			caCertPool := x509.NewCertPool()
+			if caCertPool.AppendCertsFromPEM(caCert) {
+				tlsConfig = &tls.Config{
+					RootCAs:            caCertPool,
+					MinVersion:         tls.VersionTLS12,
+					InsecureSkipVerify: insecureSkipVerify,
+				}
+			}
+		}
+	}
+
+	if tlsConfig == nil {
+		// Use system CA pool (works with Let's Encrypt and other public CAs)
+		tlsConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: insecureSkipVerify,
+		}
+	}
+
 	return &ServerClient{
 		BaseURL: baseURL,
 		AgentID: agentID,
 		Token:   token,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
 		},
 	}
 }
