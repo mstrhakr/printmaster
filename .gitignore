@@ -116,3 +116,10 @@ agent/comments_list.txt
 
 # Build number tracking
 .buildnumber
+# Build artifacts
+*.syso
+versioninfo.json
+coverage/
+*.pem
+certs/
+
