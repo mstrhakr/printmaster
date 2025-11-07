@@ -14,11 +14,12 @@ PrintMaster is a cross-platform printer/copier fleet management system built for
 - **🔍 Automated Discovery** - SNMP-based network scanning with intelligent device detection
 - **📊 Fleet Monitoring** - Track device status, counters, supplies across all sites
 - **🏢 Multi-Site Support** - Central server aggregates data from distributed agents
+- **⚡ Real-Time Communication** - WebSocket-based live heartbeat for instant status updates
 - **🐳 Docker Ready** - Container images for easy deployment (Unraid, Docker Compose)
 - **🌐 Web UI** - Modern interface for configuration and monitoring
 - **📈 Scalable** - Tested with large deployments (1000+ devices)
 - **🔐 Secure** - Optional TLS, token authentication, reverse proxy support
-- **⚡ Fast** - Concurrent SNMP queries, efficient SQLite storage
+- **🚀 Fast** - Concurrent SNMP queries, efficient SQLite storage
 
 ## Who This Is For
 
@@ -147,17 +148,23 @@ cd agent
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
 │   Agent     │────────▶│   Server    │◀────────│   Agent     │
 │   Site A    │  API v1 │  (Central)  │  API v1 │   Site B    │
-│             │  HTTPS  │   SQLite    │  HTTPS  │             │
+│             │  WS/HTTP│   SQLite    │ WS/HTTP │             │
 │   SQLite    │         │   Docker    │         │   SQLite    │
 └─────────────┘         └─────────────┘         └─────────────┘
       ↓                       ↓                         ↓
   Printers              Web UI/API               Printers
 ```
 
+**Communication:**
+- **WebSocket** - Real-time heartbeat with automatic reconnection and HTTP fallback
+- **REST API** - Device data upload, metrics sync, agent registration
+- **HTTPS** - Optional TLS encryption for secure communication
+
 **Agent Features:**
 - SNMP device discovery
 - Local SQLite database
 - Web UI for management
+- WebSocket heartbeat (live status)
 - Uploads to server (optional)
 - Can run standalone
 
@@ -165,8 +172,21 @@ cd agent
 - Aggregates data from agents
 - Central reporting dashboard
 - Multi-site management
+- Real-time agent monitoring via WebSocket
 - API for integrations
 - Docker-ready
+
+## Real-Time Communication
+
+PrintMaster uses **WebSocket** connections for live agent heartbeat and status updates:
+
+- **Instant Status** - Agents connect via WebSocket for real-time presence detection
+- **Auto-Reconnect** - Exponential backoff (5s to 5min) ensures reliable recovery
+- **HTTP Fallback** - Seamless degradation to HTTP POST if WebSocket unavailable
+- **Efficient** - Single persistent connection reduces bandwidth vs. polling
+- **Scalable** - Handles multiple concurrent agent connections
+
+The WebSocket connection is established at `/api/v1/agents/ws` with token authentication. If the WebSocket fails, agents automatically fall back to HTTP heartbeat at `/api/v1/agents/heartbeat` (default: every 60 seconds).
 
 ## Where to Look
 
@@ -295,6 +315,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 Built with:
 - [Go](https://go.dev/) - Primary language
 - [gosnmp](https://github.com/gosnmp/gosnmp) - SNMP library
+- [gorilla/websocket](https://github.com/gorilla/websocket) - WebSocket implementation
 - [SQLite](https://www.sqlite.org/) - Embedded database
 - [Alpine Linux](https://alpinelinux.org/) - Docker base image
 
