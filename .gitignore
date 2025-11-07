@@ -117,6 +117,9 @@ all_comments.txt
 comments_legacy.txt
 agent/comments_list.txt
 
+# Troubleshooting data review files
+data_review/
+
 # Build number tracking
 .buildnumber
 # Build artifacts
