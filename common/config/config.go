@@ -29,43 +29,34 @@ func FindConfigFile(filename string, component string) (string, []byte, error) {
 func GetConfigSearchPaths(filename string, component string) []string {
 	var searchPaths []string
 
-	// 1. System-wide config directory (highest priority for services)
+	// 1. Component-specific system directory (highest priority for services)
 	switch runtime.GOOS {
 	case "windows":
-		searchPaths = append(searchPaths, filepath.Join(os.Getenv("ProgramData"), "PrintMaster", filename))
-	case "darwin":
-		searchPaths = append(searchPaths, filepath.Join("/Library/Application Support", "PrintMaster", filename))
-	default: // Linux and other Unix-like
-		searchPaths = append(searchPaths, filepath.Join("/etc/printmaster", filename))
-	}
-
-	// 2. Component-specific system directory
-	if runtime.GOOS == "windows" {
 		searchPaths = append(searchPaths, filepath.Join(os.Getenv("ProgramData"), "PrintMaster", component, filename))
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		searchPaths = append(searchPaths, filepath.Join("/Library/Application Support", "PrintMaster", component, filename))
-	} else {
+	default: // Linux and other Unix-like
 		searchPaths = append(searchPaths, filepath.Join("/etc/printmaster", component, filename))
 	}
 
-	// 3. User-specific config directory
+	// 2. User-specific config directory
 	if homeDir, err := os.UserHomeDir(); err == nil {
 		switch runtime.GOOS {
 		case "windows":
-			searchPaths = append(searchPaths, filepath.Join(homeDir, "AppData", "Local", "PrintMaster", filename))
+			searchPaths = append(searchPaths, filepath.Join(homeDir, "AppData", "Local", "PrintMaster", component, filename))
 		case "darwin":
-			searchPaths = append(searchPaths, filepath.Join(homeDir, "Library", "Application Support", "PrintMaster", filename))
+			searchPaths = append(searchPaths, filepath.Join(homeDir, "Library", "Application Support", "PrintMaster", component, filename))
 		default:
-			searchPaths = append(searchPaths, filepath.Join(homeDir, ".config", "printmaster", filename))
+			searchPaths = append(searchPaths, filepath.Join(homeDir, ".config", "printmaster", component, filename))
 		}
 	}
 
-	// 4. Executable directory
+	// 3. Executable directory
 	if exePath, err := os.Executable(); err == nil {
 		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(exePath), filename))
 	}
 
-	// 5. Current working directory (lowest priority)
+	// 4. Current working directory (lowest priority)
 	searchPaths = append(searchPaths, filepath.Join(".", filename))
 
 	return searchPaths
@@ -78,17 +69,17 @@ func GetDataDirectory(component string, isService bool) (string, error) {
 	var dataDir string
 
 	if isService {
-		// Service mode - use system-wide directory
+		// Service mode - use system-wide directory with component subdirectory
 		switch runtime.GOOS {
 		case "windows":
-			dataDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster")
+			dataDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", component)
 		case "darwin":
-			dataDir = "/var/lib/printmaster"
+			dataDir = filepath.Join("/var/lib/printmaster", component)
 		default: // Linux
-			dataDir = "/var/lib/printmaster"
+			dataDir = filepath.Join("/var/lib/printmaster", component)
 		}
 	} else {
-		// Interactive mode - use user directory
+		// Interactive mode - use user directory with component subdirectory
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
 			return "", fmt.Errorf("could not get user home directory: %w", err)
@@ -96,11 +87,11 @@ func GetDataDirectory(component string, isService bool) (string, error) {
 
 		switch runtime.GOOS {
 		case "windows":
-			dataDir = filepath.Join(homeDir, "AppData", "Local", "PrintMaster")
+			dataDir = filepath.Join(homeDir, "AppData", "Local", "PrintMaster", component)
 		case "darwin":
-			dataDir = filepath.Join(homeDir, "Library", "Application Support", "PrintMaster")
+			dataDir = filepath.Join(homeDir, "Library", "Application Support", "PrintMaster", component)
 		default: // Linux and other Unix-like
-			dataDir = filepath.Join(homeDir, ".local", "share", "printmaster")
+			dataDir = filepath.Join(homeDir, ".local", "share", "printmaster", component)
 		}
 	}
 
@@ -117,14 +108,14 @@ func GetLogDirectory(component string, isService bool) (string, error) {
 	var logDir string
 
 	if isService {
-		// Service mode - use system log directory
+		// Service mode - use system log directory with component subdirectory
 		switch runtime.GOOS {
 		case "windows":
-			logDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "logs")
+			logDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", component, "logs")
 		case "darwin":
-			logDir = "/var/log/printmaster"
+			logDir = filepath.Join("/var/log/printmaster", component)
 		default: // Linux
-			logDir = "/var/log/printmaster"
+			logDir = filepath.Join("/var/log/printmaster", component)
 		}
 	} else {
 		// Interactive mode - use current directory
