@@ -1079,7 +1079,7 @@ func runInteractive(ctx context.Context) {
 		appLogger.Info("Using configured database path", "path", dbPath)
 	} else {
 		// Detect if running as service and use appropriate directory
-		dataDir, dirErr := config.GetDataDirectory("PrintMaster", true)
+		dataDir, dirErr := config.GetDataDirectory("agent", true)
 		if dirErr != nil {
 			appLogger.Warn("Could not get data directory, using in-memory storage", "error", dirErr)
 			dbPath = ":memory:"
@@ -2110,7 +2110,7 @@ func runInteractive(ctx context.Context) {
 			"heartbeat_interval", agentConfig.Server.HeartbeatInterval)
 
 		// Load authentication token from file
-		dataDir, err := config.GetDataDirectory("PrintMaster", true)
+		dataDir, err := config.GetDataDirectory("agent", true)
 		if err != nil {
 			appLogger.Error("Failed to get data directory", "error", err)
 			return
