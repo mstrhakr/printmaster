@@ -300,7 +300,7 @@ try {
     Write-Status "Bumping version ($BumpType)..." "STEP"
     
     if ($Component -eq 'both') {
-        $agentVersion = Bump-Version -VersionFile (Join-Path $ProjectRoot "VERSION") -BumpType $BumpType
+        $agentVersion = Bump-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
         $serverVersion = Bump-Version -VersionFile (Join-Path $ProjectRoot "server\VERSION") -BumpType $BumpType
         
         Write-Status "Agent: $($agentVersion.Old) → $($agentVersion.New)" "SUCCESS"
@@ -314,7 +314,7 @@ try {
         $finalVersion = $versionInfo.New
     }
     else {
-        $versionInfo = Bump-Version -VersionFile (Join-Path $ProjectRoot "VERSION") -BumpType $BumpType
+        $versionInfo = Bump-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
         Write-Status "Agent: $($versionInfo.Old) → $($versionInfo.New)" "SUCCESS"
         $finalVersion = $versionInfo.New
     }
