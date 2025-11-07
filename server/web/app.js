@@ -24,6 +24,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
 // ====== Config Status Check ======
 function checkConfigStatus() {
+    // Check if user dismissed this warning
+    if (localStorage.getItem('hideConfigWarning') === 'true') {
+        return;
+    }
+    
     fetch('/api/config/status')
         .then(res => res.json())
         .then(data => {
@@ -35,7 +40,7 @@ function checkConfigStatus() {
                 });
                 message += '\nThe server is running with default settings. Please check your config.toml file.';
                 
-                showAlert(message, '⚠️ Configuration Error', true);
+                showAlert(message, '⚠️ Configuration Error', true, true);
             } else if (data.using_defaults) {
                 // No config file found - show informational modal
                 let message = 'No configuration file was found in any of these locations:\n\n';
@@ -44,7 +49,7 @@ function checkConfigStatus() {
                 });
                 message += '\nThe server is running with default settings.';
                 
-                showAlert(message, 'ℹ️ Using Default Configuration', false);
+                showAlert(message, 'ℹ️ Using Default Configuration', false, true);
             }
         })
         .catch(err => {
@@ -233,7 +238,7 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
 }
 
 // Alert-style modal (no cancel button, just OK to dismiss)
-function showAlert(message, title = 'Notice', isDangerous = false) {
+function showAlert(message, title = 'Notice', isDangerous = false, showDontRemindCheckbox = false) {
     const modal = document.getElementById('confirm_modal');
     const titleEl = document.getElementById('confirm_modal_title');
     const messageEl = document.getElementById('confirm_modal_message');
@@ -251,6 +256,21 @@ function showAlert(message, title = 'Notice', isDangerous = false) {
     messageEl.style.whiteSpace = 'pre-wrap'; // Preserve line breaks
     messageEl.textContent = message;
     
+    // Add "Don't remind me" checkbox if requested
+    let dontRemindCheckbox = null;
+    if (showDontRemindCheckbox) {
+        const checkboxHTML = `
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="dont_remind_checkbox" style="cursor: pointer;">
+                    <span style="font-size: 14px; color: var(--muted);">Don't show this again</span>
+                </label>
+            </div>
+        `;
+        messageEl.innerHTML = message.replace(/\n/g, '<br>') + checkboxHTML;
+        dontRemindCheckbox = modal.querySelector('#dont_remind_checkbox');
+    }
+    
     // Style confirm button
     confirmBtn.textContent = 'OK';
     confirmBtn.className = isDangerous ? 
@@ -265,6 +285,10 @@ function showAlert(message, title = 'Notice', isDangerous = false) {
     
     // Handle dismiss
     const onDismiss = () => {
+        // Save preference if checkbox is checked
+        if (dontRemindCheckbox && dontRemindCheckbox.checked) {
+            localStorage.setItem('hideConfigWarning', 'true');
+        }
         cleanup();
     };
     
@@ -273,6 +297,7 @@ function showAlert(message, title = 'Notice', isDangerous = false) {
         modal.style.display = 'none';
         if (cancelBtn) cancelBtn.style.display = ''; // Restore for future confirms
         messageEl.style.whiteSpace = ''; // Reset style
+        messageEl.innerHTML = ''; // Clear HTML
         confirmBtn.textContent = 'Confirm'; // Reset text
         confirmBtn.removeEventListener('click', onDismiss);
         if (closeX) closeX.removeEventListener('click', onDismiss);

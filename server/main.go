@@ -852,6 +852,7 @@ func setupRoutes() {
 		handleAgentWebSocket(w, r, serverStore)
 	})
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
+	http.HandleFunc("/api/v1/devices/list", handleDevicesList) // List all devices (for UI)
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
 	// Web UI endpoints
@@ -1224,6 +1225,29 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		"received": len(req.Devices),
 		"stored":   stored,
 	})
+}
+
+// handleDevicesList returns all devices for UI display
+func handleDevicesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := context.Background()
+	
+	// Get all devices across all agents
+	devices, err := serverStore.ListDevices(ctx, "")
+	if err != nil {
+		if serverLogger != nil {
+			serverLogger.Error("Failed to list devices", "error", err)
+		}
+		http.Error(w, "Failed to list devices", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(devices)
 }
 
 // Metrics batch upload - agent sends device metrics
