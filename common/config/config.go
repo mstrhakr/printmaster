@@ -131,7 +131,13 @@ func GetLogDirectory(component string, isService bool) (string, error) {
 }
 
 // WriteDefaultTOML writes a default TOML configuration file with the provided structure
+// If the file already exists, it returns nil without overwriting
 func WriteDefaultTOML(configPath string, config interface{}) error {
+	// Check if file already exists - don't overwrite
+	if _, err := os.Stat(configPath); err == nil {
+		return fmt.Errorf("config file already exists at %s (will not overwrite)", configPath)
+	}
+
 	// Ensure directory exists
 	dir := filepath.Dir(configPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
