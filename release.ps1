@@ -422,10 +422,10 @@ try {
     # Create GitHub Release
     if ($Component -eq "both") {
         # Create releases for both components
-        New-GitHubRelease -Tag "v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New
+        New-GitHubRelease -Tag "agent-v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New
         New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New
     } elseif ($Component -eq "agent") {
-        New-GitHubRelease -Tag "v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion
+        New-GitHubRelease -Tag "agent-v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion
     } else {
         New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion
     }
