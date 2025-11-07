@@ -29,14 +29,14 @@ type SNMPConfig struct {
 
 // ServerConnectionConfig holds server registration and upload settings
 type ServerConnectionConfig struct {
-	Enabled              bool   `toml:"enabled"`
-	URL                  string `toml:"url"`
-	AgentID              string `toml:"agent_id"`
-	CAPath               string `toml:"ca_path"`
-	InsecureSkipVerify   bool   `toml:"insecure_skip_verify"` // Skip TLS verification (dev/testing only)
-	UploadInterval       int    `toml:"upload_interval_seconds"`
-	HeartbeatInterval    int    `toml:"heartbeat_interval_seconds"`
-	Token                string `toml:"token"` // Stored after registration
+	Enabled            bool   `toml:"enabled"`
+	URL                string `toml:"url"`
+	AgentID            string `toml:"agent_id"`
+	CAPath             string `toml:"ca_path"`
+	InsecureSkipVerify bool   `toml:"insecure_skip_verify"` // Skip TLS verification (dev/testing only)
+	UploadInterval     int    `toml:"upload_interval_seconds"`
+	HeartbeatInterval  int    `toml:"heartbeat_interval_seconds"`
+	Token              string `toml:"token"` // Stored after registration
 }
 
 // WebConfig holds web UI settings

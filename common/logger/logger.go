@@ -362,7 +362,7 @@ func (l *Logger) rotate() {
 	if l.currentFile != nil {
 		l.currentFile.Close()
 		l.currentFile = nil
-		
+
 		// Rename current log file to timestamped backup
 		if l.currentFilePath != "" {
 			timestamp := time.Now().Format("20060102_150405")
