@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  printmaster-server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      args:
+        VERSION: ${VERSION:-dev}
+        BUILD_TIME: ${BUILD_TIME}
+        GIT_COMMIT: ${GIT_COMMIT}
+    image: ghcr.io/mstrhakr/printmaster-server:${VERSION:-latest}
+    container_name: printmaster-server
+    restart: unless-stopped
+    
+    ports:
+      - "9090:9090"   # HTTP (for reverse proxy backend)
+      - "9443:9443"   # HTTPS (for direct access or dual-TLS)
+    
+    volumes:
+      # Database persistence
+      - printmaster-data:/var/lib/printmaster/server
+      # Logs
+      - printmaster-logs:/var/log/printmaster/server
+      # Optional: Custom config
+      - ./config.toml:/var/lib/printmaster/server/config.toml:ro
+      # Optional: Custom TLS certificates
+      - ./certs:/var/lib/printmaster/server/certs:ro
+    
+    environment:
+      # Config overrides via environment variables
+      - SERVER_HTTP_PORT=9090
+      - SERVER_HTTPS_PORT=9443
+      - BEHIND_PROXY=true
+      - PROXY_USE_HTTPS=false  # Set to true for dual-TLS
+      - BIND_ADDRESS=0.0.0.0
+      - LOG_LEVEL=info
+      - TLS_MODE=self-signed
+      # Database
+      - DB_PATH=/var/lib/printmaster/server/printmaster.db
+    
+    networks:
+      - printmaster-network
+    
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  printmaster-data:
+    driver: local
+  printmaster-logs:
+    driver: local
+
+networks:
+  printmaster-network:
+    driver: bridge

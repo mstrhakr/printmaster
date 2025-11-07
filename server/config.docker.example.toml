@@ -1,0 +1,45 @@
+# PrintMaster Server Configuration Example for Docker
+# Mount this file to /var/lib/printmaster/server/config.toml
+
+[server]
+  # HTTP port (for reverse proxy backend)
+  http_port = 9090
+  
+  # HTTPS port (for direct access or dual-TLS)
+  https_port = 9443
+  
+  # Enable reverse proxy mode (trusts X-Forwarded headers)
+  behind_proxy = true
+  
+  # Use HTTPS even when behind proxy (dual-TLS setup)
+  # Set to false if nginx terminates TLS (most common)
+  proxy_use_https = false
+  
+  # Bind to all interfaces (required for Docker)
+  bind_address = "0.0.0.0"
+
+[tls]
+  # TLS mode: "self-signed", "custom", "letsencrypt"
+  mode = "self-signed"
+  
+  # Domain for self-signed cert
+  domain = "localhost"
+  
+  # Custom certificate paths (when mode = "custom")
+  cert_path = ""
+  key_path = ""
+  
+  [tls.letsencrypt]
+    # Let's Encrypt settings (when mode = "letsencrypt")
+    domain = ""
+    email = ""
+    cache_dir = "letsencrypt-cache"
+    accept_tos = false
+
+[database]
+  # Database path (use volume mount)
+  path = "/var/lib/printmaster/server/printmaster.db"
+
+[logging]
+  # Log level: "debug", "info", "warn", "error"
+  level = "info"

@@ -1,0 +1,74 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+docs/
+.github/
+
+# Build artifacts
+*.exe
+*.exe~
+dist/
+build/
+bin/
+
+# Logs
+*.log
+logs/
+agent/logs/
+server/logs/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+
+# Config files (use env vars or volumes)
+config.ini
+config.toml
+agent/config.ini
+server/config.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+*_test.go
+testdata/
+
+# Development
+tmp/
+temp/
+data_review/
+
+# Windows service resources
+*.syso
+versioninfo.json
+
+# Certs (mount as volumes)
+*.pem
+*.crt
+*.key
+certs/
+letsencrypt-cache/
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+
+# Build scripts (not needed in container)
+build.ps1
+release.ps1
+status.ps1
+version.ps1
+tools/
