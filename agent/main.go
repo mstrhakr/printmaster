@@ -159,15 +159,20 @@ var (
 )
 
 // runGarbageCollection runs periodic cleanup of old scan history and hidden devices
-func runGarbageCollection(store storage.DeviceStore, config *agent.RetentionConfig) {
+func runGarbageCollection(ctx context.Context, store storage.DeviceStore, config *agent.RetentionConfig) {
 	ticker := time.NewTicker(24 * time.Hour) // Run daily
 	defer ticker.Stop()
 
 	// Run immediately on startup
 	doGarbageCollection(store, config)
 
-	for range ticker.C {
-		doGarbageCollection(store, config)
+	for {
+		select {
+		case <-ticker.C:
+			doGarbageCollection(store, config)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -196,17 +201,26 @@ func doGarbageCollection(store storage.DeviceStore, config *agent.RetentionConfi
 
 // runMetricsDownsampler runs periodic downsampling of metrics data
 // This implements Netdata-style tiered storage: raw → hourly → daily → monthly
-func runMetricsDownsampler(store storage.DeviceStore) {
+func runMetricsDownsampler(ctx context.Context, store storage.DeviceStore) {
 	// Run every 6 hours (4 times per day)
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
 
 	// Run immediately on startup (with a small delay to let the app initialize)
-	time.Sleep(30 * time.Second)
-	doMetricsDownsampling(store)
-
-	for range ticker.C {
+	select {
+	case <-time.After(30 * time.Second):
 		doMetricsDownsampling(store)
+	case <-ctx.Done():
+		return
+	}
+
+	for {
+		select {
+		case <-ticker.C:
+			doMetricsDownsampling(store)
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
@@ -388,6 +402,7 @@ type SSEHub struct {
 	broadcast  chan SSEEvent
 	register   chan *SSEClient
 	unregister chan *SSEClient
+	shutdown   chan struct{}
 	mu         sync.RWMutex
 }
 
@@ -397,6 +412,7 @@ func NewSSEHub() *SSEHub {
 		broadcast:  make(chan SSEEvent, 100),
 		register:   make(chan *SSEClient),
 		unregister: make(chan *SSEClient),
+		shutdown:   make(chan struct{}),
 	}
 	go hub.run()
 	return hub
@@ -426,8 +442,21 @@ func (h *SSEHub) run() {
 				}
 			}
 			h.mu.RUnlock()
+		case <-h.shutdown:
+			// Close all client connections
+			h.mu.Lock()
+			for _, client := range h.clients {
+				close(client.events)
+			}
+			h.clients = make(map[string]*SSEClient)
+			h.mu.Unlock()
+			return
 		}
 	}
+}
+
+func (h *SSEHub) Stop() {
+	close(h.shutdown)
 }
 
 func (h *SSEHub) Broadcast(event SSEEvent) {
@@ -1177,10 +1206,10 @@ func runInteractive(ctx context.Context) {
 
 	// Start garbage collection goroutine
 	retentionConfig := agent.GetRetentionConfig()
-	go runGarbageCollection(deviceStore, retentionConfig)
+	go runGarbageCollection(ctx, deviceStore, retentionConfig)
 
 	// Start metrics downsampler goroutine (runs every 6 hours)
-	go runMetricsDownsampler(deviceStore)
+	go runMetricsDownsampler(ctx, deviceStore)
 
 	// Auto-discovery management (periodic scanning + optional live discovery methods)
 	// Controlled by discovery setting: auto_discover_enabled (bool) - master switch
@@ -4608,9 +4637,12 @@ window.top.location.href = '/proxy/%s/';
 	<-ctx.Done()
 	appLogger.Info("Shutdown signal received, stopping servers...")
 
-	// Stop upload worker first (quick operation)
+	// Stop background services first (quick operations)
 	if uploadWorker != nil {
 		uploadWorker.Stop()
+	}
+	if sseHub != nil {
+		sseHub.Stop()
 	}
 
 	// Graceful shutdown with 20 second timeout (well before service 30s timeout)
