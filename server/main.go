@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"printmaster/common/config"
 	"printmaster/common/logger"
 	"printmaster/server/storage"
@@ -38,8 +40,11 @@ var (
 )
 
 var (
-	serverLogger *logger.Logger
-	serverStore  storage.Store
+	serverLogger       *logger.Logger
+	serverStore        storage.Store
+	configLoadErrors   []string // Track config loading errors for display in UI
+	usingDefaultConfig bool     // Flag to indicate if using defaults vs loaded config
+	loadedConfigPath   string   // Path of the config file that was successfully loaded
 )
 
 func main() {
@@ -99,12 +104,65 @@ func main() {
 
 // runServer starts the server with the given context
 func runServer(ctx context.Context) {
-	// Load configuration
-	configPath := "config.toml" // Default, can be made configurable
-	cfg, err := LoadConfig(configPath)
-	if err != nil {
-		log.Printf("Warning: Failed to load config file (%v), using defaults", err)
+	// Load configuration from multiple locations
+	// Priority when running as service: ProgramData/server > ProgramData (legacy)
+	// Priority when interactive: executable directory > current directory
+	var cfg *Config
+
+	isService := !service.Interactive()
+	var configPaths []string
+
+	if isService {
+		// Running as service - check ProgramData locations only
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = "C:\\ProgramData"
+		}
+		configPaths = []string{
+			filepath.Join(programData, "PrintMaster", "server", "config.toml"),
+			filepath.Join(programData, "PrintMaster", "config.toml"), // Legacy location
+		}
+	} else {
+		// Running interactively - check local locations only
+		configPaths = []string{
+			filepath.Join(filepath.Dir(os.Args[0]), "config.toml"),
+			"config.toml",
+		}
+	}
+
+	configLoaded := false
+	for _, configPath := range configPaths {
+		if _, statErr := os.Stat(configPath); statErr == nil {
+			// Config file exists, try to load it
+			if loadedCfg, err := LoadConfig(configPath); err == nil {
+				cfg = loadedCfg
+				loadedConfigPath = configPath
+				configLoaded = true
+				log.Printf("Loaded configuration from: %s", configPath)
+				break
+			} else {
+				// Config file exists but failed to parse
+				errMsg := fmt.Sprintf("Config file exists but failed to load: %s - Error: %v", configPath, err)
+				configLoadErrors = append(configLoadErrors, errMsg)
+				log.Printf("WARNING: %s", errMsg)
+			}
+		}
+	}
+
+	if !configLoaded {
+		if len(configLoadErrors) > 0 {
+			log.Printf("ERROR: Configuration files found but failed to parse. Using defaults. Errors:")
+			for _, errMsg := range configLoadErrors {
+				log.Printf("  - %s", errMsg)
+			}
+		} else {
+			log.Printf("No config.toml found in any location, using defaults")
+		}
 		cfg = DefaultConfig()
+		loadedConfigPath = "defaults"
+		usingDefaultConfig = true
+	} else {
+		usingDefaultConfig = false
 	}
 
 	log.Printf("PrintMaster Server %s (protocol v%s)", Version, ProtocolVersion)
@@ -117,14 +175,13 @@ func runServer(ctx context.Context) {
 	}
 
 	// Determine log directory based on whether we're running as a service
-	isService := !service.Interactive()
 	logDir, err := config.GetLogDirectory("server", isService)
 	if err != nil {
 		log.Fatalf("Failed to get log directory: %v", err)
 	}
 
 	serverLogger = logger.NewWithComponent(logger.LevelFromString(cfg.Logging.Level), logDir, "server", 1000)
-	serverLogger.Info("Server starting", "version", Version, "protocol", ProtocolVersion, "config", configPath)
+	serverLogger.Info("Server starting", "version", Version, "protocol", ProtocolVersion, "config", loadedConfigPath)
 
 	// Initialize database
 	log.Printf("Database: %s", cfg.Database.Path)
@@ -425,49 +482,116 @@ func handleServiceCommand(cmd string) {
 }
 
 // startReverseProxyMode starts the server in reverse proxy mode (behind nginx)
-// Listens on HTTP (localhost only) and trusts X-Forwarded-* headers
+// Supports both HTTP and HTTPS based on configuration
 func startReverseProxyMode(ctx context.Context, tlsConfig *TLSConfig) {
-	addr := fmt.Sprintf("127.0.0.1:%d", tlsConfig.HTTPPort)
-
-	serverLogger.Info("Starting in reverse proxy mode (HTTPS terminated by nginx)",
-		"bind", addr,
-		"trust_proxy", true)
-
-	log.Printf("Server listening on %s (reverse proxy mode)", addr)
-	log.Printf("HTTPS termination handled by nginx/reverse proxy")
-	log.Printf("Server ready to accept agent connections")
-
-	// Add reverse proxy middleware
-	handler := reverseProxyMiddleware(http.DefaultServeMux)
-
-	// Create HTTP server
-	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: handler,
+	// Use configured bind address, default to all interfaces if not set
+	bindAddr := tlsConfig.BindAddress
+	if bindAddr == "" {
+		bindAddr = "0.0.0.0"
 	}
 
-	// Start server in goroutine
-	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			serverLogger.Error("HTTP server failed", "error", err)
+	// Add reverse proxy middleware
+	handler := loggingMiddleware(reverseProxyMiddleware(http.DefaultServeMux))
+
+	// Determine if we're using HTTPS for end-to-end encryption
+	if tlsConfig.ProxyUseHTTPS {
+		// HTTPS mode: end-to-end encryption with reverse proxy
+		addr := fmt.Sprintf("%s:%d", bindAddr, tlsConfig.HTTPSPort)
+
+		// Get TLS configuration
+		tlsCfg, err := tlsConfig.GetTLSConfig()
+		if err != nil {
+			serverLogger.Error("Failed to setup TLS for reverse proxy mode", "error", err)
 			log.Fatal(err)
 		}
-	}()
 
-	serverLogger.Info("HTTP server started", "addr", addr)
+		serverLogger.Info("Starting in reverse proxy mode with HTTPS (end-to-end encryption)",
+			"bind", addr,
+			"tls_mode", tlsConfig.Mode,
+			"trust_proxy", true)
 
-	// Wait for shutdown signal
-	<-ctx.Done()
-	serverLogger.Info("Shutdown signal received, stopping HTTP server...")
+		log.Printf("HTTPS server listening on %s (reverse proxy mode with TLS)", addr)
+		log.Printf("TLS mode: %s", tlsConfig.Mode)
+		log.Printf("Reverse proxy terminates outer TLS, server uses inner TLS")
+		log.Printf("Server ready to accept agent connections")
 
-	// Graceful shutdown with 30 second timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+		// Create HTTPS server
+		httpsServer := &http.Server{
+			Addr:      addr,
+			TLSConfig: tlsCfg,
+			Handler:   handler,
+			ErrorLog:  log.New(log.Writer(), "[HTTPS] ", log.LstdFlags),
+			ConnState: func(conn net.Conn, state http.ConnState) {
+				if state == http.StateNew {
+					serverLogger.Debug("New connection", "remote_addr", conn.RemoteAddr().String())
+				}
+			},
+		}
 
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
-		serverLogger.Error("HTTP server shutdown error", "error", err)
+		// Start server in goroutine
+		go func() {
+			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				serverLogger.Error("HTTPS server failed", "error", err)
+				log.Fatal(err)
+			}
+		}()
+
+		serverLogger.Info("HTTPS server started", "addr", addr)
+
+		// Wait for shutdown signal
+		<-ctx.Done()
+		serverLogger.Info("Shutdown signal received, stopping HTTPS server...")
+
+		// Graceful shutdown with 30 second timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := httpsServer.Shutdown(shutdownCtx); err != nil {
+			serverLogger.Error("HTTPS server shutdown error", "error", err)
+		} else {
+			serverLogger.Info("HTTPS server stopped gracefully")
+		}
 	} else {
-		serverLogger.Info("HTTP server stopped gracefully")
+		// HTTP mode: reverse proxy handles all TLS
+		addr := fmt.Sprintf("%s:%d", bindAddr, tlsConfig.HTTPPort)
+
+		serverLogger.Info("Starting in reverse proxy mode with HTTP (HTTPS terminated by proxy)",
+			"bind", addr,
+			"trust_proxy", true)
+
+		log.Printf("HTTP server listening on %s (reverse proxy mode)", addr)
+		log.Printf("HTTPS termination handled by nginx/reverse proxy")
+		log.Printf("Server ready to accept agent connections")
+
+		// Create HTTP server
+		httpServer := &http.Server{
+			Addr:    addr,
+			Handler: handler,
+		}
+
+		// Start server in goroutine
+		go func() {
+			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				serverLogger.Error("HTTP server failed", "error", err)
+				log.Fatal(err)
+			}
+		}()
+
+		serverLogger.Info("HTTP server started", "addr", addr)
+
+		// Wait for shutdown signal
+		<-ctx.Done()
+		serverLogger.Info("Shutdown signal received, stopping HTTP server...")
+
+		// Graceful shutdown with 30 second timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			serverLogger.Error("HTTP server shutdown error", "error", err)
+		} else {
+			serverLogger.Info("HTTP server stopped gracefully")
+		}
 	}
 }
 
@@ -480,7 +604,12 @@ func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
 		log.Fatal(err)
 	}
 
-	httpsAddr := fmt.Sprintf(":%d", tlsConfig.HTTPSPort)
+	// Use configured bind address, default to all interfaces if not set
+	bindAddr := tlsConfig.BindAddress
+	if bindAddr == "" {
+		bindAddr = "0.0.0.0"
+	}
+	httpsAddr := fmt.Sprintf("%s:%d", bindAddr, tlsConfig.HTTPSPort)
 
 	serverLogger.Info("Starting in standalone HTTPS mode",
 		"port", tlsConfig.HTTPSPort,
@@ -509,7 +638,13 @@ func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
 	httpsServer := &http.Server{
 		Addr:      httpsAddr,
 		TLSConfig: tlsCfg,
-		Handler:   securityHeadersMiddleware(http.DefaultServeMux),
+		Handler:   loggingMiddleware(securityHeadersMiddleware(http.DefaultServeMux)),
+		ErrorLog:  log.New(log.Writer(), "[HTTPS] ", log.LstdFlags),
+		ConnState: func(conn net.Conn, state http.ConnState) {
+			if state == http.StateNew {
+				serverLogger.Debug("New connection", "remote_addr", conn.RemoteAddr().String())
+			}
+		},
 	}
 
 	serverLogger.Info("HTTPS server starting", "addr", httpsAddr)
@@ -565,6 +700,23 @@ func startACMEChallengeServer(tlsConfig *TLSConfig) {
 	if err := http.ListenAndServe(":80", mux); err != nil {
 		serverLogger.Error("ACME challenge server failed", "error", err)
 	}
+}
+
+// loggingMiddleware logs all incoming HTTP requests
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Log the incoming request at debug level
+		serverLogger.Debug("Incoming request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote_addr", r.RemoteAddr,
+			"host", r.Host,
+			"proto", r.Proto,
+			"tls", r.TLS != nil,
+		)
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // reverseProxyMiddleware adds headers for reverse proxy mode
@@ -688,6 +840,9 @@ func setupRoutes() {
 	// Version info (no auth required)
 	http.HandleFunc("/api/version", handleVersion)
 
+	// Config status (no auth required - for UI warnings)
+	http.HandleFunc("/api/config/status", handleConfigStatus)
+
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
@@ -719,6 +874,40 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 		"go_version":       runtime.Version(),
 		"os":               runtime.GOOS,
 		"arch":             runtime.GOARCH,
+	})
+}
+
+func handleConfigStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Build list of searched config paths based on run mode
+	var searchedPaths []string
+	isService := !service.Interactive()
+
+	if isService {
+		// Running as service - only ProgramData locations
+		programData := os.Getenv("PROGRAMDATA")
+		if programData == "" {
+			programData = "C:\\ProgramData"
+		}
+		searchedPaths = append(searchedPaths, filepath.Join(programData, "PrintMaster", "server", "config.toml"))
+		searchedPaths = append(searchedPaths, filepath.Join(programData, "PrintMaster", "config.toml"))
+	} else {
+		// Running interactively - only local locations
+		exePath, err := os.Executable()
+		if err == nil {
+			exeDir := filepath.Dir(exePath)
+			searchedPaths = append(searchedPaths, filepath.Join(exeDir, "config.toml"))
+		}
+		searchedPaths = append(searchedPaths, "config.toml")
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"using_defaults": usingDefaultConfig,
+		"errors":         configLoadErrors,
+		"searched_paths": searchedPaths,
+		"loaded_from":    loadedConfigPath,
+		"is_service":     isService,
 	})
 }
 
