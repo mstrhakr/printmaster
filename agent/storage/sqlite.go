@@ -549,9 +549,20 @@ func (s *SQLiteStore) runMigrations() error {
 	// Migration 7 -> 8: Rename metrics_history to metrics_raw, add tiered aggregation tables
 	// This implements Netdata-style tiered storage: raw (7d), hourly (30d), daily (365d), monthly (forever)
 	if currentVersion < 8 {
-		var tableExists int
-		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='metrics_history'").Scan(&tableExists)
-		if err == nil && tableExists > 0 {
+		var historyExists int
+		var rawExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='metrics_history'").Scan(&historyExists)
+		if err != nil {
+			return fmt.Errorf("failed to check for metrics_history table: %w", err)
+		}
+		
+		err = s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='metrics_raw'").Scan(&rawExists)
+		if err != nil {
+			return fmt.Errorf("failed to check for metrics_raw table: %w", err)
+		}
+		
+		// Only rename if metrics_history exists AND metrics_raw doesn't
+		if historyExists > 0 && rawExists == 0 {
 			// Rename existing metrics_history to metrics_raw
 			_, err = s.db.Exec(`ALTER TABLE metrics_history RENAME TO metrics_raw`)
 			if err != nil {
@@ -567,6 +578,9 @@ func (s *SQLiteStore) runMigrations() error {
 			_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_raw_serial ON metrics_raw(serial)`)
 			_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_raw_timestamp ON metrics_raw(timestamp)`)
 			_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_metrics_raw_serial_timestamp ON metrics_raw(serial, timestamp)`)
+		} else if historyExists > 0 && rawExists > 0 {
+			// Both tables exist - this is a conflict, drop the old one
+			_, _ = s.db.Exec(`DROP TABLE IF EXISTS metrics_history`)
 		}
 
 		// Create hourly aggregation table
