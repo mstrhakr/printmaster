@@ -3,7 +3,7 @@ module printmaster/server
 go 1.24.0
 
 require (
-	github.com/BurntSushi/toml v1.5.0
+	github.com/kardianos/service v1.2.4
 	golang.org/x/crypto v0.43.0
 	modernc.org/sqlite v1.39.1
 	printmaster/common v0.0.0
@@ -12,9 +12,9 @@ require (
 replace printmaster/common => ../common
 
 require (
+	github.com/BurntSushi/toml v1.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/kardianos/service v1.2.4 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
