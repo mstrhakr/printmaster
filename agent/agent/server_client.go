@@ -94,6 +94,11 @@ func (c *ServerClient) GetToken() string {
 	return c.Token
 }
 
+// GetServerURL retrieves the base server URL
+func (c *ServerClient) GetServerURL() string {
+	return c.BaseURL
+}
+
 // Register performs initial agent registration with the server
 // Returns the authentication token on success
 func (c *ServerClient) Register(ctx context.Context, version string) (string, error) {

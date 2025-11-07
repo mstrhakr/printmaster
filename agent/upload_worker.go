@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -23,6 +25,11 @@ type UploadWorker struct {
 	client *agent.ServerClient
 	store  storage.DeviceStore
 	logger Logger
+
+	// WebSocket client (optional, falls back to HTTP if unavailable)
+	wsClient     *agent.WSClient
+	useWebSocket bool
+	wsClientMu   sync.RWMutex
 
 	// Configuration
 	heartbeatInterval time.Duration
@@ -47,6 +54,7 @@ type UploadWorkerConfig struct {
 	UploadInterval    time.Duration
 	RetryAttempts     int
 	RetryBackoff      time.Duration
+	UseWebSocket      bool // Enable WebSocket for heartbeats
 }
 
 // NewUploadWorker creates a new upload worker instance
@@ -65,7 +73,7 @@ func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logg
 		config.RetryBackoff = 2 * time.Second
 	}
 
-	return &UploadWorker{
+	w := &UploadWorker{
 		client:            client,
 		store:             store,
 		logger:            logger,
@@ -73,8 +81,11 @@ func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logg
 		uploadInterval:    config.UploadInterval,
 		retryAttempts:     config.RetryAttempts,
 		retryBackoff:      config.RetryBackoff,
+		useWebSocket:      config.UseWebSocket,
 		stopCh:            make(chan struct{}),
 	}
+
+	return w
 }
 
 // Start begins the upload worker goroutines
@@ -82,6 +93,29 @@ func (w *UploadWorker) Start(ctx context.Context, version string) error {
 	// Ensure agent is registered first
 	if err := w.ensureRegistered(ctx, version); err != nil {
 		return fmt.Errorf("registration failed: %w", err)
+	}
+
+	// Initialize WebSocket client if enabled
+	if w.useWebSocket {
+		serverURL := w.client.GetServerURL()
+		token := w.client.GetToken()
+
+		// Create a standard logger for WSClient (writes to default output)
+		stdLogger := log.New(os.Stdout, "[WS] ", log.LstdFlags)
+
+		w.wsClientMu.Lock()
+		w.wsClient = agent.NewWSClient(serverURL, token, stdLogger)
+		w.wsClientMu.Unlock()
+
+		// Start WebSocket client (non-blocking, handles reconnection internally)
+		if err := w.wsClient.Start(); err != nil {
+			w.logger.Warn("WebSocket client failed to start (falling back to HTTP)", "error", err)
+			w.wsClientMu.Lock()
+			w.wsClient = nil
+			w.wsClientMu.Unlock()
+		} else {
+			w.logger.Info("WebSocket client started for live heartbeat")
+		}
 	}
 
 	// Start heartbeat goroutine
@@ -94,7 +128,8 @@ func (w *UploadWorker) Start(ctx context.Context, version string) error {
 
 	w.logger.Info("Upload worker started",
 		"heartbeat_interval", w.heartbeatInterval,
-		"upload_interval", w.uploadInterval)
+		"upload_interval", w.uploadInterval,
+		"websocket_enabled", w.useWebSocket)
 
 	return nil
 }
@@ -103,6 +138,15 @@ func (w *UploadWorker) Start(ctx context.Context, version string) error {
 func (w *UploadWorker) Stop() {
 	w.logger.Info("Stopping upload worker...")
 	close(w.stopCh)
+
+	// Stop WebSocket client if running
+	w.wsClientMu.Lock()
+	if w.wsClient != nil {
+		w.wsClient.Stop()
+		w.wsClient = nil
+	}
+	w.wsClientMu.Unlock()
+
 	w.wg.Wait()
 	w.logger.Info("Upload worker stopped")
 }
@@ -165,17 +209,49 @@ func (w *UploadWorker) sendHeartbeat() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Try WebSocket first if available
+	w.wsClientMu.RLock()
+	wsClient := w.wsClient
+	w.wsClientMu.RUnlock()
+
+	if wsClient != nil && wsClient.IsConnected() {
+		// Get device count to include in heartbeat
+		visibleOnly := true
+		devices, err := w.store.List(ctx, storage.DeviceFilter{Visible: &visibleOnly})
+		deviceCount := 0
+		if err == nil {
+			deviceCount = len(devices)
+		}
+
+		// Send heartbeat over WebSocket
+		heartbeatData := map[string]interface{}{
+			"device_count": deviceCount,
+		}
+
+		if err := wsClient.SendHeartbeat(heartbeatData); err != nil {
+			w.logger.Warn("WebSocket heartbeat failed, falling back to HTTP", "error", err)
+			// Fall through to HTTP heartbeat
+		} else {
+			w.mu.Lock()
+			w.lastHeartbeat = time.Now()
+			w.mu.Unlock()
+			w.logger.Debug("Heartbeat sent via WebSocket")
+			return
+		}
+	}
+
+	// Fall back to HTTP heartbeat
 	err := w.retryWithBackoff(func() error {
 		return w.client.Heartbeat(ctx)
 	})
 
 	if err != nil {
-		w.logger.Warn("Heartbeat failed after retries", "error", err)
+		w.logger.Warn("HTTP heartbeat failed after retries", "error", err)
 	} else {
 		w.mu.Lock()
 		w.lastHeartbeat = time.Now()
 		w.mu.Unlock()
-		w.logger.Debug("Heartbeat sent successfully")
+		w.logger.Debug("Heartbeat sent via HTTP")
 	}
 }
 

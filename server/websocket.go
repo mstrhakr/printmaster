@@ -1,0 +1,198 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
+	"printmaster/server/storage"
+
+	"github.com/gorilla/websocket"
+)
+
+var (
+	// WebSocket upgrader with default settings
+	upgrader = websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			// Allow all origins for now (TODO: restrict in production)
+			return true
+		},
+	}
+
+	// Track active WebSocket connections by agent ID (string)
+	wsConnections     = make(map[string]*websocket.Conn)
+	wsConnectionsLock sync.RWMutex
+)
+
+// WSMessage represents a WebSocket message (matches agent's structure)
+type WSMessage struct {
+	Type      string                 `json:"type"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// handleAgentWebSocket handles WebSocket connections from agents
+func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore storage.Store) {
+	// Extract and validate authentication token from query parameter
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "Missing authentication token", http.StatusUnauthorized)
+		return
+	}
+
+	// Authenticate agent
+	agent, err := serverStore.GetAgentByToken(r.Context(), token)
+	if err != nil {
+		log.Printf("WebSocket auth failed: %v", err)
+		http.Error(w, "Invalid authentication token", http.StatusUnauthorized)
+		return
+	}
+
+	if agent == nil {
+		http.Error(w, "Invalid authentication token", http.StatusUnauthorized)
+		return
+	}
+
+	// Upgrade HTTP connection to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WebSocket upgrade failed for agent %s: %v", agent.AgentID, err)
+		return
+	}
+
+	log.Printf("Agent %s (%s) connected via WebSocket from %s", agent.Hostname, agent.AgentID, r.RemoteAddr)
+
+	// Register connection
+	wsConnectionsLock.Lock()
+	// Close existing connection if any (agent reconnecting)
+	if existingConn, exists := wsConnections[agent.AgentID]; exists {
+		log.Printf("Closing existing WebSocket for agent %s (reconnection)", agent.AgentID)
+		existingConn.Close()
+	}
+	wsConnections[agent.AgentID] = conn
+	wsConnectionsLock.Unlock()
+
+	// Handle connection cleanup on exit
+	defer func() {
+		wsConnectionsLock.Lock()
+		if wsConnections[agent.AgentID] == conn {
+			delete(wsConnections, agent.AgentID)
+			log.Printf("Agent %s WebSocket connection closed", agent.AgentID)
+		}
+		wsConnectionsLock.Unlock()
+		conn.Close()
+	}()
+
+	// Set up ping/pong handler to keep connection alive
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	// Read messages from agent
+	for {
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				log.Printf("WebSocket error for agent %s: %v", agent.AgentID, err)
+			}
+			break
+		}
+
+		// Parse message
+		var msg WSMessage
+		if err := json.Unmarshal(message, &msg); err != nil {
+			log.Printf("Failed to parse WebSocket message from agent %s: %v", agent.AgentID, err)
+			sendWSError(conn, "Invalid message format")
+			continue
+		}
+
+		// Handle different message types
+		switch msg.Type {
+		case "heartbeat":
+			handleWSHeartbeat(conn, agent, msg, serverStore)
+		default:
+			log.Printf("Unknown WebSocket message type from agent %s: %s", agent.AgentID, msg.Type)
+			sendWSError(conn, "Unknown message type")
+		}
+	}
+}
+
+// handleWSHeartbeat processes heartbeat messages received via WebSocket
+func handleWSHeartbeat(conn *websocket.Conn, agent *storage.Agent, msg WSMessage, serverStore storage.Store) {
+	// Extract optional device count from heartbeat data
+	if deviceCount, ok := msg.Data["device_count"].(float64); ok {
+		agent.DeviceCount = int(deviceCount)
+	}
+
+	// Update agent heartbeat in database (updates last_seen and status)
+	ctx := context.Background()
+	if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, "active"); err != nil {
+		log.Printf("Failed to update agent %s after WebSocket heartbeat: %v", agent.AgentID, err)
+		sendWSError(conn, "Failed to process heartbeat")
+		return
+	}
+
+	log.Printf("WebSocket heartbeat received from agent %s", agent.AgentID)
+
+	// Send pong response
+	pongMsg := WSMessage{
+		Type:      "pong",
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(pongMsg)
+	if err != nil {
+		log.Printf("Failed to marshal pong message: %v", err)
+		return
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		log.Printf("Failed to send pong to agent %s: %v", agent.AgentID, err)
+	}
+}
+
+// sendWSError sends an error message to the WebSocket client
+func sendWSError(conn *websocket.Conn, errorMsg string) {
+	msg := WSMessage{
+		Type: "error",
+		Data: map[string]interface{}{
+			"message": errorMsg,
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("Failed to marshal error message: %v", err)
+		return
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		log.Printf("Failed to send error message: %v", err)
+	}
+}
+
+// getAgentWSConnection returns the WebSocket connection for an agent, if connected
+func getAgentWSConnection(agentID string) (*websocket.Conn, bool) {
+	wsConnectionsLock.RLock()
+	defer wsConnectionsLock.RUnlock()
+	conn, exists := wsConnections[agentID]
+	return conn, exists
+}
+
+// isAgentConnectedWS checks if an agent has an active WebSocket connection
+func isAgentConnectedWS(agentID string) bool {
+	wsConnectionsLock.RLock()
+	defer wsConnectionsLock.RUnlock()
+	_, exists := wsConnections[agentID]
+	return exists
+}

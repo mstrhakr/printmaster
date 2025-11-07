@@ -2185,6 +2185,7 @@ func runInteractive(ctx context.Context) {
 				UploadInterval:    time.Duration(agentConfig.Server.UploadInterval) * time.Second,
 				RetryAttempts:     3,
 				RetryBackoff:      2 * time.Second,
+				UseWebSocket:      true, // Enable WebSocket for live heartbeat
 			}
 
 			uploadWorker = NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig)
