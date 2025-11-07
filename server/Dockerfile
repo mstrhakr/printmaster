@@ -53,6 +53,9 @@ USER printmaster
 # Set working directory
 WORKDIR /var/lib/printmaster/server
 
+# Set environment to indicate Docker environment
+ENV DOCKER=true
+
 # Expose ports
 EXPOSE 9090 9443
 

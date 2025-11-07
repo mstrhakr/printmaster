@@ -1308,6 +1308,11 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 
 // getDefaultDBPath returns platform-specific database path
 func getDefaultDBPath() string {
+	// Check if running in Docker (common pattern: DOCKER env var or /var/lib/printmaster exists)
+	if os.Getenv("DOCKER") == "true" || fileExists("/var/lib/printmaster") {
+		return "/var/lib/printmaster/server/printmaster.db"
+	}
+	
 	switch runtime.GOOS {
 	case "windows":
 		return `C:\ProgramData\PrintMaster\server.db`
@@ -1318,4 +1323,9 @@ func getDefaultDBPath() string {
 		home, _ := os.UserHomeDir()
 		return home + "/.local/share/printmaster/server.db"
 	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
