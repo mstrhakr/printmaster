@@ -205,6 +205,23 @@
     <!-- Toast notification container -->
     <div class="toast-container" id="toast_container"></div>
 
+    <!-- Confirmation Modal -->
+    <div class="modal" id="confirm_modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="confirm_modal_title">Confirm Action</span>
+                <span class="modal-close" id="confirm_modal_close_x">&times;</span>
+            </div>
+            <div class="modal-body">
+                <p id="confirm_modal_message">Are you sure?</p>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="confirm_modal_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="confirm_modal_confirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/app.js"></script>
 
 </body>
