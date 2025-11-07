@@ -1,5 +1,7 @@
 # Copilot Instructions for PrintMaster Project
 
+# Always check the docs, especially if we are starting a new project. 
+
 ## Cross-Platform Support
 
 - Full cross-platform compatibility (Windows, Mac, Linux) is paramount for project success. All code, dependencies, and features must be designed, tested, and maintained to work seamlessly across supported operating systems.
@@ -103,11 +105,13 @@ c:\temp\printmaster\
 ## Key Database Schema
 
 ### storage.Device
+
 - 26 fields: Serial (PK), IP, Manufacturer, Model, Hostname, Firmware, MACAddress, etc.
 - NO PageCount, NO TonerLevels (removed in schema v7 - moved to metrics_history)
 - IsSaved bool, Visible bool for filtering
 
 ### storage.MetricsSnapshot
+
 - Timestamp, Serial, PageCount, ColorPages, MonoPages, ScanCount
 - TonerLevels map[string]interface{}
 - Time-series data separated from device identity in metrics_history table
@@ -119,21 +123,22 @@ c:\temp\printmaster\
 **Use the new automation tools for all build and release tasks:**
 
 1. **Building Code**:
+
    - Use VS Code tasks (Ctrl+Shift+B) → "Build: Agent (Dev)" or "Build: Server (Dev)"
    - Or run: `.\build.ps1 agent` / `.\build.ps1 server` / `.\build.ps1 both`
    - Build script automatically injects version, git commit, build time into binaries
-
 2. **Running Tests**:
+
    - ALWAYS use `runTests` tool for Go tests (pre-approved, no prompts)
    - Or use VS Code task: "Test: Agent (all)" / "Test: Server (all)"
    - Tests must pass before any release
-
 3. **Debugging**:
+
    - Use VS Code launch configs (F5)
    - Available: "Debug: Agent (Default Port)", "Debug: Server (Default Port)", "Debug: Agent + Server Together"
    - All configs auto-kill existing processes via preLaunchTask
-
 4. **Checking Status**:
+
    - Run `.\status.ps1` to see versions, git status, build artifacts, running processes
    - Use before starting work or before making releases
 
@@ -142,11 +147,13 @@ c:\temp\printmaster\
 **IMPORTANT: Use `release.ps1` for all version bumps and releases**
 
 **When to Release:**
+
 - **PATCH** (0.1.0 → 0.1.1): After bug fixes, performance improvements, docs updates
 - **MINOR** (0.1.0 → 0.2.0): After adding new features (backward compatible)
 - **MAJOR** (0.1.0 → 1.0.0): After breaking changes or API changes (rare pre-1.0)
 
 **How to Release:**
+
 ```powershell
 # Patch release (bug fixes)
 .\release.ps1 agent patch
@@ -165,6 +172,7 @@ c:\temp\printmaster\
 ```
 
 **What `release.ps1` Does Automatically:**
+
 1. ✅ Checks git status (warns if uncommitted changes)
 2. ✅ Bumps version in VERSION file(s) (using SemVer)
 3. ✅ Runs all tests (fails if any test fails)
@@ -174,11 +182,13 @@ c:\temp\printmaster\
 7. ✅ Pushes commit and tags to GitHub
 
 **Release Flags:**
+
 - `--DryRun` - Preview what would happen without doing it
 - `--SkipTests` - Skip test execution (NOT recommended!)
 - `--SkipPush` - Commit and tag locally but don't push to GitHub
 
 **Release Checklist for Copilot:**
+
 - [ ] Ask user which component (agent/server/both) and bump type (patch/minor/major)
 - [ ] Ensure working directory is clean (or warn user)
 - [ ] Let `release.ps1` handle the entire workflow
@@ -189,6 +199,7 @@ c:\temp\printmaster\
 ### Git Workflow Integration
 
 **When making code changes:**
+
 1. Make changes and test locally (`.\build.ps1 agent`, `runTests`)
 2. Commit regularly with meaningful messages:
    - `feat:` for new features
@@ -200,12 +211,14 @@ c:\temp\printmaster\
 4. When ready to release: Use `.\release.ps1` (never manual version bumps)
 
 **Available VS Code Git Tasks:**
+
 - "Git: Status" - Check current status
 - "Git: Commit All" - Stage and commit all changes
 - "Git: Push" - Push to GitHub
 - "Git: Pull" - Pull latest changes
 
 **Copilot Should:**
+
 - Suggest using `release.ps1` when user asks to "bump version" or "make a release"
 - Remind user to commit working changes before releasing
 - Use git commands directly for normal commits, but ALWAYS use `release.ps1` for releases
@@ -214,6 +227,7 @@ c:\temp\printmaster\
 ### VS Code Integration Reference
 
 **Tasks (Ctrl+Shift+B):**
+
 - Build: Agent/Server/Both (Dev)
 - Test: Agent/Server (all)
 - Release: Agent/Server/Both Patch/Minor/Major
@@ -221,12 +235,14 @@ c:\temp\printmaster\
 - Utility: Kill processes, Show logs, Show version
 
 **Launch Configs (F5):**
+
 - Debug: Agent (Default Port) / Agent (Port 9090) / Agent (Custom Config)
 - Debug: Server (Default Port) / Server (Port 8080)
 - Debug: Current Test Function / All Tests in Package
 - Debug: Agent + Server Together (compound config)
 
 **Helper Scripts:**
+
 - `status.ps1` - Quick project overview
 - `build.ps1` - Build components (dev or release mode)
 - `release.ps1` - Automated release workflow
