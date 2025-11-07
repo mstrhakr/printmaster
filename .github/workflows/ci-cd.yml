@@ -3,6 +3,9 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'           # Agent tags: v0.4.5
+      - 'server-v*'    # Server tags: server-v0.3.4
   pull_request:
     branches: [ main ]
   release:
@@ -139,7 +142,7 @@ jobs:
     name: Build and Push Docker Images
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'release'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release'
     permissions:
       contents: read
       packages: write
@@ -199,7 +202,7 @@ jobs:
         platforms: linux/amd64,linux/arm64
 
   release:
-    name: Create GitHub Release
+    name: Attach Release Assets
     needs: [build-binaries, build-docker]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest

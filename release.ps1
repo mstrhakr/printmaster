@@ -257,6 +257,73 @@ function Push-Release {
     Write-Status "Pushed to GitHub successfully" "SUCCESS"
 }
 
+function New-GitHubRelease {
+    param(
+        [string]$Tag,
+        [string]$Title,
+        [string]$Component,
+        [string]$Version
+    )
+    
+    Write-Status "Creating GitHub Release..." "STEP"
+    
+    if ($DryRun) {
+        Write-Status "[DRY RUN] Would create GitHub release: $Title" "WARN"
+        return
+    }
+    
+    # Check if gh CLI is available
+    $ghAvailable = Get-Command gh -ErrorAction SilentlyContinue
+    if (-not $ghAvailable) {
+        Write-Status "GitHub CLI (gh) not found - skipping release creation" "WARN"
+        Write-Status "Install gh CLI from: https://cli.github.com/" "INFO"
+        return
+    }
+    
+    # Generate release notes
+    $releaseNotes = @"
+## $Component Release $Version
+
+**Changes in this release:**
+
+See commit history for details.
+
+### Installation
+
+#### Docker
+``````bash
+docker pull ghcr.io/mstrhakr/printmaster-${Component}:${Version}
+docker pull ghcr.io/mstrhakr/printmaster-${Component}:latest
+``````
+
+#### Binaries
+Download the appropriate binary for your platform from the Assets section below.
+
+### Docker Images
+- \`ghcr.io/mstrhakr/printmaster-${Component}:${Version}\`
+- \`ghcr.io/mstrhakr/printmaster-${Component}:latest\`
+"@
+    
+    # Create release with gh CLI
+    try {
+        gh release create $Tag `
+            --title $Title `
+            --notes $releaseNotes `
+            --latest
+        
+        if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release creation failed"
+        }
+        
+        Write-Status "GitHub Release created: $Title" "SUCCESS"
+        Write-Status "View at: https://github.com/mstrhakr/printmaster/releases/tag/$Tag" "INFO"
+    }
+    catch {
+        Write-Status "Failed to create GitHub release: $_" "ERROR"
+        Write-Status "Continuing anyway - you can create it manually later" "WARN"
+    }
+}
+
 # ============================================================================
 # MAIN EXECUTION
 # ============================================================================
@@ -351,6 +418,17 @@ try {
     
     # Push to GitHub
     Push-Release
+    
+    # Create GitHub Release
+    if ($Component -eq "both") {
+        # Create releases for both components
+        New-GitHubRelease -Tag "v$agentVersion" -Title "Agent v$agentVersion" -Component "agent" -Version $agentVersion
+        New-GitHubRelease -Tag "server-v$serverVersion" -Title "Server v$serverVersion" -Component "server" -Version $serverVersion
+    } elseif ($Component -eq "agent") {
+        New-GitHubRelease -Tag "v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion
+    } else {
+        New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion
+    }
     
     # Summary
     Write-Host ""
