@@ -37,11 +37,11 @@ When rotation occurs, you'll see messages like:
 ```
 [ERROR] Database schema initialization failed, attempting to rotate database
   error=failed to initialize schema: failed to run migrations: failed to rename metrics_history to metrics_raw: SQL logic error: there is already another table or index with this name: metrics_raw (1)
-  path=C:\Users\Nick Szittai\AppData\Local\PrintMaster\devices.db
+  path=C:\Users\YourUser\AppData\Local\PrintMaster\devices.db
 
 [WARN] Database rotated due to migration failure - starting with fresh database
-  backupPath=C:\Users\Nick Szittai\AppData\Local\PrintMaster\devices.db.backup.2025-11-06T10-37-28
-  newPath=C:\Users\Nick Szittai\AppData\Local\PrintMaster\devices.db
+  backupPath=C:\Users\YourUser\AppData\Local\PrintMaster\devices.db.backup.2025-11-06T10-37-28
+  newPath=C:\Users\YourUser\AppData\Local\PrintMaster\devices.db
   originalError=failed to initialize schema: failed to run migrations: ...
 ```
 
@@ -55,7 +55,7 @@ On the first page load after a rotation event, users will see a confirmation pop
 > The database was rotated due to a migration failure on 2025-11-06T10-37-28.
 > 
 > A fresh database has been created and the old database has been backed up to:
-> C:\Users\Nick Szittai\AppData\Local\PrintMaster\devices.db.backup.2025-11-06T10-37-28
+> C:\Users\YourUser\AppData\Local\PrintMaster\devices.db.backup.2025-11-06T10-37-28
 > 
 > All discovered devices and historical metrics data from the previous database are not available in the current session. If you need to recover data, you can manually restore the backup file.
 > 
