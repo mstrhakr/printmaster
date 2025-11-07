@@ -422,8 +422,8 @@ try {
     # Create GitHub Release
     if ($Component -eq "both") {
         # Create releases for both components
-        New-GitHubRelease -Tag "v$agentVersion" -Title "Agent v$agentVersion" -Component "agent" -Version $agentVersion
-        New-GitHubRelease -Tag "server-v$serverVersion" -Title "Server v$serverVersion" -Component "server" -Version $serverVersion
+        New-GitHubRelease -Tag "v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New
+        New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New
     } elseif ($Component -eq "agent") {
         New-GitHubRelease -Tag "v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion
     } else {
@@ -436,7 +436,13 @@ try {
     Write-Host "║              Release Complete! 🎉                    ║" -ForegroundColor Green
     Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
     Write-Host ""
-    Write-Status "Version: $finalVersion" "SUCCESS"
+    
+    if ($Component -eq "both") {
+        Write-Status "Agent Version: $($agentVersion.New)" "SUCCESS"
+        Write-Status "Server Version: $($serverVersion.New)" "SUCCESS"
+    } else {
+        Write-Status "Version: $finalVersion" "SUCCESS"
+    }
     Write-Status "Component: $Component" "SUCCESS"
     
     if (-not $SkipPush -and -not $DryRun) {
