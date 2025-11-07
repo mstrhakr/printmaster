@@ -15,11 +15,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"printmaster/server/logger"
+	"printmaster/common/logger"
 	"printmaster/server/storage"
+	"printmaster/server/util"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/kardianos/service"
 )
 
 //go:embed web
@@ -41,30 +44,93 @@ var (
 
 func main() {
 	// Command line flags
-	port := flag.Int("port", 9090, "HTTP port for server API")
-	httpsPort := flag.Int("https-port", 9443, "HTTPS port for server UI")
-	dbPath := flag.String("db", "", "Database path (default: platform-specific)")
-	logLevel := flag.String("log-level", "info", "Log level (error, warn, info, debug, trace)")
+	configPath := flag.String("config", "config.toml", "Configuration file path")
+	generateConfig := flag.Bool("generate-config", false, "Generate default config file and exit")
+	showVersion := flag.Bool("version", false, "Show version information and exit")
+
+	// Service management flags
+	svcCommand := flag.String("service", "", "Service command: install, uninstall, start, stop, restart, run")
 	flag.Parse()
+
+	// Show version if requested
+	if *showVersion {
+		fmt.Printf("PrintMaster Server %s\n", Version)
+		fmt.Printf("Protocol Version: %s\n", ProtocolVersion)
+		fmt.Printf("Build Time: %s\n", BuildTime)
+		fmt.Printf("Git Commit: %s\n", GitCommit)
+		fmt.Printf("Build Type: %s\n", BuildType)
+		fmt.Printf("Go Version: %s\n", runtime.Version())
+		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		return
+	}
+
+	// Generate default config if requested
+	if *generateConfig {
+		if err := WriteDefaultConfig(*configPath); err != nil {
+			log.Fatalf("Failed to generate config: %v", err)
+		}
+		log.Printf("Generated default configuration at %s", *configPath)
+		return
+	}
+
+	// Handle service commands
+	if *svcCommand != "" {
+		handleServiceCommand(*svcCommand)
+		return
+	}
+
+	// Check if running as service (non-interactive)
+	if !service.Interactive() {
+		// Running as service - use service runner
+		prg := &program{}
+		s, err := service.New(prg, getServiceConfig())
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err = s.Run(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	// Running interactively
+	runServer(context.Background())
+}
+
+// runServer starts the server with the given context
+func runServer(ctx context.Context) {
+	// Load configuration
+	configPath := "config.toml" // Default, can be made configurable
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		log.Printf("Warning: Failed to load config file (%v), using defaults", err)
+		cfg = DefaultConfig()
+	}
 
 	log.Printf("PrintMaster Server %s (protocol v%s)", Version, ProtocolVersion)
 	log.Printf("Build: %s, Commit: %s, Type: %s", BuildTime, GitCommit, BuildType)
 	log.Printf("Go: %s, OS: %s, Arch: %s", runtime.Version(), runtime.GOOS, runtime.GOARCH)
 
 	// Initialize logger
-	logDir := filepath.Join(filepath.Dir(storage.GetDefaultDBPath()), "logs")
-	serverLogger = logger.New(logger.ParseLevel(*logLevel), logDir, 1000)
-	serverLogger.Info("Server starting", "version", Version, "protocol", ProtocolVersion)
+	if cfg.Database.Path == "" {
+		cfg.Database.Path = storage.GetDefaultDBPath()
+	}
+
+	// Determine log directory based on whether we're running as a service
+	logDir := filepath.Join(filepath.Dir(cfg.Database.Path), "logs")
+	if !service.Interactive() {
+		// Running as service - use platform-specific system directory
+		logDir = getServiceLogDir()
+	}
+
+	serverLogger = logger.New(logger.LevelFromString(cfg.Logging.Level), logDir, 1000)
+	serverLogger.Info("Server starting", "version", Version, "protocol", ProtocolVersion, "config", configPath)
 
 	// Initialize database
-	if *dbPath == "" {
-		*dbPath = storage.GetDefaultDBPath()
-	}
-	log.Printf("Database: %s", *dbPath)
-	serverLogger.Info("Initializing database", "path", *dbPath)
+	log.Printf("Database: %s", cfg.Database.Path)
+	serverLogger.Info("Initializing database", "path", cfg.Database.Path)
 
-	var err error
-	serverStore, err = storage.NewSQLiteStore(*dbPath)
+	serverStore, err = storage.NewSQLiteStore(cfg.Database.Path)
 	if err != nil {
 		serverLogger.Error("Failed to initialize database", "error", err)
 		log.Fatal(err)
@@ -76,17 +142,462 @@ func main() {
 	// Setup HTTP routes
 	setupRoutes()
 
-	// Start HTTP server
-	httpAddr := fmt.Sprintf(":%d", *port)
-	httpsAddr := fmt.Sprintf(":%d", *httpsPort)
+	// Get TLS configuration
+	tlsConfig := cfg.ToTLSConfig()
 
-	log.Printf("Starting HTTP server on %s", httpAddr)
-	log.Printf("Starting HTTPS server on %s (TODO)", httpsAddr)
+	// Start server based on deployment mode with graceful shutdown context
+	if tlsConfig.BehindProxy {
+		// nginx mode: HTTP only on localhost
+		startReverseProxyMode(ctx, tlsConfig)
+	} else {
+		// Standalone mode: HTTPS only
+		startStandaloneMode(ctx, tlsConfig)
+	}
+}
+
+// handleServiceCommand handles service management commands
+func handleServiceCommand(cmd string) {
+	svcConfig := getServiceConfig()
+	prg := &program{}
+	s, err := service.New(prg, svcConfig)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create service: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch cmd {
+	case "install":
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		// Check if service already exists and handle gracefully
+		status, _ := s.Status()
+		if status != service.StatusUnknown {
+			util.ShowWarning("Service already exists, removing first...")
+
+			// Stop if running
+			if status == service.StatusRunning {
+				util.ShowInfo("Stopping existing service...")
+				_ = s.Stop()
+				time.Sleep(2 * time.Second)
+				util.ShowSuccess("Service stopped")
+			}
+
+			// Uninstall existing
+			util.ShowInfo("Removing existing service...")
+			if err := s.Uninstall(); err != nil {
+				if !strings.Contains(err.Error(), "marked for deletion") {
+					util.ShowError(fmt.Sprintf("Failed to remove existing service: %v", err))
+					util.ShowCompletionScreen(false, "Installation Failed")
+					os.Exit(1)
+				}
+				util.ShowWarning("Service marked for deletion, will install anyway")
+			} else {
+				util.ShowSuccess("Existing service removed")
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		// Create service directories first
+		util.ShowInfo("Setting up directories...")
+		time.Sleep(300 * time.Millisecond)
+		if err := setupServiceDirectories(); err != nil {
+			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			util.ShowCompletionScreen(false, "Installation Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Directories ready")
+
+		util.ShowInfo("Installing service...")
+		time.Sleep(500 * time.Millisecond)
+		err = s.Install()
+		if err != nil {
+			if strings.Contains(err.Error(), "already exists") {
+				util.ShowWarning("Service already exists (this is normal)")
+			} else {
+				util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+				util.ShowCompletionScreen(false, "Installation Failed")
+				os.Exit(1)
+			}
+		}
+		util.ShowSuccess("Service installed")
+
+		util.ShowCompletionScreen(true, "Service Installed!")
+		fmt.Println()
+		util.ShowInfo("Use '--service start' to start the service")
+
+	case "uninstall":
+		util.ShowBanner(Version, GitCommit, BuildTime)
+		util.ShowInfo("Uninstalling service...")
+		err = s.Uninstall()
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to uninstall service: %v", err))
+			util.ShowCompletionScreen(false, "Uninstall Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service uninstalled")
+		util.ShowCompletionScreen(true, "Service Uninstalled!")
+
+	case "start":
+		util.ShowBanner(Version, GitCommit, BuildTime)
+		util.ShowInfo("Starting service...")
+		err = s.Start()
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			util.ShowCompletionScreen(false, "Start Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service started")
+		util.ShowCompletionScreen(true, "Service Started!")
+
+	case "stop":
+		util.ShowBanner(Version, GitCommit, BuildTime)
+		util.ShowInfo("Stopping service...")
+		done := make(chan bool)
+		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
+		err = s.Stop()
+		done <- true
+
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
+			util.ShowCompletionScreen(false, "Stop Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service stopped")
+		util.ShowCompletionScreen(true, "Service Stopped!")
+
+	case "status":
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		status, statusErr := s.Status()
+
+		fmt.Println()
+		util.ShowInfo("Service Status Information")
+		fmt.Println()
+
+		var statusText, statusColor string
+		switch status {
+		case service.StatusRunning:
+			statusText = "RUNNING"
+			statusColor = util.ColorGreen
+		case service.StatusStopped:
+			statusText = "STOPPED"
+			statusColor = util.ColorYellow
+		case service.StatusUnknown:
+			statusText = "NOT INSTALLED"
+			statusColor = util.ColorRed
+		default:
+			statusText = "UNKNOWN"
+			statusColor = util.ColorDim
+		}
+
+		if statusErr != nil {
+			fmt.Printf("  %sService State:%s %s%s%s (%v)\n",
+				util.ColorDim, util.ColorReset,
+				statusColor, statusText, util.ColorReset,
+				statusErr)
+		} else {
+			fmt.Printf("  %sService State:%s %s%s%s\n",
+				util.ColorDim, util.ColorReset,
+				statusColor, util.ColorBold+statusText, util.ColorReset)
+		}
+
+		cfg := getServiceConfig()
+		fmt.Printf("  %sService Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.Name)
+		fmt.Printf("  %sDisplay Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.DisplayName)
+		fmt.Printf("  %sDescription:%s   %s\n", util.ColorDim, util.ColorReset, cfg.Description)
+		fmt.Printf("  %sData Directory:%s %s\n", util.ColorDim, util.ColorReset, cfg.WorkingDirectory)
+
+		fmt.Println()
+
+		if status == service.StatusRunning {
+			util.ShowInfo("Server is running normally")
+			fmt.Println()
+			fmt.Printf("  %sHTTPS URL:%s https://localhost:9443\n", util.ColorDim, util.ColorReset)
+		} else if status == service.StatusStopped {
+			util.ShowWarning("Service is installed but not running")
+			fmt.Println()
+			util.ShowInfo("Use '--service start' to start the service")
+		} else {
+			util.ShowWarning("Service is not installed")
+			fmt.Println()
+			util.ShowInfo("Use '--service install' to install the service")
+		}
+
+		fmt.Println()
+		util.PromptToContinue()
+
+	case "restart":
+		util.ShowBanner(Version, GitCommit, BuildTime)
+		util.ShowInfo("Restarting service...")
+		err = s.Restart()
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to restart service: %v", err))
+			util.ShowCompletionScreen(false, "Restart Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service restarted")
+		util.ShowCompletionScreen(true, "Service Restarted!")
+
+	case "update":
+		// Show banner
+		util.ShowBanner(Version, GitCommit, BuildTime)
+
+		// Stop service if running
+		util.ShowInfo("Stopping service...")
+		done := make(chan bool)
+		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
+
+		stopErr := s.Stop()
+		if stopErr != nil {
+			done <- true
+			util.ShowWarning("Service not running or already stopped")
+		} else {
+			// Wait for service to fully stop (max 30 seconds)
+			for i := 0; i < 30; i++ {
+				time.Sleep(1 * time.Second)
+
+				// Check service status (Windows-specific check)
+				if runtime.GOOS == "windows" {
+					status, _ := s.Status()
+					if status == service.StatusStopped {
+						break
+					}
+				}
+			}
+			done <- true
+			util.ShowSuccess("Service stopped")
+		}
+
+		// Uninstall existing service
+		util.ShowInfo("Uninstalling old service...")
+		time.Sleep(500 * time.Millisecond)
+		if err := s.Uninstall(); err != nil {
+			util.ShowWarning("Service not installed or already removed")
+		} else {
+			util.ShowSuccess("Service uninstalled")
+		}
+
+		// Setup directories
+		util.ShowInfo("Setting up directories...")
+		time.Sleep(300 * time.Millisecond)
+		if err := setupServiceDirectories(); err != nil {
+			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			util.ShowCompletionScreen(false, "Update Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Directories ready")
+
+		// Reinstall service
+		util.ShowInfo("Installing updated service...")
+		time.Sleep(500 * time.Millisecond)
+		err = s.Install()
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+			util.ShowCompletionScreen(false, "Update Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service installed")
+
+		// Start service
+		util.ShowInfo("Starting service...")
+		time.Sleep(500 * time.Millisecond)
+		err = s.Start()
+		if err != nil {
+			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			util.ShowCompletionScreen(false, "Update Failed")
+			os.Exit(1)
+		}
+		util.ShowSuccess("Service started")
+
+		// Show completion screen
+		util.ShowCompletionScreen(true, "Service Updated Successfully!")
+
+	case "run":
+		// This is called by the service manager when starting the service
+		if err := s.Run(); err != nil {
+			log.Fatal(err)
+		}
+
+	default:
+		log.Fatalf("Invalid service command: %s (valid: install, uninstall, start, stop, restart, update, status, run)", cmd)
+	}
+}
+
+// startReverseProxyMode starts the server in reverse proxy mode (behind nginx)
+// Listens on HTTP (localhost only) and trusts X-Forwarded-* headers
+func startReverseProxyMode(ctx context.Context, tlsConfig *TLSConfig) {
+	addr := fmt.Sprintf("127.0.0.1:%d", tlsConfig.HTTPPort)
+
+	serverLogger.Info("Starting in reverse proxy mode (HTTPS terminated by nginx)",
+		"bind", addr,
+		"trust_proxy", true)
+
+	log.Printf("Server listening on %s (reverse proxy mode)", addr)
+	log.Printf("HTTPS termination handled by nginx/reverse proxy")
 	log.Printf("Server ready to accept agent connections")
 
-	if err := http.ListenAndServe(httpAddr, nil); err != nil {
+	// Add reverse proxy middleware
+	handler := reverseProxyMiddleware(http.DefaultServeMux)
+
+	// Create HTTP server
+	httpServer := &http.Server{
+		Addr:    addr,
+		Handler: handler,
+	}
+
+	// Start server in goroutine
+	go func() {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverLogger.Error("HTTP server failed", "error", err)
+			log.Fatal(err)
+		}
+	}()
+
+	serverLogger.Info("HTTP server started", "addr", addr)
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+	serverLogger.Info("Shutdown signal received, stopping HTTP server...")
+
+	// Graceful shutdown with 30 second timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		serverLogger.Error("HTTP server shutdown error", "error", err)
+	} else {
+		serverLogger.Info("HTTP server stopped gracefully")
+	}
+}
+
+// startStandaloneMode starts the server in standalone HTTPS-only mode
+func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
+	// Get TLS configuration
+	tlsCfg, err := tlsConfig.GetTLSConfig()
+	if err != nil {
+		serverLogger.Error("Failed to setup TLS", "error", err, "mode", tlsConfig.Mode)
 		log.Fatal(err)
 	}
+
+	httpsAddr := fmt.Sprintf(":%d", tlsConfig.HTTPSPort)
+
+	serverLogger.Info("Starting in standalone HTTPS mode",
+		"port", tlsConfig.HTTPSPort,
+		"tls_mode", tlsConfig.Mode,
+		"bind_address", httpsAddr)
+
+	serverLogger.Debug("TLS configuration loaded",
+		"min_version", "TLS 1.2",
+		"has_certificates", len(tlsCfg.Certificates) > 0,
+		"cert_count", len(tlsCfg.Certificates))
+
+	log.Printf("HTTPS server listening on %s", httpsAddr)
+	log.Printf("TLS mode: %s", tlsConfig.Mode)
+
+	if tlsConfig.Mode == TLSModeLetsEncrypt {
+		log.Printf("Let's Encrypt domain: %s", tlsConfig.LetsEncryptDomain)
+		log.Printf("Let's Encrypt email: %s", tlsConfig.LetsEncryptEmail)
+
+		// Start HTTP server for ACME challenges
+		go startACMEChallengeServer(tlsConfig)
+	}
+
+	log.Printf("Server ready to accept agent connections (HTTPS only)")
+
+	// Create HTTPS server with security headers
+	httpsServer := &http.Server{
+		Addr:      httpsAddr,
+		TLSConfig: tlsCfg,
+		Handler:   securityHeadersMiddleware(http.DefaultServeMux),
+	}
+
+	serverLogger.Info("HTTPS server starting", "addr", httpsAddr)
+	serverLogger.Debug("Calling ListenAndServeTLS", "cert_empty", "", "key_empty", "")
+
+	// Start server in goroutine
+	go func() {
+		if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			serverLogger.Error("HTTPS server failed", "error", err, "addr", httpsAddr)
+			log.Fatal(err)
+		}
+	}()
+
+	serverLogger.Info("HTTPS server started successfully", "addr", httpsAddr)
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+	serverLogger.Info("Shutdown signal received, stopping HTTPS server...")
+
+	// Graceful shutdown with 30 second timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := httpsServer.Shutdown(shutdownCtx); err != nil {
+		serverLogger.Error("HTTPS server shutdown error", "error", err)
+	} else {
+		serverLogger.Info("HTTPS server stopped gracefully")
+	}
+}
+
+// startACMEChallengeServer starts HTTP server for Let's Encrypt ACME challenges only
+func startACMEChallengeServer(tlsConfig *TLSConfig) {
+	mux := http.NewServeMux()
+
+	// Get ACME handler
+	acmeManager, err := tlsConfig.GetACMEHTTPHandler()
+	if err != nil {
+		serverLogger.Error("Failed to setup ACME handler", "error", err)
+		return
+	}
+
+	// Handle ACME challenges
+	mux.Handle("/.well-known/acme-challenge/", acmeManager.HTTPHandler(nil))
+
+	// Reject all other requests
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "HTTPS required - This port only serves ACME challenges", http.StatusBadRequest)
+	})
+
+	serverLogger.Info("Starting ACME HTTP-01 challenge server", "port", 80)
+	log.Printf("ACME challenge server listening on :80 (Let's Encrypt verification only)")
+
+	if err := http.ListenAndServe(":80", mux); err != nil {
+		serverLogger.Error("ACME challenge server failed", "error", err)
+	}
+}
+
+// reverseProxyMiddleware adds headers for reverse proxy mode
+func reverseProxyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Trust X-Forwarded-Proto from nginx
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			// Store for downstream handlers
+			r.Header.Set("X-Detected-Proto", proto)
+		}
+
+		// Security headers (nginx might add these too, duplicates are OK)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+
+		// Don't set HSTS here - let nginx handle it
+		next.ServeHTTP(w, r)
+	})
+}
+
+// securityHeadersMiddleware adds security headers for standalone HTTPS mode
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Full security headers for standalone mode
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // generateToken creates a secure random token for agent authentication
