@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"printmaster/common/config"
@@ -284,6 +285,40 @@ func TestWriteDefaultAgentConfig(t *testing.T) {
 	}
 	if cfg.SNMP.Community != defaultCfg.SNMP.Community {
 		t.Errorf("generated config SNMP community mismatch: got %s, want %s", cfg.SNMP.Community, defaultCfg.SNMP.Community)
+	}
+}
+
+func TestWriteDefaultAgentConfigDoesNotOverwrite(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "existing-config.toml")
+
+	// Create an existing config file with custom content
+	existingContent := "# Custom agent config\n[snmp]\ncommunity = \"custom-community\"\n"
+	if err := os.WriteFile(configPath, []byte(existingContent), 0644); err != nil {
+		t.Fatalf("Failed to write existing config: %v", err)
+	}
+
+	// Try to write default config - should fail
+	err := WriteDefaultAgentConfig(configPath)
+	if err == nil {
+		t.Fatal("WriteDefaultAgentConfig() should have failed when file exists")
+	}
+
+	// Verify error message indicates file exists
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("Error should mention 'already exists', got: %v", err)
+	}
+
+	// Verify original content was not modified
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	if string(content) != existingContent {
+		t.Error("Existing config file was modified")
 	}
 }
 
