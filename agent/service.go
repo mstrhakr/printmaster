@@ -128,9 +128,11 @@ func setupServiceDirectories() error {
 	switch runtime.GOOS {
 	case "windows":
 		baseDir := filepath.Join(os.Getenv("ProgramData"), "PrintMaster")
+		agentDir := filepath.Join(baseDir, "agent")
 		dirs = []string{
 			baseDir,
-			filepath.Join(baseDir, "logs"),
+			agentDir,
+			filepath.Join(agentDir, "logs"),
 		}
 	case "darwin":
 		baseDir := "/Library/Application Support/PrintMaster"
@@ -160,7 +162,7 @@ func setupServiceDirectories() error {
 func getServiceLogPath() string {
 	switch runtime.GOOS {
 	case "windows":
-		return filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "logs", "agent.log")
+		return filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "agent", "logs", "agent.log")
 	case "darwin":
 		return "/var/log/printmaster/agent.log"
 	default: // Linux

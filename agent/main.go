@@ -1030,7 +1030,7 @@ func runInteractive(ctx context.Context) {
 		// Running as service - use platform-specific system directory
 		switch runtime.GOOS {
 		case "windows":
-			logDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "logs")
+			logDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "agent", "logs")
 		case "darwin":
 			logDir = "/var/log/printmaster"
 		default: // Linux
