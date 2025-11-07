@@ -49,7 +49,9 @@ type TLSConfig struct {
 	HTTPSPort int
 
 	// Reverse proxy mode
-	BehindProxy bool
+	BehindProxy   bool
+	ProxyUseHTTPS bool   // Use HTTPS even when behind proxy (end-to-end encryption)
+	BindAddress   string // Address to bind to (e.g., "0.0.0.0", "127.0.0.1")
 }
 
 // GetTLSConfig returns a configured *tls.Config based on the mode
