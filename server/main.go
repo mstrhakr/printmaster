@@ -691,7 +691,7 @@ func setupRoutes() {
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
-	http.HandleFunc("/api/v1/agents/list", handleAgentsList)        // List all agents (for UI)
+	http.HandleFunc("/api/v1/agents/list", handleAgentsList) // List all agents (for UI)
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
