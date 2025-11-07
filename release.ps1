@@ -201,23 +201,32 @@ function Commit-And-Tag {
     
     Write-Status "Committed: $commitMsg" "SUCCESS"
     
-    # Tag
-    $tagName = if ($Component -eq 'server') { "server-v$Version" } else { "v$Version" }
-    $tagMsg = if ($Component -eq 'both') {
-        "Release v${Version} - Agent and Server"
-    } elseif ($Component -eq 'server') {
-        "Server Release v$Version"
-    } else {
-        "Agent Release v$Version"
+    # Tag - create separate tags for each component
+    if ($Component -eq 'both') {
+        # Get both versions from files
+        $agentVer = (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
+        $serverVer = (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
+        
+        # Tag agent
+        git tag -a "agent-v$agentVer" -m "Agent Release v$agentVer"
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for agent" }
+        Write-Status "Tagged as agent-v$agentVer" "SUCCESS"
+        
+        # Tag server
+        git tag -a "server-v$serverVer" -m "Server Release v$serverVer"
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
+        Write-Status "Tagged as server-v$serverVer" "SUCCESS"
     }
-    
-    git tag -a $tagName -m $tagMsg
-    
-    if ($LASTEXITCODE -ne 0) {
-        throw "Git tag failed"
+    elseif ($Component -eq 'server') {
+        git tag -a "server-v$Version" -m "Server Release v$Version"
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
+        Write-Status "Tagged as server-v$Version" "SUCCESS"
     }
-    
-    Write-Status "Tagged as $tagName" "SUCCESS"
+    else {
+        git tag -a "agent-v$Version" -m "Agent Release v$Version"
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
+        Write-Status "Tagged as agent-v$Version" "SUCCESS"
+    }
 }
 
 function Push-Release {
