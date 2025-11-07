@@ -82,9 +82,9 @@ You'll need to provide SSL certificates in the data directory.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Log Level** | `info` | `debug`, `info`, `warn`, `error` |
-| **PUID** | `99` | User ID (99 = nobody) |
-| **PGID** | `100` | Group ID (100 = users) |
 | **Database Path** | `/var/lib/printmaster/server/printmaster.db` | SQLite database location |
+
+**Note:** The container runs as UID 99 (Unraid's `nobody` user) for proper permissions.
 
 ## First-Time Setup
 
@@ -199,10 +199,12 @@ docker start PrintMaster-Server
 
 ### Database Permission Errors
 ```bash
-# Fix permissions
+# Fix permissions (if using custom volume paths)
 chown -R 99:100 /mnt/user/appdata/printmaster-server/
 chmod -R 755 /mnt/user/appdata/printmaster-server/
 ```
+
+**Note:** The container uses UID 99 by default, matching Unraid's `nobody` user.
 
 ### Behind Reverse Proxy - 502 Bad Gateway
 - Ensure `BEHIND_PROXY=true` in container settings
@@ -320,8 +322,8 @@ Environment Variables:
   USE_HTTPS=false
   LOG_LEVEL=info
   TZ=America/Chicago
-  PUID=99
-  PGID=100
 ```
+
+**Note:** No PUID/PGID needed - container uses UID 99 by default.
 
 This setup works with Nginx Proxy Manager handling SSL at `https://printmaster.mydomain.com`.

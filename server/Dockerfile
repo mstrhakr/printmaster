@@ -34,13 +34,14 @@ FROM alpine:latest
 # Install ca-certificates for HTTPS
 RUN apk --no-cache add ca-certificates tzdata
 
-# Create non-root user
-RUN addgroup -g 1000 printmaster && \
-    adduser -D -u 1000 -G printmaster printmaster
+# Create non-root user (UID/GID 99 for Unraid compatibility)
+RUN addgroup -g 99 printmaster && \
+    adduser -D -u 99 -G printmaster printmaster
 
-# Create directories
+# Create directories with proper permissions
 RUN mkdir -p /var/lib/printmaster/server /var/log/printmaster/server && \
-    chown -R printmaster:printmaster /var/lib/printmaster /var/log/printmaster
+    chown -R 99:99 /var/lib/printmaster /var/log/printmaster && \
+    chmod -R 755 /var/lib/printmaster /var/log/printmaster
 
 # Copy binary from builder
 COPY --from=builder /build/server/printmaster-server /usr/local/bin/printmaster-server

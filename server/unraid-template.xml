@@ -32,7 +32,5 @@
   <Config Name="Use HTTPS" Target="USE_HTTPS" Default="false" Mode="" Description="Enable HTTPS (set to false if behind reverse proxy)" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
   <Config Name="Database Path" Target="DB_PATH" Default="/var/lib/printmaster/server/printmaster.db" Mode="" Description="SQLite database file path" Type="Variable" Display="advanced" Required="false" Mask="false">/var/lib/printmaster/server/printmaster.db</Config>
   <Config Name="Log Level" Target="LOG_LEVEL" Default="info" Mode="" Description="Logging level: debug, info, warn, error" Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
-  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for permissions (99 = nobody on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
-  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for permissions (100 = users on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
   <Config Name="TZ" Target="TZ" Default="America/New_York" Mode="" Description="Timezone for log timestamps" Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
 </Container>
