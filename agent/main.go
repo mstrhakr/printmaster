@@ -1031,17 +1031,13 @@ func runInteractive(ctx context.Context) {
 
 	// Initialize structured logger (DEBUG level for proxy diagnostics, 1000 entries in buffer)
 	// Determine log directory based on whether we're running as a service
-	logDir := "logs"
+	var logDir string
 	if !service.Interactive() {
 		// Running as service - use platform-specific system directory
-		switch runtime.GOOS {
-		case "windows":
-			logDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "agent", "logs")
-		case "darwin":
-			logDir = "/var/log/printmaster"
-		default: // Linux
-			logDir = "/var/log/printmaster"
-		}
+		logPath := getServiceLogPath()
+		logDir = filepath.Dir(logPath)
+	} else {
+		logDir = "logs"
 	}
 
 	if err := os.MkdirAll(logDir, 0755); err == nil {

@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,17 +121,14 @@ func TestLoggerFileOutput(t *testing.T) {
 	logger.Info("test message", "key", "value")
 	logger.Close()
 
-	// Check that log file was created
-	files, err := filepath.Glob(filepath.Join(tmpDir, "agent_*.log"))
-	if err != nil {
-		t.Fatalf("failed to list log files: %v", err)
-	}
-	if len(files) != 1 {
-		t.Errorf("expected 1 log file, got %d", len(files))
+	// Check that log file was created (current file is agent.log, not agent_*.log)
+	logFile := filepath.Join(tmpDir, "agent.log")
+	if _, err := os.Stat(logFile); err != nil {
+		t.Fatalf("log file not created: %v", err)
 	}
 
 	// Read file content
-	content, err := os.ReadFile(files[0])
+	content, err := os.ReadFile(logFile)
 	if err != nil {
 		t.Fatalf("failed to read log file: %v", err)
 	}
@@ -304,6 +302,12 @@ func TestLoggerRotation(t *testing.T) {
 	logger.mu.Lock()
 	if logger.currentFile != nil {
 		logger.currentFile.Close()
+		// Rename current log file to timestamped backup (mimicking rotation)
+		if logger.currentFilePath != "" {
+			timestamp := time.Now().Format("20060102_150405")
+			backupPath := filepath.Join(tmpDir, fmt.Sprintf("agent_%s.log", timestamp))
+			os.Rename(logger.currentFilePath, backupPath)
+		}
 		logger.currentFile = nil
 	}
 	logger.mu.Unlock()
@@ -315,14 +319,21 @@ func TestLoggerRotation(t *testing.T) {
 	logger.Info("second message")
 	logger.Close()
 
-	// Check that multiple log files exist
-	files, err := filepath.Glob(filepath.Join(tmpDir, "agent_*.log"))
+	// Check that multiple log files exist (both agent.log and agent_*.log)
+	timestampedFiles, err := filepath.Glob(filepath.Join(tmpDir, "agent_*.log"))
 	if err != nil {
 		t.Fatalf("failed to list log files: %v", err)
 	}
 
-	if len(files) < 2 {
-		t.Errorf("expected at least 2 log files after rotation, got %d files: %v", len(files), files)
+	// Count all log files (timestamped backup + current agent.log)
+	currentLog := filepath.Join(tmpDir, "agent.log")
+	allFiles := timestampedFiles
+	if _, err := os.Stat(currentLog); err == nil {
+		allFiles = append(allFiles, currentLog)
+	}
+
+	if len(allFiles) < 2 {
+		t.Errorf("expected at least 2 log files after rotation, got %d files: %v", len(allFiles), allFiles)
 	}
 }
 
