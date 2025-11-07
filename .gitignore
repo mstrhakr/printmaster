@@ -6,6 +6,9 @@
 *.dylib
 *.test
 
+# Backup files
+*.backup
+
 # Test binary, built with `go test -c`
 *.test
 
