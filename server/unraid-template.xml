@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>PrintMaster-Server</Name>
+  <Repository>ghcr.io/mstrhakr/printmaster-server:latest</Repository>
+  <Registry>https://ghcr.io/mstrhakr/printmaster-server</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/mstrhakr/printmaster</Support>
+  <Project>https://github.com/mstrhakr/printmaster</Project>
+  <Overview>PrintMaster Server - Printer fleet management system for MSPs, MPS providers, copier dealers, and IT departments. Collects and manages printer discovery data from agents.</Overview>
+  <Category>Network:Management Tools:</Category>
+  <WebUI>http://[IP]:[PORT:9090]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/mstrhakr/printmaster/main/server/unraid-template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/mstrhakr/printmaster/main/docs/icon.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled></DateInstalled>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="HTTP Port" Target="9090" Default="9090" Mode="tcp" Description="HTTP port for the web interface and API" Type="Port" Display="always" Required="true" Mask="false">9090</Config>
+  <Config Name="HTTPS Port" Target="9443" Default="9443" Mode="tcp" Description="HTTPS port (optional, only if not using reverse proxy)" Type="Port" Display="advanced" Required="false" Mask="false">9443</Config>
+  <Config Name="Data Directory" Target="/var/lib/printmaster/server" Default="/mnt/user/appdata/printmaster-server/data" Mode="rw" Description="Database and persistent data storage" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printmaster-server/data</Config>
+  <Config Name="Logs Directory" Target="/var/log/printmaster/server" Default="/mnt/user/appdata/printmaster-server/logs" Mode="rw" Description="Application logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printmaster-server/logs</Config>
+  <Config Name="Config File" Target="/var/lib/printmaster/server/config.toml" Default="/mnt/user/appdata/printmaster-server/config.toml" Mode="rw" Description="Configuration file (optional - will use defaults if not provided)" Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/printmaster-server/config.toml</Config>
+  <Config Name="Server Port" Target="SERVER_PORT" Default="9090" Mode="" Description="Port for the server to listen on" Type="Variable" Display="advanced" Required="false" Mask="false">9090</Config>
+  <Config Name="HTTPS Port (Env)" Target="HTTPS_PORT" Default="9443" Mode="" Description="HTTPS port (only used if HTTPS is enabled)" Type="Variable" Display="advanced" Required="false" Mask="false">9443</Config>
+  <Config Name="Behind Reverse Proxy" Target="BEHIND_PROXY" Default="false" Mode="" Description="Set to 'true' if using Nginx Proxy Manager or similar" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+  <Config Name="Use HTTPS" Target="USE_HTTPS" Default="false" Mode="" Description="Enable HTTPS (set to false if behind reverse proxy)" Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Database Path" Target="DB_PATH" Default="/var/lib/printmaster/server/printmaster.db" Mode="" Description="SQLite database file path" Type="Variable" Display="advanced" Required="false" Mask="false">/var/lib/printmaster/server/printmaster.db</Config>
+  <Config Name="Log Level" Target="LOG_LEVEL" Default="info" Mode="" Description="Logging level: debug, info, warn, error" Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for permissions (99 = nobody on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for permissions (100 = users on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="TZ" Target="TZ" Default="America/New_York" Mode="" Description="Timezone for log timestamps" Type="Variable" Display="always" Required="false" Mask="false">America/New_York</Config>
+</Container>
