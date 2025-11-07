@@ -170,7 +170,7 @@ function Commit-And-Tag {
     
     # Add VERSION files
     if ($Component -eq 'both') {
-        git add VERSION server/VERSION
+        git add agent/VERSION server/VERSION
         if ($Message) {
             $commitMsg = "$Message - v$Version"
         } else {
@@ -184,7 +184,7 @@ function Commit-And-Tag {
             $commitMsg = "chore: Release server v$Version"
         }
     } else {
-        git add VERSION
+        git add agent/VERSION
         if ($Message) {
             $commitMsg = "$Message - v$Version"
         } else {
