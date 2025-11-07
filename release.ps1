@@ -405,10 +405,10 @@ try {
     
     # Build release binaries
     if ($Component -eq 'both') {
-        $agentVersion = Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw
-        $serverVersion = Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw
-        Build-Component -Component 'agent' -Version $agentVersion.Trim()
-        Build-Component -Component 'server' -Version $serverVersion.Trim()
+        $agentVersionString = Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw
+        $serverVersionString = Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw
+        Build-Component -Component 'agent' -Version $agentVersionString.Trim()
+        Build-Component -Component 'server' -Version $serverVersionString.Trim()
     } else {
         Build-Component -Component $Component -Version $finalVersion
     }
