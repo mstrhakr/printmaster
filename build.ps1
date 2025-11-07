@@ -109,7 +109,7 @@ function Build-Agent {
     
     try {
         # Read version from VERSION file
-        $versionFile = Join-Path $ProjectRoot "VERSION"
+        $versionFile = Join-Path $ProjectRoot "agent\VERSION"
         if (Test-Path $versionFile) {
             $version = (Get-Content $versionFile -Raw).Trim()
         } else {
