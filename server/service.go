@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/kardianos/service"
@@ -80,14 +81,14 @@ func getServiceConfig() *service.Config {
 	var workingDir string
 	switch runtime.GOOS {
 	case "windows":
-		// Windows: C:\ProgramData\PrintMaster
-		workingDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster")
+		// Windows: C:\ProgramData\PrintMaster\server
+		workingDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "server")
 	case "darwin":
-		// macOS: /Library/Application Support/PrintMaster
-		workingDir = "/Library/Application Support/PrintMaster"
+		// macOS: /Library/Application Support/PrintMaster/server
+		workingDir = "/Library/Application Support/PrintMaster/server"
 	default:
-		// Linux: /var/lib/printmaster
-		workingDir = "/var/lib/printmaster"
+		// Linux: /var/lib/printmaster/server
+		workingDir = "/var/lib/printmaster/server"
 	}
 
 	return &service.Config{
@@ -124,33 +125,59 @@ func getServiceConfig() *service.Config {
 // setupServiceDirectories creates necessary directories for service operation
 func setupServiceDirectories() error {
 	var dirs []string
+	var configPath string
 
 	switch runtime.GOOS {
 	case "windows":
 		baseDir := filepath.Join(os.Getenv("ProgramData"), "PrintMaster")
+		serverDir := filepath.Join(baseDir, "server")
 		dirs = []string{
 			baseDir,
-			filepath.Join(baseDir, "logs"),
+			serverDir,
+			filepath.Join(serverDir, "logs"),
 		}
+		configPath = filepath.Join(serverDir, "config.toml")
 	case "darwin":
 		baseDir := "/Library/Application Support/PrintMaster"
+		serverDir := filepath.Join(baseDir, "server")
 		dirs = []string{
 			baseDir,
-			filepath.Join(baseDir, "logs"),
-			"/var/log/printmaster",
+			serverDir,
+			filepath.Join(serverDir, "logs"),
+			"/var/log/printmaster/server",
 		}
+		configPath = filepath.Join(serverDir, "config.toml")
 	default: // Linux
 		dirs = []string{
 			"/var/lib/printmaster",
+			"/var/lib/printmaster/server",
 			"/var/log/printmaster",
+			"/var/log/printmaster/server",
 			"/etc/printmaster",
 		}
+		configPath = "/etc/printmaster/server.toml"
 	}
 
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
+	}
+
+	// Generate default config.toml if it doesn't exist
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if err := WriteDefaultConfig(configPath); err != nil {
+			// Check if error is because file already exists (race condition)
+			if strings.Contains(err.Error(), "already exists") {
+				fmt.Printf("Configuration already exists at: %s\n", configPath)
+			} else {
+				return fmt.Errorf("failed to generate default config at %s: %w", configPath, err)
+			}
+		} else {
+			fmt.Printf("Generated default configuration at: %s\n", configPath)
+		}
+	} else {
+		fmt.Printf("Configuration already exists at: %s\n", configPath)
 	}
 
 	return nil
