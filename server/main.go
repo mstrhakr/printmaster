@@ -123,7 +123,7 @@ func runServer(ctx context.Context) {
 		log.Fatalf("Failed to get log directory: %v", err)
 	}
 
-	serverLogger = logger.New(logger.LevelFromString(cfg.Logging.Level), logDir, 1000)
+	serverLogger = logger.NewWithComponent(logger.LevelFromString(cfg.Logging.Level), logDir, "server", 1000)
 	serverLogger.Info("Server starting", "version", Version, "protocol", ProtocolVersion, "config", configPath)
 
 	// Initialize database

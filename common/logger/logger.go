@@ -49,6 +49,7 @@ type Logger struct {
 	mu              sync.RWMutex
 	level           LogLevel
 	logDir          string
+	component       string // component name for log filename (agent, server, etc.)
 	currentFile     *os.File
 	currentFilePath string // path to current log file for rotation
 	buffer          []LogEntry
@@ -75,10 +76,17 @@ type rateLimiter struct {
 }
 
 // New creates a new Logger instance
+// component is used for the log filename (e.g., "agent", "server")
 func New(level LogLevel, logDir string, maxBufferSize int) *Logger {
+	return NewWithComponent(level, logDir, "agent", maxBufferSize)
+}
+
+// NewWithComponent creates a new Logger instance with a specific component name
+func NewWithComponent(level LogLevel, logDir string, component string, maxBufferSize int) *Logger {
 	return &Logger{
 		level:         level,
 		logDir:        logDir,
+		component:     component,
 		buffer:        make([]LogEntry, 0, maxBufferSize),
 		maxBufferSize: maxBufferSize,
 		diagnostics:   make(map[string]bool),
@@ -301,7 +309,9 @@ func (l *Logger) writeToFile(entry LogEntry) {
 
 	// Open current file if not open
 	if l.currentFile == nil {
-		filename := filepath.Join(l.logDir, "agent.log")
+		// Use component name in filename (agent.log, server.log, etc.)
+		logFileName := l.component + ".log"
+		filename := filepath.Join(l.logDir, logFileName)
 		f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return
@@ -366,7 +376,7 @@ func (l *Logger) rotate() {
 		// Rename current log file to timestamped backup
 		if l.currentFilePath != "" {
 			timestamp := time.Now().Format("20060102_150405")
-			backupPath := filepath.Join(l.logDir, fmt.Sprintf("agent_%s.log", timestamp))
+			backupPath := filepath.Join(l.logDir, fmt.Sprintf("%s_%s.log", l.component, timestamp))
 			os.Rename(l.currentFilePath, backupPath)
 		}
 	}
@@ -383,7 +393,9 @@ func (l *Logger) cleanOldFiles() {
 
 	cutoff := time.Now().AddDate(0, 0, -l.rotationPolicy.MaxAgeDays)
 
-	files, err := filepath.Glob(filepath.Join(l.logDir, "agent_*.log"))
+	// Match rotated log files for this component
+	pattern := fmt.Sprintf("%s_*.log", l.component)
+	files, err := filepath.Glob(filepath.Join(l.logDir, pattern))
 	if err != nil {
 		return
 	}
