@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     tags:
-      - 'v*'           # Agent tags: v0.4.5
+      - 'agent-v*'     # Agent tags: agent-v0.4.5
       - 'server-v*'    # Server tags: server-v0.3.4
   pull_request:
     branches: [ main ]
