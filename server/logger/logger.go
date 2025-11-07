@@ -2,6 +2,7 @@ package logger
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,6 +28,14 @@ var levelNames = map[LogLevel]string{
 	TRACE: "TRACE",
 }
 
+var levelColors = map[LogLevel]string{
+	ERROR: "#ef4444",
+	WARN:  "#f59e0b",
+	INFO:  "#93a1a1",
+	DEBUG: "#6b7280",
+	TRACE: "#4b5563",
+}
+
 // LogEntry represents a single log entry
 type LogEntry struct {
 	Timestamp time.Time
@@ -37,15 +46,31 @@ type LogEntry struct {
 
 // Logger provides structured logging with levels
 type Logger struct {
-	mu            sync.RWMutex
-	level         LogLevel
-	logDir        string
-	currentFile   *os.File
-	buffer        []LogEntry
-	maxBufferSize int
-	consoleOutput bool
-	// TODO: Add SSE broadcasting when web UI is ready
-	// onLogCallback func(LogEntry)
+	mu             sync.RWMutex
+	level          LogLevel
+	logDir         string
+	currentFile    *os.File
+	buffer         []LogEntry
+	maxBufferSize  int
+	diagnostics    map[string]bool
+	rotationPolicy RotationPolicy
+	rateLimiters   map[string]*rateLimiter
+	consoleOutput  bool
+	traceTags      map[string]bool // enabled trace tags for granular filtering
+	onLogCallback  func(LogEntry)  // callback for SSE broadcasting
+}
+
+// RotationPolicy defines when and how to rotate log files
+type RotationPolicy struct {
+	Enabled    bool
+	MaxSizeMB  int
+	MaxAgeDays int
+	MaxFiles   int
+}
+
+type rateLimiter struct {
+	lastLog  time.Time
+	interval time.Duration
 }
 
 // New creates a new Logger instance
@@ -55,7 +80,16 @@ func New(level LogLevel, logDir string, maxBufferSize int) *Logger {
 		logDir:        logDir,
 		buffer:        make([]LogEntry, 0, maxBufferSize),
 		maxBufferSize: maxBufferSize,
-		consoleOutput: true,
+		diagnostics:   make(map[string]bool),
+		rateLimiters:  make(map[string]*rateLimiter),
+		consoleOutput: true, // Default to console output
+		traceTags:     make(map[string]bool),
+		rotationPolicy: RotationPolicy{
+			Enabled:    true,
+			MaxSizeMB:  50,
+			MaxAgeDays: 7,
+			MaxFiles:   10,
+		},
 	}
 }
 
@@ -64,6 +98,14 @@ func (l *Logger) SetConsoleOutput(enabled bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.consoleOutput = enabled
+}
+
+// SetOnLogCallback sets a callback function to be called when a new log entry is created
+// This is used for SSE broadcasting of log entries in real-time
+func (l *Logger) SetOnLogCallback(callback func(LogEntry)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.onLogCallback = callback
 }
 
 // SetLevel changes the current log level
@@ -80,6 +122,27 @@ func (l *Logger) GetLevel() LogLevel {
 	return l.level
 }
 
+// SetDiagnostic enables or disables a diagnostic output type
+func (l *Logger) SetDiagnostic(name string, enabled bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.diagnostics[name] = enabled
+}
+
+// DiagnosticEnabled checks if a diagnostic type is enabled
+func (l *Logger) DiagnosticEnabled(name string) bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.diagnostics[name]
+}
+
+// SetRotationPolicy configures log rotation
+func (l *Logger) SetRotationPolicy(policy RotationPolicy) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rotationPolicy = policy
+}
+
 // Error logs an error level message
 func (l *Logger) Error(msg string, context ...interface{}) {
 	l.log(ERROR, msg, context...)
@@ -87,6 +150,26 @@ func (l *Logger) Error(msg string, context ...interface{}) {
 
 // Warn logs a warning level message
 func (l *Logger) Warn(msg string, context ...interface{}) {
+	l.log(WARN, msg, context...)
+}
+
+// WarnRateLimited logs a warning with rate limiting (max once per interval)
+func (l *Logger) WarnRateLimited(key string, interval time.Duration, msg string, context ...interface{}) {
+	l.mu.Lock()
+	limiter, exists := l.rateLimiters[key]
+	if !exists {
+		limiter = &rateLimiter{interval: interval}
+		l.rateLimiters[key] = limiter
+	}
+
+	now := time.Now()
+	if now.Sub(limiter.lastLog) < limiter.interval {
+		l.mu.Unlock()
+		return // Skip this log
+	}
+	limiter.lastLog = now
+	l.mu.Unlock()
+
 	l.log(WARN, msg, context...)
 }
 
@@ -105,21 +188,73 @@ func (l *Logger) Trace(msg string, context ...interface{}) {
 	l.log(TRACE, msg, context...)
 }
 
-// log is the internal logging implementation
+// TraceTag logs a trace level message only if the specified tag is enabled.
+// If no tags are enabled (empty traceTags map), all trace messages are logged (backward compatible).
+// Usage: logger.TraceTag("proxy_request", "Proxying request", "path", "/foo", "method", "GET")
+func (l *Logger) TraceTag(tag string, msg string, context ...interface{}) {
+	l.mu.RLock()
+	enabled := l.traceTags[tag]
+	anyTagsEnabled := len(l.traceTags) > 0
+	l.mu.RUnlock()
+
+	// If no tags are configured, log everything at TRACE level (backward compatible)
+	// If tags are configured, only log if this specific tag is enabled
+	if !anyTagsEnabled || enabled {
+		l.log(TRACE, msg, context...)
+	}
+}
+
+// EnableTraceTag enables trace logging for a specific tag
+func (l *Logger) EnableTraceTag(tag string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.traceTags[tag] = true
+}
+
+// DisableTraceTag disables trace logging for a specific tag
+func (l *Logger) DisableTraceTag(tag string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.traceTags, tag)
+}
+
+// GetTraceTags returns a copy of the enabled trace tags
+func (l *Logger) GetTraceTags() map[string]bool {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	tags := make(map[string]bool, len(l.traceTags))
+	for k, v := range l.traceTags {
+		tags[k] = v
+	}
+	return tags
+}
+
+// SetTraceTags replaces the enabled trace tags with the provided map
+func (l *Logger) SetTraceTags(tags map[string]bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.traceTags = make(map[string]bool, len(tags))
+	for k, v := range tags {
+		if v {
+			l.traceTags[k] = true
+		}
+	}
+}
+
+// log is the internal logging function
 func (l *Logger) log(level LogLevel, msg string, context ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Check if this level should be logged
+	// Check if we should log this level
 	if level > l.level {
 		return
 	}
 
-	// Build context map from variadic args
+	// Parse context into map
 	ctx := make(map[string]interface{})
-	for i := 0; i < len(context); i += 2 {
-		if i+1 < len(context) {
-			key := fmt.Sprintf("%v", context[i])
+	for i := 0; i < len(context)-1; i += 2 {
+		if key, ok := context[i].(string); ok {
 			ctx[key] = context[i+1]
 		}
 	}
@@ -131,114 +266,228 @@ func (l *Logger) log(level LogLevel, msg string, context ...interface{}) {
 		Context:   ctx,
 	}
 
-	// Add to buffer
+	// Add to buffer (circular)
+	if len(l.buffer) >= l.maxBufferSize {
+		l.buffer = l.buffer[1:]
+	}
 	l.buffer = append(l.buffer, entry)
-	if len(l.buffer) > l.maxBufferSize {
-		l.buffer = l.buffer[1:] // Remove oldest
-	}
 
-	// Console output
+	// Write to console if enabled
 	if l.consoleOutput {
-		l.printToConsole(entry)
+		fmt.Println(formatLogEntry(entry))
 	}
 
-	// File output
+	// Write to file
 	l.writeToFile(entry)
 
-	// TODO: SSE broadcasting
-	// if l.onLogCallback != nil {
-	//     l.onLogCallback(entry)
-	// }
-}
-
-// printToConsole outputs the log entry to console
-func (l *Logger) printToConsole(entry LogEntry) {
-	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
-	levelStr := levelNames[entry.Level]
-
-	contextStr := ""
-	if len(entry.Context) > 0 {
-		contextStr = " |"
-		for k, v := range entry.Context {
-			contextStr += fmt.Sprintf(" %s=%v", k, v)
-		}
+	// Broadcast to SSE if callback is set
+	if l.onLogCallback != nil {
+		// Call callback without holding the lock to avoid deadlocks
+		// Make a copy of the callback
+		callback := l.onLogCallback
+		l.mu.Unlock()
+		callback(entry)
+		l.mu.Lock()
 	}
-
-	fmt.Printf("[%s] [%s] %s%s\n", timestamp, levelStr, entry.Message, contextStr)
 }
 
-// writeToFile writes the log entry to the current log file
+// writeToFile writes a log entry to the current log file
 func (l *Logger) writeToFile(entry LogEntry) {
-	if l.logDir == "" {
-		return
-	}
-
 	// Ensure log directory exists
 	if err := os.MkdirAll(l.logDir, 0755); err != nil {
 		return
 	}
 
-	// Open/create log file if needed
+	// Open current file if not open
 	if l.currentFile == nil {
-		logPath := filepath.Join(l.logDir, "server.log")
-		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		filename := filepath.Join(l.logDir, fmt.Sprintf("agent_%s.log", time.Now().Format("20060102_150405")))
+		f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return
 		}
 		l.currentFile = f
 	}
 
-	// Write entry
-	timestamp := entry.Timestamp.Format("2006-01-02 15:04:05")
-	levelStr := levelNames[entry.Level]
+	// Format and write entry
+	line := formatLogEntry(entry)
+	l.currentFile.WriteString(line + "\n")
+	l.currentFile.Sync() // Flush to disk for accurate size checks
 
-	contextStr := ""
+	// Check if we need to rotate AFTER writing
+	if l.shouldRotate() {
+		l.rotate()
+	}
+}
+
+// formatLogEntry formats a log entry for file output
+func formatLogEntry(entry LogEntry) string {
+	timestamp := entry.Timestamp.Format("2006-01-02T15:04:05-07:00")
+	level := levelNames[entry.Level]
+
+	line := fmt.Sprintf("%s [%s] %s", timestamp, level, entry.Message)
+
 	if len(entry.Context) > 0 {
-		contextStr = " |"
 		for k, v := range entry.Context {
-			contextStr += fmt.Sprintf(" %s=%v", k, v)
+			line += fmt.Sprintf(" %s=%v", k, v)
 		}
 	}
 
-	logLine := fmt.Sprintf("[%s] [%s] %s%s\n", timestamp, levelStr, entry.Message, contextStr)
-	l.currentFile.WriteString(logLine)
+	return line
 }
 
-// GetBuffer returns recent log entries
+// shouldRotate checks if the current log file should be rotated
+func (l *Logger) shouldRotate() bool {
+	if !l.rotationPolicy.Enabled || l.currentFile == nil {
+		return false
+	}
+
+	// Check file size
+	if l.rotationPolicy.MaxSizeMB > 0 {
+		if stat, err := l.currentFile.Stat(); err == nil {
+			sizeBytes := stat.Size()
+			maxBytes := int64(l.rotationPolicy.MaxSizeMB) * 1024 * 1024
+			if sizeBytes >= maxBytes {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// rotate closes the current log file and starts a new one
+func (l *Logger) rotate() {
+	if l.currentFile != nil {
+		l.currentFile.Close()
+		l.currentFile = nil
+		// Small delay to ensure different timestamp in filename
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	// Clean up old files
+	l.cleanOldFiles()
+}
+
+// cleanOldFiles removes log files older than MaxAgeDays
+func (l *Logger) cleanOldFiles() {
+	if l.rotationPolicy.MaxAgeDays <= 0 {
+		return
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -l.rotationPolicy.MaxAgeDays)
+
+	files, err := filepath.Glob(filepath.Join(l.logDir, "agent_*.log"))
+	if err != nil {
+		return
+	}
+
+	for _, file := range files {
+		if stat, err := os.Stat(file); err == nil {
+			if stat.ModTime().Before(cutoff) {
+				os.Remove(file)
+			}
+		}
+	}
+
+	// Also limit by MaxFiles
+	if l.rotationPolicy.MaxFiles > 0 && len(files) > l.rotationPolicy.MaxFiles {
+		// Remove oldest files
+		for i := 0; i < len(files)-l.rotationPolicy.MaxFiles; i++ {
+			os.Remove(files[i])
+		}
+	}
+}
+
+// GetBuffer returns a copy of the in-memory log buffer
 func (l *Logger) GetBuffer() []LogEntry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
-	entries := make([]LogEntry, len(l.buffer))
-	copy(entries, l.buffer)
-	return entries
+	buffer := make([]LogEntry, len(l.buffer))
+	copy(buffer, l.buffer)
+	return buffer
 }
 
-// Close closes any open file handles
+// GetBufferFiltered returns logs filtered by minimum level
+func (l *Logger) GetBufferFiltered(minLevel LogLevel) []LogEntry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	filtered := []LogEntry{}
+	for _, entry := range l.buffer {
+		if entry.Level <= minLevel {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+// ForceRotate immediately rotates the current log file
+// This is useful for clearing logs or starting fresh
+func (l *Logger) ForceRotate() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rotate()
+}
+
+// ClearBuffer clears the in-memory log buffer
+func (l *Logger) ClearBuffer() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.buffer = make([]LogEntry, 0, l.maxBufferSize)
+}
+
+// Close closes the current log file
 func (l *Logger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	if l.currentFile != nil {
-		return l.currentFile.Close()
+		err := l.currentFile.Close()
+		l.currentFile = nil
+		return err
 	}
 	return nil
 }
 
-// ParseLevel converts a string to LogLevel
-func ParseLevel(s string) LogLevel {
+// LevelFromString converts a string to a LogLevel
+func LevelFromString(s string) LogLevel {
 	switch s {
-	case "ERROR", "error":
+	case "ERROR":
 		return ERROR
-	case "WARN", "warn":
+	case "WARN":
 		return WARN
-	case "INFO", "info":
+	case "INFO":
 		return INFO
-	case "DEBUG", "debug":
+	case "DEBUG":
 		return DEBUG
-	case "TRACE", "trace":
+	case "TRACE":
 		return TRACE
 	default:
 		return INFO
 	}
+}
+
+// LevelToString converts a LogLevel to a string
+func LevelToString(level LogLevel) string {
+	return levelNames[level]
+}
+
+// LevelColor returns the color for a log level
+func LevelColor(level LogLevel) string {
+	return levelColors[level]
+}
+
+// Copy writes all buffered logs to a writer
+func (l *Logger) Copy(w io.Writer) error {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	for _, entry := range l.buffer {
+		line := formatLogEntry(entry)
+		if _, err := fmt.Fprintln(w, line); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -46,18 +46,19 @@ type LogEntry struct {
 
 // Logger provides structured logging with levels
 type Logger struct {
-	mu             sync.RWMutex
-	level          LogLevel
-	logDir         string
-	currentFile    *os.File
-	buffer         []LogEntry
-	maxBufferSize  int
-	diagnostics    map[string]bool
-	rotationPolicy RotationPolicy
-	rateLimiters   map[string]*rateLimiter
-	consoleOutput  bool
-	traceTags      map[string]bool // enabled trace tags for granular filtering
-	onLogCallback  func(LogEntry)  // callback for SSE broadcasting
+	mu              sync.RWMutex
+	level           LogLevel
+	logDir          string
+	currentFile     *os.File
+	currentFilePath string // path to current log file for rotation
+	buffer          []LogEntry
+	maxBufferSize   int
+	diagnostics     map[string]bool
+	rotationPolicy  RotationPolicy
+	rateLimiters    map[string]*rateLimiter
+	consoleOutput   bool
+	traceTags       map[string]bool // enabled trace tags for granular filtering
+	onLogCallback   func(LogEntry)  // callback for SSE broadcasting
 }
 
 // RotationPolicy defines when and how to rotate log files
@@ -300,12 +301,13 @@ func (l *Logger) writeToFile(entry LogEntry) {
 
 	// Open current file if not open
 	if l.currentFile == nil {
-		filename := filepath.Join(l.logDir, fmt.Sprintf("agent_%s.log", time.Now().Format("20060102_150405")))
+		filename := filepath.Join(l.logDir, "agent.log")
 		f, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return
 		}
 		l.currentFile = f
+		l.currentFilePath = filename
 	}
 
 	// Format and write entry
@@ -355,13 +357,18 @@ func (l *Logger) shouldRotate() bool {
 	return false
 }
 
-// rotate closes the current log file and starts a new one
+// rotate closes the current log file, renames it with timestamp, and starts a new one
 func (l *Logger) rotate() {
 	if l.currentFile != nil {
 		l.currentFile.Close()
 		l.currentFile = nil
-		// Small delay to ensure different timestamp in filename
-		time.Sleep(1 * time.Millisecond)
+		
+		// Rename current log file to timestamped backup
+		if l.currentFilePath != "" {
+			timestamp := time.Now().Format("20060102_150405")
+			backupPath := filepath.Join(l.logDir, fmt.Sprintf("agent_%s.log", timestamp))
+			os.Rename(l.currentFilePath, backupPath)
+		}
 	}
 
 	// Clean up old files
