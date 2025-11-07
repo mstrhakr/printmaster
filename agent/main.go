@@ -1076,7 +1076,7 @@ func runInteractive(ctx context.Context) {
 	// Service mode: ProgramData/agent > ProgramData (legacy)
 	// Interactive mode: executable dir > current dir
 	var agentConfig *AgentConfig
-	
+
 	isService := !service.Interactive()
 	var configPaths []string
 
