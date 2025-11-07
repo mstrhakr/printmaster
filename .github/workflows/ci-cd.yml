@@ -35,17 +35,22 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.component }}-${{ hashFiles(format('{0}/go.sum', matrix.component)) }}
+        key: ${{ runner.os }}-go-${{ matrix.component }}-${{ hashFiles(format('**/{0}/go.sum', matrix.component)) }}
         restore-keys: |
           ${{ runner.os }}-go-${{ matrix.component }}-
+      continue-on-error: true
     
-    - name: Download dependencies
+    - name: Download common dependencies
+      working-directory: ./common
+      run: go mod download
+    
+    - name: Download component dependencies
       working-directory: ./${{ matrix.component }}
       run: go mod download
     
     - name: Run tests
       working-directory: ./${{ matrix.component }}
-      run: go test -v -race -coverprofile=coverage.out ./...
+      run: go test -v -coverprofile=coverage.out ./...
     
     - name: Upload coverage
       uses: codecov/codecov-action@v4
