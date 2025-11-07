@@ -2120,7 +2120,7 @@ func runInteractive(ctx context.Context) {
 	}
 
 	// Apply configuration from TOML
-	{
+	if agentConfig != nil {
 		// Apply asset ID regex from config
 		if agentConfig.AssetIDRegex != "" {
 			agent.SetAssetIDRegex(agentConfig.AssetIDRegex)

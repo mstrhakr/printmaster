@@ -172,5 +172,5 @@ func getServiceLogPath() string {
 
 // isRunningAsService detects if the agent is running as a system service
 func isRunningAsService() bool {
-	return service.Interactive() == false
+	return !service.Interactive()
 }
