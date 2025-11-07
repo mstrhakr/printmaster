@@ -1072,12 +1072,30 @@ func runInteractive(ctx context.Context) {
 	agent.SetLogger(appLogger)
 
 	// Load TOML configuration
-	// Try to find config.toml in multiple locations (ProgramData, executable dir, current dir)
+	// Try to find config.toml in multiple locations
+	// Service mode: ProgramData/agent > ProgramData (legacy)
+	// Interactive mode: executable dir > current dir
 	var agentConfig *AgentConfig
-	configPaths := []string{
-		filepath.Join(filepath.Join(os.Getenv("ProgramData"), "PrintMaster"), "config.toml"),
-		filepath.Join(filepath.Dir(os.Args[0]), "config.toml"),
-		"config.toml",
+	
+	isService := !service.Interactive()
+	var configPaths []string
+
+	if isService {
+		// Running as service - check ProgramData locations only
+		programData := os.Getenv("ProgramData")
+		if programData == "" {
+			programData = "C:\\ProgramData"
+		}
+		configPaths = []string{
+			filepath.Join(programData, "PrintMaster", "agent", "config.toml"),
+			filepath.Join(programData, "PrintMaster", "config.toml"), // Legacy location
+		}
+	} else {
+		// Running interactively - check local locations only
+		configPaths = []string{
+			filepath.Join(filepath.Dir(os.Args[0]), "config.toml"),
+			"config.toml",
+		}
 	}
 
 	configLoaded := false
