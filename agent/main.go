@@ -2100,7 +2100,8 @@ func runInteractive(ctx context.Context) {
 		scannerConfig.Unlock()
 	}
 
-	// Load server configuration from TOML
+	// Load server configuration from TOML and start upload worker
+	var uploadWorker *UploadWorker
 	if agentConfig != nil && agentConfig.Server.Enabled {
 		appLogger.Info("Server integration enabled",
 			"url", agentConfig.Server.URL,
@@ -2120,7 +2121,7 @@ func runInteractive(ctx context.Context) {
 			appLogger.Debug("No saved server token found")
 		}
 
-		// Start upload worker for server communication
+		// Create and start upload worker for server communication
 		go func() {
 			serverClient := agent.NewServerClientWithCAAndSkipVerify(
 				agentConfig.Server.URL,
@@ -2137,10 +2138,9 @@ func runInteractive(ctx context.Context) {
 				RetryBackoff:      2 * time.Second,
 			}
 
-			uploadWorker := NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig)
+			uploadWorker = NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig)
 
 			// Start worker (will register if needed)
-			ctx := context.Background()
 			if err := uploadWorker.Start(ctx, Version); err != nil {
 				appLogger.Error("Failed to start upload worker", "error", err)
 				return
@@ -2154,9 +2154,6 @@ func runInteractive(ctx context.Context) {
 					appLogger.Info("Server token saved")
 				}
 			}
-
-			// Worker runs until agent shuts down
-			// TODO: Add graceful shutdown handler
 		}()
 	}
 
@@ -4569,8 +4566,12 @@ window.top.location.href = '/proxy/%s/';
 		}
 
 		httpServer = &http.Server{
-			Addr:    ":" + httpPort,
-			Handler: httpHandler,
+			Addr:              ":" + httpPort,
+			Handler:           httpHandler,
+			ReadTimeout:       30 * time.Second,
+			ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       120 * time.Second,
 		}
 
 		wg.Add(1)
@@ -4586,7 +4587,11 @@ window.top.location.href = '/proxy/%s/';
 	// Start HTTPS server
 	if enableHTTPS && certFile != "" && keyFile != "" {
 		httpsServer = &http.Server{
-			Addr: ":" + httpsPort,
+			Addr:              ":" + httpsPort,
+			ReadTimeout:       30 * time.Second,
+			ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout:      30 * time.Second,
+			IdleTimeout:       120 * time.Second,
 		}
 
 		wg.Add(1)
@@ -4603,8 +4608,13 @@ window.top.location.href = '/proxy/%s/';
 	<-ctx.Done()
 	appLogger.Info("Shutdown signal received, stopping servers...")
 
-	// Graceful shutdown with 25 second timeout
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 25*time.Second)
+	// Stop upload worker first (quick operation)
+	if uploadWorker != nil {
+		uploadWorker.Stop()
+	}
+
+	// Graceful shutdown with 20 second timeout (well before service 30s timeout)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer shutdownCancel()
 
 	if httpServer != nil {
