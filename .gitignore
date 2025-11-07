@@ -119,6 +119,7 @@ agent/comments_list.txt
 # Build artifacts
 *.syso
 versioninfo.json
+coverage
 coverage/
 *.pem
 certs/
