@@ -163,8 +163,14 @@ func runGarbageCollection(ctx context.Context, store storage.DeviceStore, config
 	ticker := time.NewTicker(24 * time.Hour) // Run daily
 	defer ticker.Stop()
 
-	// Run immediately on startup
-	doGarbageCollection(store, config)
+	// Check if context is already cancelled before running
+	select {
+	case <-ctx.Done():
+		return
+	default:
+		// Run immediately on startup
+		doGarbageCollection(store, config)
+	}
 
 	for {
 		select {
