@@ -555,12 +555,12 @@ func (s *SQLiteStore) runMigrations() error {
 		if err != nil {
 			return fmt.Errorf("failed to check for metrics_history table: %w", err)
 		}
-		
+
 		err = s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='metrics_raw'").Scan(&rawExists)
 		if err != nil {
 			return fmt.Errorf("failed to check for metrics_raw table: %w", err)
 		}
-		
+
 		// Only rename if metrics_history exists AND metrics_raw doesn't
 		if historyExists > 0 && rawExists == 0 {
 			// Rename existing metrics_history to metrics_raw

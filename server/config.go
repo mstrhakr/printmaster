@@ -56,7 +56,7 @@ func DefaultConfig() *Config {
 			},
 		},
 		Database: config.DatabaseConfig{
-			Path: "printmaster.db",
+			Path: "", // Empty = use platform default (ProgramData on Windows)
 		},
 		Logging: config.LoggingConfig{
 			Level: "info",
