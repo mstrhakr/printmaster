@@ -21,7 +21,7 @@ function Write-Item {
 # ============================================================================
 Write-Section "Version Information"
 
-$agentVersion = if (Test-Path "VERSION") { (Get-Content "VERSION" -Raw).Trim() } else { "NOT FOUND" }
+$agentVersion = if (Test-Path "agent\VERSION") { (Get-Content "agent\VERSION" -Raw).Trim() } else { "NOT FOUND" }
 $serverVersion = if (Test-Path "server\VERSION") { (Get-Content "server\VERSION" -Raw).Trim() } else { "NOT FOUND" }
 
 Write-Item "Agent Version" $agentVersion "Green"

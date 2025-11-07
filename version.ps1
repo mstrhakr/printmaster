@@ -1,15 +1,23 @@
 # Get Current Version
-# Quick helper to show the current version from VERSION file
+# Quick helper to show the current version from VERSION files
 
-$versionFile = Join-Path $PSScriptRoot "VERSION"
+$agentVersionFile = Join-Path $PSScriptRoot "agent\VERSION"
+$serverVersionFile = Join-Path $PSScriptRoot "server\VERSION"
 
-if (Test-Path $versionFile) {
-    $version = (Get-Content $versionFile -Raw).Trim()
-    Write-Host "Current Version: " -NoNewline -ForegroundColor Cyan
-    Write-Host $version -ForegroundColor Green
+if (Test-Path $agentVersionFile) {
+    $agentVersion = (Get-Content $agentVersionFile -Raw).Trim()
+    Write-Host "Agent Version:   " -NoNewline -ForegroundColor Cyan
+    Write-Host $agentVersion -ForegroundColor Green
 } else {
-    Write-Host "VERSION file not found!" -ForegroundColor Red
-    exit 1
+    Write-Host "agent\VERSION file not found!" -ForegroundColor Red
+}
+
+if (Test-Path $serverVersionFile) {
+    $serverVersion = (Get-Content $serverVersionFile -Raw).Trim()
+    Write-Host "Server Version:  " -NoNewline -ForegroundColor Cyan
+    Write-Host $serverVersion -ForegroundColor Green
+} else {
+    Write-Host "server\VERSION file not found!" -ForegroundColor Red
 }
 
 # Show git info if available

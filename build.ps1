@@ -186,6 +186,23 @@ function Build-Agent {
         $buildTypeString = if ($IsRelease) { "release" } else { "dev" }
         $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString'"
         
+        # Generate Windows version resource (only on Windows)
+        # Must happen AFTER $versionString is created so we can embed build number
+        if ($IsWindows -or $env:OS -eq "Windows_NT") {
+            Write-BuildLog "Generating Windows version resource..."
+            $winverScript = Join-Path $ProjectRoot "tools\generate-winver.ps1"
+            if (Test-Path $winverScript) {
+                try {
+                    & $winverScript -Component "agent" -Version $versionString -GitCommit $gitCommit -BuildTime $buildTime 2>&1 | ForEach-Object {
+                        Write-BuildLog $_.ToString() "INFO"
+                    }
+                }
+                catch {
+                    Write-BuildLog "Warning: Failed to generate version resource: $_" "WARN"
+                }
+            }
+        }
+        
         # Build arguments
         $buildArgs = @("build")
         
@@ -340,6 +357,23 @@ function Build-Server {
         # Build ldflags for version injection
         $buildTypeString = if ($IsRelease) { "release" } else { "dev" }
         $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString'"
+        
+        # Generate Windows version resource (only on Windows)
+        # Must happen AFTER $versionString is created so we can embed build number
+        if ($IsWindows -or $env:OS -eq "Windows_NT") {
+            Write-BuildLog "Generating Windows version resource..."
+            $winverScript = Join-Path $ProjectRoot "tools\generate-winver.ps1"
+            if (Test-Path $winverScript) {
+                try {
+                    & $winverScript -Component "server" -Version $versionString -GitCommit $gitCommit -BuildTime $buildTime 2>&1 | ForEach-Object {
+                        Write-BuildLog $_.ToString() "INFO"
+                    }
+                }
+                catch {
+                    Write-BuildLog "Warning: Failed to generate version resource: $_" "WARN"
+                }
+            }
+        }
         
         # Build arguments
         $buildArgs = @("build")
