@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"printmaster/agent/logger"
+	"printmaster/common/logger"
 )
 
 // VendorLoginAdapter handles vendor-specific login flows for Web UI auto-login.
