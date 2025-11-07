@@ -17,9 +17,11 @@ type Config struct {
 
 // ServerConfig holds server-specific settings
 type ServerConfig struct {
-	HTTPPort    int  `toml:"http_port"`
-	HTTPSPort   int  `toml:"https_port"`
-	BehindProxy bool `toml:"behind_proxy"`
+	HTTPPort      int    `toml:"http_port"`
+	HTTPSPort     int    `toml:"https_port"`
+	BehindProxy   bool   `toml:"behind_proxy"`
+	ProxyUseHTTPS bool   `toml:"proxy_use_https"` // If true, use HTTPS even when behind proxy (default: false for HTTP)
+	BindAddress   string `toml:"bind_address"`    // Address to bind to (default: 0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
 }
 
 // TLSConfigTOML holds TLS configuration from TOML
@@ -43,9 +45,11 @@ type LetsEncryptConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			HTTPPort:    9090,
-			HTTPSPort:   9443,
-			BehindProxy: false,
+			HTTPPort:      9090,
+			HTTPSPort:     9443,
+			BehindProxy:   false,
+			ProxyUseHTTPS: false,     // Default to HTTP when behind proxy
+			BindAddress:   "0.0.0.0", // Bind to all interfaces by default
 		},
 		TLS: TLSConfigTOML{
 			Mode:   "self-signed",
@@ -90,6 +94,12 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 	if val := os.Getenv("BEHIND_PROXY"); val != "" {
 		cfg.Server.BehindProxy = val == "true" || val == "1"
+	}
+	if val := os.Getenv("PROXY_USE_HTTPS"); val != "" {
+		cfg.Server.ProxyUseHTTPS = val == "true" || val == "1"
+	}
+	if val := os.Getenv("BIND_ADDRESS"); val != "" {
+		cfg.Server.BindAddress = val
 	}
 	if val := os.Getenv("TLS_MODE"); val != "" {
 		cfg.TLS.Mode = val
@@ -141,6 +151,8 @@ func (c *Config) ToTLSConfig() *TLSConfig {
 		HTTPPort:          c.Server.HTTPPort,
 		HTTPSPort:         c.Server.HTTPSPort,
 		BehindProxy:       c.Server.BehindProxy,
+		ProxyUseHTTPS:     c.Server.ProxyUseHTTPS,
+		BindAddress:       c.Server.BindAddress,
 	}
 }
 

@@ -1,7 +1,9 @@
 [server]
   http_port = 9090
   https_port = 9443
-  behind_proxy = false
+  behind_proxy = true
+  proxy_use_https = true
+  bind_address = "0.0.0.0"
 
 [tls]
   mode = "self-signed"
