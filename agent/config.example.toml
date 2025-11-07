@@ -1,0 +1,58 @@
+# PrintMaster Agent Configuration Example
+# Copy this file to config.toml and customize for your environment
+
+# Asset ID regex pattern (customize for your asset tag format)
+asset_id_regex = "\\b\\d{5}\\b"
+
+# Number of concurrent SNMP queries (adjust based on network capacity)
+discovery_concurrency = 50
+
+[snmp]
+  # Default SNMP community string (change for security)
+  community = "public"
+  
+  # SNMP timeout in milliseconds
+  timeout_ms = 2000
+  
+  # Number of retries for failed SNMP queries
+  retries = 1
+
+[server]
+  # Enable server upload mode (set to true when using with PrintMaster Server)
+  enabled = false
+  
+  # PrintMaster Server URL (e.g., "http://printmaster.example.com:9090")
+  url = ""
+  
+  # Unique agent identifier (auto-generated if blank)
+  agent_id = ""
+  
+  # Path to server CA certificate (optional, for self-signed certs)
+  ca_path = ""
+  
+  # How often to upload discovery data to server (seconds)
+  upload_interval_seconds = 300
+  
+  # How often to send heartbeat to server (seconds)
+  heartbeat_interval_seconds = 60
+  
+  # Authentication token (if server requires it)
+  token = ""
+
+[database]
+  # SQLite database path (blank = use default location)
+  path = ""
+
+[logging]
+  # Log level: debug, info, warn, error
+  level = "info"
+
+[web]
+  # HTTP port for web UI
+  http_port = 8080
+  
+  # HTTPS port (if TLS enabled)
+  https_port = 8443
+  
+  # Enable TLS/HTTPS
+  enable_tls = false

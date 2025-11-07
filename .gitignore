@@ -62,11 +62,17 @@ server/logs/
 
 # Configuration files with secrets (keep examples)
 config.ini
+config.json
+config.toml
 agent/config.ini
+agent/config.json
+agent/config.toml
 server/config.ini
+server/config.toml
 # Keep the examples:
 !config.ini.example
 !agent/config.ini.example
+!*.example.toml
 
 # OS-specific
 Thumbs.db
@@ -119,6 +125,7 @@ agent/comments_list.txt
 
 # Troubleshooting data review files
 data_review/
+logs_review/
 
 # Build number tracking
 .buildnumber

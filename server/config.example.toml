@@ -1,0 +1,50 @@
+# PrintMaster Server Configuration Example
+# Copy this file to config.toml and customize for your environment
+
+[server]
+  # HTTP port for API and web UI
+  http_port = 9090
+  
+  # HTTPS port (if not using reverse proxy)
+  https_port = 9443
+  
+  # Set to true if behind Nginx Proxy Manager, Traefik, etc.
+  behind_proxy = false
+  
+  # Set to true if your reverse proxy handles HTTPS
+  proxy_use_https = false
+  
+  # Bind address (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
+  bind_address = "0.0.0.0"
+
+[tls]
+  # TLS mode: "disabled", "self-signed", "letsencrypt", "custom"
+  mode = "disabled"
+  
+  # Domain name for certificate
+  domain = "localhost"
+  
+  # Custom certificate paths (if mode = "custom")
+  cert_path = ""
+  key_path = ""
+  
+  [tls.letsencrypt]
+    # Domain for Let's Encrypt certificate
+    domain = ""
+    
+    # Email for Let's Encrypt notifications
+    email = ""
+    
+    # Cache directory for Let's Encrypt certificates
+    cache_dir = "letsencrypt-cache"
+    
+    # Accept Let's Encrypt Terms of Service
+    accept_tos = false
+
+[database]
+  # SQLite database file path
+  path = "printmaster.db"
+
+[logging]
+  # Log level: debug, info, warn, error
+  level = "info"
