@@ -38,7 +38,7 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.component }}-${{ hashFiles(format('**/{0}/go.sum', matrix.component)) }}
+        key: ${{ runner.os }}-go-${{ matrix.component }}-${{ hashFiles(format('{0}/go.sum', matrix.component)) }}
         restore-keys: |
           ${{ runner.os }}-go-${{ matrix.component }}-
       continue-on-error: true
