@@ -24,7 +24,7 @@ WORKDIR /build/server
 ARG VERSION=dev
 ARG BUILD_TIME
 ARG GIT_COMMIT
-RUN CGO_ENABLED=1 GOOS=linux go build \
+RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=release'" \
     -o printmaster-server .
 
