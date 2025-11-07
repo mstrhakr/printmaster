@@ -691,6 +691,7 @@ func setupRoutes() {
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
+	http.HandleFunc("/api/v1/agents/list", handleAgentsList)        // List all agents (for UI)
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
@@ -853,6 +854,32 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 	})
+}
+
+// List all agents - for UI display (no auth required for now)
+func handleAgentsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := context.Background()
+	agents, err := serverStore.ListAgents(ctx)
+	if err != nil {
+		if serverLogger != nil {
+			serverLogger.Error("Failed to list agents", "error", err)
+		}
+		http.Error(w, "Failed to list agents", http.StatusInternalServerError)
+		return
+	}
+
+	// Remove sensitive token from response
+	for _, agent := range agents {
+		agent.Token = "" // Don't expose tokens to UI
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(agents)
 }
 
 // Devices batch upload - agent sends discovered devices
