@@ -29,11 +29,12 @@ import (
 	"path"
 	"path/filepath"
 	"printmaster/agent/agent"
-	"printmaster/agent/logger"
 	"printmaster/agent/proxy"
 	"printmaster/agent/scanner"
 	"printmaster/agent/storage"
 	"printmaster/agent/util"
+	"printmaster/common/config"
+	"printmaster/common/logger"
 	"runtime"
 	"strconv"
 	"strings"
@@ -519,8 +520,32 @@ func tryLearnOIDForValue(ctx context.Context, ip string, vendorHint string, fiel
 
 func main() {
 	// Parse command-line flags for service management
+	configPath := flag.String("config", "config.toml", "Configuration file path")
+	generateConfig := flag.Bool("generate-config", false, "Generate default config file and exit")
 	serviceCmd := flag.String("service", "", "Service control: install, uninstall, start, stop, run")
+	showVersion := flag.Bool("version", false, "Show version information and exit")
 	flag.Parse()
+
+	// Show version if requested
+	if *showVersion {
+		fmt.Printf("PrintMaster Agent %s\n", Version)
+		fmt.Printf("Build Time: %s\n", BuildTime)
+		fmt.Printf("Git Commit: %s\n", GitCommit)
+		fmt.Printf("Build Type: %s\n", BuildType)
+		fmt.Printf("Go Version: %s\n", runtime.Version())
+		fmt.Printf("OS/Arch: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+		return
+	}
+
+	// Generate default config if requested
+	if *generateConfig {
+		if err := WriteDefaultAgentConfig(*configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to generate config: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Generated default configuration at %s\n", *configPath)
+		return
+	}
 
 	// Handle service commands
 	if *serviceCmd != "" {
@@ -931,13 +956,59 @@ func runAsService() {
 	}
 }
 
+// findConfigFile looks for config.ini in multiple locations
+func findConfigFile() (string, []byte, error) {
+	// Check multiple locations in order of preference
+	var searchPaths []string
+
+	// 1. ProgramData directory (for services on Windows)
+	if runtime.GOOS == "windows" {
+		searchPaths = append(searchPaths, filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "config.ini"))
+	}
+
+	// 2. System config directories (Linux/Mac)
+	if runtime.GOOS != "windows" {
+		searchPaths = append(searchPaths, "/etc/printmaster/config.ini")
+	}
+
+	// 3. Executable directory
+	if exePath, err := os.Executable(); err == nil {
+		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(exePath), "config.ini"))
+	}
+
+	// 4. Current working directory
+	searchPaths = append(searchPaths, filepath.Join(".", "config.ini"))
+
+	// Try each path
+	for _, path := range searchPaths {
+		if data, err := os.ReadFile(path); err == nil {
+			return path, data, nil
+		}
+	}
+
+	return "", nil, fmt.Errorf("config.ini not found in any search path")
+}
+
 // runInteractive starts the agent in foreground mode (normal operation)
 func runInteractive(ctx context.Context) {
 	// Initialize SSE hub for real-time UI updates
 	sseHub = NewSSEHub()
 
 	// Initialize structured logger (DEBUG level for proxy diagnostics, 1000 entries in buffer)
+	// Determine log directory based on whether we're running as a service
 	logDir := "logs"
+	if !service.Interactive() {
+		// Running as service - use platform-specific system directory
+		switch runtime.GOOS {
+		case "windows":
+			logDir = filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "logs")
+		case "darwin":
+			logDir = "/var/log/printmaster"
+		default: // Linux
+			logDir = "/var/log/printmaster"
+		}
+	}
+
 	if err := os.MkdirAll(logDir, 0755); err == nil {
 		appLogger = logger.New(logger.DEBUG, logDir, 1000)
 		appLogger.SetRotationPolicy(logger.RotationPolicy{
@@ -969,13 +1040,53 @@ func runInteractive(ctx context.Context) {
 	// Provide the app logger to the agent package so internal logs are structured
 	agent.SetLogger(appLogger)
 
+	// Load TOML configuration
+	// Try to find config.toml in multiple locations (ProgramData, executable dir, current dir)
+	var agentConfig *AgentConfig
+	configPaths := []string{
+		filepath.Join(filepath.Join(os.Getenv("ProgramData"), "PrintMaster"), "config.toml"),
+		filepath.Join(filepath.Dir(os.Args[0]), "config.toml"),
+		"config.toml",
+	}
+
+	configLoaded := false
+	for _, cfgPath := range configPaths {
+		if cfg, err := LoadAgentConfig(cfgPath); err == nil {
+			agentConfig = cfg
+			appLogger.Info("Loaded configuration", "path", cfgPath)
+			configLoaded = true
+			break
+		}
+	}
+
+	if !configLoaded {
+		appLogger.Warn("No config.toml found, using defaults")
+		agentConfig = DefaultAgentConfig()
+	}
+
+	// Apply logging level from config
+	if level := logger.LevelFromString(agentConfig.Logging.Level); level >= 0 {
+		appLogger.SetLevel(level)
+		appLogger.Info("Log level set from config", "level", agentConfig.Logging.Level)
+	}
+
 	// Initialize device storage
-	dbPath, err := storage.GetDefaultDBPath()
-	if err != nil {
-		appLogger.Warn("Could not get default DB path, using in-memory storage", "error", err)
-		dbPath = ":memory:"
+	// Use config-specified path or detect proper data directory for service
+	var dbPath string
+	var err error
+	if agentConfig != nil && agentConfig.Database.Path != "" {
+		dbPath = agentConfig.Database.Path
+		appLogger.Info("Using configured database path", "path", dbPath)
 	} else {
-		appLogger.Info("Using device database", "path", dbPath)
+		// Detect if running as service and use appropriate directory
+		dataDir, dirErr := config.GetDataDirectory("PrintMaster", true)
+		if dirErr != nil {
+			appLogger.Warn("Could not get data directory, using in-memory storage", "error", dirErr)
+			dbPath = ":memory:"
+		} else {
+			dbPath = filepath.Join(dataDir, "devices.db")
+			appLogger.Info("Using device database", "path", dbPath)
+		}
 	}
 
 	// Set logger for storage package
@@ -1959,245 +2070,97 @@ func runInteractive(ctx context.Context) {
 		}
 	}
 
-	// Load settings from database, with optional config.ini override
-	// config.ini allows deployment-specific overrides without touching the database
+	// Apply configuration from TOML
 	{
-		var dev struct {
-			AssetIDRegex        string `json:"asset_id_regex"`
-			SNMPCommunity       string `json:"snmp_community"`
-			LogLevel            string `json:"log_level"`
-			DumpParseDebug      bool   `json:"dump_parse_debug"`
-			SNMPTimeoutMs       int    `json:"snmp_timeout_ms"`
-			SNMPRetries         int    `json:"snmp_retries"`
-			DiscoverConcurrency int    `json:"discover_concurrency"`
-		} // Load from database
-		if agentConfigStore != nil {
-			_ = agentConfigStore.GetConfigValue("dev_settings", &dev)
-		}
-
-		// Override with config.ini if it exists (for deployment-specific settings)
-		configPath := filepath.Join(".", "config.ini")
-		if data, err := os.ReadFile(configPath); err == nil {
-			appLogger.Info("Loading overrides from config.ini")
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-					continue
-				}
-				parts := strings.SplitN(line, "=", 2)
-				if len(parts) != 2 {
-					continue
-				}
-				key := strings.TrimSpace(parts[0])
-				val := strings.TrimSpace(parts[1])
-
-				switch strings.ToLower(key) {
-				case "asset_id_regex":
-					dev.AssetIDRegex = val
-					appLogger.Info("Config override", "key", "asset_id_regex", "value", val)
-				case "snmp_community":
-					dev.SNMPCommunity = val
-					appLogger.Info("Config override", "key", "snmp_community")
-				case "log_level":
-					dev.LogLevel = val
-					appLogger.Info("Config override", "key", "log_level", "value", val)
-				case "dump_parse_debug":
-					dev.DumpParseDebug = (strings.ToLower(val) == "true" || val == "1")
-					appLogger.Info("Config override", "key", "dump_parse_debug", "value", val)
-				case "snmp_timeout_ms":
-					if timeout, err := strconv.Atoi(val); err == nil {
-						dev.SNMPTimeoutMs = timeout
-						appLogger.Info("Config override", "key", "snmp_timeout_ms", "value", val)
-					}
-				case "snmp_retries":
-					if retries, err := strconv.Atoi(val); err == nil {
-						dev.SNMPRetries = retries
-						appLogger.Info("Config override", "key", "snmp_retries", "value", val)
-					}
-				case "discover_concurrency":
-					if conc, err := strconv.Atoi(val); err == nil {
-						dev.DiscoverConcurrency = conc
-						appLogger.Info("Config override", "key", "discover_concurrency", "value", val)
-					}
-				}
-			}
-		}
-
-		// Apply settings
-		if dev.AssetIDRegex != "" {
-			agent.SetAssetIDRegex(dev.AssetIDRegex)
-			appLogger.Info("AssetIDRegex configured", "pattern", dev.AssetIDRegex)
+		// Apply asset ID regex from config
+		if agentConfig.AssetIDRegex != "" {
+			agent.SetAssetIDRegex(agentConfig.AssetIDRegex)
+			appLogger.Info("AssetIDRegex configured from TOML", "pattern", agentConfig.AssetIDRegex)
 		} else {
 			// reasonable default: five digit numeric asset tags
-			agent.SetAssetIDRegex(`\\b\\d{5}\\b`)
+			agent.SetAssetIDRegex(`\b\d{5}\b`)
 			appLogger.Info("Using default AssetIDRegex", "pattern", "five-digit")
 		}
 
-		if dev.SNMPCommunity != "" {
-			_ = os.Setenv("SNMP_COMMUNITY", dev.SNMPCommunity)
-			appLogger.Info("SNMP community configured")
+		// Apply SNMP community
+		if agentConfig.SNMP.Community != "" {
+			_ = os.Setenv("SNMP_COMMUNITY", agentConfig.SNMP.Community)
+			appLogger.Info("SNMP community configured from TOML")
 		}
 
 		// Apply SNMP timeout and retries settings
 		scannerConfig.Lock()
-		if dev.SNMPTimeoutMs > 0 {
-			scannerConfig.SNMPTimeoutMs = dev.SNMPTimeoutMs
-			appLogger.Info("SNMP timeout configured", "timeout_ms", dev.SNMPTimeoutMs)
-		} else {
-			scannerConfig.SNMPTimeoutMs = 2000 // Default 2 seconds
-		}
-		if dev.SNMPRetries > 0 {
-			scannerConfig.SNMPRetries = dev.SNMPRetries
-			appLogger.Info("SNMP retries configured", "retries", dev.SNMPRetries)
-		} else {
-			scannerConfig.SNMPRetries = 1 // Default 1 retry
-		}
-		if dev.DiscoverConcurrency > 0 {
-			scannerConfig.DiscoverConcurrency = dev.DiscoverConcurrency
-			appLogger.Info("Discovery concurrency configured", "concurrency", dev.DiscoverConcurrency)
-		} else {
-			scannerConfig.DiscoverConcurrency = 50 // Default 50 concurrent
-		}
+		scannerConfig.SNMPTimeoutMs = agentConfig.SNMP.TimeoutMs
+		scannerConfig.SNMPRetries = agentConfig.SNMP.Retries
+		scannerConfig.DiscoverConcurrency = agentConfig.Concurrency
+		appLogger.Info("Scanner config applied from TOML",
+			"timeout_ms", scannerConfig.SNMPTimeoutMs,
+			"retries", scannerConfig.SNMPRetries,
+			"concurrency", scannerConfig.DiscoverConcurrency)
 		scannerConfig.Unlock()
-
-		// Apply log level
-		if dev.LogLevel == "debug" || dev.LogLevel == "trace" {
-			agent.SetDebugEnabled(true)
-			appLogger.Info("Debug logging enabled", "log_level", dev.LogLevel)
-		}
-
-		if dev.DumpParseDebug {
-			agent.SetDumpParseDebug(true)
-			appLogger.Info("Parse debug dump enabled")
-		}
 	}
 
-	// Load server configuration (for multi-agent deployments)
-	var serverConfig struct {
-		Enabled           bool   `json:"enabled"`
-		URL               string `json:"url"`
-		AgentID           string `json:"agent_id"`
-		UploadInterval    int    `json:"upload_interval"`    // seconds
-		HeartbeatInterval int    `json:"heartbeat_interval"` // seconds
-		Token             string `json:"token"`              // auth token (stored after registration)
-	}
-	{
-		// Load from database (if agent has registered before)
-		if agentConfigStore != nil {
-			_ = agentConfigStore.GetConfigValue("server_config", &serverConfig)
+	// Load server configuration from TOML
+	if agentConfig != nil && agentConfig.Server.Enabled {
+		appLogger.Info("Server integration enabled",
+			"url", agentConfig.Server.URL,
+			"agent_id", agentConfig.Server.AgentID,
+			"ca_path", agentConfig.Server.CAPath,
+			"upload_interval", agentConfig.Server.UploadInterval,
+			"heartbeat_interval", agentConfig.Server.HeartbeatInterval)
+
+		// Load authentication token from file
+		dataDir, err := config.GetDataDirectory("PrintMaster", true)
+		if err != nil {
+			appLogger.Error("Failed to get data directory", "error", err)
+			return
+		}
+		token := LoadServerToken(dataDir)
+		if token == "" {
+			appLogger.Debug("No saved server token found")
 		}
 
-		// Override with config.ini if it exists
-		configPath := filepath.Join(".", "config.ini")
-		if data, err := os.ReadFile(configPath); err == nil {
-			lines := strings.Split(string(data), "\n")
-			for _, line := range lines {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-					continue
+		// Start upload worker for server communication
+		go func() {
+			serverClient := agent.NewServerClientWithCAAndSkipVerify(
+				agentConfig.Server.URL,
+				agentConfig.Server.AgentID,
+				token,
+				agentConfig.Server.CAPath,
+				agentConfig.Server.InsecureSkipVerify,
+			)
+
+			workerConfig := UploadWorkerConfig{
+				HeartbeatInterval: time.Duration(agentConfig.Server.HeartbeatInterval) * time.Second,
+				UploadInterval:    time.Duration(agentConfig.Server.UploadInterval) * time.Second,
+				RetryAttempts:     3,
+				RetryBackoff:      2 * time.Second,
+			}
+
+			uploadWorker := NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig)
+
+			// Start worker (will register if needed)
+			ctx := context.Background()
+			if err := uploadWorker.Start(ctx, Version); err != nil {
+				appLogger.Error("Failed to start upload worker", "error", err)
+				return
+			}
+
+			// Save token after successful registration
+			if newToken := serverClient.GetToken(); newToken != "" && newToken != token {
+				if err := SaveServerToken(dataDir, newToken); err != nil {
+					appLogger.Error("Failed to save server token", "error", err)
+				} else {
+					appLogger.Info("Server token saved")
 				}
-				parts := strings.SplitN(line, "=", 2)
-				if len(parts) != 2 {
-					continue
-				}
-				key := strings.TrimSpace(parts[0])
-				val := strings.TrimSpace(parts[1])
-
-				switch strings.ToLower(key) {
-				case "server_enabled":
-					serverConfig.Enabled = (strings.ToLower(val) == "true" || val == "1")
-					appLogger.Info("Server config override", "key", "enabled", "value", serverConfig.Enabled)
-				case "server_url":
-					serverConfig.URL = val
-					appLogger.Info("Server config override", "key", "url", "value", val)
-				case "agent_id":
-					serverConfig.AgentID = val
-					appLogger.Info("Server config override", "key", "agent_id", "value", val)
-				case "server_upload_interval":
-					if interval, err := strconv.Atoi(val); err == nil {
-						serverConfig.UploadInterval = interval
-						appLogger.Info("Server config override", "key", "upload_interval", "value", val)
-					}
-				case "server_heartbeat_interval":
-					if interval, err := strconv.Atoi(val); err == nil {
-						serverConfig.HeartbeatInterval = interval
-						appLogger.Info("Server config override", "key", "heartbeat_interval", "value", val)
-					}
-				}
-			}
-		}
-
-		// Apply defaults
-		if serverConfig.UploadInterval == 0 {
-			serverConfig.UploadInterval = 300 // Default 5 minutes
-		}
-		if serverConfig.HeartbeatInterval == 0 {
-			serverConfig.HeartbeatInterval = 60 // Default 1 minute
-		}
-
-		// Validate configuration
-		if serverConfig.Enabled {
-			if serverConfig.URL == "" {
-				appLogger.Error("Server enabled but no URL configured")
-				serverConfig.Enabled = false
-			}
-			if serverConfig.AgentID == "" {
-				appLogger.Error("Server enabled but no agent_id configured")
-				serverConfig.Enabled = false
 			}
 
-			if serverConfig.Enabled {
-				appLogger.Info("Server integration enabled",
-					"url", serverConfig.URL,
-					"agent_id", serverConfig.AgentID,
-					"upload_interval", serverConfig.UploadInterval,
-					"heartbeat_interval", serverConfig.HeartbeatInterval)
-
-				// Start upload worker for server communication
-				go func() {
-					serverClient := agent.NewServerClient(
-						serverConfig.URL,
-						serverConfig.AgentID,
-						serverConfig.Token,
-					)
-
-					workerConfig := UploadWorkerConfig{
-						HeartbeatInterval: time.Duration(serverConfig.HeartbeatInterval) * time.Second,
-						UploadInterval:    time.Duration(serverConfig.UploadInterval) * time.Second,
-						RetryAttempts:     3,
-						RetryBackoff:      2 * time.Second,
-					}
-
-					uploadWorker := NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig)
-
-					// Start worker (will register if needed)
-					ctx := context.Background()
-					if err := uploadWorker.Start(ctx, Version); err != nil {
-						appLogger.Error("Failed to start upload worker", "error", err)
-						return
-					}
-
-					// Save token after successful registration
-					if token := serverClient.GetToken(); token != "" && token != serverConfig.Token {
-						serverConfig.Token = token
-						if agentConfigStore != nil {
-							if err := agentConfigStore.SetConfigValue("server_config", serverConfig); err != nil {
-								appLogger.Warn("Failed to save server token", "error", err)
-							} else {
-								appLogger.Info("Server token saved to config")
-							}
-						}
-					}
-
-					// Worker runs until agent shuts down
-					// TODO: Add graceful shutdown handler
-				}()
-			}
-		}
+			// Worker runs until agent shuts down
+			// TODO: Add graceful shutdown handler
+		}()
 	}
 
-	// Check discovery settings and start auto-discovery and live discovery methods if enabled
+	// Load discovery settings from database (user-configurable via web UI)
 	{
 		var discoverySettings map[string]interface{}
 		if agentConfigStore != nil {

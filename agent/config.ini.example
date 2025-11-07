@@ -30,15 +30,26 @@
 # Enable server communication (true/false, default: false)
 #server_enabled=false
 
-# Server URL (required if server_enabled=true)
-#server_url=http://localhost:9090
+# Server URL (HTTPS recommended, required if server_enabled=true)
+# Examples:
+#   https://printmaster.company.com        (production with Let's Encrypt)
+#   https://printmaster.company.com:9443   (custom HTTPS port)
+#   http://localhost:9090                  (development only - not secure!)
+#server_url=https://printmaster.company.com
 
 # Unique agent identifier (required if server_enabled=true)
 # Use descriptive names like: agent-headquarters, agent-warehouse-1
 #agent_id=agent-001
+
+# Server CA certificate path (optional)
+# Required for self-signed server certificates in development
+# Leave empty for Let's Encrypt or other public CAs (uses system trust store)
+# Example: Place server's server.crt file here and specify path
+#server_ca_path=server-ca.pem
 
 # How often to upload devices to server (seconds, default: 300 = 5 minutes)
 #server_upload_interval=300
 
 # How often to send heartbeat to server (seconds, default: 60 = 1 minute)
 #server_heartbeat_interval=60
+
