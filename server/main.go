@@ -1312,7 +1312,7 @@ func getDefaultDBPath() string {
 	if os.Getenv("DOCKER") == "true" || fileExists("/var/lib/printmaster") {
 		return "/var/lib/printmaster/server/printmaster.db"
 	}
-	
+
 	switch runtime.GOOS {
 	case "windows":
 		return `C:\ProgramData\PrintMaster\server.db`
