@@ -14,7 +14,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
+	"printmaster/common/config"
 	"printmaster/common/logger"
 	"printmaster/server/storage"
 	"printmaster/server/util"
@@ -117,10 +117,10 @@ func runServer(ctx context.Context) {
 	}
 
 	// Determine log directory based on whether we're running as a service
-	logDir := filepath.Join(filepath.Dir(cfg.Database.Path), "logs")
-	if !service.Interactive() {
-		// Running as service - use platform-specific system directory
-		logDir = getServiceLogDir()
+	isService := !service.Interactive()
+	logDir, err := config.GetLogDirectory("server", isService)
+	if err != nil {
+		log.Fatalf("Failed to get log directory: %v", err)
 	}
 
 	serverLogger = logger.New(logger.LevelFromString(cfg.Logging.Level), logDir, 1000)

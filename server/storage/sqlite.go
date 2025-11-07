@@ -618,12 +618,12 @@ func (s *SQLiteStore) Close() error {
 func GetDefaultDBPath() string {
 	switch runtime.GOOS {
 	case "windows":
-		return `C:\ProgramData\PrintMaster\server.db`
+		return `C:\ProgramData\PrintMaster\server\server.db`
 	case "darwin":
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, "Library/Application Support/PrintMaster/server.db")
+		return filepath.Join(home, "Library/Application Support/PrintMaster/server/server.db")
 	default: // linux, etc.
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".local/share/printmaster/server.db")
+		return filepath.Join(home, ".local/share/printmaster/server/server.db")
 	}
 }
