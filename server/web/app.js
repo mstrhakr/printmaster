@@ -10,6 +10,9 @@ document.addEventListener('DOMContentLoaded', function () {
     // Initialize tabs
     initTabs();
     
+    // Check config status and show warning if needed
+    checkConfigStatus();
+    
     // Load initial data
     loadServerStatus();
     loadAgents();
@@ -18,6 +21,36 @@ document.addEventListener('DOMContentLoaded', function () {
     setInterval(loadServerStatus, 30000); // Every 30 seconds
     setInterval(loadAgents, 60000); // Every 60 seconds
 });
+
+// ====== Config Status Check ======
+function checkConfigStatus() {
+    fetch('/api/config/status')
+        .then(res => res.json())
+        .then(data => {
+            if (data.errors && data.errors.length > 0) {
+                // Config errors found - show modal with details
+                let message = 'The server configuration file(s) failed to load:\n\n';
+                data.errors.forEach(err => {
+                    message += `• ${err}\n`;
+                });
+                message += '\nThe server is running with default settings. Please check your config.toml file.';
+                
+                showAlert(message, '⚠️ Configuration Error', true);
+            } else if (data.using_defaults) {
+                // No config file found - show informational modal
+                let message = 'No configuration file was found in any of these locations:\n\n';
+                data.searched_paths.forEach(path => {
+                    message += `• ${path}\n`;
+                });
+                message += '\nThe server is running with default settings.';
+                
+                showAlert(message, 'ℹ️ Using Default Configuration', false);
+            }
+        })
+        .catch(err => {
+            console.error('Failed to check config status:', err);
+        });
+}
 
 // ====== Theme Toggle ======
 function initThemeToggle() {
@@ -197,6 +230,66 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
         if (closeX) closeX.addEventListener('click', onCancel);
         modal.addEventListener('click', onBackdropClick);
     });
+}
+
+// Alert-style modal (no cancel button, just OK to dismiss)
+function showAlert(message, title = 'Notice', isDangerous = false) {
+    const modal = document.getElementById('confirm_modal');
+    const titleEl = document.getElementById('confirm_modal_title');
+    const messageEl = document.getElementById('confirm_modal_message');
+    const confirmBtn = document.getElementById('confirm_modal_confirm');
+    const cancelBtn = document.getElementById('confirm_modal_cancel');
+    const closeX = document.getElementById('confirm_modal_close_x');
+    
+    if (!modal || !titleEl || !messageEl || !confirmBtn) {
+        alert(message);
+        return;
+    }
+    
+    // Set content
+    titleEl.textContent = title;
+    messageEl.style.whiteSpace = 'pre-wrap'; // Preserve line breaks
+    messageEl.textContent = message;
+    
+    // Style confirm button
+    confirmBtn.textContent = 'OK';
+    confirmBtn.className = isDangerous ? 
+        'modal-button modal-button-danger' : 
+        'modal-button modal-button-primary';
+    
+    // Hide cancel button for alert style
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    
+    // Show modal
+    modal.style.display = 'flex';
+    
+    // Handle dismiss
+    const onDismiss = () => {
+        cleanup();
+    };
+    
+    // Cleanup function
+    const cleanup = () => {
+        modal.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.display = ''; // Restore for future confirms
+        messageEl.style.whiteSpace = ''; // Reset style
+        confirmBtn.textContent = 'Confirm'; // Reset text
+        confirmBtn.removeEventListener('click', onDismiss);
+        if (closeX) closeX.removeEventListener('click', onDismiss);
+        modal.removeEventListener('click', onBackdropClick);
+    };
+    
+    // Backdrop click closes modal
+    const onBackdropClick = (e) => {
+        if (e.target === modal) {
+            onDismiss();
+        }
+    };
+    
+    // Attach event listeners
+    confirmBtn.addEventListener('click', onDismiss);
+    if (closeX) closeX.addEventListener('click', onDismiss);
+    modal.addEventListener('click', onBackdropClick);
 }
 
 // ====== Server Status ======
