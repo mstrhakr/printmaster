@@ -2587,7 +2587,14 @@ async function loadDeviceMetrics(serial, targetId) {
     // Create interactive metrics UI
     let html = '';
 
-    // Datetime range picker - always visible
+    // Toggle to show/hide the datetime selector (hidden by default)
+    const toggleTarget = targetId || '';
+    html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">';
+    html += '<button id="metrics_toggle_time_btn" onclick="toggleMetricsTimeSelector(\'' + toggleTarget + '\')" aria-expanded="false" style="padding:6px 10px;font-size:13px">Show time selector</button>';
+    html += '</div>';
+
+    // Datetime range picker - hidden by default
+    html += '<div id="metrics_time_selector" class="hidden">';
     html += '<div id="metrics_custom_range" style="margin-bottom:16px;padding:16px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px">';
 
     // Quick preset buttons (will be enabled/disabled based on available data)
@@ -2599,7 +2606,8 @@ async function loadDeviceMetrics(serial, targetId) {
     html += '<button id="preset_month" onclick="setMetricsQuickRange(\'month\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last 30 Days</button>';
     html += '<button id="preset_year" onclick="setMetricsQuickRange(\'year\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last Year</button>';
     html += '<button id="preset_all" onclick="setMetricsQuickRange(\'all\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">All Time</button>';
-    html += '</div>';
+    html += '</div>'; // close metrics_custom_range
+    html += '</div>'; // close metrics_time_selector
     html += '</div>';
 
     // Custom datetime range picker with flatpickr
@@ -4897,6 +4905,27 @@ function closeDeviceMetricsModal() {
     const esc = overlay._escHandler;
     if (esc) document.removeEventListener('keydown', esc);
     overlay.remove();
+}
+
+// Toggle the visibility of the metrics time selector for a given container.
+// targetId: optional id of the container that holds the metrics UI (e.g. 'metrics_modal_body' or 'metrics_content').
+function toggleMetricsTimeSelector(targetId) {
+    try {
+        let container = null;
+        if (targetId) container = document.getElementById(targetId);
+        // Fallbacks: modal body or generic metrics content
+        if (!container) container = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content') || document.body;
+
+        const selector = container.querySelector('#metrics_time_selector');
+        const btn = container.querySelector('#metrics_toggle_time_btn');
+        if (!selector || !btn) return;
+
+        const nowHidden = selector.classList.toggle('hidden');
+        btn.textContent = nowHidden ? 'Show time selector' : 'Hide time selector';
+        btn.setAttribute('aria-expanded', (!nowHidden).toString());
+    } catch (e) {
+        console.warn('toggleMetricsTimeSelector failed', e);
+    }
 }
 
 // Initialize UI after all functions are defined
