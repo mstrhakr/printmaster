@@ -205,6 +205,17 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 	wsConnections[agent.AgentID] = conn
 	wsConnectionsLock.Unlock()
 
+	// Broadcast agent_connected event to UI via SSE
+	if sseHub != nil {
+		sseHub.Broadcast(SSEEvent{
+			Type: "agent_connected",
+			Data: map[string]interface{}{
+				"agent_id": agent.AgentID,
+				"name":     agent.Name,
+			},
+		})
+	}
+
 	// Handle connection cleanup on exit
 	defer func() {
 		wsConnectionsLock.Lock()
@@ -212,6 +223,16 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			delete(wsConnections, agent.AgentID)
 			if serverLogger != nil {
 				serverLogger.Info("Agent WebSocket disconnected", "agent_id", agent.AgentID)
+			}
+
+			// Broadcast agent_disconnected event to UI via SSE
+			if sseHub != nil {
+				sseHub.Broadcast(SSEEvent{
+					Type: "agent_disconnected",
+					Data: map[string]interface{}{
+						"agent_id": agent.AgentID,
+					},
+				})
 			}
 		}
 		wsConnectionsLock.Unlock()
