@@ -2888,34 +2888,57 @@ window.refreshMetricsChart = async function (serial) {
             let tableHtml = '<div id="' + tableContainerId + '" class="metrics-table-container" style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.05);border-radius:6px;overflow-x:auto">';
             tableHtml += '<table class="metrics-table" style="border-collapse:collapse;min-width:800px;font-size:13px">';
             tableHtml += '<thead><tr style="border-bottom:2px solid rgba(255,255,255,0.06)">';
+            // Timestamp header includes inline delete button column
             tableHtml += '<th style="padding:8px 12px;text-align:left">Timestamp</th>';
             tableHtml += '<th style="padding:8px 12px;text-align:right">Total</th>';
             tableHtml += '<th style="padding:8px 12px;text-align:right">Color</th>';
             tableHtml += '<th style="padding:8px 12px;text-align:right">Mono</th>';
             tableHtml += '<th style="padding:8px 12px;text-align:right">Scans</th>';
             tableHtml += '<th style="padding:8px 12px;text-align:right">Fax</th>';
-            tableHtml += '<th style="padding:8px 12px;text-align:center">&nbsp;</th>';
             tableHtml += '</tr></thead><tbody>';
 
             history.forEach(item => {
                 const ts = new Date(item.timestamp).toLocaleString();
                 tableHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-                tableHtml += '<td style="padding:8px 12px">' + ts + ' <span style="color:var(--muted);font-size:11px;margin-left:6px">(' + (item.tier || 'raw') + ')</span></td>';
+                // Place delete button inline with timestamp (right-aligned within the same cell)
+                tableHtml += '<td style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">';
+                tableHtml += '<span>' + ts + ' <span style="color:var(--muted);font-size:11px;margin-left:6px">(' + (item.tier || 'raw') + ')</span></span>';
+                tableHtml += '<span style="margin-left:12px">';
+                tableHtml += '<button class="trash-btn" data-id="' + (item.id || '') + '" data-tier="' + (item.tier || '') + '" title="Delete this metrics row"></button>';
+                tableHtml += '</span>';
+                tableHtml += '</td>';
                 tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.page_count||0).toLocaleString()) + '</td>';
                 tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.color_pages||0).toLocaleString()) + '</td>';
                 tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.mono_pages||0).toLocaleString()) + '</td>';
                 tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.scan_count||0).toLocaleString()) + '</td>';
                 tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.fax_pages||0).toLocaleString()) + '</td>';
-                tableHtml += '<td style="padding:8px 12px;text-align:center">';
-                tableHtml += '<button class="trash-btn" data-id="' + (item.id || '') + '" data-tier="' + (item.tier || '') + '" title="Delete this metrics row"></button>';
-                tableHtml += '</td>';
                 tableHtml += '</tr>';
             });
 
             tableHtml += '</tbody></table></div>';
             // Append or replace existing table container
-            const existing = document.getElementById('metrics_table_container');
-            if (existing) existing.outerHTML = tableHtml; else canvas.insertAdjacentHTML('afterend', tableHtml);
+            // Create a stable panel wrapper with id so we can reliably find/replace it later
+            const panelId = 'metrics_rows_panel';
+            const panelHtml = '<div class="panel" id="' + panelId + '"><h4 style="margin-top:0;color:var(--highlight)">Metrics Rows</h4>' + tableHtml + '</div>';
+
+            // Remove existing panel if present
+            const old = document.getElementById(panelId);
+            if (old && old.parentElement) old.parentElement.removeChild(old);
+
+            // Insert after the Metrics History panel if possible
+            const contentEl = document.getElementById('metrics_content');
+            if (contentEl) {
+                const metricsPanel = contentEl.closest('.panel');
+                if (metricsPanel && metricsPanel.parentElement) {
+                    metricsPanel.insertAdjacentHTML('afterend', panelHtml);
+                } else {
+                    // Fallback: append to metrics_content
+                    contentEl.insertAdjacentHTML('beforeend', panelHtml);
+                }
+            } else {
+                // Last resort: put after canvas
+                canvas.insertAdjacentHTML('afterend', panelHtml);
+            }
 
             // Delegate click handler for delete buttons
             const metricsContent = document.getElementById('metrics_content');
