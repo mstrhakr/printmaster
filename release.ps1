@@ -23,6 +23,9 @@ param(
     [switch]$SkipPush,
     
     [Parameter()]
+    [switch]$CreateGitHubRelease,
+    
+    [Parameter()]
     [switch]$DryRun
 )
 
@@ -563,15 +566,21 @@ try {
     # Push to GitHub
     Push-Release
     
-    # Create GitHub Release (using pre-generated changelogs)
-    if ($Component -eq "both") {
-        # Create releases for both components using pre-generated changelogs
-        New-GitHubRelease -Tag "agent-v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New -ChangelogContent $agentChangelog
-        New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New -ChangelogContent $serverChangelog
-    } elseif ($Component -eq "agent") {
-        New-GitHubRelease -Tag "agent-v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion -ChangelogContent $changelog
+    # Create GitHub Release (optional - CI/CD will create it with all assets)
+    if ($CreateGitHubRelease) {
+        Write-Status "Creating GitHub Release..." "INFO"
+        if ($Component -eq "both") {
+            # Create releases for both components using pre-generated changelogs
+            New-GitHubRelease -Tag "agent-v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New -ChangelogContent $agentChangelog
+            New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New -ChangelogContent $serverChangelog
+        } elseif ($Component -eq "agent") {
+            New-GitHubRelease -Tag "agent-v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion -ChangelogContent $changelog
+        } else {
+            New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion -ChangelogContent $changelog
+        }
     } else {
-        New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion -ChangelogContent $changelog
+        Write-Status "Skipping GitHub release creation - CI/CD will create it with all assets" "INFO"
+        Write-Status "GitHub Actions will create the release after building Docker images and binaries" "INFO"
     }
     
     # Summary
