@@ -15,6 +15,7 @@ PrintMaster is a cross-platform printer/copier fleet management system built for
 - **📊 Fleet Monitoring** - Track device status, counters, supplies across all sites
 - **🏢 Multi-Site Support** - Central server aggregates data from distributed agents
 - **⚡ Real-Time Communication** - WebSocket-based live heartbeat for instant status updates
+- **🌐 WebSocket Proxy** - Access agent UIs and device web interfaces through secure WebSocket tunnels
 - **🐳 Docker Ready** - Container images for easy deployment (Unraid, Docker Compose)
 - **🌐 Web UI** - Modern interface for configuration and monitoring
 - **📈 Scalable** - Tested with large deployments (1000+ devices)
@@ -183,10 +184,22 @@ PrintMaster uses **WebSocket** connections for live agent heartbeat and status u
 - **Instant Status** - Agents connect via WebSocket for real-time presence detection
 - **Auto-Reconnect** - Exponential backoff (5s to 5min) ensures reliable recovery
 - **HTTP Fallback** - Seamless degradation to HTTP POST if WebSocket unavailable
+- **HTTP Proxy** - Access agent UIs and device web interfaces through WebSocket tunnels (see [docs/WEBSOCKET_PROXY.md](docs/WEBSOCKET_PROXY.md))
 - **Efficient** - Single persistent connection reduces bandwidth vs. polling
 - **Scalable** - Handles multiple concurrent agent connections
 
 The WebSocket connection is established at `/api/v1/agents/ws` with token authentication. If the WebSocket fails, agents automatically fall back to HTTP heartbeat at `/api/v1/agents/heartbeat` (default: every 60 seconds).
+
+### WebSocket Proxy Feature
+
+Access agent web UIs and device admin pages from anywhere through secure WebSocket tunnels:
+
+- **Remote Access** - Access agents behind NAT/firewalls without port forwarding
+- **Device Management** - Open printer/copier web interfaces directly from server UI
+- **One-Click Access** - "Open UI" buttons on agent and device cards
+- **Transparent** - Works with any HTTP-based device web interface
+
+See [docs/WEBSOCKET_PROXY.md](docs/WEBSOCKET_PROXY.md) for details.
 
 ## Where to Look
 

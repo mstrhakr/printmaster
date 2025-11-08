@@ -1,0 +1,21 @@
+# Test binaries
+*.test
+*.exe
+
+# Coverage files
+*.out
+coverage.html
+
+# Test databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Logs from test runs
+*.log
+test_output/
+
+# Go workspace
+go.work
+go.work.sum

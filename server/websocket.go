@@ -28,6 +28,10 @@ var (
 	// Track active WebSocket connections by agent ID (string)
 	wsConnections     = make(map[string]*websocket.Conn)
 	wsConnectionsLock sync.RWMutex
+
+	// Track pending proxy requests awaiting responses from agents
+	proxyRequests     = make(map[string]chan WSMessage) // key: requestID
+	proxyRequestsLock sync.RWMutex
 )
 
 // WSMessage represents a WebSocket message (matches agent's structure)
@@ -36,6 +40,15 @@ type WSMessage struct {
 	Data      map[string]interface{} `json:"data,omitempty"`
 	Timestamp time.Time              `json:"timestamp"`
 }
+
+// WebSocket message types
+const (
+	MessageTypeHeartbeat     = "heartbeat"
+	MessageTypePong          = "pong"
+	MessageTypeError         = "error"
+	MessageTypeProxyRequest  = "proxy_request"
+	MessageTypeProxyResponse = "proxy_response"
+)
 
 // handleAgentWebSocket handles WebSocket connections from agents
 func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore storage.Store) {
@@ -234,6 +247,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		switch msg.Type {
 		case "heartbeat":
 			handleWSHeartbeat(conn, agent, msg, serverStore)
+		case MessageTypeProxyResponse:
+			handleWSProxyResponse(msg)
 		default:
 			log.Printf("Unknown WebSocket message type from agent %s: %s", agent.AgentID, msg.Type)
 			sendWSError(conn, "Unknown message type")
@@ -312,4 +327,68 @@ func isAgentConnectedWS(agentID string) bool {
 	defer wsConnectionsLock.RUnlock()
 	_, exists := wsConnections[agentID]
 	return exists
+}
+
+// handleWSProxyResponse handles HTTP proxy responses from agents
+func handleWSProxyResponse(msg WSMessage) {
+	requestID, ok := msg.Data["request_id"].(string)
+	if !ok {
+		log.Printf("Proxy response missing request_id")
+		return
+	}
+
+	// Find the waiting channel for this request
+	proxyRequestsLock.Lock()
+	respChan, exists := proxyRequests[requestID]
+	if exists {
+		delete(proxyRequests, requestID)
+	}
+	proxyRequestsLock.Unlock()
+
+	if !exists {
+		log.Printf("Received proxy response for unknown request ID: %s", requestID)
+		return
+	}
+
+	// Send response to waiting HTTP handler (non-blocking with timeout)
+	select {
+	case respChan <- msg:
+		// Successfully delivered
+	case <-time.After(5 * time.Second):
+		log.Printf("Timeout delivering proxy response for request ID: %s", requestID)
+	}
+}
+
+// sendProxyRequest sends an HTTP proxy request to an agent via WebSocket
+func sendProxyRequest(agentID string, requestID string, targetURL string, method string,
+	headers map[string]string, body string) error {
+
+	conn, exists := getAgentWSConnection(agentID)
+	if !exists {
+		return fmt.Errorf("agent not connected via WebSocket")
+	}
+
+	msg := WSMessage{
+		Type: MessageTypeProxyRequest,
+		Data: map[string]interface{}{
+			"request_id": requestID,
+			"url":        targetURL,
+			"method":     method,
+			"headers":    headers,
+			"body":       body,
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal proxy request: %w", err)
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		return fmt.Errorf("failed to send proxy request: %w", err)
+	}
+
+	return nil
 }

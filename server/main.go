@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -930,6 +931,11 @@ func setupRoutes() {
 	http.HandleFunc("/api/v1/agents/ws", func(w http.ResponseWriter, r *http.Request) { // WebSocket endpoint
 		handleAgentWebSocket(w, r, serverStore)
 	})
+
+	// Proxy endpoints - proxy HTTP requests through agent WebSocket
+	http.HandleFunc("/api/v1/proxy/agent/", handleAgentProxy)   // Proxy to agent's own web UI
+	http.HandleFunc("/api/v1/proxy/device/", handleDeviceProxy) // Proxy to device web UI through agent
+
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	http.HandleFunc("/api/v1/devices/list", handleDevicesList) // List all devices (for UI)
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
@@ -1207,6 +1213,199 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(agent)
+}
+
+// handleAgentProxy proxies HTTP requests to the agent's own web UI through WebSocket
+func handleAgentProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract agent ID from path: /api/v1/proxy/agent/{agentID}/{path...}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/proxy/agent/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) < 1 || parts[0] == "" {
+		http.Error(w, "Agent ID required", http.StatusBadRequest)
+		return
+	}
+
+	agentID := parts[0]
+	targetPath := "/"
+	if len(parts) > 1 {
+		targetPath = "/" + parts[1]
+	}
+
+	// Add query string if present
+	if r.URL.RawQuery != "" {
+		targetPath += "?" + r.URL.RawQuery
+	}
+
+	// Check if agent is connected via WebSocket
+	if !isAgentConnectedWS(agentID) {
+		http.Error(w, "Agent not connected via WebSocket", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get agent to determine local port (default 8080)
+	ctx := context.Background()
+	_, err := serverStore.GetAgent(ctx, agentID)
+	if err != nil {
+		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+
+	// Build target URL for agent's local web UI
+	// Agents typically run on http://localhost:8080
+	targetURL := fmt.Sprintf("http://localhost:8080%s", targetPath)
+
+	// TODO: Could add web_ui_port to agent metadata if needed
+
+	// Proxy the request through WebSocket
+	proxyThroughWebSocket(w, r, agentID, targetURL)
+}
+
+// handleDeviceProxy proxies HTTP requests to device web UIs through agent WebSocket
+func handleDeviceProxy(w http.ResponseWriter, r *http.Request) {
+	// Extract device serial from path: /api/v1/proxy/device/{serial}/{path...}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/proxy/device/")
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) < 1 || parts[0] == "" {
+		http.Error(w, "Device serial required", http.StatusBadRequest)
+		return
+	}
+
+	serial := parts[0]
+	targetPath := "/"
+	if len(parts) > 1 {
+		targetPath = "/" + parts[1]
+	}
+
+	// Add query string if present
+	if r.URL.RawQuery != "" {
+		targetPath += "?" + r.URL.RawQuery
+	}
+
+	// Get device to find its IP and associated agent
+	ctx := context.Background()
+	devices, err := serverStore.ListDevices(ctx, "")
+	if err != nil {
+		http.Error(w, "Failed to query devices", http.StatusInternalServerError)
+		return
+	}
+
+	var device *storage.Device
+	for _, dev := range devices {
+		if dev.Serial == serial {
+			device = dev
+			break
+		}
+	}
+
+	if device == nil {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	if device.IP == "" {
+		http.Error(w, "Device has no IP address", http.StatusBadRequest)
+		return
+	}
+
+	if device.AgentID == "" {
+		http.Error(w, "Device has no associated agent", http.StatusBadRequest)
+		return
+	}
+
+	// Check if agent is connected via WebSocket
+	if !isAgentConnectedWS(device.AgentID) {
+		http.Error(w, "Device's agent not connected via WebSocket", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Build target URL for device's web UI
+	targetURL := fmt.Sprintf("http://%s%s", device.IP, targetPath)
+
+	// Proxy the request through WebSocket
+	proxyThroughWebSocket(w, r, device.AgentID, targetURL)
+}
+
+// proxyThroughWebSocket sends an HTTP request through WebSocket and returns the response
+func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID string, targetURL string) {
+	// Generate unique request ID
+	requestID := fmt.Sprintf("%s-%d", agentID, time.Now().UnixNano())
+
+	// Create response channel
+	respChan := make(chan WSMessage, 1)
+
+	// Register the channel for this request
+	proxyRequestsLock.Lock()
+	proxyRequests[requestID] = respChan
+	proxyRequestsLock.Unlock()
+
+	// Clean up on exit
+	defer func() {
+		proxyRequestsLock.Lock()
+		delete(proxyRequests, requestID)
+		proxyRequestsLock.Unlock()
+		close(respChan)
+	}()
+
+	// Read request body if present
+	var bodyStr string
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err == nil {
+			bodyStr = base64.StdEncoding.EncodeToString(bodyBytes)
+		}
+	}
+
+	// Extract headers
+	headers := make(map[string]string)
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	// Send proxy request to agent via WebSocket
+	if err := sendProxyRequest(agentID, requestID, targetURL, r.Method, headers, bodyStr); err != nil {
+		if serverLogger != nil {
+			serverLogger.Error("Failed to send proxy request", "agent_id", agentID, "error", err)
+		}
+		http.Error(w, "Failed to send proxy request", http.StatusInternalServerError)
+		return
+	}
+
+	// Wait for response with timeout
+	select {
+	case resp := <-respChan:
+		// Got response from agent
+		statusCode := 200
+		if code, ok := resp.Data["status_code"].(float64); ok {
+			statusCode = int(code)
+		}
+
+		// Set response headers
+		if respHeaders, ok := resp.Data["headers"].(map[string]interface{}); ok {
+			for k, v := range respHeaders {
+				if vStr, ok := v.(string); ok {
+					w.Header().Set(k, vStr)
+				}
+			}
+		}
+
+		w.WriteHeader(statusCode)
+
+		// Write response body
+		if bodyB64, ok := resp.Data["body"].(string); ok {
+			bodyBytes, err := base64.StdEncoding.DecodeString(bodyB64)
+			if err == nil {
+				w.Write(bodyBytes)
+			}
+		}
+
+	case <-time.After(30 * time.Second):
+		http.Error(w, "Proxy request timeout", http.StatusGatewayTimeout)
+		if serverLogger != nil {
+			serverLogger.Warn("Proxy request timeout", "agent_id", agentID, "url", targetURL)
+		}
+	}
 }
 
 // Devices batch upload - agent sends discovered devices

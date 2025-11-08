@@ -1,8 +1,18 @@
 # Testing and CI guidelines
 
-This document describes how to write fast, deterministic tests for the PrintMaster agent.
+This document describes how to write fast, deterministic tests for the PrintMaster agent and server.
 
-Why mocking is necessary
+## Test Types
+
+PrintMaster has three levels of testing:
+
+1. **Unit Tests** - Test individual functions/packages in isolation (`agent/`, `server/`)
+2. **Integration Tests** - Test component interactions (e.g., database rotation)
+3. **End-to-End Tests** - Test full agent-server communication (see `tests/` directory)
+
+For E2E test details, see [`../tests/E2E_TESTING.md`](../tests/E2E_TESTING.md).
+
+## Why mocking is necessary
 -----------------------
 
 Network operations (ICMP, TCP connect, SNMP Get/Walk) are slow and flaky in CI. Unit tests must avoid touching the real network so they remain fast and reliable. The project uses small package-level factories and interfaces to make mocking easy.
@@ -47,4 +57,25 @@ Integration testing
 
 For full-network tests that exercise the real SNMP stack, maintain separate manual integration scripts (not executed by default in CI). Put those in `scripts/integration/` and document the required environment and credentials.
 
+## End-to-End Testing
+
+E2E tests that verify agent-server communication are located in the `tests/` directory at the project root. These tests:
+
+- Start actual server and agent instances
+- Test full workflows (registration, heartbeat, WebSocket, proxy)
+- Run in CI/CD after unit tests pass
+- Use ephemeral ports and temp databases
+
+See [`../tests/E2E_TESTING.md`](../tests/E2E_TESTING.md) for complete documentation.
+
+**Running E2E tests:**
+```bash
+cd tests
+go test -v ./...
+```
+
+**Skipping E2E tests (fast unit tests only):**
+```bash
+go test -short ./...
+```
 

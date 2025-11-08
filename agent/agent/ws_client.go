@@ -1,12 +1,17 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,9 +20,11 @@ import (
 
 // WebSocket message types
 const (
-	MessageTypeHeartbeat = "heartbeat"
-	MessageTypePong      = "pong"
-	MessageTypeError     = "error"
+	MessageTypeHeartbeat     = "heartbeat"
+	MessageTypePong          = "pong"
+	MessageTypeError         = "error"
+	MessageTypeProxyRequest  = "proxy_request"
+	MessageTypeProxyResponse = "proxy_response"
 )
 
 // WSMessage represents a WebSocket message
@@ -282,6 +289,9 @@ func (ws *WSClient) readLoop() {
 				// Pong received, connection is healthy
 			case MessageTypeError:
 				ws.logger.Printf("Server error: %v", msg.Data)
+			case MessageTypeProxyRequest:
+				// Handle proxy request from server
+				go ws.handleProxyRequest(msg)
 			default:
 				ws.logger.Printf("Unknown message type: %s", msg.Type)
 			}
@@ -350,4 +360,150 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 	}
 
 	return nil
+}
+
+// handleProxyRequest handles incoming HTTP proxy requests from the server
+func (ws *WSClient) handleProxyRequest(msg WSMessage) {
+	requestID, ok := msg.Data["request_id"].(string)
+	if !ok {
+		ws.logger.Printf("Proxy request missing request_id")
+		return
+	}
+
+	targetURL, ok := msg.Data["url"].(string)
+	if !ok {
+		ws.sendProxyError(requestID, "Missing target URL")
+		return
+	}
+
+	method, ok := msg.Data["method"].(string)
+	if !ok {
+		method = "GET"
+	}
+
+	// Extract headers
+	headers := make(map[string]string)
+	if headersData, ok := msg.Data["headers"].(map[string]interface{}); ok {
+		for k, v := range headersData {
+			if vStr, ok := v.(string); ok {
+				headers[k] = vStr
+			}
+		}
+	}
+
+	// Decode body if present
+	var bodyBytes []byte
+	if bodyB64, ok := msg.Data["body"].(string); ok {
+		decoded, err := base64.StdEncoding.DecodeString(bodyB64)
+		if err == nil {
+			bodyBytes = decoded
+		}
+	}
+
+	ws.logger.Printf("Proxying %s request to %s", method, targetURL)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+		},
+	}
+
+	// Create request
+	var req *http.Request
+	var err error
+	if len(bodyBytes) > 0 {
+		req, err = http.NewRequest(method, targetURL, bytes.NewReader(bodyBytes))
+	} else {
+		req, err = http.NewRequest(method, targetURL, nil)
+	}
+
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Failed to create request: %v", err))
+		return
+	}
+
+	// Set headers
+	for k, v := range headers {
+		// Skip hop-by-hop headers
+		if strings.EqualFold(k, "Connection") || strings.EqualFold(k, "Keep-Alive") ||
+			strings.EqualFold(k, "Proxy-Authenticate") || strings.EqualFold(k, "Proxy-Authorization") ||
+			strings.EqualFold(k, "TE") || strings.EqualFold(k, "Trailers") ||
+			strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Upgrade") {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+
+	// Execute request
+	resp, err := client.Do(req)
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Request failed: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Failed to read response: %v", err))
+		return
+	}
+
+	// Extract response headers
+	respHeaders := make(map[string]string)
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			respHeaders[k] = v[0]
+		}
+	}
+
+	// Send proxy response back to server
+	ws.sendProxyResponse(requestID, resp.StatusCode, respHeaders, respBody)
+}
+
+// sendProxyResponse sends a successful proxy response back to the server
+func (ws *WSClient) sendProxyResponse(requestID string, statusCode int, headers map[string]string, body []byte) {
+	ws.mu.RLock()
+	conn := ws.conn
+	connected := ws.connected
+	ws.mu.RUnlock()
+
+	if !connected || conn == nil {
+		ws.logger.Printf("Cannot send proxy response - not connected")
+		return
+	}
+
+	msg := WSMessage{
+		Type: MessageTypeProxyResponse,
+		Data: map[string]interface{}{
+			"request_id":  requestID,
+			"status_code": statusCode,
+			"headers":     headers,
+			"body":        base64.StdEncoding.EncodeToString(body),
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		ws.logger.Printf("Failed to marshal proxy response: %v", err)
+		return
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		ws.logger.Printf("Failed to send proxy response: %v", err)
+	}
+}
+
+// sendProxyError sends an error response for a failed proxy request
+func (ws *WSClient) sendProxyError(requestID string, errorMsg string) {
+	ws.logger.Printf("Proxy error for request %s: %s", requestID, errorMsg)
+
+	ws.sendProxyResponse(requestID, 502, map[string]string{
+		"Content-Type": "text/plain",
+	}, []byte(errorMsg))
 }

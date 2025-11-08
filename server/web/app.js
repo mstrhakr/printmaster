@@ -465,6 +465,9 @@ function renderAgentCard(agent) {
             
             <div class="device-card-actions">
                 <button onclick="viewAgentDetails('${agent.agent_id}')">View Details</button>
+                <button onclick="openAgentUI('${agent.agent_id}')" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+                    Open UI
+                </button>
             </div>
         </div>
     `;
@@ -698,6 +701,13 @@ function renderAgentDetailsModal(agent) {
                 </div>
             </div>
         </div>
+        
+        <!-- Action Buttons -->
+        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+            <button onclick="openAgentUI('${agent.agent_id}')" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+                Open Agent UI
+            </button>
+        </div>
     `;
 }
 
@@ -752,6 +762,11 @@ function renderDevices(devices) {
                     <span class="device-card-value">${device.agent_id || 'N/A'}</span>
                 </div>
             </div>
+            <div class="device-card-actions">
+                <button onclick="openDeviceUI('${device.serial}')" ${!device.ip || !device.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
+                    Open Web UI
+                </button>
+            </div>
         </div>
     `).join('');
 }
@@ -766,6 +781,19 @@ function copyToClipboard(text) {
         console.error('Failed to copy:', err);
         showToast('Failed to copy to clipboard', 'error');
     });
+}
+
+// ====== Proxy Functions ======
+function openAgentUI(agentId) {
+    // Open agent's web UI through WebSocket proxy in a new window
+    const proxyUrl = `/api/v1/proxy/agent/${agentId}/`;
+    window.open(proxyUrl, `agent-ui-${agentId}`, 'width=1200,height=800');
+}
+
+function openDeviceUI(serialNumber) {
+    // Open device's web UI through WebSocket proxy in a new window
+    const proxyUrl = `/api/v1/proxy/device/${serialNumber}/`;
+    window.open(proxyUrl, `device-ui-${serialNumber}`, 'width=1200,height=800');
 }
 
 // ====== Settings Management ======
