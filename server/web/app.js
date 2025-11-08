@@ -17,10 +17,55 @@ document.addEventListener('DOMContentLoaded', function () {
     loadServerStatus();
     loadAgents();
     
-    // Set up periodic refresh
+    // Set up periodic refresh for server status only
     setInterval(loadServerStatus, 30000); // Every 30 seconds
-    setInterval(loadAgents, 60000); // Every 60 seconds
+    
+    // Connect to SSE for real-time updates
+    connectSSE();
 });
+
+// ====== SSE Connection ======
+function connectSSE() {
+    const eventSource = new EventSource('/api/events');
+    
+    eventSource.addEventListener('connected', (e) => {
+        console.log('SSE connected:', e.data);
+    });
+    
+    eventSource.addEventListener('agent_registered', (e) => {
+        console.log('Agent registered:', e.data);
+        loadAgents(); // Reload agent list
+    });
+    
+    eventSource.addEventListener('agent_connected', (e) => {
+        console.log('Agent connected:', e.data);
+        loadAgents(); // Reload to show active status
+    });
+    
+    eventSource.addEventListener('agent_disconnected', (e) => {
+        console.log('Agent disconnected:', e.data);
+        loadAgents(); // Reload to show disconnected status
+    });
+    
+    eventSource.addEventListener('agent_heartbeat', (e) => {
+        console.log('Agent heartbeat:', e.data);
+        // Optionally update status without full reload
+    });
+    
+    eventSource.addEventListener('device_updated', (e) => {
+        console.log('Device updated:', e.data);
+        // Reload devices if we're on the devices tab
+        const devicesTab = document.querySelector('[data-tab="devices"]');
+        if (devicesTab && !devicesTab.classList.contains('hidden')) {
+            loadDevices();
+        }
+    });
+    
+    eventSource.onerror = (e) => {
+        console.error('SSE connection error:', e);
+        // EventSource will automatically try to reconnect
+    };
+}
 
 // ====== Config Status Check ======
 function checkConfigStatus() {
@@ -137,6 +182,15 @@ function initTabs() {
                 'logs': 'Logs'
             };
             label.textContent = 'Menu - ' + (tabNames[targetTab] || targetTab);
+        }
+        
+        // Load data for specific tabs
+        if (targetTab === 'devices') {
+            loadDevices();
+        } else if (targetTab === 'settings') {
+            loadSettings();
+        } else if (targetTab === 'logs') {
+            connectLogStream();
         }
     }
 }
@@ -718,8 +772,8 @@ function renderAgentDetailsModal(agent) {
 // ====== Delete Agent ======
 async function deleteAgent(agentId, displayName) {
     const confirmed = await showConfirm(
-        'Delete Agent',
         `Are you sure you want to delete agent "${displayName}"?\n\nThis will permanently remove the agent and all its associated devices and metrics. This action cannot be undone.`,
+        'Delete Agent',
         true // isDangerous
     );
     

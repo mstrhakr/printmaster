@@ -2021,8 +2021,8 @@ input[type="checkbox"]:indeterminate::before {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow-xl);
-  min-width: 400px;
-  max-width: 90%;
+  width: 100%;
+  max-width: 500px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
