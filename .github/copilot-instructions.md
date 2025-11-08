@@ -75,6 +75,7 @@
 - **Dependency injection**: Pass interfaces to constructors (see `UploadWorker`, `Scanner`)
 - **Context propagation**: Use `context.Context` for cancellation/timeout (all SNMP queries)
 - **Embed for UI**: `//go:embed web` for bundling static assets
+- **Shared web assets**: `common/web/shared.go` contains CSS constants served by both agent/server (see `docs/SHARED_WEB_ASSETS.md`)
 - **Structured logging**: Use `common/logger` with SSE streaming to UI
 
 ---
@@ -127,6 +128,11 @@
 - Dev builds: Full debug info, no stripping
 - Release builds: Optimized, stripped symbols
 - See `build.ps1` for implementation
+
+**Service Operations**:
+- Both agent and server support service installation: `--service install/uninstall/start/stop`
+- Use `--quiet` or `-q` flag to suppress informational output during automation (see `docs/QUIET_MODE.md`)
+- Errors and warnings still displayed in quiet mode for safety
 
 ### VS Code Integration
 **Tasks (Ctrl+Shift+B)**:

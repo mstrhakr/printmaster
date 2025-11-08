@@ -34,6 +34,9 @@ sudo launchctl load /Library/LaunchDaemons/com.printmaster.agent.plist
 # Install as system service
 printmaster-agent --service install
 
+# Install silently (automation/scripts)
+printmaster-agent --service install --quiet
+
 # Uninstall service
 printmaster-agent --service uninstall
 
@@ -49,6 +52,8 @@ printmaster-agent --service run
 # Standard interactive mode (default)
 printmaster-agent
 ```
+
+**Quiet Mode**: Use `--quiet` or `-q` to suppress informational output during service operations. Perfect for automated deployments and scripts. See [Quiet Mode Documentation](QUIET_MODE.md) for details.
 
 ## Architecture
 
