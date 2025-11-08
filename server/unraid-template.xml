@@ -26,6 +26,10 @@
   <Config Name="Data Directory" Target="/var/lib/printmaster/server" Default="/mnt/user/appdata/printmaster-server/data" Mode="rw" Description="Database and persistent data storage" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printmaster-server/data</Config>
   <Config Name="Logs Directory" Target="/var/log/printmaster/server" Default="/mnt/user/appdata/printmaster-server/logs" Mode="rw" Description="Application logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/printmaster-server/logs</Config>
   <Config Name="Config File" Target="/var/lib/printmaster/server/config.toml" Default="/mnt/user/appdata/printmaster-server/config.toml" Mode="rw" Description="Configuration file (optional - will use defaults if not provided)" Type="Path" Display="advanced" Required="false" Mask="false">/mnt/user/appdata/printmaster-server/config.toml</Config>
+  <!-- Optional: run container as this host UID -->
+  <Config Name="PUID" Target="PUID" Default="1000" Mode="" Description="Host user id to run container as (set to your Unraid user id)." Type="Variable" Display="advanced" Required="false" Mask="false">1000</Config>
+  <!-- Optional: run container as this host GID -->
+  <Config Name="PGID" Target="PGID" Default="1000" Mode="" Description="Host group id to run container as (set to your Unraid group id)." Type="Variable" Display="advanced" Required="false" Mask="false">1000</Config>
   <Config Name="Server Port" Target="SERVER_PORT" Default="9090" Mode="" Description="Port for the server to listen on" Type="Variable" Display="advanced" Required="false" Mask="false">9090</Config>
   <Config Name="HTTPS Port (Env)" Target="HTTPS_PORT" Default="9443" Mode="" Description="HTTPS port (only used if HTTPS is enabled)" Type="Variable" Display="advanced" Required="false" Mask="false">9443</Config>
   <Config Name="Behind Reverse Proxy" Target="BEHIND_PROXY" Default="false" Mode="" Description="Set to 'true' if using Nginx Proxy Manager or similar" Type="Variable" Display="always" Required="false" Mask="false">false</Config>

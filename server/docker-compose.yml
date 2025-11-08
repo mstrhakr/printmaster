@@ -10,7 +10,10 @@ services:
         BUILD_TIME: ${BUILD_TIME}
         GIT_COMMIT: ${GIT_COMMIT}
     image: ghcr.io/mstrhakr/printmaster-server:${VERSION:-latest}
-    container_name: printmaster-server
+  container_name: printmaster-server
+  # Run container as configurable UID:GID (useful on Unraid or systems using non-root container users)
+  # Default to the image non-root user (65532) if PUID/PGID not provided
+  user: "${PUID:-65532}:${PGID:-65532}"
     restart: unless-stopped
     
     ports:
@@ -38,6 +41,9 @@ services:
       - TLS_MODE=self-signed
       # Database
       - DB_PATH=/var/lib/printmaster/server/printmaster.db
+  # Optional: map container runtime user to host UID/GID (use PUID/PGID in Unraid)
+  - PUID=${PUID:-65532}
+  - PGID=${PGID:-65532}
     
     networks:
       - printmaster-network
