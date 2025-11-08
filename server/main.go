@@ -1235,7 +1235,7 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-	
+
 	// Get all devices across all agents
 	devices, err := serverStore.ListDevices(ctx, "")
 	if err != nil {
