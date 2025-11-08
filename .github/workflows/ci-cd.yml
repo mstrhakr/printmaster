@@ -28,6 +28,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
+        cache: false
     
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -35,7 +36,7 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-agent-${{ hashFiles('**/agent/go.sum') }}
+        key: ${{ runner.os }}-go-agent-${{ hashFiles('agent/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-agent-
       continue-on-error: true
@@ -71,6 +72,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
+        cache: false
     
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -78,7 +80,7 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-server-${{ hashFiles('**/server/go.sum') }}
+        key: ${{ runner.os }}-go-server-${{ hashFiles('server/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-server-
       continue-on-error: true
@@ -114,6 +116,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
+        cache: false
     
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -121,7 +124,7 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-e2e-${{ hashFiles('**/tests/go.sum') }}
+        key: ${{ runner.os }}-go-e2e-${{ hashFiles('tests/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-e2e-
       continue-on-error: true
@@ -174,6 +177,18 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.23'
+        cache: false
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-build-${{ hashFiles('agent/go.sum', 'server/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-build-
+      continue-on-error: true
     
     - name: Get version
       id: version
