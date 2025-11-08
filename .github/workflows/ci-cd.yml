@@ -49,6 +49,17 @@ jobs:
       working-directory: ./agent
       run: go mod download
     
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+    
+    - name: Run go vet
+      working-directory: ./agent
+      run: go vet ./...
+    
+    - name: Run staticcheck
+      working-directory: ./agent
+      run: staticcheck ./...
+    
     - name: Run agent tests
       working-directory: ./agent
       run: go test -v -coverprofile=coverage.out ./...
@@ -92,6 +103,17 @@ jobs:
     - name: Download server dependencies
       working-directory: ./server
       run: go mod download
+    
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+    
+    - name: Run go vet
+      working-directory: ./server
+      run: go vet ./...
+    
+    - name: Run staticcheck
+      working-directory: ./server
+      run: staticcheck ./...
     
     - name: Run server tests
       working-directory: ./server

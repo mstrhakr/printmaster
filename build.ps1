@@ -95,6 +95,81 @@ function Remove-BuildArtifacts {
     Write-BuildLog "Clean complete" "SUCCESS"
 }
 
+function Test-Prerequisites {
+    Write-BuildLog "Checking build prerequisites..." "INFO"
+    
+    # Check Go installation
+    $goVersion = & go version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-BuildLog "Go is not installed or not in PATH" "ERROR"
+        Write-BuildLog "Install Go from: https://go.dev/dl/" "ERROR"
+        return $false
+    }
+    Write-BuildLog "Found: $goVersion" "SUCCESS"
+    
+    # Check for staticcheck
+    $staticcheckVersion = & staticcheck -version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-BuildLog "staticcheck not found - installing..." "WARN"
+        Write-BuildLog "Running: go install honnef.co/go/tools/cmd/staticcheck@latest" "INFO"
+        & go install honnef.co/go/tools/cmd/staticcheck@latest
+        if ($LASTEXITCODE -ne 0) {
+            Write-BuildLog "Failed to install staticcheck" "ERROR"
+            return $false
+        }
+        Write-BuildLog "staticcheck installed successfully" "SUCCESS"
+    } else {
+        Write-BuildLog "Found staticcheck: $staticcheckVersion" "SUCCESS"
+    }
+    
+    # Check git (for version injection)
+    $gitVersion = & git --version 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Write-BuildLog "Git not found - version info will be limited" "WARN"
+    } else {
+        Write-BuildLog "Found: $gitVersion" "SUCCESS"
+    }
+    
+    return $true
+}
+
+function Invoke-Linters {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Component
+    )
+    
+    Write-BuildLog "Running linters for $Component..." "INFO"
+    
+    $componentDir = Join-Path $ProjectRoot $Component
+    Push-Location $componentDir
+    
+    try {
+        # Run go vet
+        Write-BuildLog "Running go vet..." "INFO"
+        & go vet ./...
+        if ($LASTEXITCODE -ne 0) {
+            Write-BuildLog "go vet found issues" "ERROR"
+            return $false
+        }
+        Write-BuildLog "go vet: PASS" "SUCCESS"
+        
+        # Run staticcheck
+        Write-BuildLog "Running staticcheck..." "INFO"
+        & staticcheck ./...
+        if ($LASTEXITCODE -ne 0) {
+            Write-BuildLog "staticcheck found issues" "ERROR"
+            return $false
+        }
+        Write-BuildLog "staticcheck: PASS" "SUCCESS"
+        
+        return $true
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Build-Agent {
     param(
         [bool]$IsRelease = $false,
@@ -528,6 +603,12 @@ Write-BuildLog "=== PrintMaster Build Script ===" "INFO"
 Write-BuildLog "Target: $Target" "INFO"
 Write-BuildLog "Project Root: $ProjectRoot" "INFO"
 
+# Check prerequisites (Go, staticcheck, git)
+if (-not (Test-Prerequisites)) {
+    Write-BuildLog "Prerequisites check failed - cannot continue" "ERROR"
+    exit 1
+}
+
 $success = $false
 
 switch ($Target) {
@@ -536,12 +617,31 @@ switch ($Target) {
         $success = $true
     }
     'agent' {
+        # Run linters before build
+        if (-not (Invoke-Linters -Component 'agent')) {
+            Write-BuildLog "Linter checks failed for agent" "ERROR"
+            exit 1
+        }
         $success = Build-Agent -IsRelease:$Release -IncrementVersion:$IncrementVersion
     }
     'server' {
+        # Run linters before build
+        if (-not (Invoke-Linters -Component 'server')) {
+            Write-BuildLog "Linter checks failed for server" "ERROR"
+            exit 1
+        }
         $success = Build-Server -IsRelease:$Release -IncrementVersion:$IncrementVersion
     }
     'both' {
+        # Run linters for both components
+        if (-not (Invoke-Linters -Component 'agent')) {
+            Write-BuildLog "Linter checks failed for agent" "ERROR"
+            exit 1
+        }
+        if (-not (Invoke-Linters -Component 'server')) {
+            Write-BuildLog "Linter checks failed for server" "ERROR"
+            exit 1
+        }
         # Build both agent and server
         $success = Build-Agent -IsRelease:$Release -IncrementVersion:$IncrementVersion
         if ($success) {
