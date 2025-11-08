@@ -1,5 +1,49 @@
 // PrintMaster Shared JavaScript - Common utilities for Agent and Server UIs
 
+// Load shared vendor assets (flatpickr) from server-hosted copy if available,
+// otherwise fall back to CDN. This centralizes the import so agent and server
+// UIs get the same vendor script without duplicating <script> tags in each
+// HTML file.
+(function loadFlatpickr() {
+    const serverCss = '/static/vendor/flatpickr/flatpickr.min.css';
+    const serverJs = '/static/vendor/flatpickr/flatpickr.min.js';
+    const cdnCss = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
+    const cdnJs = 'https://cdn.jsdelivr.net/npm/flatpickr';
+
+    // Helper to insert a stylesheet
+    const insertCss = (href) => {
+        try {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = href;
+            document.head.appendChild(link);
+        } catch (e) {
+            console.error('Failed to insert flatpickr CSS:', e);
+        }
+    };
+
+    // Helper to insert a script
+    const insertJs = (src) => {
+        try {
+            const s = document.createElement('script');
+            s.src = src;
+            s.defer = true;
+            document.head.appendChild(s);
+        } catch (e) {
+            console.error('Failed to insert flatpickr JS:', e);
+        }
+    };
+
+    // Try server-hosted CSS/JS first (HEAD request), fall back to CDN on error.
+    fetch(serverCss, { method: 'HEAD' }).then(r => {
+        if (r.ok) insertCss(serverCss); else insertCss(cdnCss);
+    }).catch(() => insertCss(cdnCss));
+
+    fetch(serverJs, { method: 'HEAD' }).then(r => {
+        if (r.ok) insertJs(serverJs); else insertJs(cdnJs);
+    }).catch(() => insertJs(cdnJs));
+})();
+
 // ============================================================================
 // TOAST NOTIFICATION SYSTEM
 // ============================================================================

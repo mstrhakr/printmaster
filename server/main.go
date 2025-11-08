@@ -22,6 +22,7 @@ import (
 	commonutil "printmaster/common/util"
 	sharedweb "printmaster/common/web"
 	"printmaster/server/storage"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -1629,6 +1630,13 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		w.Header().Set("X-PrintMaster-Proxied", "true")
 		w.Header().Set("X-PrintMaster-Agent-ID", agentID)
 
+		// Remove server-level security headers that would block proxied agent content
+		// The agent side already strips or rewrites CSP/X-Frame headers; remove them here
+		// so the browser receives the agent-provided headers (or none) and the UI can load
+		// external scripts/styles (for example, CDN-hosted flatpickr) when proxied.
+		w.Header().Del("Content-Security-Policy")
+		w.Header().Del("X-Frame-Options")
+
 		w.WriteHeader(statusCode)
 
 		// Write response body
@@ -1643,6 +1651,35 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 					headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
 					if headIdx != -1 {
 						insertPos := headIdx + 6 // len("<head>")
+						// Remove any existing Content-Security-Policy meta tags in the agent HTML
+						// so the proxied page can either load inline-injected assets or its own assets
+						// when necessary. Use a case-insensitive regexp to strip meta tags like:
+						// <meta http-equiv="Content-Security-Policy" content="...">
+						cspRe := regexp.MustCompile(`(?i)<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*>`)
+						bodyStr = cspRe.ReplaceAllString(bodyStr, "")
+
+						// Also strip any meta X-Frame-Options if present
+						xfoRe := regexp.MustCompile(`(?i)<meta\s+http-equiv=["']X-Frame-Options["'][^>]*>`)
+						bodyStr = xfoRe.ReplaceAllString(bodyStr, "")
+
+						// Remove external flatpickr CSS/JS tags and ensure the page uses the
+						// server's shared assets (`/static/shared.css` and `/static/shared.js`).
+						// The shared.js loader will try to load flatpickr from CDN as needed.
+						flatCssRe := regexp.MustCompile(`(?i)<link[^>]+href=["'][^"']*flatpickr[^"']*\.css["'][^>]*>`)
+						bodyStr = flatCssRe.ReplaceAllString(bodyStr, "")
+
+						flatScriptRe := regexp.MustCompile(`(?i)<script[^>]+src=["'][^"']*flatpickr[^"']*\.js["'][^>]*>\s*</script\s*>`)
+						bodyStr = flatScriptRe.ReplaceAllString(bodyStr, "")
+
+						// Insert shared.css and shared.js if not already present
+						if !strings.Contains(strings.ToLower(bodyStr), "/static/shared.css") {
+							bodyStr = bodyStr[:insertPos] + `<link rel="stylesheet" href="/static/shared.css">` + bodyStr[insertPos:]
+							insertPos += len(`<link rel="stylesheet" href="/static/shared.css">`)
+						}
+						if !strings.Contains(strings.ToLower(bodyStr), "/static/shared.js") {
+							bodyStr = bodyStr[:insertPos] + `<script src="/static/shared.js"></script>` + bodyStr[insertPos:]
+						}
+
 						metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">`
 						bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
 						bodyBytes = []byte(bodyStr)
