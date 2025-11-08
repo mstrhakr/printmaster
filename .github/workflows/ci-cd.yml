@@ -16,12 +16,9 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
-    name: Run Tests
+  test-agent:
+    name: Test Agent
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        component: [agent, server]
     
     steps:
     - name: Checkout code
@@ -38,28 +35,71 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.component }}-${{ hashFiles(format('**/{0}/go.sum', matrix.component)) }}
+        key: ${{ runner.os }}-go-agent-${{ hashFiles('**/agent/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.component }}-
+          ${{ runner.os }}-go-agent-
       continue-on-error: true
     
     - name: Download common dependencies
       working-directory: ./common
       run: go mod download
     
-    - name: Download component dependencies
-      working-directory: ./${{ matrix.component }}
+    - name: Download agent dependencies
+      working-directory: ./agent
       run: go mod download
     
-    - name: Run tests
-      working-directory: ./${{ matrix.component }}
+    - name: Run agent tests
+      working-directory: ./agent
       run: go test -v -coverprofile=coverage.out ./...
     
     - name: Upload coverage
       uses: codecov/codecov-action@v4
       with:
-        file: ./${{ matrix.component }}/coverage.out
-        flags: ${{ matrix.component }}
+        file: ./agent/coverage.out
+        flags: agent
+        fail_ci_if_error: false
+
+  test-server:
+    name: Test Server
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-server-${{ hashFiles('**/server/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-server-
+      continue-on-error: true
+    
+    - name: Download common dependencies
+      working-directory: ./common
+      run: go mod download
+    
+    - name: Download server dependencies
+      working-directory: ./server
+      run: go mod download
+    
+    - name: Run server tests
+      working-directory: ./server
+      run: go test -v -coverprofile=coverage.out ./...
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./server/coverage.out
+        flags: server
         fail_ci_if_error: false
 
   test-e2e:
@@ -104,7 +144,7 @@ jobs:
 
   build-binaries:
     name: Build Release Binaries
-    needs: [test, test-e2e]
+    needs: [test-agent, test-server, test-e2e]
     if: github.event_name == 'release'
     runs-on: ${{ matrix.os }}
     strategy:
@@ -155,7 +195,7 @@ jobs:
         GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: 0
       run: |
-        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.agent_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
+        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.agent_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
     
     - name: Build Server
       working-directory: ./server
@@ -164,23 +204,23 @@ jobs:
         GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: 0
       run: |
-        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.server_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
+        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.server_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
     
     - name: Upload Agent Binary
       uses: actions/upload-artifact@v4
       with:
         name: agent-${{ matrix.goos }}-${{ matrix.goarch }}
-        path: agent/printmaster-agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+        path: agent/printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
     
     - name: Upload Server Binary
       uses: actions/upload-artifact@v4
       with:
         name: server-${{ matrix.goos }}-${{ matrix.goarch }}
-        path: server/printmaster-server-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+        path: server/printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
 
   build-docker:
     name: Build and Push Docker Images
-    needs: [test, test-e2e]
+    needs: [test-agent, test-server, test-e2e]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release'
     permissions:
@@ -259,11 +299,45 @@ jobs:
     - name: Create release archives
       run: |
         cd artifacts
+        
+        # Create proper archives based on platform
         for dir in */; do
-          tar czf "${dir%/}.tar.gz" "$dir"
+          name="${dir%/}"
+          
+          # Get the binary file inside
+          binary=$(find "$dir" -type f \( -executable -o -name "*.exe" \) | head -n 1)
+          
+          if [ -z "$binary" ]; then
+            echo "Warning: No binary found in $dir"
+            continue
+          fi
+          
+          binary_name=$(basename "$binary")
+          
+          # Copy raw binary to artifacts root for direct download
+          cp "$binary" "./${binary_name}"
+          
+          # Determine platform from directory name
+          if [[ "$name" == *"windows"* ]]; then
+            # Windows: Create .zip
+            (cd "$dir" && zip "../${name}.zip" *)
+          else
+            # Linux/macOS: Create .tar.gz
+            tar czf "${name}.tar.gz" -C "$dir" .
+          fi
         done
+        
+        # List created files
+        echo "=== Archives ==="
+        ls -lh *.zip *.tar.gz 2>/dev/null || true
+        echo "=== Raw Binaries ==="
+        ls -lh printmaster-* 2>/dev/null || true
     
     - name: Upload release assets
       uses: softprops/action-gh-release@v1
       with:
-        files: artifacts/*.tar.gz
+        files: |
+          artifacts/*.tar.gz
+          artifacts/*.zip
+          artifacts/printmaster-*
+        fail_on_unmatched_files: false
