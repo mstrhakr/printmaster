@@ -257,6 +257,121 @@ function Push-Release {
     Write-Status "Pushed to GitHub successfully" "SUCCESS"
 }
 
+function Get-ChangelogSinceLastTag {
+    param(
+        [string]$Component,
+        [string]$CurrentVersion
+    )
+    
+    # Get the last tag for this component
+    $tagPattern = if ($Component -eq 'server') { 'server-v*' } else { 'agent-v*' }
+    $lastTag = git tag -l $tagPattern --sort=-version:refname | Select-Object -First 1
+    
+    if (-not $lastTag) {
+        Write-Status "No previous tag found - this appears to be the first release" "INFO"
+        $commitRange = "HEAD"
+    } else {
+        Write-Status "Generating changelog since $lastTag" "INFO"
+        $commitRange = "$lastTag..HEAD"
+    }
+    
+    # Get commits and parse them
+    $commits = git log $commitRange --pretty=format:"%s|||%h" --no-merges 2>$null
+    
+    if (-not $commits) {
+        return "No changes since last release."
+    }
+    
+    # Group commits by type (conventional commits)
+    $features = @()
+    $fixes = @()
+    $docs = @()
+    $chores = @()
+    $refactors = @()
+    $tests = @()
+    $other = @()
+    
+    $commits | ForEach-Object {
+        $parts = $_ -split '\|\|\|'
+        $message = $parts[0]
+        $hash = $parts[1]
+        
+        # Parse conventional commit format
+        if ($message -match '^feat(\([^)]+\))?: (.+)$') {
+            $features += "- $($Matches[2]) ($hash)"
+        }
+        elseif ($message -match '^fix(\([^)]+\))?: (.+)$') {
+            $fixes += "- $($Matches[2]) ($hash)"
+        }
+        elseif ($message -match '^docs(\([^)]+\))?: (.+)$') {
+            $docs += "- $($Matches[2]) ($hash)"
+        }
+        elseif ($message -match '^chore(\([^)]+\))?: (.+)$') {
+            $chores += "- $($Matches[2]) ($hash)"
+        }
+        elseif ($message -match '^refactor(\([^)]+\))?: (.+)$') {
+            $refactors += "- $($Matches[2]) ($hash)"
+        }
+        elseif ($message -match '^test(\([^)]+\))?: (.+)$') {
+            $tests += "- $($Matches[2]) ($hash)"
+        }
+        else {
+            $other += "- $message ($hash)"
+        }
+    }
+    
+    # Build changelog sections
+    $changelog = @()
+    
+    if ($features.Count -gt 0) {
+        $changelog += "### ✨ Features`n"
+        $changelog += $features -join "`n"
+        $changelog += "`n"
+    }
+    
+    if ($fixes.Count -gt 0) {
+        $changelog += "### 🐛 Bug Fixes`n"
+        $changelog += $fixes -join "`n"
+        $changelog += "`n"
+    }
+    
+    if ($refactors.Count -gt 0) {
+        $changelog += "### ♻️ Refactoring`n"
+        $changelog += $refactors -join "`n"
+        $changelog += "`n"
+    }
+    
+    if ($docs.Count -gt 0) {
+        $changelog += "### 📚 Documentation`n"
+        $changelog += $docs -join "`n"
+        $changelog += "`n"
+    }
+    
+    if ($tests.Count -gt 0) {
+        $changelog += "### 🧪 Tests`n"
+        $changelog += $tests -join "`n"
+        $changelog += "`n"
+    }
+    
+    if ($chores.Count -gt 0) {
+        $changelog += "### 🔧 Maintenance`n"
+        $changelog += $chores -join "`n"
+        $changelog += "`n"
+    }
+    
+    if ($other.Count -gt 0) {
+        $changelog += "### 📝 Other Changes`n"
+        $changelog += $other -join "`n"
+        $changelog += "`n"
+    }
+    
+    if ($changelog.Count -eq 0) {
+        return "No changes since last release."
+    }
+    
+    return ($changelog -join "`n").Trim()
+}
+
 function New-GitHubRelease {
     param(
         [string]$Tag,
@@ -280,28 +395,47 @@ function New-GitHubRelease {
         return
     }
     
+    # Generate changelog
+    $changelog = Get-ChangelogSinceLastTag -Component $Component -CurrentVersion $Version
+    
     # Generate release notes
     $releaseNotes = @"
-## $Component Release $Version
+## PrintMaster $Component v$Version
 
-**Changes in this release:**
+$changelog
 
-See commit history for details.
+---
 
-### Installation
+### 📦 Installation
 
-#### Docker
+#### Docker (Recommended)
 ``````bash
+# Pull the latest image (supports amd64, arm64, arm/v7)
 docker pull ghcr.io/mstrhakr/printmaster-${Component}:${Version}
 docker pull ghcr.io/mstrhakr/printmaster-${Component}:latest
+
+# Run the container
+docker run -d \
+  --name printmaster-${Component} \
+  -p 9090:9090 \
+  -v printmaster-data:/var/lib/printmaster/${Component} \
+  ghcr.io/mstrhakr/printmaster-${Component}:latest
 ``````
 
-#### Binaries
-Download the appropriate binary for your platform from the Assets section below.
+#### Binary Installation
+1. Download the appropriate binary for your platform from the Assets section below
+2. Extract the archive
+3. Run the binary with ``--help`` to see available options
 
-### Docker Images
-- \`ghcr.io/mstrhakr/printmaster-${Component}:${Version}\`
-- \`ghcr.io/mstrhakr/printmaster-${Component}:latest\`
+**Supported Platforms:**
+- Windows (amd64)
+- Linux (amd64, arm64)
+- macOS (amd64, arm64)
+
+### 🔗 Links
+- [Documentation](https://github.com/mstrhakr/printmaster/tree/main/docs)
+- [Docker Hub](https://github.com/mstrhakr/printmaster/pkgs/container/printmaster-${Component})
+- [Issue Tracker](https://github.com/mstrhakr/printmaster/issues)
 "@
     
     # Create release with gh CLI
