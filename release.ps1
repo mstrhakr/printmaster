@@ -633,10 +633,8 @@ try {
     exit 0
 }
 catch {
-    Write-Host ""
     $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
     Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} Release failed: $_"
-    Write-Host ""
     
     # Automatically revert VERSION file changes
     Write-Status "Reverting VERSION file changes..." "WARN"
@@ -654,8 +652,6 @@ catch {
         }
     }
     
-    Write-Host ""
     Write-Status "Fix the issue and try again" "WARN"
-    Write-Host ""
     exit 1
 }
