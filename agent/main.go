@@ -2194,16 +2194,16 @@ func runInteractive(ctx context.Context) {
 
 		// Create and start upload worker for server communication
 		go func() {
-			serverClient := agent.NewServerClientWithCAAndSkipVerify(
+			serverClient := agent.NewServerClientWithName(
 				agentConfig.Server.URL,
-				agentID, // Use stable UUID
+				agentID,   // Use stable UUID
+				agentName, // User-friendly name
 				token,
 				agentConfig.Server.CAPath,
 				agentConfig.Server.InsecureSkipVerify,
 			)
 
 			workerConfig := UploadWorkerConfig{
-				AgentName:         agentName,
 				HeartbeatInterval: time.Duration(agentConfig.Server.HeartbeatInterval) * time.Second,
 				UploadInterval:    time.Duration(agentConfig.Server.UploadInterval) * time.Second,
 				RetryAttempts:     3,

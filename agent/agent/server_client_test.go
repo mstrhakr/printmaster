@@ -31,6 +31,9 @@ func TestServerClient_Register(t *testing.T) {
 		if req["agent_id"] != "test-agent" {
 			t.Errorf("Expected agent_id=test-agent, got %v", req["agent_id"])
 		}
+		if req["name"] != "Test Agent" {
+			t.Errorf("Expected name='Test Agent', got %v", req["name"])
+		}
 
 		// Return token
 		w.Header().Set("Content-Type", "application/json")
@@ -42,8 +45,8 @@ func TestServerClient_Register(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create client
-	client := NewServerClient(server.URL, "test-agent", "")
+	// Create client with name
+	client := NewServerClientWithName(server.URL, "test-agent", "Test Agent", "", "", false)
 
 	// Register
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -330,8 +333,8 @@ func TestServerClient_RegisterWithMetadata(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create client
-	client := NewServerClient(server.URL, "metadata-test-agent", "")
+	// Create client with name
+	client := NewServerClientWithName(server.URL, "metadata-test-agent", "Metadata Test Agent", "", "", false)
 
 	// Register with metadata
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

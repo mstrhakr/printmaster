@@ -32,7 +32,6 @@ type UploadWorker struct {
 	wsClientMu   sync.RWMutex
 
 	// Configuration
-	agentName         string // User-friendly agent name
 	heartbeatInterval time.Duration
 	uploadInterval    time.Duration
 	retryAttempts     int
@@ -51,7 +50,6 @@ type UploadWorker struct {
 
 // UploadWorkerConfig contains configuration for the upload worker
 type UploadWorkerConfig struct {
-	AgentName         string // User-friendly agent name
 	HeartbeatInterval time.Duration
 	UploadInterval    time.Duration
 	RetryAttempts     int
@@ -79,7 +77,6 @@ func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logg
 		client:            client,
 		store:             store,
 		logger:            logger,
-		agentName:         config.AgentName,
 		heartbeatInterval: config.HeartbeatInterval,
 		uploadInterval:    config.UploadInterval,
 		retryAttempts:     config.RetryAttempts,
@@ -178,7 +175,7 @@ func (w *UploadWorker) ensureRegistered(ctx context.Context, version string) err
 	regCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	token, err := w.client.Register(regCtx, version, w.agentName)
+	token, err := w.client.Register(regCtx, version)
 	if err != nil {
 		return fmt.Errorf("registration failed: %w", err)
 	}

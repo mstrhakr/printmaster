@@ -20,6 +20,7 @@ import (
 type ServerClient struct {
 	BaseURL           string
 	AgentID           string
+	AgentName         string // User-friendly agent name
 	Token             string
 	HTTPClient        *http.Client
 	mu                sync.RWMutex
@@ -32,16 +33,11 @@ type ServerClient struct {
 // If caCertPath is provided, uses it to validate server certificate (for self-signed certs)
 // If caCertPath is empty, uses system CA pool (works with Let's Encrypt)
 func NewServerClient(baseURL, agentID, token string) *ServerClient {
-	return NewServerClientWithCA(baseURL, agentID, token, "")
+	return NewServerClientWithName(baseURL, agentID, "", token, "", false)
 }
 
-// NewServerClientWithCA creates a new server client with optional custom CA certificate
-func NewServerClientWithCA(baseURL, agentID, token, caCertPath string) *ServerClient {
-	return NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath, false)
-}
-
-// NewServerClientWithCAAndSkipVerify creates a new server client with optional custom CA and skip verify option
-func NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
+// NewServerClientWithName creates a new server client with agent name
+func NewServerClientWithName(baseURL, agentID, agentName, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
 	var tlsConfig *tls.Config
 
 	if caCertPath != "" {
@@ -68,9 +64,10 @@ func NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath stri
 	}
 
 	return &ServerClient{
-		BaseURL: baseURL,
-		AgentID: agentID,
-		Token:   token,
+		BaseURL:   baseURL,
+		AgentID:   agentID,
+		AgentName: agentName,
+		Token:     token,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -78,6 +75,16 @@ func NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath stri
 			},
 		},
 	}
+}
+
+// NewServerClientWithCA creates a new server client with optional custom CA certificate
+func NewServerClientWithCA(baseURL, agentID, token, caCertPath string) *ServerClient {
+	return NewServerClientWithName(baseURL, agentID, "", token, caCertPath, false)
+}
+
+// NewServerClientWithCAAndSkipVerify creates a new server client with optional custom CA and skip verify option
+func NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
+	return NewServerClientWithName(baseURL, agentID, "", token, caCertPath, insecureSkipVerify)
 }
 
 // SetToken updates the authentication token
@@ -101,7 +108,7 @@ func (c *ServerClient) GetServerURL() string {
 
 // Register performs initial agent registration with the server
 // Returns the authentication token on success
-func (c *ServerClient) Register(ctx context.Context, version, name string) (string, error) {
+func (c *ServerClient) Register(ctx context.Context, version string) (string, error) {
 	type RegisterRequest struct {
 		AgentID         string `json:"agent_id"`
 		Name            string `json:"name,omitempty"` // User-friendly name
@@ -132,7 +139,7 @@ func (c *ServerClient) Register(ctx context.Context, version, name string) (stri
 
 	req := RegisterRequest{
 		AgentID:         c.AgentID,
-		Name:            name,
+		Name:            c.AgentName, // Use client's agent name
 		AgentVersion:    version,
 		ProtocolVersion: "1",
 		Hostname:        hostname,
