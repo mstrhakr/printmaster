@@ -237,7 +237,7 @@ jobs:
     name: Build and Push Docker Images
     needs: [test-agent, test-server, test-e2e]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release'
+    if: github.event_name == 'release'
     permissions:
       contents: read
       packages: write
