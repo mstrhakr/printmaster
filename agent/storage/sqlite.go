@@ -1301,6 +1301,8 @@ type MetricsSnapshot struct {
 	DuplexSheets      int `json:"duplex_sheets,omitempty"`
 	JamEvents         int `json:"jam_events,omitempty"`
 	ScannerJamEvents  int `json:"scanner_jam_events,omitempty"`
+	// Tier indicates which storage tier this snapshot came from (raw/hourly/daily/monthly)
+	Tier string `json:"tier,omitempty"`
 }
 
 // SaveMetricsSnapshot stores a metrics snapshot for a device
@@ -1465,6 +1467,44 @@ func (s *SQLiteStore) DeleteOldMetrics(ctx context.Context, olderThan time.Time)
 
 	rows, _ := result.RowsAffected()
 	return int(rows), nil
+}
+
+// DeleteMetricByID removes a single metrics row by id from the specified tier/table.
+// If tier is empty, attempt to delete from known metric tables until one succeeds.
+func (s *SQLiteStore) DeleteMetricByID(ctx context.Context, tier string, id int64) error {
+	tables := []string{"metrics_raw", "metrics_hourly", "metrics_daily", "metrics_monthly"}
+	if tier != "" {
+		// Normalize tier input to table name
+		switch tier {
+		case "raw":
+			tables = []string{"metrics_raw"}
+		case "hourly":
+			tables = []string{"metrics_hourly"}
+		case "daily":
+			tables = []string{"metrics_daily"}
+		case "monthly":
+			tables = []string{"metrics_monthly"}
+		default:
+			tables = []string{tier}
+		}
+	}
+
+	for _, tbl := range tables {
+		res, err := s.db.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s WHERE id = ?", tbl), id)
+		if err != nil {
+			// If table doesn't exist or other error, continue to next
+			continue
+		}
+		rows, _ := res.RowsAffected()
+		if rows > 0 {
+			if storageLogger != nil {
+				storageLogger.Info("Deleted metrics row", "table", tbl, "id", id)
+			}
+			return nil
+		}
+	}
+
+	return fmt.Errorf("metrics row id %d not found", id)
 }
 
 // DeleteOldHiddenDevices removes devices that are hidden and older than timestamp

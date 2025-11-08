@@ -127,4 +127,8 @@ type DeviceStore interface {
 
 	// GetTieredMetricsHistory retrieves metrics from appropriate tiers based on time range
 	GetTieredMetricsHistory(ctx context.Context, serial string, since time.Time, until time.Time) ([]*MetricsSnapshot, error)
+
+	// DeleteMetricByID removes a single metrics row by id from a specified tier/table.
+	// If tier is empty, implementations should attempt to find and delete the id from known metric tables.
+	DeleteMetricByID(ctx context.Context, tier string, id int64) error
 }

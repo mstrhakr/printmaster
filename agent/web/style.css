@@ -195,6 +195,38 @@
   border-color: var(--highlight);
 }
 
+/* Metrics table container: horizontal scroll to view many metric columns/rows */
+.metrics-table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Trash button (matches lock button size and placement) */
+.trash-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.trash-btn:hover { background: #8b0000; border-color: #8b0000; transform: scale(1.03); }
+.trash-btn::before {
+  /* Simple trashcan glyph using inline SVG as data URL for crisp rendering */
+  content: '';
+  display: block;
+  width: 14px;
+  height: 14px;
+  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23ffffff"><path d="M9 3v1H4v2h16V4h-5V3H9zm1 6v8h2V9h-2zm4 0v8h2V9h-2zM7 9v8h2V9H7z"/></svg>');
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
 /* Lock icon using CSS - redesigned with filled body */
 .lock-btn::before {
   content: '';

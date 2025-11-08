@@ -554,6 +554,7 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 			// Filter by time range
 			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
 				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
+				snapshot.Tier = "raw"
 				snapshots = append(snapshots, snapshot)
 			}
 		}
@@ -592,6 +593,7 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 
 			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
 				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
+				snapshot.Tier = "hourly"
 				snapshots = append(snapshots, snapshot)
 			}
 		}
@@ -630,6 +632,7 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 
 			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
 				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
+				snapshot.Tier = "daily"
 				snapshots = append(snapshots, snapshot)
 			}
 		}
@@ -668,6 +671,7 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 
 			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
 				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
+				snapshot.Tier = "monthly"
 				snapshots = append(snapshots, snapshot)
 			}
 		}

@@ -4127,6 +4127,42 @@ window.top.location.href = '/proxy/%s/';
 		json.NewEncoder(w).Encode(snapshots)
 	})
 
+	// POST /api/devices/metrics/delete - delete a single metrics row by id (tier optional)
+	http.HandleFunc("/api/devices/metrics/delete", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			ID   int64  `json:"id"`
+			Tier string `json:"tier,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+
+		if req.ID == 0 {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+
+		ctx := context.Background()
+		if deviceStore == nil {
+			http.Error(w, "storage unavailable", http.StatusInternalServerError)
+			return
+		}
+
+		if err := deviceStore.DeleteMetricByID(ctx, req.Tier, req.ID); err != nil {
+			agent.Error(fmt.Sprintf("Failed to delete metrics row: id=%d tier=%s error=%v", req.ID, req.Tier, err))
+			http.Error(w, "failed to delete metrics row: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	// POST /devices/metrics/collect - Manually collect metrics for a device
 	http.HandleFunc("/devices/metrics/collect", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

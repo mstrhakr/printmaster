@@ -2882,6 +2882,75 @@ window.refreshMetricsChart = async function (serial) {
         // Draw chart
         drawMetricsChart(canvas, history, startTime, endTime);
 
+        // Render a horizontally-scrollable metrics table showing each snapshot and a delete button
+        try {
+            const tableContainerId = 'metrics_table_container';
+            let tableHtml = '<div id="' + tableContainerId + '" class="metrics-table-container" style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.05);border-radius:6px;overflow-x:auto">';
+            tableHtml += '<table class="metrics-table" style="border-collapse:collapse;min-width:800px;font-size:13px">';
+            tableHtml += '<thead><tr style="border-bottom:2px solid rgba(255,255,255,0.06)">';
+            tableHtml += '<th style="padding:8px 12px;text-align:left">Timestamp</th>';
+            tableHtml += '<th style="padding:8px 12px;text-align:right">Total</th>';
+            tableHtml += '<th style="padding:8px 12px;text-align:right">Color</th>';
+            tableHtml += '<th style="padding:8px 12px;text-align:right">Mono</th>';
+            tableHtml += '<th style="padding:8px 12px;text-align:right">Scans</th>';
+            tableHtml += '<th style="padding:8px 12px;text-align:right">Fax</th>';
+            tableHtml += '<th style="padding:8px 12px;text-align:center">&nbsp;</th>';
+            tableHtml += '</tr></thead><tbody>';
+
+            history.forEach(item => {
+                const ts = new Date(item.timestamp).toLocaleString();
+                tableHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
+                tableHtml += '<td style="padding:8px 12px">' + ts + ' <span style="color:var(--muted);font-size:11px;margin-left:6px">(' + (item.tier || 'raw') + ')</span></td>';
+                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.page_count||0).toLocaleString()) + '</td>';
+                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.color_pages||0).toLocaleString()) + '</td>';
+                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.mono_pages||0).toLocaleString()) + '</td>';
+                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.scan_count||0).toLocaleString()) + '</td>';
+                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.fax_pages||0).toLocaleString()) + '</td>';
+                tableHtml += '<td style="padding:8px 12px;text-align:center">';
+                tableHtml += '<button class="trash-btn" data-id="' + (item.id || '') + '" data-tier="' + (item.tier || '') + '" title="Delete this metrics row"></button>';
+                tableHtml += '</td>';
+                tableHtml += '</tr>';
+            });
+
+            tableHtml += '</tbody></table></div>';
+            // Append or replace existing table container
+            const existing = document.getElementById('metrics_table_container');
+            if (existing) existing.outerHTML = tableHtml; else canvas.insertAdjacentHTML('afterend', tableHtml);
+
+            // Delegate click handler for delete buttons
+            const metricsContent = document.getElementById('metrics_content');
+            if (metricsContent) {
+                metricsContent.addEventListener('click', async (e) => {
+                    const btn = e.target.closest('.trash-btn');
+                    if (!btn) return;
+                    const id = btn.getAttribute('data-id');
+                    const tier = btn.getAttribute('data-tier') || '';
+                    if (!id) return;
+                    if (!confirm('Delete this metrics row? This action cannot be undone.')) return;
+                    try {
+                        btn.disabled = true;
+                        const resp = await fetch('/api/devices/metrics/delete', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id: Number(id), tier: tier })
+                        });
+                        if (resp.status === 204) {
+                            // Refresh chart after deletion
+                            refreshMetricsChart(serial);
+                        } else {
+                            const txt = await resp.text();
+                            alert('Failed to delete metric: ' + txt);
+                        }
+                    } catch (err) {
+                        alert('Error deleting metric: ' + err);
+                    } finally {
+                        btn.disabled = false;
+                    }
+                });
+            }
+        } catch (e) {
+            console.warn('[Metrics] Failed to render metrics table:', e);
+        }
+
     } catch (e) {
         console.error('[Metrics] Error refreshing chart:', e);
         statsEl.textContent = 'Failed to load metrics: ' + e.message;
