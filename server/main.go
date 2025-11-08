@@ -42,9 +42,10 @@ var (
 var (
 	serverLogger       *logger.Logger
 	serverStore        storage.Store
-	configLoadErrors   []string // Track config loading errors for display in UI
-	usingDefaultConfig bool     // Flag to indicate if using defaults vs loaded config
-	loadedConfigPath   string   // Path of the config file that was successfully loaded
+	authRateLimiter    *AuthRateLimiter // Rate limiter for failed auth attempts
+	configLoadErrors   []string         // Track config loading errors for display in UI
+	usingDefaultConfig bool             // Flag to indicate if using defaults vs loaded config
+	loadedConfigPath   string           // Path of the config file that was successfully loaded
 )
 
 func main() {
@@ -195,6 +196,22 @@ func runServer(ctx context.Context) {
 	defer serverStore.Close()
 
 	serverLogger.Info("Database initialized successfully")
+
+	// Initialize authentication rate limiter if enabled
+	if cfg.Security.RateLimitEnabled {
+		maxAttempts := cfg.Security.RateLimitMaxAttempts
+		blockDuration := time.Duration(cfg.Security.RateLimitBlockMinutes) * time.Minute
+		attemptsWindow := time.Duration(cfg.Security.RateLimitWindowMinutes) * time.Minute
+
+		authRateLimiter = NewAuthRateLimiter(maxAttempts, blockDuration, attemptsWindow)
+		serverLogger.Info("Authentication rate limiter initialized",
+			"enabled", true,
+			"max_attempts", maxAttempts,
+			"block_duration", cfg.Security.RateLimitBlockMinutes,
+			"window_minutes", cfg.Security.RateLimitWindowMinutes)
+	} else {
+		serverLogger.Info("Authentication rate limiter disabled")
+	}
 
 	// Setup HTTP routes
 	setupRoutes()
@@ -764,6 +781,9 @@ func generateToken() (string, error) {
 // requireAuth is middleware that validates Bearer token authentication
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract client IP address
+		clientIP := extractIPFromAddr(r.RemoteAddr)
+
 		// Extract Bearer token from Authorization header
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
@@ -778,16 +798,75 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		token := parts[1]
+		tokenPrefix := token
+		if len(token) > 8 {
+			tokenPrefix = token[:8]
+		}
+
+		// Check if this IP+token is currently blocked
+		if authRateLimiter != nil {
+			if isBlocked, blockedUntil := authRateLimiter.IsBlocked(clientIP, tokenPrefix); isBlocked {
+				if serverLogger != nil {
+					serverLogger.Warn("Blocked authentication attempt",
+						"ip", clientIP,
+						"token", tokenPrefix+"...",
+						"blocked_until", blockedUntil.Format(time.RFC3339),
+						"user_agent", r.Header.Get("User-Agent"))
+				}
+				http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
+				return
+			}
+		}
 
 		// Validate token against database
 		ctx := context.Background()
 		agent, err := serverStore.GetAgentByToken(ctx, token)
 		if err != nil {
-			if serverLogger != nil {
-				serverLogger.Warn("Invalid authentication attempt", "token", token[:8]+"...", "error", err)
+			// Record failed attempt and check if we should log
+			var isBlocked, shouldLog bool
+			var attemptCount int
+			if authRateLimiter != nil {
+				isBlocked, shouldLog, attemptCount = authRateLimiter.RecordFailure(clientIP, tokenPrefix)
+			} else {
+				shouldLog = true // Always log if rate limiter not initialized
 			}
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+
+			if serverLogger != nil && shouldLog {
+				fields := []interface{}{
+					"ip", clientIP,
+					"token", tokenPrefix + "...",
+					"error", err.Error(),
+					"attempt_count", attemptCount,
+					"user_agent", r.Header.Get("User-Agent"),
+				}
+
+				if isBlocked {
+					fields = append(fields, "status", "BLOCKED")
+					serverLogger.Error("Authentication failed - IP blocked", fields...)
+
+					// Log to audit trail when blocking occurs
+					logAuditEntry(ctx, "UNKNOWN", "auth_blocked",
+						fmt.Sprintf("IP blocked after %d failed attempts with token %s... Error: %s",
+							attemptCount, tokenPrefix, err.Error()),
+						clientIP)
+				} else if attemptCount >= 3 {
+					serverLogger.Warn("Repeated authentication failures", fields...)
+				} else {
+					serverLogger.Warn("Invalid authentication attempt", fields...)
+				}
+			}
+
+			if isBlocked {
+				http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
+			} else {
+				http.Error(w, "Invalid token", http.StatusUnauthorized)
+			}
 			return
+		}
+
+		// Success - clear any failure records for this IP+token
+		if authRateLimiter != nil {
+			authRateLimiter.RecordSuccess(clientIP, tokenPrefix)
 		}
 
 		// Store agent info in request context for handlers to use

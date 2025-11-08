@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -38,6 +39,9 @@ type WSMessage struct {
 
 // handleAgentWebSocket handles WebSocket connections from agents
 func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore storage.Store) {
+	// Extract client IP address
+	clientIP := extractIPFromAddr(r.RemoteAddr)
+
 	// Extract and validate authentication token from query parameter
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -45,33 +49,144 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		return
 	}
 
+	tokenPrefix := token
+	if len(token) > 8 {
+		tokenPrefix = token[:8]
+	}
+
+	// Check if this IP+token is currently blocked
+	if authRateLimiter != nil {
+		if isBlocked, blockedUntil := authRateLimiter.IsBlocked(clientIP, tokenPrefix); isBlocked {
+			if serverLogger != nil {
+				serverLogger.Warn("Blocked WebSocket connection attempt",
+					"ip", clientIP,
+					"token", tokenPrefix+"...",
+					"blocked_until", blockedUntil.Format(time.RFC3339),
+					"user_agent", r.Header.Get("User-Agent"))
+			}
+			http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
+			return
+		}
+	}
+
 	// Authenticate agent
 	agent, err := serverStore.GetAgentByToken(r.Context(), token)
 	if err != nil {
-		log.Printf("WebSocket auth failed: %v", err)
-		http.Error(w, "Invalid authentication token", http.StatusUnauthorized)
+		// Record failed attempt and check if we should log
+		var isBlocked, shouldLog bool
+		var attemptCount int
+		if authRateLimiter != nil {
+			isBlocked, shouldLog, attemptCount = authRateLimiter.RecordFailure(clientIP, tokenPrefix)
+		} else {
+			shouldLog = true
+		}
+
+		if serverLogger != nil && shouldLog {
+			fields := []interface{}{
+				"ip", clientIP,
+				"token", tokenPrefix + "...",
+				"error", err.Error(),
+				"attempt_count", attemptCount,
+				"protocol", "websocket",
+				"user_agent", r.Header.Get("User-Agent"),
+			}
+
+			if isBlocked {
+				fields = append(fields, "status", "BLOCKED")
+				serverLogger.Error("WebSocket auth failed - IP blocked", fields...)
+
+				// Log to audit trail when blocking occurs
+				logAuditEntry(r.Context(), "UNKNOWN", "auth_blocked_websocket",
+					fmt.Sprintf("IP blocked after %d failed WebSocket auth attempts with token %s... Error: %s",
+						attemptCount, tokenPrefix, err.Error()),
+					clientIP)
+			} else if attemptCount >= 3 {
+				serverLogger.Warn("Repeated WebSocket auth failures", fields...)
+			} else {
+				serverLogger.Warn("Invalid WebSocket authentication", fields...)
+			}
+		}
+
+		if isBlocked {
+			http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
+		} else {
+			http.Error(w, "Invalid authentication token", http.StatusUnauthorized)
+		}
 		return
 	}
 
 	if agent == nil {
-		http.Error(w, "Invalid authentication token", http.StatusUnauthorized)
+		// Same rate limiting logic for nil agent
+		var isBlocked, shouldLog bool
+		var attemptCount int
+		if authRateLimiter != nil {
+			isBlocked, shouldLog, attemptCount = authRateLimiter.RecordFailure(clientIP, tokenPrefix)
+		} else {
+			shouldLog = true
+		}
+
+		if serverLogger != nil && shouldLog {
+			if isBlocked {
+				serverLogger.Error("WebSocket auth returned nil agent - IP blocked",
+					"ip", clientIP,
+					"token", tokenPrefix+"...",
+					"attempt_count", attemptCount,
+					"status", "BLOCKED")
+
+				// Log to audit trail when blocking occurs
+				logAuditEntry(r.Context(), "UNKNOWN", "auth_blocked_websocket",
+					fmt.Sprintf("IP blocked after %d failed WebSocket auth attempts with token %s... (nil agent)",
+						attemptCount, tokenPrefix),
+					clientIP)
+			} else {
+				serverLogger.Warn("WebSocket auth returned nil agent",
+					"ip", clientIP,
+					"token", tokenPrefix+"...",
+					"attempt_count", attemptCount)
+			}
+		}
+
+		if isBlocked {
+			http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
+		} else {
+			http.Error(w, "Invalid authentication token", http.StatusUnauthorized)
+		}
 		return
+	}
+
+	// Success - clear any failure records for this IP+token
+	if authRateLimiter != nil {
+		authRateLimiter.RecordSuccess(clientIP, tokenPrefix)
 	}
 
 	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed for agent %s: %v", agent.AgentID, err)
+		if serverLogger != nil {
+			serverLogger.Error("WebSocket upgrade failed",
+				"agent_id", agent.AgentID,
+				"hostname", agent.Hostname,
+				"ip", clientIP,
+				"error", err)
+		}
 		return
 	}
 
-	log.Printf("Agent %s (%s) connected via WebSocket from %s", agent.Hostname, agent.AgentID, r.RemoteAddr)
+	if serverLogger != nil {
+		serverLogger.Info("Agent WebSocket connected",
+			"agent_id", agent.AgentID,
+			"hostname", agent.Hostname,
+			"ip", clientIP,
+			"remote_addr", r.RemoteAddr)
+	}
 
 	// Register connection
 	wsConnectionsLock.Lock()
 	// Close existing connection if any (agent reconnecting)
 	if existingConn, exists := wsConnections[agent.AgentID]; exists {
-		log.Printf("Closing existing WebSocket for agent %s (reconnection)", agent.AgentID)
+		if serverLogger != nil {
+			serverLogger.Info("Closing existing WebSocket for reconnection", "agent_id", agent.AgentID)
+		}
 		existingConn.Close()
 	}
 	wsConnections[agent.AgentID] = conn
@@ -82,7 +197,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		wsConnectionsLock.Lock()
 		if wsConnections[agent.AgentID] == conn {
 			delete(wsConnections, agent.AgentID)
-			log.Printf("Agent %s WebSocket connection closed", agent.AgentID)
+			if serverLogger != nil {
+				serverLogger.Info("Agent WebSocket disconnected", "agent_id", agent.AgentID)
+			}
 		}
 		wsConnectionsLock.Unlock()
 		conn.Close()

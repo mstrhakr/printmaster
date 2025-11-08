@@ -75,8 +75,8 @@ type MetricsSnapshot struct {
 type AuditEntry struct {
 	ID        int64     `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
-	AgentID   string    `json:"agent_id"`
-	Action    string    `json:"action"` // register, heartbeat, upload_devices, upload_metrics, etc.
+	AgentID   string    `json:"agent_id"` // Agent ID or "UNKNOWN" for failed auth
+	Action    string    `json:"action"`   // register, heartbeat, upload_devices, upload_metrics, auth_blocked, auth_blocked_websocket
 	Details   string    `json:"details,omitempty"`
 	IPAddress string    `json:"ip_address,omitempty"`
 }
