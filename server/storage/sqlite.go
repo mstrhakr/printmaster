@@ -742,6 +742,18 @@ func GetDefaultDBPath() string {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, "Library/Application Support/PrintMaster/server/server.db")
 	default: // linux, etc.
+		// Check if running in Docker (common Docker indicators)
+		if _, err := os.Stat("/.dockerenv"); err == nil {
+			// Running in Docker - use /var/lib path (matches volume mount)
+			return "/var/lib/printmaster/server/printmaster.db"
+		}
+		
+		// Check if /var/lib/printmaster exists (system installation)
+		if _, err := os.Stat("/var/lib/printmaster"); err == nil {
+			return "/var/lib/printmaster/server/printmaster.db"
+		}
+		
+		// Fall back to user home directory
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".local/share/printmaster/server/server.db")
 	}
