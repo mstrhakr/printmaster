@@ -296,15 +296,15 @@ jobs:
       with:
         path: artifacts
     
-    - name: Create release archives
+    - name: Prepare release binaries
       run: |
         cd artifacts
         
-        # Create proper archives based on platform
+        # Extract all binaries from artifact folders
         for dir in */; do
           name="${dir%/}"
           
-          # Get the binary file inside
+          # Find the binary file inside
           binary=$(find "$dir" -type f \( -executable -o -name "*.exe" \) | head -n 1)
           
           if [ -z "$binary" ]; then
@@ -314,30 +314,18 @@ jobs:
           
           binary_name=$(basename "$binary")
           
-          # Copy raw binary to artifacts root for direct download
+          # Copy raw binary to artifacts root
           cp "$binary" "./${binary_name}"
-          
-          # Determine platform from directory name
-          if [[ "$name" == *"windows"* ]]; then
-            # Windows: Create .zip
-            (cd "$dir" && zip "../${name}.zip" *)
-          else
-            # Linux/macOS: Create .tar.gz
-            tar czf "${name}.tar.gz" -C "$dir" .
-          fi
+          echo "Prepared: ${binary_name}"
         done
         
-        # List created files
-        echo "=== Archives ==="
-        ls -lh *.zip *.tar.gz 2>/dev/null || true
-        echo "=== Raw Binaries ==="
+        # List all release binaries
+        echo ""
+        echo "=== Release Binaries ==="
         ls -lh printmaster-* 2>/dev/null || true
     
     - name: Upload release assets
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          artifacts/*.tar.gz
-          artifacts/*.zip
-          artifacts/printmaster-*
-        fail_on_unmatched_files: false
+        files: artifacts/printmaster-*
+        fail_on_unmatched_files: true
