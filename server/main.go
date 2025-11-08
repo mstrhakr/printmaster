@@ -23,6 +23,7 @@ import (
 	"printmaster/server/util"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kardianos/service"
@@ -40,6 +41,100 @@ var (
 	ProtocolVersion = "1"       // Agent-Server protocol version
 )
 
+// SSE (Server-Sent Events) Hub for real-time UI updates
+type SSEEvent struct {
+	Type string                 `json:"type"`
+	Data map[string]interface{} `json:"data"`
+}
+
+type SSEClient struct {
+	id     string
+	events chan SSEEvent
+}
+
+type SSEHub struct {
+	clients    map[string]*SSEClient
+	broadcast  chan SSEEvent
+	register   chan *SSEClient
+	unregister chan *SSEClient
+	shutdown   chan struct{}
+	mu         sync.RWMutex
+}
+
+func NewSSEHub() *SSEHub {
+	hub := &SSEHub{
+		clients:    make(map[string]*SSEClient),
+		broadcast:  make(chan SSEEvent, 100),
+		register:   make(chan *SSEClient),
+		unregister: make(chan *SSEClient),
+		shutdown:   make(chan struct{}),
+	}
+	go hub.run()
+	return hub
+}
+
+func (h *SSEHub) run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.mu.Lock()
+			h.clients[client.id] = client
+			h.mu.Unlock()
+		case client := <-h.unregister:
+			h.mu.Lock()
+			if _, ok := h.clients[client.id]; ok {
+				delete(h.clients, client.id)
+				close(client.events)
+			}
+			h.mu.Unlock()
+		case event := <-h.broadcast:
+			h.mu.RLock()
+			for _, client := range h.clients {
+				select {
+				case client.events <- event:
+				default:
+					// Client's buffer is full, skip
+				}
+			}
+			h.mu.RUnlock()
+		case <-h.shutdown:
+			// Close all client connections
+			h.mu.Lock()
+			for _, client := range h.clients {
+				close(client.events)
+			}
+			h.clients = make(map[string]*SSEClient)
+			h.mu.Unlock()
+			return
+		}
+	}
+}
+
+func (h *SSEHub) Stop() {
+	close(h.shutdown)
+}
+
+func (h *SSEHub) Broadcast(event SSEEvent) {
+	select {
+	case h.broadcast <- event:
+	default:
+		// Broadcast buffer full, skip event
+	}
+}
+
+func (h *SSEHub) NewClient() *SSEClient {
+	client := &SSEClient{
+		id:     fmt.Sprintf("client_%d", time.Now().UnixNano()),
+		events: make(chan SSEEvent, 10),
+	}
+	h.register <- client
+	return client
+}
+
+func (h *SSEHub) RemoveClient(client *SSEClient) {
+	h.unregister <- client
+}
+
 var (
 	serverLogger       *logger.Logger
 	serverStore        storage.Store
@@ -47,6 +142,7 @@ var (
 	configLoadErrors   []string         // Track config loading errors for display in UI
 	usingDefaultConfig bool             // Flag to indicate if using defaults vs loaded config
 	loadedConfigPath   string           // Path of the config file that was successfully loaded
+	sseHub             *SSEHub          // SSE hub for real-time UI updates
 )
 
 func main() {
@@ -197,6 +293,10 @@ func runServer(ctx context.Context) {
 	defer serverStore.Close()
 
 	serverLogger.Info("Database initialized successfully")
+
+	// Initialize SSE hub for real-time UI updates
+	sseHub = NewSSEHub()
+	serverLogger.Info("SSE hub initialized")
 
 	// Initialize authentication rate limiter if enabled
 	if cfg.Security.RateLimitEnabled {
@@ -923,6 +1023,9 @@ func setupRoutes() {
 	// Config status (no auth required - for UI warnings)
 	http.HandleFunc("/api/config/status", handleConfigStatus)
 
+	// SSE endpoint for real-time UI updates
+	http.HandleFunc("/api/events", handleSSE)
+
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
@@ -951,6 +1054,56 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":    "healthy",
 		"timestamp": time.Now().UTC(),
 	})
+}
+
+// handleSSE streams server-sent events to UI clients for real-time updates
+func handleSSE(w http.ResponseWriter, r *http.Request) {
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	// Create client and register with hub
+	client := sseHub.NewClient()
+	defer sseHub.RemoveClient(client)
+
+	if serverLogger != nil {
+		serverLogger.Debug("SSE client connected", "client_id", client.id)
+	}
+
+	// Send initial connection event
+	fmt.Fprintf(w, "event: connected\ndata: {\"message\":\"Connected to event stream\"}\n\n")
+	flusher.Flush()
+
+	// Stream events to client
+	for {
+		select {
+		case event := <-client.events:
+			// Marshal event data
+			data, err := json.Marshal(event.Data)
+			if err != nil {
+				continue
+			}
+
+			// Send SSE formatted event
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data)
+			flusher.Flush()
+
+		case <-r.Context().Done():
+			// Client disconnected
+			if serverLogger != nil {
+				serverLogger.Debug("SSE client disconnected", "client_id", client.id)
+			}
+			return
+		}
+	}
 }
 
 func handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -1105,6 +1258,22 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		serverLogger.Info("Agent registered successfully", "agent_id", req.AgentID, "token", token[:8]+"...")
 	}
 
+	// Broadcast agent_registered event to UI via SSE
+	if sseHub != nil {
+		sseHub.Broadcast(SSEEvent{
+			Type: "agent_registered",
+			Data: map[string]interface{}{
+				"agent_id": req.AgentID,
+				"name":     agentName,
+				"hostname": req.Hostname,
+				"ip":       req.IP,
+				"version":  req.AgentVersion,
+				"platform": req.Platform,
+				"status":   "active",
+			},
+		})
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
@@ -1148,6 +1317,17 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Could add logic here to only log every Nth heartbeat
 	clientIP := extractClientIP(r)
 	logAuditEntry(ctx, agent.AgentID, "heartbeat", fmt.Sprintf("Status: %s", req.Status), clientIP)
+
+	// Broadcast agent_heartbeat event to UI via SSE
+	if sseHub != nil {
+		sseHub.Broadcast(SSEEvent{
+			Type: "agent_heartbeat",
+			Data: map[string]interface{}{
+				"agent_id": agent.AgentID,
+				"status":   req.Status,
+			},
+		})
+	}
 
 	if serverLogger != nil {
 		serverLogger.Debug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
@@ -1539,6 +1719,21 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		stored++
+
+		// Broadcast device_updated event to UI via SSE
+		if sseHub != nil {
+			sseHub.Broadcast(SSEEvent{
+				Type: "device_updated",
+				Data: map[string]interface{}{
+					"agent_id":     device.AgentID,
+					"serial":       device.Serial,
+					"ip":           device.IP,
+					"manufacturer": device.Manufacturer,
+					"model":        device.Model,
+					"hostname":     device.Hostname,
+				},
+			})
+		}
 	}
 
 	// Get authenticated agent from context
