@@ -1,0 +1,538 @@
+/* PrintMaster Shared Styles - Common CSS for Agent and Server UIs */
+/* Solarized Dark inspired theme with centralized color system */
+
+/* ============================================================================
+   THEME COLORS - Dark & Light Mode
+   ============================================================================ */
+:root {
+  /* Base colors - Dark Mode (default) */
+  --bg: #002b36;
+  --panel: #073642;
+  --muted: #586e75;
+  --text: #93a1a1;
+  --accent: #b58900;
+  --highlight: #268bd2;
+  --border: #004b56;
+  
+  /* Semantic colors */
+  --success: #2aa198;
+  --error: #dc322f;
+  --warning: #cb4b16;
+  --info: #268bd2;
+
+  /* Toggle switch colors */
+  --toggle-off-bg-start: #003842;
+  --toggle-off-bg-end: #004b56;
+  --toggle-off-border: #005b66;
+  --toggle-on-bg-start: #2aa198;
+  --toggle-on-bg-end: #268bd2;
+  --toggle-on-border: #2aa198;
+  --toggle-on-glow: rgba(38, 139, 210, 0.4);
+  --toggle-knob-off-start: #657b83;
+  --toggle-knob-off-end: #586e75;
+  --toggle-knob-on-start: #ffffff;
+  --toggle-knob-on-end: #f0f0f0;
+  --toggle-indeterminate-start: #cb4b16;
+  --toggle-indeterminate-end: #b58900;
+  --toggle-indeterminate-glow: rgba(181, 137, 0, 0.3);
+
+  /* Button colors */
+  --btn-primary-bg: #268bd2;
+  --btn-primary-text: #002b36;
+  --btn-primary-hover: #3299de;
+  --btn-save-bg: #2d7a3e;
+  --btn-save-border: #3a9d50;
+  --btn-save-text: #d0f0d8;
+  --btn-saved-bg: #2d5a3e;
+  --btn-saved-border: #3a5d50;
+  --btn-saved-text: #90b098;
+  --btn-delete-bg: #992626;
+  --btn-delete-border: #c63535;
+  --btn-delete-text: #ffdddd;
+
+  /* Shadow system */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 3px 6px rgba(0, 0, 0, 0.4);
+  --shadow-xl: 0 4px 8px rgba(0, 0, 0, 0.5);
+  --shadow-inset-sm: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-inset-md: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+
+  /* Transition timing */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+  --transition-smooth: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Light mode color overrides - Solarized Light */
+body.light-mode {
+  --bg: #fdf6e3;
+  --panel: #eee8d5;
+  --muted: #93a1a1;
+  --text: #586e75;
+  --accent: #b58900;
+  --highlight: #cb4b16;
+  --border: #d3cbb8;
+  
+  /* Semantic colors for light mode */
+  --success: #859900;
+  --error: #dc322f;
+  --warning: #cb4b16;
+  --info: #268bd2;
+
+  /* Toggle switch colors for light mode */
+  --toggle-off-bg-start: #d0c9b8;
+  --toggle-off-bg-end: #c4bda8;
+  --toggle-off-border: #b8b19a;
+  --toggle-on-bg-start: #859900;
+  --toggle-on-bg-end: #6c9a00;
+  --toggle-on-border: #859900;
+  --toggle-on-glow: rgba(133, 153, 0, 0.3);
+  --toggle-knob-off-start: #93a1a1;
+  --toggle-knob-off-end: #839496;
+  --toggle-knob-on-start: #fdf6e3;
+  --toggle-knob-on-end: #eee8d5;
+  --toggle-indeterminate-start: #cb4b16;
+  --toggle-indeterminate-end: #dc322f;
+  --toggle-indeterminate-glow: rgba(203, 75, 22, 0.3);
+
+  /* Button colors for light mode */
+  --btn-primary-bg: #268bd2;
+  --btn-primary-text: #fdf6e3;
+  --btn-primary-hover: #3299de;
+  --btn-save-bg: #859900;
+  --btn-save-border: #6c9a00;
+  --btn-save-text: #fdf6e3;
+  --btn-saved-bg: #586e75;
+  --btn-saved-border: #657b83;
+  --btn-saved-text: #eee8d5;
+  --btn-delete-bg: #dc322f;
+  --btn-delete-border: #cb1f1b;
+  --btn-delete-text: #fdf6e3;
+
+  /* Adjust shadows for light mode */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 3px 6px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 4px 8px rgba(0, 0, 0, 0.25);
+  --shadow-inset-sm: inset 0 1px 3px rgba(0, 0, 0, 0.15);
+  --shadow-inset-md: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* ============================================================================
+   BASE STYLES
+   ============================================================================ */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  transition: background 0.4s ease, color 0.4s ease;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ============================================================================
+   MODAL SYSTEM
+   ============================================================================ */
+.modal {
+  display: none;
+  position: fixed;
+  z-index: 10000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  justify-content: center;
+  align-items: center;
+}
+
+.modal-content {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-xl);
+  width: 100%;
+  max-width: 500px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-close {
+  font-size: 28px;
+  color: var(--muted);
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.2s ease;
+  user-select: none;
+}
+
+.modal-close:hover {
+  color: var(--text);
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+  color: var(--text);
+}
+
+.modal-body p {
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.modal-button {
+  padding: 10px 20px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.modal-button-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border: none;
+}
+
+.modal-button-primary:hover {
+  background: var(--btn-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.modal-button-secondary {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.modal-button-secondary:hover {
+  background: var(--bg);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.modal-button-danger {
+  background: var(--btn-delete-bg);
+  color: var(--btn-delete-text);
+  border: 1px solid var(--btn-delete-border);
+}
+
+.modal-button-danger:hover {
+  background: #b33030;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  filter: none;
+  box-shadow: none;
+}
+
+button.primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  border: none;
+  box-shadow: var(--shadow-md);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
+}
+
+button.save {
+  background: var(--btn-save-bg);
+  color: var(--btn-save-text);
+  border: 1px solid var(--btn-save-border);
+}
+
+button.save:hover:not(:disabled) {
+  background: var(--btn-save-border);
+}
+
+button.delete {
+  background: var(--btn-delete-bg);
+  color: var(--btn-delete-text);
+  border: 1px solid var(--btn-delete-border);
+}
+
+button.delete:hover:not(:disabled) {
+  background: #b33030;
+}
+
+/* ============================================================================
+   FORM INPUTS
+   ============================================================================ */
+input,
+textarea,
+select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-inset-sm);
+  font-size: 14px;
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: var(--highlight);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--highlight);
+  box-shadow: 0 0 0 3px rgba(38, 139, 210, 0.2);
+}
+
+/* ============================================================================
+   TOAST NOTIFICATIONS
+   ============================================================================ */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 300px;
+  max-width: 500px;
+  pointer-events: all;
+  animation: toast-slide-in 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.toast.toast-success {
+  border-left: 4px solid var(--success);
+}
+
+.toast.toast-success .toast-icon {
+  color: var(--success);
+}
+
+.toast.toast-error {
+  border-left: 4px solid var(--error);
+}
+
+.toast.toast-error .toast-icon {
+  color: var(--error);
+}
+
+.toast.toast-info {
+  border-left: 4px solid var(--info);
+}
+
+.toast.toast-info .toast-icon {
+  color: var(--info);
+}
+
+.toast-icon {
+  font-size: 20px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.toast-message {
+  color: var(--text);
+  font-size: 14px;
+  flex: 1;
+}
+
+.toast.toast-hiding {
+  animation: toast-slide-out 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes toast-slide-in {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toast-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+}
+
+/* ============================================================================
+   TOGGLE SWITCHES (CHECKBOXES)
+   ============================================================================ */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 48px;
+  height: 24px;
+  background: linear-gradient(to bottom, var(--toggle-off-bg-start) 0%, var(--toggle-off-bg-end) 100%);
+  border: 1px solid var(--toggle-off-border);
+  border-radius: 12px;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  margin: 0;
+  padding: 0;
+}
+
+input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: linear-gradient(135deg, var(--toggle-knob-off-start) 0%, var(--toggle-knob-off-end) 100%);
+  border-radius: 50%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.2);
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+input[type="checkbox"]:checked {
+  background: linear-gradient(to bottom, var(--toggle-on-bg-start) 0%, var(--toggle-on-bg-end) 100%);
+  border-color: var(--toggle-on-border);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 8px var(--toggle-on-glow);
+}
+
+input[type="checkbox"]:checked::before {
+  left: 26px;
+  background: linear-gradient(135deg, var(--toggle-knob-on-start) 0%, var(--toggle-knob-on-end) 100%);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.3);
+}
+
+input[type="checkbox"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ============================================================================
+   PANELS
+   ============================================================================ */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============================================================================
+   UTILITIES
+   ============================================================================ */
+.copyable {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.copyable:hover {
+  color: var(--highlight);
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  .modal-content {
+    max-width: 95%;
+    margin: 10px;
+  }
+  
+  .toast {
+    min-width: auto;
+    max-width: calc(100vw - 40px);
+  }
+  
+  .toast-container {
+    right: 10px;
+    left: 10px;
+  }
+}
