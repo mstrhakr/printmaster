@@ -1042,6 +1042,8 @@ func setupRoutes() {
 
 	// SSE endpoint for real-time UI updates
 	http.HandleFunc("/api/events", handleSSE)
+	// Backwards-compatible SSE path used by some client bundles (/events)
+	http.HandleFunc("/events", handleSSE)
 
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token

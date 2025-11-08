@@ -1813,7 +1813,8 @@ input[type="checkbox"]:indeterminate::before {
   width: 100%;
   height: 100%;
   background: rgba(0, 0, 0, 0.7);
-  z-index: 9999;
+  /* Ensure modals (confirm) appear above dynamic modals like metrics_modal */
+  z-index: 30001;
   display: flex;
   justify-content: center;
   align-items: center;

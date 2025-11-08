@@ -62,6 +62,30 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
             'modal-button modal-button-danger' : 
             'modal-button modal-button-primary';
         
+        // Ensure modal appears above any currently-opened modal by computing highest z-index
+        try {
+            let maxZ = 0;
+            // Scan visible elements for numeric z-index values
+            document.querySelectorAll('body *').forEach(el => {
+                try {
+                    const s = window.getComputedStyle(el);
+                    if (!s) return;
+                    const z = s.zIndex;
+                    if (z && z !== 'auto') {
+                        const zi = parseInt(z, 10);
+                        if (!isNaN(zi) && zi > maxZ) maxZ = zi;
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            });
+            // Set modal z-index to one above the highest found (or fallback to 30001)
+            modal.style.zIndex = (maxZ > 0 ? (maxZ + 1) : 30001);
+        } catch (e) {
+            // ignore any errors scanning DOM
+            modal.style.zIndex = 30001;
+        }
+
         // Show modal
         modal.style.display = 'flex';
         
@@ -541,8 +565,8 @@ function renderSavedCard(item) {
 
     // Placeholder for usage graph - will be populated with real data after render
     const graphId = 'usage-graph-' + serial.replace(/[^a-zA-Z0-9]/g, '_');
-    let usageGraphHTML = '<div id="' + graphId + '" class="usage-graph-container">' +
-        '<div class="usage-graph-no-data">Loading usage data...</div>' +
+    let usageGraphHTML = '<div id="' + graphId + '" class="usage-graph-container" onclick="showDeviceMetricsModal(\'' + serial + '\', \'7day\')" style="cursor:pointer">' +
+        '<div class="usage-graph-no-data">Loading usage data... (click to open 7 day metrics)</div>' +
         '</div>';
 
     // Render consumables (toner, drum, fuser, etc) with icons
@@ -2054,11 +2078,10 @@ function showPrinterDetailsData(p, source, parseDebug) {
 
     // Metrics History Section (only for saved devices)
     if (source === 'saved' && p.serial) {
-        let metricsContent = '<div id="metrics_content" style="font-size:13px;color:var(--muted)">Loading metrics...</div>';
-        html += renderInfoCard('Metrics History', metricsContent);
-
-        // Load metrics asynchronously
-        setTimeout(() => loadDeviceMetrics(p.serial), 100);
+        // Replace inline metrics with a button that opens the global metrics modal
+        const btnHtml = '<div style="display:flex;gap:8px;align-items:center"><button class="primary" onclick="showDeviceMetricsModal(\'' + p.serial + '\')">Open Metrics</button>' +
+            '<button style="font-size:12px;padding:6px" onclick="showDeviceMetricsModal(\'' + p.serial + '\', \'' + '7day' + '\')">Open Last 7 Days</button></div>';
+        html += renderInfoCard('Metrics', btnHtml);
     }
 
     // Unified Consumables section - combines toner levels, waste toner, maintenance boxes, etc.
@@ -2549,14 +2572,17 @@ function showPrinterDetails(ip, source) {
 }
 
 // Load device metrics history and display in UI with interactive timeframe selector
-async function loadDeviceMetrics(serial) {
+// If targetId is provided, render UI into that element. Otherwise render into default '#metrics_content'.
+async function loadDeviceMetrics(serial, targetId) {
     console.log('[Metrics] loadDeviceMetrics called for serial:', serial);
-    const contentEl = document.getElementById('metrics_content');
+    let contentEl = null;
+    if (targetId) contentEl = document.getElementById(targetId);
+    if (!contentEl) contentEl = document.getElementById('metrics_content');
     if (!contentEl) {
-        console.error('[Metrics] metrics_content element not found');
+        console.error('[Metrics] metrics_content element not found and no target available');
         return;
     }
-    console.log('[Metrics] Found metrics_content element');
+    console.log('[Metrics] Rendering metrics into element:', contentEl.id || contentEl.tagName);
 
     // Create interactive metrics UI
     let html = '';
@@ -2603,11 +2629,20 @@ async function loadDeviceMetrics(serial) {
     window.metricsDataRange = { min: null, max: null, serial: serial, flatpickr: null };
 
     // Initialize flatpickr and load data
-    await initializeCustomDatetimePicker(serial);
+    await initializeCustomDatetimePicker(serial, contentEl);
+    // Ensure chart/table refresh runs after picker init so UI shows data without requiring the user to click
+    try {
+        // Small defer to allow DOM/layout to settle
+        setTimeout(() => {
+            try { refreshMetricsChart(serial); } catch (e) { console.warn('[Metrics] auto refresh failed:', e); }
+        }, 50);
+    } catch (e) {
+        console.warn('[Metrics] Failed to auto-refresh after init:', e);
+    }
 }
 
 // Initialize custom datetime picker with actual data bounds
-async function initializeCustomDatetimePicker(serial) {
+async function initializeCustomDatetimePicker(serial, contentElOverride) {
     console.log('[Metrics] initializeCustomDatetimePicker called');
     try {
         // Fetch all available metrics to determine data range
@@ -2621,11 +2656,24 @@ async function initializeCustomDatetimePicker(serial) {
 
         const history = await res.json();
         console.log('[Metrics] Received', history?.length || 0, 'data points');
+        // Use provided content element or fall back to global
+        const contentEl = contentElOverride || document.getElementById('metrics_content');
         if (!history || history.length === 0) {
             console.warn('[Metrics] No history data available');
-            document.getElementById('metrics_data_range_start').textContent = 'No data';
-            document.getElementById('metrics_data_range_end').textContent = 'No data';
-            document.getElementById('metrics_content').innerHTML = '<div style="color:var(--muted);padding:12px">No metrics data available yet. Collect metrics first.</div>';
+            if (contentEl) {
+                const startEl = contentEl.querySelector('#metrics_data_range_start');
+                const endEl = contentEl.querySelector('#metrics_data_range_end');
+                if (startEl) startEl.textContent = 'No data';
+                if (endEl) endEl.textContent = 'No data';
+                contentEl.innerHTML = '<div style="color:var(--muted);padding:12px">No metrics data available yet. Collect metrics first.</div>';
+            } else {
+                const globalStart = document.getElementById('metrics_data_range_start');
+                const globalEnd = document.getElementById('metrics_data_range_end');
+                if (globalStart) globalStart.textContent = 'No data';
+                if (globalEnd) globalEnd.textContent = 'No data';
+                const globalContent = document.getElementById('metrics_content');
+                if (globalContent) globalContent.innerHTML = '<div style="color:var(--muted);padding:12px">No metrics data available yet. Collect metrics first.</div>';
+            }
             return;
         }
 
@@ -2636,30 +2684,41 @@ async function initializeCustomDatetimePicker(serial) {
         window.metricsDataRange.min = minTime;
         window.metricsDataRange.max = maxTime;
 
-        // Update labels
-        document.getElementById('metrics_data_range_start').textContent = minTime.toLocaleString();
-        document.getElementById('metrics_data_range_end').textContent = maxTime.toLocaleString();
+        // Update labels inside provided content element if present
+        if (contentEl) {
+            const startEl = contentEl.querySelector('#metrics_data_range_start');
+            const endEl = contentEl.querySelector('#metrics_data_range_end');
+            if (startEl) startEl.textContent = minTime.toLocaleString();
+            if (endEl) endEl.textContent = maxTime.toLocaleString();
+        } else {
+            const globalStart = document.getElementById('metrics_data_range_start');
+            const globalEnd = document.getElementById('metrics_data_range_end');
+            if (globalStart) globalStart.textContent = minTime.toLocaleString();
+            if (globalEnd) globalEnd.textContent = maxTime.toLocaleString();
+        }
 
-        // Initialize to last 7 days
+        // Default to full available range (All Time)
         const now = maxTime;
-        const weekAgo = new Date(Math.max(minTime.getTime(), now.getTime() - 7 * 24 * 60 * 60 * 1000));
 
         // Check if flatpickr is available
         if (typeof flatpickr === 'undefined') {
             console.error('[Metrics] flatpickr library not loaded');
-            document.getElementById('metrics_content').innerHTML = '<div style="color:#d33;padding:12px">Error: Date picker library not loaded. Please refresh the page.</div>';
+            if (contentEl) contentEl.innerHTML = '<div style="color:#d33;padding:12px">Error: Date picker library not loaded. Please refresh the page.</div>';
             return;
         }
-
-        console.log('[Metrics] Initializing flatpickr with range:', weekAgo, 'to', now);
+        console.log('[Metrics] Initializing flatpickr with full range:', minTime, 'to', maxTime);
         // Initialize flatpickr with range mode
-        const fpInstance = flatpickr('#metrics_datetime_range', {
+        const selector = (contentElOverride ? ('#' + (contentElOverride.id || 'metrics_datetime_range')) : '#metrics_datetime_range');
+        // If contentElOverride is provided, use the input inside it
+        const targetSelector = contentElOverride ? (contentElOverride.querySelector('#metrics_datetime_range')) : document.querySelector('#metrics_datetime_range');
+        const fpInstance = flatpickr(targetSelector, {
             mode: 'range',
             enableTime: true,
             dateFormat: 'Y-m-d H:i',
             minDate: minTime,
             maxDate: maxTime,
-            defaultDate: [weekAgo, now],
+            // Default to all available data on initial load
+            defaultDate: [minTime, maxTime],
             time_24hr: true,
             onChange: function (selectedDates, dateStr, instance) {
                 console.log('[Metrics] Range changed:', selectedDates);
@@ -2749,10 +2808,16 @@ window.setMetricsQuickRange = function (preset, serial) {
 // Refresh metrics chart based on selected timeframe
 window.refreshMetricsChart = async function (serial) {
     console.log('[Metrics] refreshMetricsChart called for serial:', serial);
-    const statsEl = document.getElementById('metrics_stats');
-    const canvas = document.getElementById('metrics_chart');
+    // Prefer modal body if present, otherwise default metrics_content
+    const container = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
+    if (!container) {
+        console.error('[Metrics] No metrics container found');
+        return;
+    }
+    const statsEl = container.querySelector('#metrics_stats') || document.getElementById('metrics_stats');
+    const canvas = container.querySelector('#metrics_chart') || document.getElementById('metrics_chart');
     if (!canvas || !statsEl) {
-        console.error('[Metrics] Missing chart elements - canvas:', !!canvas, 'stats:', !!statsEl);
+        console.error('[Metrics] Missing chart elements within container - canvas:', !!canvas, 'stats:', !!statsEl);
         return;
     }
 
@@ -2916,7 +2981,6 @@ window.refreshMetricsChart = async function (serial) {
             });
 
             tableHtml += '</tbody></table></div>';
-            // Append or replace existing table container
             // Create a stable panel wrapper with id so we can reliably find/replace it later
             const panelId = 'metrics_rows_panel';
             const panelHtml = '<div class="panel" id="' + panelId + '"><h4 style="margin-top:0;color:var(--highlight)">Metrics Rows</h4>' + tableHtml + '</div>';
@@ -2925,31 +2989,38 @@ window.refreshMetricsChart = async function (serial) {
             const old = document.getElementById(panelId);
             if (old && old.parentElement) old.parentElement.removeChild(old);
 
-            // Insert after the Metrics History panel if possible
-            const contentEl = document.getElementById('metrics_content');
-            if (contentEl) {
-                const metricsPanel = contentEl.closest('.panel');
+            // Insert panel into the current container (modal or page)
+            if (container) {
+                const metricsPanel = container.closest('.panel');
                 if (metricsPanel && metricsPanel.parentElement) {
                     metricsPanel.insertAdjacentHTML('afterend', panelHtml);
                 } else {
-                    // Fallback: append to metrics_content
-                    contentEl.insertAdjacentHTML('beforeend', panelHtml);
+                    container.insertAdjacentHTML('beforeend', panelHtml);
                 }
             } else {
-                // Last resort: put after canvas
                 canvas.insertAdjacentHTML('afterend', panelHtml);
             }
 
-            // Delegate click handler for delete buttons
-            const metricsContent = document.getElementById('metrics_content');
-            if (metricsContent) {
-                metricsContent.addEventListener('click', async (e) => {
+            // Delegate click handler for delete buttons within the current container
+            const metricsContainerForEvents = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
+            if (metricsContainerForEvents) {
+                // Remove previous handler if present to avoid duplicate listeners
+                if (metricsContainerForEvents._metricsDeleteHandler) {
+                    metricsContainerForEvents.removeEventListener('click', metricsContainerForEvents._metricsDeleteHandler);
+                    metricsContainerForEvents._metricsDeleteHandler = null;
+                }
+
+                const handler = async (e) => {
                     const btn = e.target.closest('.trash-btn');
                     if (!btn) return;
                     const id = btn.getAttribute('data-id');
                     const tier = btn.getAttribute('data-tier') || '';
                     if (!id) return;
-                    if (!confirm('Delete this metrics row? This action cannot be undone.')) return;
+
+                    // Use project's nicer modal confirm if available
+                    const confirmed = await showConfirm('Delete this metrics row? This action cannot be undone.', 'Confirm Delete', true);
+                    if (!confirmed) return;
+
                     try {
                         btn.disabled = true;
                         const resp = await fetch('/api/devices/metrics/delete', {
@@ -2961,14 +3032,17 @@ window.refreshMetricsChart = async function (serial) {
                             refreshMetricsChart(serial);
                         } else {
                             const txt = await resp.text();
-                            alert('Failed to delete metric: ' + txt);
+                            await showConfirm('Failed to delete metric: ' + txt, 'Delete Failed', false);
                         }
                     } catch (err) {
-                        alert('Error deleting metric: ' + err);
+                        await showConfirm('Error deleting metric: ' + err, 'Delete Failed', false);
                     } finally {
                         btn.disabled = false;
                     }
-                });
+                };
+
+                metricsContainerForEvents.addEventListener('click', handler);
+                metricsContainerForEvents._metricsDeleteHandler = handler;
             }
         } catch (e) {
             console.warn('[Metrics] Failed to render metrics table:', e);
@@ -4713,6 +4787,116 @@ function openDirectUI() {
         window.open(currentWebUIURL, '_blank');
         closeWebUIModal();
     }
+}
+
+// Metrics modal (global) - create on demand and render metrics UI inside
+function showDeviceMetricsModal(serial, preset) {
+    // Remove existing modal if present to ensure a clean state
+    const existing = document.getElementById('metrics_modal');
+    if (existing) existing.remove();
+
+    // Overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'metrics_modal';
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.display = 'flex';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.style.background = 'rgba(0,0,0,0.6)';
+    overlay.style.zIndex = '20000';
+    overlay.style.padding = '20px';
+
+    // Dialog
+    const dialog = document.createElement('div');
+    dialog.className = 'metrics-modal-dialog';
+    dialog.style.width = '100%';
+    dialog.style.maxWidth = '1000px';
+    dialog.style.maxHeight = '90%';
+    dialog.style.overflow = 'auto';
+    dialog.style.background = 'var(--bg)';
+    dialog.style.borderRadius = '8px';
+    dialog.style.boxShadow = '0 12px 40px rgba(0,0,0,0.6)';
+    dialog.style.padding = '16px';
+
+    // Header
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    header.style.marginBottom = '8px';
+
+    const title = document.createElement('h3');
+    title.textContent = 'Metrics - ' + (serial || 'Unknown');
+    title.style.margin = '0';
+    title.style.fontSize = '16px';
+    title.style.color = 'var(--highlight)';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕';
+    closeBtn.style.fontSize = '16px';
+    closeBtn.style.padding = '6px 10px';
+    closeBtn.style.border = 'none';
+    closeBtn.style.background = 'transparent';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.onclick = () => closeDeviceMetricsModal();
+
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    // Body
+    const body = document.createElement('div');
+    body.id = 'metrics_modal_body';
+    body.style.minHeight = '200px';
+    body.style.maxHeight = 'calc(90vh - 80px)';
+    body.style.overflow = 'auto';
+
+    dialog.appendChild(header);
+    dialog.appendChild(body);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // Close on backdrop click
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeDeviceMetricsModal();
+    });
+
+    // Close on Escape
+    function escHandler(e) {
+        if (e.key === 'Escape') closeDeviceMetricsModal();
+    }
+    document.addEventListener('keydown', escHandler);
+
+    // Provide a reference for cleanup
+    overlay._escHandler = escHandler;
+
+    // Load metrics UI into the modal body
+    loadDeviceMetrics(serial, 'metrics_modal_body').then(() => {
+        // If preset requested, set flatpickr to last 7 days
+        try {
+            if (preset === '7day' && window.metricsDataRange && window.metricsDataRange.flatpickr) {
+                const maxTime = window.metricsDataRange.max || new Date();
+                const minTime = window.metricsDataRange.min || new Date(maxTime.getTime() - 7 * 24 * 60 * 60 * 1000);
+                const start = new Date(Math.max(minTime.getTime(), maxTime.getTime() - 7 * 24 * 60 * 60 * 1000));
+                window.metricsDataRange.flatpickr.setDate([start, maxTime], true);
+            }
+        } catch (e) {
+            console.warn('Failed to set preset range:', e);
+        }
+    }).catch(e => {
+        body.innerHTML = '<div style="color:#d33;padding:12px">Failed to load metrics: ' + (e && e.message || e) + '</div>';
+    });
+}
+
+function closeDeviceMetricsModal() {
+    const overlay = document.getElementById('metrics_modal');
+    if (!overlay) return;
+    const esc = overlay._escHandler;
+    if (esc) document.removeEventListener('keydown', esc);
+    overlay.remove();
 }
 
 // Initialize UI after all functions are defined
