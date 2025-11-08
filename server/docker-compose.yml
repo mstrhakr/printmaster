@@ -42,12 +42,15 @@ services:
     networks:
       - printmaster-network
     
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
+    # Note: Distroless base doesn't include wget/curl for health checks
+    # Use TCP check instead or implement external monitoring
+    # Uncomment if using Alpine-based Dockerfile:
+    # healthcheck:
+    #   test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/api/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 5s
 
 volumes:
   printmaster-data:

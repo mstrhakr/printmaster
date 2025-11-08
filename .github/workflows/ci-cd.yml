@@ -234,20 +234,39 @@ jobs:
         path: server/printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
 
   build-docker:
-    name: Build and Push Docker Images
+    name: Build and Push Docker Images (Multi-Arch)
     needs: [test-agent, test-server, test-e2e]
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read
       packages: write
+    strategy:
+      matrix:
+        variant:
+          - dockerfile: Dockerfile
+            suffix: ''
+            description: 'distroless'
+          - dockerfile: Dockerfile.scratch
+            suffix: '-scratch'
+            description: 'scratch'
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
     
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+    
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+      with:
+        install: true
+        driver-opts: |
+          image=moby/buildkit:latest
+          network=host
     
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@v3
@@ -267,11 +286,13 @@ jobs:
         echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
         echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
     
-    - name: Extract metadata
+    - name: Extract metadata for ${{ matrix.variant.description }}
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-server
+        flavor: |
+          suffix=${{ matrix.variant.suffix }},onlatest=true
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -281,11 +302,11 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
           type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name == 'release' }}
     
-    - name: Build and push Docker image
+    - name: Build and push Docker image (${{ matrix.variant.description }})
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./server/Dockerfile
+        file: ./server/${{ matrix.variant.dockerfile }}
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
@@ -293,9 +314,11 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           BUILD_TIME=${{ steps.version.outputs.build_time }}
           GIT_COMMIT=${{ steps.version.outputs.git_commit }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha,scope=${{ matrix.variant.description }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.variant.description }}
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        provenance: false
+        sbom: false
 
   release:
     name: Attach Release Assets

@@ -19,38 +19,25 @@ WORKDIR /build
 COPY server/ ./server/
 COPY common/ ./common/
 
-# Build the binary
+# Build the binary with static linking and optimizations
 WORKDIR /build/server
 ARG VERSION=dev
 ARG BUILD_TIME
 ARG GIT_COMMIT
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=release'" \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -a -installsuffix cgo \
+    -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=release'" \
     -o printmaster-server .
 
-# Runtime stage
-FROM alpine:latest
-
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates tzdata
-
-# Create non-root user (UID/GID 99 for Unraid compatibility)
-RUN addgroup -g 99 printmaster && \
-    adduser -D -u 99 -G printmaster printmaster
-
-# Create directories with proper permissions
-RUN mkdir -p /var/lib/printmaster/server /var/log/printmaster/server && \
-    chown -R 99:99 /var/lib/printmaster /var/log/printmaster && \
-    chmod -R 755 /var/lib/printmaster /var/log/printmaster
+# Runtime stage - use distroless for minimal size with ca-certs and timezone data
+# Alternative: Use scratch for absolute minimal (but no shell, harder to debug)
+FROM gcr.io/distroless/static:nonroot
 
 # Copy binary from builder
-COPY --from=builder /build/server/printmaster-server /usr/local/bin/printmaster-server
-RUN chmod +x /usr/local/bin/printmaster-server
+COPY --from=builder /build/server/printmaster-server /printmaster-server
 
-# Switch to non-root user
-USER printmaster
-
-# Set working directory
+# Distroless nonroot user is UID 65532
+# Data will be stored in /var/lib/printmaster/server (mount as volume)
 WORKDIR /var/lib/printmaster/server
 
 # Set environment to indicate Docker environment
@@ -59,9 +46,8 @@ ENV DOCKER=true
 # Expose ports
 EXPOSE 9090 9443
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:9090/api/health || exit 1
+# Note: Distroless doesn't support HEALTHCHECK with wget/curl
+# Health checks should be done externally (docker-compose, k8s, etc.)
 
-# Run the server
-ENTRYPOINT ["/usr/local/bin/printmaster-server"]
+# Run the server (distroless nonroot user)
+ENTRYPOINT ["/printmaster-server"]
