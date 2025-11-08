@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -49,9 +48,9 @@ func main() {
 	stats := map[string]*OidStat{}
 
 	for _, f := range files {
-		b, err := ioutil.ReadFile(f)
+		b, err := os.ReadFile(f)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "read %s: %v\n", f, err)
+			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", f, err)
 			continue
 		}
 		var arr []RawEntry
@@ -178,7 +177,7 @@ func main() {
 		os.Exit(1)
 	}
 	outPath := filepath.Join("logs", "oid_aggregate_report.json")
-	if err := ioutil.WriteFile(outPath, outB, 0644); err != nil {
+	if err := os.WriteFile(outPath, outB, 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "write %s: %v\n", outPath, err)
 		os.Exit(1)
 	}

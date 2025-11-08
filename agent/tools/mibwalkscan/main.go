@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,7 +52,7 @@ func main() {
 	summaries := []Summary{}
 
 	for _, f := range files {
-		raw, err := ioutil.ReadFile(f)
+		raw, err := os.ReadFile(f)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to read %s: %v\n", f, err)
 			continue
@@ -118,6 +117,6 @@ func main() {
 
 	out := filepath.Join("./logs", "mib_walk_summary.json")
 	b, _ := json.MarshalIndent(summaries, "", "  ")
-	_ = ioutil.WriteFile(out, b, 0644)
+	_ = os.WriteFile(out, b, 0644)
 	fmt.Printf("\nWrote summary to %s\n", out)
 }

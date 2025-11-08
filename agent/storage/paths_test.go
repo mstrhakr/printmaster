@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -36,20 +37,20 @@ func TestGetDataDir(t *testing.T) {
 	case "windows":
 		if os.Getenv("LOCALAPPDATA") != "" {
 			expectedBase := os.Getenv("LOCALAPPDATA")
-			if !filepath.HasPrefix(dataDir, expectedBase) {
+			if !strings.HasPrefix(dataDir, expectedBase) {
 				t.Errorf("Expected Windows data dir to start with %s, got %s", expectedBase, dataDir)
 			}
 		}
 	case "darwin":
 		homeDir, _ := os.UserHomeDir()
 		expectedBase := filepath.Join(homeDir, "Library", "Application Support")
-		if !filepath.HasPrefix(dataDir, expectedBase) {
+		if !strings.HasPrefix(dataDir, expectedBase) {
 			t.Errorf("Expected macOS data dir to start with %s, got %s", expectedBase, dataDir)
 		}
 	default: // Linux
 		homeDir, _ := os.UserHomeDir()
 		expectedBase := filepath.Join(homeDir, ".local", "share")
-		if !filepath.HasPrefix(dataDir, expectedBase) {
+		if !strings.HasPrefix(dataDir, expectedBase) {
 			t.Errorf("Expected Linux data dir to start with %s, got %s", expectedBase, dataDir)
 		}
 	}
@@ -99,7 +100,7 @@ func TestGetDataDir_CustomAppName(t *testing.T) {
 		}
 
 		// Verify directory contains app name
-		if !filepath.HasPrefix(filepath.Base(dataDir), appName) {
+		if !strings.HasPrefix(filepath.Base(dataDir), appName) {
 			t.Errorf("Expected data dir to contain app name %s, got %s", appName, dataDir)
 		}
 

@@ -54,7 +54,7 @@ function Test-GitClean {
     return ($null -eq $status -or $status.Count -eq 0)
 }
 
-function Bump-Version {
+function Update-Version {
     param(
         [string]$VersionFile,
         [string]$BumpType
@@ -108,9 +108,9 @@ function Build-Component {
     
     # Build with -Release flag for optimized, stripped binaries
     if ($VerbosePreference -eq 'Continue') {
-        $buildResult = & "$ProjectRoot\build.ps1" $Component -Release -VerboseBuild
+        $null = & "$ProjectRoot\build.ps1" $Component -Release -VerboseBuild
     } else {
-        $buildResult = & "$ProjectRoot\build.ps1" $Component -Release
+        $null = & "$ProjectRoot\build.ps1" $Component -Release
     }
     
     if ($LASTEXITCODE -ne 0) {
@@ -130,7 +130,7 @@ function Build-Component {
     }
 }
 
-function Run-Tests {
+function Invoke-Tests {
     param([string]$Component)
     
     if ($SkipTests) {
@@ -157,7 +157,7 @@ function Run-Tests {
     }
 }
 
-function Commit-And-Tag {
+function Save-CommitAndTag {
     param(
         [string]$Component,
         [string]$Version
@@ -514,8 +514,8 @@ try {
     Write-Status "Bumping version ($BumpType)..." "STEP"
     
     if ($Component -eq 'both') {
-        $agentVersion = Bump-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
-        $serverVersion = Bump-Version -VersionFile (Join-Path $ProjectRoot "server\VERSION") -BumpType $BumpType
+        $agentVersion = Update-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
+        $serverVersion = Update-Version -VersionFile (Join-Path $ProjectRoot "server\VERSION") -BumpType $BumpType
         
         Write-Status "Agent: $($agentVersion.Old) → $($agentVersion.New)" "SUCCESS"
         Write-Status "Server: $($serverVersion.Old) → $($serverVersion.New)" "SUCCESS"
@@ -523,22 +523,22 @@ try {
         $finalVersion = $agentVersion.New  # Use agent version for tag
     } 
     elseif ($Component -eq 'server') {
-        $versionInfo = Bump-Version -VersionFile (Join-Path $ProjectRoot "server\VERSION") -BumpType $BumpType
+        $versionInfo = Update-Version -VersionFile (Join-Path $ProjectRoot "server\VERSION") -BumpType $BumpType
         Write-Status "Server: $($versionInfo.Old) → $($versionInfo.New)" "SUCCESS"
         $finalVersion = $versionInfo.New
     }
     else {
-        $versionInfo = Bump-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
+        $versionInfo = Update-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
         Write-Status "Agent: $($versionInfo.Old) → $($versionInfo.New)" "SUCCESS"
         $finalVersion = $versionInfo.New
     }
     
     # Run tests
     if ($Component -eq 'both') {
-        Run-Tests -Component 'agent'
-        Run-Tests -Component 'server'
+        Invoke-Tests -Component 'agent'
+        Invoke-Tests -Component 'server'
     } else {
-        Run-Tests -Component $Component
+        Invoke-Tests -Component $Component
     }
     
     # Build release binaries
@@ -561,7 +561,7 @@ try {
     }
     
     # Commit and tag
-    Commit-And-Tag -Component $Component -Version $finalVersion
+    Save-CommitAndTag -Component $Component -Version $finalVersion
     
     # Push to GitHub
     Push-Release
