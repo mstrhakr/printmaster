@@ -17,6 +17,19 @@
   # Bind address (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
   bind_address = "0.0.0.0"
 
+[security]
+  # Enable authentication rate limiting to block brute force attacks
+  rate_limit_enabled = true
+  
+  # Maximum failed authentication attempts before blocking
+  rate_limit_max_attempts = 5
+  
+  # Minutes to block IP+token after max attempts exceeded
+  rate_limit_block_minutes = 5
+  
+  # Time window in minutes for counting failed attempts
+  rate_limit_window_minutes = 2
+
 [tls]
   # TLS mode: "disabled", "self-signed", "letsencrypt", "custom"
   mode = "disabled"

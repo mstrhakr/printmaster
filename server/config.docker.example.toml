@@ -18,6 +18,13 @@
   # Bind to all interfaces (required for Docker)
   bind_address = "0.0.0.0"
 
+[security]
+  # Enable authentication rate limiting
+  rate_limit_enabled = true
+  rate_limit_max_attempts = 5
+  rate_limit_block_minutes = 5
+  rate_limit_window_minutes = 2
+
 [tls]
   # TLS mode: "self-signed", "custom", "letsencrypt"
   mode = "self-signed"

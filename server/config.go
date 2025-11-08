@@ -10,6 +10,7 @@ import (
 // Config represents the server configuration
 type Config struct {
 	Server   ServerConfig          `toml:"server"`
+	Security SecurityConfig        `toml:"security"`
 	TLS      TLSConfigTOML         `toml:"tls"`
 	Database config.DatabaseConfig `toml:"database"`
 	Logging  config.LoggingConfig  `toml:"logging"`
@@ -22,6 +23,14 @@ type ServerConfig struct {
 	BehindProxy   bool   `toml:"behind_proxy"`
 	ProxyUseHTTPS bool   `toml:"proxy_use_https"` // If true, use HTTPS even when behind proxy (default: false for HTTP)
 	BindAddress   string `toml:"bind_address"`    // Address to bind to (default: 0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
+}
+
+// SecurityConfig holds security and rate limiting settings
+type SecurityConfig struct {
+	RateLimitEnabled       bool `toml:"rate_limit_enabled"`        // Enable authentication rate limiting (default: true)
+	RateLimitMaxAttempts   int  `toml:"rate_limit_max_attempts"`   // Max failed attempts before blocking (default: 5)
+	RateLimitBlockMinutes  int  `toml:"rate_limit_block_minutes"`  // Minutes to block after max attempts (default: 5)
+	RateLimitWindowMinutes int  `toml:"rate_limit_window_minutes"` // Minutes window for counting attempts (default: 2)
 }
 
 // TLSConfigTOML holds TLS configuration from TOML
@@ -50,6 +59,12 @@ func DefaultConfig() *Config {
 			BehindProxy:   false,
 			ProxyUseHTTPS: false,     // Default to HTTP when behind proxy
 			BindAddress:   "0.0.0.0", // Bind to all interfaces by default
+		},
+		Security: SecurityConfig{
+			RateLimitEnabled:       true, // Enable rate limiting by default
+			RateLimitMaxAttempts:   5,    // 5 failed attempts
+			RateLimitBlockMinutes:  5,    // Block for 5 minutes
+			RateLimitWindowMinutes: 2,    // Within a 2 minute window
 		},
 		TLS: TLSConfigTOML{
 			Mode:   "self-signed",
