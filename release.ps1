@@ -377,7 +377,8 @@ function New-GitHubRelease {
         [string]$Tag,
         [string]$Title,
         [string]$Component,
-        [string]$Version
+        [string]$Version,
+        [string]$ChangelogContent
     )
     
     Write-Status "Creating GitHub Release..." "STEP"
@@ -395,8 +396,8 @@ function New-GitHubRelease {
         return
     }
     
-    # Generate changelog
-    $changelog = Get-ChangelogSinceLastTag -Component $Component -CurrentVersion $Version
+    # Use pre-generated changelog
+    $changelog = $ChangelogContent
     
     # Generate release notes
     $releaseNotes = @"
@@ -547,21 +548,30 @@ try {
         Build-Component -Component $Component -Version $finalVersion
     }
     
+    # Generate changelogs BEFORE tagging (so we capture commits up to this point)
+    Write-Status "Generating release notes..." "STEP"
+    if ($Component -eq 'both') {
+        $agentChangelog = Get-ChangelogSinceLastTag -Component 'agent' -CurrentVersion $agentVersion.New
+        $serverChangelog = Get-ChangelogSinceLastTag -Component 'server' -CurrentVersion $serverVersion.New
+    } else {
+        $changelog = Get-ChangelogSinceLastTag -Component $Component -CurrentVersion $finalVersion
+    }
+    
     # Commit and tag
     Commit-And-Tag -Component $Component -Version $finalVersion
     
     # Push to GitHub
     Push-Release
     
-    # Create GitHub Release
+    # Create GitHub Release (using pre-generated changelogs)
     if ($Component -eq "both") {
-        # Create releases for both components
-        New-GitHubRelease -Tag "agent-v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New
-        New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New
+        # Create releases for both components using pre-generated changelogs
+        New-GitHubRelease -Tag "agent-v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New -ChangelogContent $agentChangelog
+        New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New -ChangelogContent $serverChangelog
     } elseif ($Component -eq "agent") {
-        New-GitHubRelease -Tag "agent-v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion
+        New-GitHubRelease -Tag "agent-v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion -ChangelogContent $changelog
     } else {
-        New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion
+        New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion -ChangelogContent $changelog
     }
     
     # Summary
