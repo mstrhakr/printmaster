@@ -1186,12 +1186,8 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get agent details by ID - for UI display (no auth required for now)
+// Also handles DELETE for removing agents
 func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "GET only", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// Extract agent ID from URL path: /api/v1/agents/{agentID}
 	path := r.URL.Path
 	agentID := strings.TrimPrefix(path, "/api/v1/agents/")
@@ -1201,26 +1197,60 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-	agent, err := serverStore.GetAgent(ctx, agentID)
-	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to get agent", "agent_id", agentID, "error", err)
+
+	switch r.Method {
+	case http.MethodGet:
+		agent, err := serverStore.GetAgent(ctx, agentID)
+		if err != nil {
+			if serverLogger != nil {
+				serverLogger.Error("Failed to get agent", "agent_id", agentID, "error", err)
+			}
+			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
 		}
-		http.Error(w, "Agent not found", http.StatusNotFound)
-		return
+
+		// Get device count for this agent
+		devices, err := serverStore.ListDevices(ctx, agentID)
+		if err == nil {
+			agent.DeviceCount = len(devices)
+		}
+
+		// Remove sensitive token from response
+		agent.Token = ""
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(agent)
+
+	case http.MethodDelete:
+		// Delete agent and all associated data
+		err := serverStore.DeleteAgent(ctx, agentID)
+		if err != nil {
+			if serverLogger != nil {
+				serverLogger.Error("Failed to delete agent", "agent_id", agentID, "error", err)
+			}
+			if err.Error() == "agent not found" {
+				http.Error(w, "Agent not found", http.StatusNotFound)
+			} else {
+				http.Error(w, "Failed to delete agent", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		// Close WebSocket connection if active
+		closeAgentWebSocket(agentID)
+
+		if serverLogger != nil {
+			serverLogger.Info("Agent deleted", "agent_id", agentID)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Agent deleted successfully",
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
-
-	// Get device count for this agent
-	devices, err := serverStore.ListDevices(ctx, agentID)
-	if err == nil {
-		agent.DeviceCount = len(devices)
-	}
-
-	// Remove sensitive token from response
-	agent.Token = ""
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(agent)
 }
 
 // handleAgentProxy proxies HTTP requests to the agent's own web UI through WebSocket

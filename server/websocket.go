@@ -329,6 +329,20 @@ func isAgentConnectedWS(agentID string) bool {
 	return exists
 }
 
+// closeAgentWebSocket closes the WebSocket connection for an agent
+func closeAgentWebSocket(agentID string) {
+	wsConnectionsLock.Lock()
+	defer wsConnectionsLock.Unlock()
+	
+	if conn, exists := wsConnections[agentID]; exists {
+		conn.Close()
+		delete(wsConnections, agentID)
+		if serverLogger != nil {
+			serverLogger.Info("Closed WebSocket connection for deleted agent", "agent_id", agentID)
+		}
+	}
+}
+
 // handleWSProxyResponse handles HTTP proxy responses from agents
 func handleWSProxyResponse(msg WSMessage) {
 	requestID, ok := msg.Data["request_id"].(string)

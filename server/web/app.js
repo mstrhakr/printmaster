@@ -468,6 +468,10 @@ function renderAgentCard(agent) {
                 <button onclick="openAgentUI('${agent.agent_id}')" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
                     Open UI
                 </button>
+                <button onclick="deleteAgent('${agent.agent_id}', '${agent.hostname || agent.agent_id}')" 
+                    style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">
+                    Delete
+                </button>
             </div>
         </div>
     `;
@@ -481,7 +485,7 @@ async function viewAgentDetails(agentId) {
         const body = document.getElementById('agent_details_body');
         const title = document.getElementById('agent_details_title');
         
-        modal.style.display = 'block';
+        modal.style.display = 'flex';
         body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Loading agent details...</div>';
         title.textContent = 'Agent Details';
         
@@ -709,6 +713,47 @@ function renderAgentDetailsModal(agent) {
             </button>
         </div>
     `;
+}
+
+// ====== Delete Agent ======
+async function deleteAgent(agentId, displayName) {
+    const confirmed = await showConfirm(
+        'Delete Agent',
+        `Are you sure you want to delete agent "${displayName}"?\n\nThis will permanently remove the agent and all its associated devices and metrics. This action cannot be undone.`,
+        true // isDangerous
+    );
+    
+    if (!confirmed) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/agents/${agentId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        showToast(`Agent "${displayName}" deleted successfully`, 'success');
+        
+        // Remove agent card with animation
+        const card = document.querySelector(`[data-agent-id="${agentId}"]`);
+        if (card) {
+            card.classList.add('removing');
+            setTimeout(() => {
+                // Reload agents list
+                loadAgents();
+            }, 400); // Match animation duration
+        } else {
+            // Card not found, just reload
+            loadAgents();
+        }
+    } catch (error) {
+        console.error('Failed to delete agent:', error);
+        showToast('Failed to delete agent', 'error');
+    }
 }
 
 // ====== Devices Management ======

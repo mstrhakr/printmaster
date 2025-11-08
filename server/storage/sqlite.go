@@ -425,6 +425,48 @@ func (s *SQLiteStore) UpdateAgentHeartbeat(ctx context.Context, agentID string, 
 	return err
 }
 
+// DeleteAgent removes an agent and all associated devices and metrics
+func (s *SQLiteStore) DeleteAgent(ctx context.Context, agentID string) error {
+	// Start transaction to ensure atomic deletion
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Delete metrics for devices owned by this agent
+	if _, err := tx.ExecContext(ctx, `DELETE FROM metrics WHERE agent_id = ?`, agentID); err != nil {
+		return fmt.Errorf("failed to delete metrics: %w", err)
+	}
+
+	// Delete devices owned by this agent
+	if _, err := tx.ExecContext(ctx, `DELETE FROM devices WHERE agent_id = ?`, agentID); err != nil {
+		return fmt.Errorf("failed to delete devices: %w", err)
+	}
+
+	// Delete the agent
+	result, err := tx.ExecContext(ctx, `DELETE FROM agents WHERE agent_id = ?`, agentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent: %w", err)
+	}
+
+	// Check if agent existed
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("agent not found")
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
 // UpsertDevice inserts or updates a device
 func (s *SQLiteStore) UpsertDevice(ctx context.Context, device *Device) error {
 	consumablesJSON, _ := json.Marshal(device.Consumables)

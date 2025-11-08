@@ -90,6 +90,7 @@ type Store interface {
 	GetAgentByToken(ctx context.Context, token string) (*Agent, error)
 	ListAgents(ctx context.Context) ([]*Agent, error)
 	UpdateAgentHeartbeat(ctx context.Context, agentID string, status string) error
+	DeleteAgent(ctx context.Context, agentID string) error
 
 	// Device management
 	UpsertDevice(ctx context.Context, device *Device) error
