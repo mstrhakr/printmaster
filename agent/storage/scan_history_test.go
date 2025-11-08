@@ -17,14 +17,7 @@ func TestSQLiteStore_AddScanHistory(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a device first
-	device := &Device{
-		Serial:       "TEST123",
-		IP:           "10.0.0.1",
-		Manufacturer: "HP",
-		Model:        "LaserJet",
-		IsSaved:      false,
-		Visible:      true,
-	}
+	device := newFullTestDevice("TEST123", "10.0.0.1", "HP", "LaserJet", false, true)
 	err = store.Create(ctx, device)
 	if err != nil {
 		t.Fatalf("failed to create device: %v", err)
@@ -79,11 +72,7 @@ func TestSQLiteStore_GetScanHistory(t *testing.T) {
 	ctx := context.Background()
 
 	// Create device
-	device := &Device{
-		Serial:  "TEST123",
-		IP:      "10.0.0.1",
-		Visible: true,
-	}
+	device := newTestDevice("TEST123", "10.0.0.1", false, true)
 	store.Create(ctx, device)
 
 	// Add multiple scans with different firmware versions to test ordering
@@ -126,67 +115,6 @@ func TestSQLiteStore_GetScanHistory(t *testing.T) {
 	}
 }
 
-// TestSQLiteStore_GetScanAtTime - REMOVED: SQL query needs adjustment, test was skipping
-// func TestSQLiteStore_GetScanAtTime(t *testing.T) {
-// 	store, err := NewSQLiteStore(":memory:")
-// 	if err != nil {
-// 		t.Fatalf("failed to create store: %v", err)
-// 	}
-// 	defer store.Close()
-//
-// 	ctx := context.Background()
-//
-// 	// Create device
-// 	device := &Device{
-// 		Serial:  "TEST123",
-// 		IP:      "10.0.0.1",
-// 		Visible: true,
-// 	}
-// 	store.Create(ctx, device)
-//
-// 	// Add scans at different times with different firmware versions
-// 	baseTime := time.Now().Add(-24 * time.Hour).Truncate(time.Hour)
-// 	expectedScans := []struct {
-// 		offset   int
-// 		firmware string
-// 	}{
-// 		{0, "1.0.0"},
-// 		{1, "1.0.1"},
-// 		{2, "1.0.2"},
-// 		{3, "1.0.3"},
-// 		{4, "1.0.4"},
-// 	}
-//
-// 	for _, exp := range expectedScans {
-// 		scan := &ScanSnapshot{
-// 			Serial:    "TEST123",
-// 			CreatedAt: baseTime.Add(time.Duration(exp.offset) * time.Hour),
-// 			IP:        "10.0.0.1",
-// 			Firmware:  exp.firmware,
-// 		}
-// 		err := store.AddScanHistory(ctx, scan)
-// 		if err != nil {
-// 			t.Fatalf("failed to add scan %d: %v", exp.offset, err)
-// 		}
-// 	}
-//
-// 	// Get scan closest to 2.25 hours (between scan at 2h and 3h)
-// 	targetTime := baseTime.Add(2*time.Hour + 15*time.Minute)
-// 	scan, err := store.GetScanAtTime(ctx, "TEST123", targetTime.Unix())
-// 	if err != nil {
-// 		t.Fatalf("failed to get scan at time: %v", err)
-// 	}
-//
-// 	// 2.25 hours from base: closest should be firmware "1.0.2" (at 2h) since 0.25h < 0.75h
-// 	if scan.Firmware != "1.0.2" {
-// 		t.Logf("Target time: %v", targetTime)
-// 		t.Logf("Scan time: %v (Firmware: %s)", scan.CreatedAt, scan.Firmware)
-// 		// For now, accept any scan as we just want to verify the method works
-// 		// The SQL ABS() calculation may have edge cases
-// 		t.Skipf("GetScanAtTime returned Firmware %s, expected 1.0.2 - may need SQL query adjustment", scan.Firmware)
-// 	}
-// }
-
 func TestSQLiteStore_DeleteOldScans(t *testing.T) {
 	store, err := NewSQLiteStore(":memory:")
 	if err != nil {
@@ -197,11 +125,7 @@ func TestSQLiteStore_DeleteOldScans(t *testing.T) {
 	ctx := context.Background()
 
 	// Create device
-	device := &Device{
-		Serial:  "TEST123",
-		IP:      "10.0.0.1",
-		Visible: true,
-	}
+	device := newTestDevice("TEST123", "10.0.0.1", false, true)
 	store.Create(ctx, device)
 
 	// Add old and new scans
@@ -255,20 +179,10 @@ func TestSQLiteStore_HideDiscovered(t *testing.T) {
 	ctx := context.Background()
 
 	// Create discovered and saved devices
-	discovered := &Device{
-		Serial:  "DISC123",
-		IP:      "10.0.0.1",
-		IsSaved: false,
-		Visible: true,
-	}
+	discovered := newTestDevice("DISC123", "10.0.0.1", false, true)
 	store.Create(ctx, discovered)
 
-	saved := &Device{
-		Serial:  "SAVED123",
-		IP:      "10.0.0.2",
-		IsSaved: true,
-		Visible: true,
-	}
+	saved := newTestDevice("SAVED123", "10.0.0.2", true, true)
 	store.Create(ctx, saved)
 
 	// Hide discovered devices
@@ -304,18 +218,10 @@ func TestSQLiteStore_ShowAll(t *testing.T) {
 	ctx := context.Background()
 
 	// Create hidden devices
-	device1 := &Device{
-		Serial:  "TEST1",
-		IP:      "10.0.0.1",
-		Visible: false,
-	}
+	device1 := newTestDevice("TEST1", "10.0.0.1", false, false)
 	store.Create(ctx, device1)
 
-	device2 := &Device{
-		Serial:  "TEST2",
-		IP:      "10.0.0.2",
-		Visible: false,
-	}
+	device2 := newTestDevice("TEST2", "10.0.0.2", false, false)
 	store.Create(ctx, device2)
 
 	// Show all
@@ -347,30 +253,18 @@ func TestSQLiteStore_DeleteOldHiddenDevices(t *testing.T) {
 	ctx := context.Background()
 
 	// Create old hidden device
-	oldDevice := &Device{
-		Serial:   "OLD123",
-		IP:       "10.0.0.1",
-		Visible:  false,
-		LastSeen: time.Now().Add(-40 * 24 * time.Hour),
-	}
+	oldDevice := newTestDevice("OLD123", "10.0.0.1", false, false)
+	oldDevice.LastSeen = time.Now().Add(-40 * 24 * time.Hour)
 	store.Create(ctx, oldDevice)
 
 	// Create recent hidden device
-	recentDevice := &Device{
-		Serial:   "RECENT123",
-		IP:       "10.0.0.2",
-		Visible:  false,
-		LastSeen: time.Now().Add(-10 * 24 * time.Hour),
-	}
+	recentDevice := newTestDevice("RECENT123", "10.0.0.2", false, false)
+	recentDevice.LastSeen = time.Now().Add(-10 * 24 * time.Hour)
 	store.Create(ctx, recentDevice)
 
 	// Create visible device (should not be deleted)
-	visibleDevice := &Device{
-		Serial:   "VISIBLE123",
-		IP:       "10.0.0.3",
-		Visible:  true,
-		LastSeen: time.Now().Add(-40 * 24 * time.Hour),
-	}
+	visibleDevice := newTestDevice("VISIBLE123", "10.0.0.3", false, true)
+	visibleDevice.LastSeen = time.Now().Add(-40 * 24 * time.Hour)
 	store.Create(ctx, visibleDevice)
 
 	// Delete hidden devices older than 30 days
@@ -413,10 +307,10 @@ func TestSQLiteStore_VisibleFilter(t *testing.T) {
 	ctx := context.Background()
 
 	// Create mix of visible and hidden devices
-	visible1 := &Device{Serial: "VIS1", IP: "10.0.0.1", Visible: true, IsSaved: false}
-	visible2 := &Device{Serial: "VIS2", IP: "10.0.0.2", Visible: true, IsSaved: true}
-	hidden1 := &Device{Serial: "HID1", IP: "10.0.0.3", Visible: false, IsSaved: false}
-	hidden2 := &Device{Serial: "HID2", IP: "10.0.0.4", Visible: false, IsSaved: true}
+	visible1 := newTestDevice("VIS1", "10.0.0.1", false, true)
+	visible2 := newTestDevice("VIS2", "10.0.0.2", true, true)
+	hidden1 := newTestDevice("HID1", "10.0.0.3", false, false)
+	hidden2 := newTestDevice("HID2", "10.0.0.4", true, false)
 
 	store.Create(ctx, visible1)
 	store.Create(ctx, visible2)
@@ -467,9 +361,9 @@ func TestSQLiteStore_Stats_WithScanHistory(t *testing.T) {
 	ctx := context.Background()
 
 	// Create devices
-	saved := &Device{Serial: "SAVED1", IP: "10.0.0.1", IsSaved: true, Visible: true}
-	discovered := &Device{Serial: "DISC1", IP: "10.0.0.2", IsSaved: false, Visible: true}
-	hidden := &Device{Serial: "HID1", IP: "10.0.0.3", IsSaved: false, Visible: false}
+	saved := newTestDevice("SAVED1", "10.0.0.1", true, true)
+	discovered := newTestDevice("DISC1", "10.0.0.2", false, true)
+	hidden := newTestDevice("HID1", "10.0.0.3", false, false)
 
 	store.Create(ctx, saved)
 	store.Create(ctx, discovered)

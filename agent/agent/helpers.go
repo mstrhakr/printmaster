@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"printmaster/agent/util"
+	"printmaster/common/util"
 )
 
 // UpsertDiscoveredPrinter writes discovered device directly to database

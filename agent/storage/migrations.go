@@ -379,12 +379,11 @@ func (s *SQLiteStore) seedDefaultMetrics() error {
 	// Create default metrics for each device
 	ctx := context.Background()
 	for _, serial := range serials {
-		snapshot := &MetricsSnapshot{
-			Serial:      serial,
-			Timestamp:   time.Now(),
-			PageCount:   0,
-			TonerLevels: make(map[string]interface{}),
-		}
+		snapshot := &MetricsSnapshot{}
+		snapshot.Serial = serial
+		snapshot.Timestamp = time.Now()
+		snapshot.PageCount = 0
+		snapshot.TonerLevels = make(map[string]interface{})
 
 		if err := s.SaveMetricsSnapshot(ctx, snapshot); err != nil {
 			if storageLogger != nil {

@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"printmaster/agent/util"
+	"printmaster/common/util"
 
 	"github.com/gosnmp/gosnmp"
 )

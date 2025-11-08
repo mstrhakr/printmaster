@@ -373,14 +373,14 @@ func TestMetricsBatchUpload(t *testing.T) {
 	}
 
 	// Create device first
-	device := &storage.Device{
-		Serial:    "METRICS-TEST-01",
-		AgentID:   "test-agent-04",
-		IP:        "192.168.1.60",
-		LastSeen:  time.Now(),
-		FirstSeen: time.Now(),
-		CreatedAt: time.Now(),
-	}
+	device := &storage.Device{}
+	device.Serial = "METRICS-TEST-01"
+	device.AgentID = "test-agent-04"
+	device.IP = "192.168.1.60"
+	device.LastSeen = time.Now()
+	device.FirstSeen = time.Now()
+	device.CreatedAt = time.Now()
+
 	if err := store.UpsertDevice(ctx, device); err != nil {
 		t.Fatalf("Failed to create device: %v", err)
 	}

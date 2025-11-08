@@ -210,7 +210,7 @@ func buildQueryOIDs(profile QueryProfile) []string {
 
 // buildQueryOIDsWithCapabilities constructs the list of OIDs with optional capability-aware filtering.
 // Hardcoded standard Printer-MIB OIDs for simplicity and maintainability.
-func buildQueryOIDsWithCapabilities(profile QueryProfile, caps *capabilities.DeviceCapabilities) []string {
+func buildQueryOIDsWithCapabilities(profile QueryProfile, _ *capabilities.DeviceCapabilities) []string { //nolint:revive
 	var oids []string
 
 	switch profile {

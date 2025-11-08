@@ -17,14 +17,8 @@ func TestSQLiteStore_InMemory(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a test device
-	device := &Device{
-		Serial:       "TEST001",
-		IP:           "192.168.1.100",
-		Manufacturer: "HP",
-		Model:        "LaserJet Pro",
-		IsSaved:      false,
-		Consumables:  []string{"Black Toner"},
-	}
+	device := newFullTestDevice("TEST001", "192.168.1.100", "HP", "LaserJet Pro", false, true)
+	device.Consumables = []string{"Black Toner"}
 
 	// Test Create
 	err = store.Create(ctx, device)
@@ -33,12 +27,8 @@ func TestSQLiteStore_InMemory(t *testing.T) {
 	}
 
 	// Create a metrics snapshot for this device
-	snapshot := &MetricsSnapshot{
-		Serial:      "TEST001",
-		Timestamp:   time.Now(),
-		PageCount:   500,
-		TonerLevels: map[string]interface{}{"black": 75},
-	}
+	snapshot := newTestMetrics("TEST001", 500)
+	snapshot.TonerLevels = map[string]interface{}{"black": 75}
 	err = store.SaveMetricsSnapshot(ctx, snapshot)
 	if err != nil {
 		t.Fatalf("Failed to save metrics snapshot: %v", err)
@@ -83,12 +73,8 @@ func TestSQLiteStore_InMemory(t *testing.T) {
 	}
 
 	// Update metrics
-	snapshot2 := &MetricsSnapshot{
-		Serial:      "TEST001",
-		Timestamp:   time.Now(),
-		PageCount:   1000,
-		TonerLevels: map[string]interface{}{"black": 70},
-	}
+	snapshot2 := newTestMetrics("TEST001", 1000)
+	snapshot2.TonerLevels = map[string]interface{}{"black": 70}
 	err = store.SaveMetricsSnapshot(ctx, snapshot2)
 	if err != nil {
 		t.Fatalf("Failed to save updated metrics: %v", err)
@@ -132,12 +118,7 @@ func TestSQLiteStore_Upsert(t *testing.T) {
 
 	ctx := context.Background()
 
-	device := &Device{
-		Serial:       "TEST002",
-		IP:           "192.168.1.101",
-		Manufacturer: "Canon",
-		Model:        "ImageRunner",
-	}
+	device := newFullTestDevice("TEST002", "192.168.1.101", "Canon", "ImageRunner", false, true)
 
 	// First upsert should create
 	err = store.Upsert(ctx, device)
@@ -146,11 +127,7 @@ func TestSQLiteStore_Upsert(t *testing.T) {
 	}
 
 	// Save initial metrics
-	snapshot1 := &MetricsSnapshot{
-		Serial:    "TEST002",
-		Timestamp: time.Now(),
-		PageCount: 500,
-	}
+	snapshot1 := newTestMetrics("TEST002", 500)
 	err = store.SaveMetricsSnapshot(ctx, snapshot1)
 	if err != nil {
 		t.Fatalf("Failed to save initial metrics: %v", err)
@@ -166,11 +143,7 @@ func TestSQLiteStore_Upsert(t *testing.T) {
 	}
 
 	// Update metrics
-	snapshot2 := &MetricsSnapshot{
-		Serial:    "TEST002",
-		Timestamp: time.Now(),
-		PageCount: 1500,
-	}
+	snapshot2 := newTestMetrics("TEST002", 1500)
 	err = store.SaveMetricsSnapshot(ctx, snapshot2)
 	if err != nil {
 		t.Fatalf("Failed to save updated metrics: %v", err)
@@ -207,10 +180,10 @@ func TestSQLiteStore_List(t *testing.T) {
 
 	// Create multiple devices
 	devices := []*Device{
-		{Serial: "HP001", IP: "192.168.1.10", Manufacturer: "HP", Model: "LaserJet 1", IsSaved: true},
-		{Serial: "HP002", IP: "192.168.1.11", Manufacturer: "HP", Model: "LaserJet 2", IsSaved: false},
-		{Serial: "CANON001", IP: "192.168.1.20", Manufacturer: "Canon", Model: "ImageRunner", IsSaved: true},
-		{Serial: "EPSON001", IP: "192.168.1.30", Manufacturer: "Epson", Model: "WorkForce", IsSaved: false},
+		newFullTestDevice("HP001", "192.168.1.10", "HP", "LaserJet 1", true, true),
+		newFullTestDevice("HP002", "192.168.1.11", "HP", "LaserJet 2", false, true),
+		newFullTestDevice("CANON001", "192.168.1.20", "Canon", "ImageRunner", true, true),
+		newFullTestDevice("EPSON001", "192.168.1.30", "Epson", "WorkForce", false, true),
 	}
 
 	for _, d := range devices {
@@ -286,11 +259,7 @@ func TestSQLiteStore_MarkSavedDiscovered(t *testing.T) {
 
 	ctx := context.Background()
 
-	device := &Device{
-		Serial:  "TEST003",
-		IP:      "192.168.1.102",
-		IsSaved: false,
-	}
+	device := newTestDevice("TEST003", "192.168.1.102", false, true)
 
 	err = store.Create(ctx, device)
 	if err != nil {
@@ -337,9 +306,9 @@ func TestSQLiteStore_DeleteAll(t *testing.T) {
 
 	// Create test devices
 	devices := []*Device{
-		{Serial: "DEL001", IP: "192.168.1.40", Manufacturer: "HP", IsSaved: true},
-		{Serial: "DEL002", IP: "192.168.1.41", Manufacturer: "HP", IsSaved: false},
-		{Serial: "DEL003", IP: "192.168.1.42", Manufacturer: "Canon", IsSaved: true},
+		newFullTestDevice("DEL001", "192.168.1.40", "HP", "", true, true),
+		newFullTestDevice("DEL002", "192.168.1.41", "HP", "", false, true),
+		newFullTestDevice("DEL003", "192.168.1.42", "Canon", "", true, true),
 	}
 
 	for _, d := range devices {
@@ -391,9 +360,9 @@ func TestSQLiteStore_Stats(t *testing.T) {
 	ctx := context.Background()
 
 	// Create test devices
-	store.Create(ctx, &Device{Serial: "STAT001", IP: "192.168.1.50", IsSaved: true})
-	store.Create(ctx, &Device{Serial: "STAT002", IP: "192.168.1.51", IsSaved: true})
-	store.Create(ctx, &Device{Serial: "STAT003", IP: "192.168.1.52", IsSaved: false})
+	store.Create(ctx, newTestDevice("STAT001", "192.168.1.50", true, true))
+	store.Create(ctx, newTestDevice("STAT002", "192.168.1.51", true, true))
+	store.Create(ctx, newTestDevice("STAT003", "192.168.1.52", false, true))
 
 	stats, err := store.Stats(ctx)
 	if err != nil {
@@ -420,28 +389,22 @@ func TestSQLiteStore_ComplexData(t *testing.T) {
 
 	ctx := context.Background()
 
-	device := &Device{
-		Serial:          "COMPLEX001",
-		IP:              "192.168.1.100",
-		Manufacturer:    "HP",
-		Model:           "LaserJet M1536dnf",
-		Hostname:        "printer-01",
-		Firmware:        "v2.0.1",
-		MACAddress:      "c4:34:6b:1a:50:5c",
-		SubnetMask:      "255.255.0.0",
-		Gateway:         "192.168.1.1",
-		DNSServers:      []string{"8.8.8.8", "8.8.4.4"},
-		DHCPServer:      "192.168.1.1",
-		Consumables:     []string{"Black Toner CE278A", "Cyan Toner", "Magenta Toner", "Yellow Toner"},
-		StatusMessages:  []string{"Ready", "Toner Low"},
-		IsSaved:         true,
-		DiscoveryMethod: "snmp",
-		WalkFilename:    "mib_walk_192_168_1_100_20251101.json",
-		RawData: map[string]interface{}{
-			"uptime_seconds": 1234567,
-			"duplex":         true,
-			"color":          true,
-		},
+	device := newFullTestDevice("COMPLEX001", "192.168.1.100", "HP", "LaserJet M1536dnf", true, true)
+	device.Hostname = "printer-01"
+	device.Firmware = "v2.0.1"
+	device.MACAddress = "c4:34:6b:1a:50:5c"
+	device.SubnetMask = "255.255.0.0"
+	device.Gateway = "192.168.1.1"
+	device.DNSServers = []string{"8.8.8.8", "8.8.4.4"}
+	device.DHCPServer = "192.168.1.1"
+	device.Consumables = []string{"Black Toner CE278A", "Cyan Toner", "Magenta Toner", "Yellow Toner"}
+	device.StatusMessages = []string{"Ready", "Toner Low"}
+	device.DiscoveryMethod = "snmp"
+	device.WalkFilename = "mib_walk_192_168_1_100_20251101.json"
+	device.RawData = map[string]interface{}{
+		"uptime_seconds": 1234567,
+		"duplex":         true,
+		"color":          true,
 	}
 
 	// Create
@@ -451,16 +414,12 @@ func TestSQLiteStore_ComplexData(t *testing.T) {
 	}
 
 	// Save metrics separately
-	snapshot := &MetricsSnapshot{
-		Serial:    "COMPLEX001",
-		Timestamp: time.Now(),
-		PageCount: 50000,
-		TonerLevels: map[string]interface{}{
-			"black":   85,
-			"cyan":    60,
-			"magenta": 70,
-			"yellow":  55,
-		},
+	snapshot := newTestMetrics("COMPLEX001", 50000)
+	snapshot.TonerLevels = map[string]interface{}{
+		"black":   85,
+		"cyan":    60,
+		"magenta": 70,
+		"yellow":  55,
 	}
 	err = store.SaveMetricsSnapshot(ctx, snapshot)
 	if err != nil {
@@ -506,12 +465,13 @@ func TestSQLiteStore_ErrorCases(t *testing.T) {
 	ctx := context.Background()
 
 	// Test operations with empty serial
-	err = store.Create(ctx, &Device{IP: "192.168.1.1"})
+	emptyDevice := newTestDevice("", "192.168.1.1", false, true)
+	err = store.Create(ctx, emptyDevice)
 	if err != ErrInvalidSerial {
 		t.Errorf("Expected ErrInvalidSerial for empty serial, got %v", err)
 	}
 
-	err = store.Update(ctx, &Device{IP: "192.168.1.1"})
+	err = store.Update(ctx, emptyDevice)
 	if err != ErrInvalidSerial {
 		t.Errorf("Expected ErrInvalidSerial for update with empty serial, got %v", err)
 	}
@@ -533,7 +493,8 @@ func TestSQLiteStore_ErrorCases(t *testing.T) {
 	}
 
 	// Test update non-existent device
-	err = store.Update(ctx, &Device{Serial: "NONEXISTENT", IP: "192.168.1.1"})
+	nonExistentDevice := newTestDevice("NONEXISTENT", "192.168.1.1", false, true)
+	err = store.Update(ctx, nonExistentDevice)
 	if err != ErrNotFound {
 		t.Errorf("Expected ErrNotFound for update, got %v", err)
 	}
@@ -556,13 +517,7 @@ func TestSQLiteStore_BackupAndReset_InMemory(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a test device
-	device := &Device{
-		Serial:       "BACKUP001",
-		IP:           "192.168.1.200",
-		Manufacturer: "Canon",
-		Model:        "imageRUNNER",
-		IsSaved:      true,
-	}
+	device := newFullTestDevice("BACKUP001", "192.168.1.200", "Canon", "imageRUNNER", true, true)
 
 	err = store.Create(ctx, device)
 	if err != nil {
@@ -588,13 +543,7 @@ func TestSQLiteStore_BackupAndReset_InMemory(t *testing.T) {
 	}
 
 	// Verify we can still use the database after reset
-	newDevice := &Device{
-		Serial:       "RESET001",
-		IP:           "192.168.1.201",
-		Manufacturer: "Brother",
-		Model:        "MFC",
-		IsSaved:      false,
-	}
+	newDevice := newFullTestDevice("RESET001", "192.168.1.201", "Brother", "MFC", false, true)
 
 	err = store.Create(ctx, newDevice)
 	if err != nil {

@@ -74,9 +74,6 @@ type DeviceStore interface {
 	// GetScanHistory returns the last N scan snapshots for a device, newest first
 	GetScanHistory(ctx context.Context, serial string, limit int) ([]*ScanSnapshot, error)
 
-	// GetScanAtTime returns the scan snapshot closest to the given time
-	GetScanAtTime(ctx context.Context, serial string, timestamp int64) (*ScanSnapshot, error)
-
 	// DeleteOldScans removes scan history older than the given timestamp
 	DeleteOldScans(ctx context.Context, olderThan int64) (int, error)
 

@@ -182,20 +182,3 @@ func setupServiceDirectories() error {
 
 	return nil
 }
-
-// getServiceLogDir returns the log directory path for service mode
-func getServiceLogDir() string {
-	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "logs")
-	case "darwin":
-		return "/var/log/printmaster"
-	default: // Linux
-		return "/var/log/printmaster"
-	}
-}
-
-// isRunningAsService detects if the server is running as a system service
-func isRunningAsService() bool {
-	return service.Interactive() == false
-}

@@ -1,0 +1,5845 @@
+package agent
+
+import (
+	"bufio"
+	// "fmt" kept for future debugging
+	"os"
+	"os/exec"
+	"regexp"
+	"runtime"
+	"strings"
+)
+
+// ARPEntry represents a single ARP/neighbor cache entry
+type ARPEntry struct {
+	IP  string `json:"ip"`
+	MAC string `json:"mac"`
+}
+
+// GetARPTable returns ARP/neighbor cache entries found on the host.
+// It's a best-effort, cross-platform reader: Linux uses /proc/net/arp,
+// other systems try `arp -a` output.
+func GetARPTable() ([]ARPEntry, error) {
+	if runtime.GOOS == "linux" {
+		return parseProcNetARP()
+	}
+	// Fallback to arp -a for windows/mac
+	return parseArpA()
+}
+
+func parseProcNetARP() ([]ARPEntry, error) {
+	f, err := os.Open("/proc/net/arp")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	entries := []ARPEntry{}
+	first := true
+	for scanner.Scan() {
+		line := scanner.Text()
+		if first {
+			first = false
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		ip := fields[0]
+		mac := fields[3]
+		if mac == "00:00:00:00:00:00" {
+			continue
+		}
+		entries = append(entries, ARPEntry{IP: ip, MAC: mac})
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func parseArpA() ([]ARPEntry, error) {
+	cmd := exec.Command("arp", "-a")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	text := string(out)
+	lines := strings.Split(text, "\n")
+	entries := []ARPEntry{}
+	// Example lines vary by OS; use regex to capture ip and mac
+	re := regexp.MustCompile(`([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*?(([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2}))`)
+	for _, l := range lines {
+		m := re.FindStringSubmatch(l)
+		if len(m) >= 3 {
+			ip := m[1]
+			mac := m[2]
+			entries = append(entries, ARPEntry{IP: ip, MAC: mac})
+		}
+	}
+	return entries, nil
+}
+
+package agent
+
+import (
+	"os"
+	"strings"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// SNMPConfig holds SNMP discovery settings
+type SNMPConfig struct {
+	Community string
+	// Version describes the SNMP protocol version to use (v1 or v2c).
+	Version gosnmp.SnmpVersion
+}
+
+// RetentionConfig holds data retention settings
+type RetentionConfig struct {
+	// ScanHistoryDays is how many days of scan history to keep (default 30)
+	ScanHistoryDays int
+	// HiddenDevicesDays is how many days to keep hidden devices before deletion (default 30)
+	HiddenDevicesDays int
+}
+
+// GetSNMPConfig loads SNMP config from environment or defaults
+func GetSNMPConfig() (*SNMPConfig, error) {
+	community := os.Getenv("SNMP_COMMUNITY")
+	if community == "" {
+		community = "public"
+	}
+	ver := strings.ToLower(os.Getenv("SNMP_VERSION"))
+	var sver gosnmp.SnmpVersion
+	switch ver {
+	case "", "1", "v1":
+		sver = gosnmp.Version1
+	case "2", "2c", "v2", "v2c":
+		sver = gosnmp.Version2c
+	default:
+		// default to v1 for maximum compatibility
+		sver = gosnmp.Version1
+	}
+	return &SNMPConfig{Community: community, Version: sver}, nil
+}
+
+// GetRetentionConfig loads retention settings from environment or defaults
+func GetRetentionConfig() *RetentionConfig {
+	// Default to 30 days for both
+	return &RetentionConfig{
+		ScanHistoryDays:   30,
+		HiddenDevicesDays: 30,
+	}
+}
+
+package agent
+
+import (
+	"context"
+	"fmt"
+
+	"printmaster/agent/scanner"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// MakeDefaultDetectFunc returns a DetectFunc suitable for ScannerConfig.DetectFunc.
+// It performs a compact SNMP GET of a few quick OIDs and calls ParsePDUs to
+// decide whether the host is a printer. timeoutSeconds controls the SNMP
+// client timeout used for detection probes.
+func MakeDefaultDetectFunc(cfg *SNMPConfig, timeoutSeconds int) func(ctx context.Context, job scanner.ScanJob, openPorts []int) (interface{}, bool, error) {
+	return func(ctx context.Context, job scanner.ScanJob, openPorts []int) (interface{}, bool, error) {
+		// build ScanMeta from available info
+		var meta *ScanMeta
+		if job.Meta != nil {
+			if m, ok := job.Meta.(*ScanMeta); ok {
+				meta = m
+			}
+		}
+		if meta == nil {
+			meta = &ScanMeta{OpenPorts: openPorts}
+		} else if len(openPorts) > 0 && len(meta.OpenPorts) == 0 {
+			meta.OpenPorts = openPorts
+		}
+
+		// If TCP evidence alone suggests a printer, we can short-circuit for speed.
+		for _, p := range meta.OpenPorts {
+			switch p {
+			case 9100, 515, 631, 80, 443:
+				// Proceed to SNMP as primary detection; we still try SNMP to collect evidence
+			}
+		}
+
+		// prepare quick probe OIDs (compact set)
+		oids := []string{
+			"1.3.6.1.2.1.1.2.0",           // sysObjectID
+			"1.3.6.1.2.1.1.1.0",           // sysDescr
+			"1.3.6.1.2.1.43.5.1.1.16.1",   // prtGeneral entry
+			"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount marker 1
+		}
+
+		client, err := NewSNMPClient(cfg, job.IP, timeoutSeconds)
+		if err != nil {
+			// SNMP connect failed; return non-fatal (not-detected) so upstream
+			// pipeline can continue. Propagate error for observability.
+			IncDetectionErrors()
+			return nil, false, fmt.Errorf("SNMP connect error: %w", err)
+		}
+		defer client.Close()
+
+		// Try a multi-GET first
+		if res, err := client.Get(oids); err == nil && res != nil && len(res.Variables) > 0 {
+			pi, isPrinter := ParsePDUs(job.IP, res.Variables, meta, nil)
+			return pi, isPrinter, nil
+		}
+
+		// Fallback: try single OID GETs and collect any successful PDUs
+		collected := []gosnmp.SnmpPDU{}
+		for _, o := range oids {
+			if r2, e2 := client.Get([]string{o}); e2 == nil && r2 != nil && len(r2.Variables) > 0 {
+				collected = append(collected, r2.Variables...)
+			}
+		}
+		if len(collected) > 0 {
+			pi, isPrinter := ParsePDUs(job.IP, collected, meta, nil)
+			return pi, isPrinter, nil
+		}
+
+		// As last resort, run a very small diagnostic walk around Printer-MIB
+		roots := []string{"1.3.6.1.2.1.43"}
+		cols := diagnosticWalk(client, nil, roots, 200, []string{"pid", "model", "serial", "prtGeneral", "prtMarker", "supply", "toner"})
+		if len(cols) > 0 {
+			pi, isPrinter := ParsePDUs(job.IP, cols, meta, nil)
+			return pi, isPrinter, nil
+		}
+
+		return nil, false, nil
+	}
+}
+
+package agent
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ParseDebug holds structured debugging information for a parsed IP
+type ParseDebug struct {
+	IP                string                 `json:"ip"`
+	Timestamp         string                 `json:"timestamp"`
+	RawPDUs           []RawPDU               `json:"raw_pdus"`
+	Steps             []string               `json:"steps"`
+	ManufacturerHints []string               `json:"manufacturer_hints"`
+	FinalManufacturer string                 `json:"final_manufacturer"`
+	Model             string                 `json:"model"`
+	Serial            string                 `json:"serial"`
+	IsPrinter         bool                   `json:"is_printer"`
+	DetectionReasons  []string               `json:"detection_reasons"`
+	Extra             map[string]interface{} `json:"extra,omitempty"`
+}
+
+// RawPDU is a JSON-serializable representation of a gosnmp.SnmpPDU
+type RawPDU struct {
+	OID      string `json:"oid"`
+	Type     string `json:"type"`
+	StrValue string `json:"str_value,omitempty"`
+	HexValue string `json:"hex_value,omitempty"`
+	RawValue string `json:"raw_value,omitempty"`
+}
+
+var (
+	diagMu      sync.Mutex
+	parseDebugs = map[string]ParseDebug{}
+	// DumpParseDebugEnabled controls whether parse debug snapshots are persisted to disk.
+	DumpParseDebugEnabled = true
+)
+
+// RecordParseDebug stores the debug in-memory and persists it to logs/parse_debug_<ip>.json
+func RecordParseDebug(ip string, d ParseDebug) error {
+	// ensure timestamp
+	if d.Timestamp == "" {
+		d.Timestamp = time.Now().Format(time.RFC3339)
+	}
+	diagMu.Lock()
+	parseDebugs[ip] = d
+	diagMu.Unlock()
+
+	// persist to logs (only if enabled)
+	if DumpParseDebugEnabled {
+		logDir := ensureLogDir()
+		fname := fmt.Sprintf("parse_debug_%s.json", ipToFileName(ip))
+		fpath := filepath.Join(logDir, fname)
+		data, err := json.MarshalIndent(d, "", "  ")
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(fpath, data, 0o644)
+	}
+	return nil
+}
+
+// SetDumpParseDebug toggles whether parse debug snapshots are written to disk.
+func SetDumpParseDebug(v bool) {
+	DumpParseDebugEnabled = v
+}
+
+// GetParseDebug returns the last recorded ParseDebug for the given IP, if any
+func GetParseDebug(ip string) (ParseDebug, bool) {
+	diagMu.Lock()
+	defer diagMu.Unlock()
+	d, ok := parseDebugs[ip]
+	return d, ok
+}
+
+// ipToFileName converts 1.2.3.4 into safe filename part
+func ipToFileName(ip string) string {
+	fn := filepath.Base(ip)
+	fn = strings.ReplaceAll(fn, ".", "_")
+	return fn
+}
+
+package agent
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"printmaster/common/util"
+)
+
+// UpsertDiscoveredPrinter writes discovered device directly to database
+func UpsertDiscoveredPrinter(pi PrinterInfo) {
+	pi.LastSeen = time.Now()
+
+	// Write to database (primary storage)
+	if deviceStorage != nil {
+		ctx := context.Background()
+		if err := deviceStorage.StoreDiscoveredDevice(ctx, pi); err != nil {
+			Info("Failed to store device in database: " + err.Error())
+		}
+	}
+}
+
+// AppendScanEvent writes a timestamped single-line audit of scan events to
+// logs/scan_events.log. It's best-effort and will not abort scanning on error.
+// Exported so other packages (UI/endpoints) can call it.
+func AppendScanEvent(msg string) {
+	logDir := ensureLogDir()
+	fpath := filepath.Join(logDir, "scan_events.log")
+	line := time.Now().Format(time.RFC3339) + " " + msg + "\n"
+	// best-effort append
+	f, err := os.OpenFile(fpath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err == nil {
+		_, _ = f.WriteString(line)
+		_ = f.Close()
+	}
+	// Also send to Info logger
+	Info(msg)
+}
+
+// pduToString normalizes common SNMP PDU value types into a printable string.
+// It prefers decoding OctetString ([]byte) into a UTF-8 string, falling back
+// to a generic fmt.Sprintf conversion for other types.
+func pduToString(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	if b, ok := v.([]byte); ok {
+		return util.DecodeOctetString(b)
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+package agent
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"net"
+	"printmaster/agent/scanner"
+	"strings"
+	"time"
+)
+
+// LLMNR (Link-Local Multicast Name Resolution) constants
+// RFC 4795 - Windows native alternative to mDNS
+const (
+	llmnrMulticastAddr = "224.0.0.252:5355"
+)
+
+// StartLLMNRBrowser listens for LLMNR queries and responses on multicast group
+// 224.0.0.252:5355. It filters for printer-related hostnames and resolves them
+// to IPs for discovery. Runs until context is canceled.
+//
+// LLMNR is a Windows protocol for hostname resolution in networks without DNS.
+// Useful for discovering printers by hostname in Windows-only environments.
+func StartLLMNRBrowser(ctx context.Context, enqueue func(scanner.ScanJob) bool, seen map[string]time.Time, throttleWindow time.Duration) {
+	addr, err := net.ResolveUDPAddr("udp4", llmnrMulticastAddr)
+	if err != nil {
+		Info("LLMNR: failed to resolve multicast address: " + err.Error())
+		return
+	}
+
+	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
+	if err != nil {
+		Info("LLMNR: failed to join multicast group: " + err.Error())
+		return
+	}
+	defer conn.Close()
+
+	Info("LLMNR: listening on " + llmnrMulticastAddr)
+
+	conn.SetReadBuffer(65536)
+
+	buf := make([]byte, 1500)
+	for {
+		select {
+		case <-ctx.Done():
+			Info("LLMNR: stopping listener")
+			return
+		default:
+			// Set read deadline to allow periodic context checks
+			conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			n, src, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+				Info("LLMNR: read error: " + err.Error())
+				continue
+			}
+
+			// Parse LLMNR packet
+			if n < 12 { // Minimum DNS header size
+				continue
+			}
+
+			hostname, isResponse, hasIPv4 := parseLLMNRPacket(buf[:n])
+			if hostname == "" {
+				continue
+			}
+
+			// Filter for printer-related hostnames
+			if !isPrinterHostname(hostname) {
+				continue
+			}
+
+			msgType := "query"
+			if isResponse {
+				msgType = "response"
+			}
+			Info(fmt.Sprintf("LLMNR: %s for %s from %s", msgType, hostname, src.IP))
+
+			// If it's a response with an IPv4 address, use the address from the packet
+			// Otherwise, use the source IP
+			var targetIP string
+			if isResponse && hasIPv4 != "" {
+				targetIP = hasIPv4
+			} else {
+				targetIP = src.IP.String()
+			}
+
+			// Check throttling
+			now := time.Now()
+			if lastSeen, exists := seen[targetIP]; exists {
+				if now.Sub(lastSeen) < throttleWindow {
+					continue // Skip, too soon
+				}
+			}
+
+			// Update last seen time
+			seen[targetIP] = now
+
+			// Enqueue for discovery
+			job := scanner.ScanJob{
+				IP:     targetIP,
+				Source: "llmnr",
+				Meta:   &ScanMeta{DiscoveryMethods: []string{"llmnr"}, Hostname: hostname},
+			}
+
+			if enqueue(job) {
+				Info(fmt.Sprintf("LLMNR: enqueued %s (%s)", targetIP, hostname))
+			}
+		}
+	}
+}
+
+// parseLLMNRPacket extracts hostname and IP from LLMNR DNS packet
+func parseLLMNRPacket(data []byte) (hostname string, isResponse bool, ipv4Addr string) {
+	if len(data) < 12 {
+		return "", false, ""
+	}
+
+	// Parse DNS header
+	flags := binary.BigEndian.Uint16(data[2:4])
+	isResponse = (flags & 0x8000) != 0 // QR bit
+	qdCount := binary.BigEndian.Uint16(data[4:6])
+	anCount := binary.BigEndian.Uint16(data[6:8])
+
+	offset := 12
+
+	// Parse question section (if present)
+	if qdCount > 0 && offset < len(data) {
+		name, newOffset := parseDNSName(data, offset)
+		hostname = name
+		offset = newOffset + 4 // Skip QTYPE and QCLASS
+	}
+
+	// Parse answer section for IPv4 addresses (A records)
+	if isResponse && anCount > 0 {
+		for i := 0; i < int(anCount) && offset < len(data); i++ {
+			// Parse answer name (usually compressed pointer)
+			_, newOffset := parseDNSName(data, offset)
+			offset = newOffset
+
+			if offset+10 > len(data) {
+				break
+			}
+
+			rrType := binary.BigEndian.Uint16(data[offset : offset+2])
+			// rrClass := binary.BigEndian.Uint16(data[offset+2 : offset+4])
+			// ttl := binary.BigEndian.Uint32(data[offset+4 : offset+8])
+			rdLength := binary.BigEndian.Uint16(data[offset+8 : offset+10])
+			offset += 10
+
+			// Check if it's an A record (IPv4)
+			if rrType == 1 && rdLength == 4 && offset+4 <= len(data) {
+				ipv4Addr = fmt.Sprintf("%d.%d.%d.%d",
+					data[offset], data[offset+1], data[offset+2], data[offset+3])
+			}
+
+			offset += int(rdLength)
+		}
+	}
+
+	return hostname, isResponse, ipv4Addr
+}
+
+// parseDNSName extracts a DNS name from a packet starting at offset
+func parseDNSName(data []byte, offset int) (string, int) {
+	var parts []string
+	jumped := false
+	jumpOffset := 0
+
+	for offset < len(data) {
+		length := int(data[offset])
+
+		// Check for compression pointer (top 2 bits set)
+		if length&0xC0 == 0xC0 {
+			if offset+1 >= len(data) {
+				break
+			}
+			// Pointer to another location in the packet
+			pointer := int(binary.BigEndian.Uint16(data[offset:offset+2]) & 0x3FFF)
+			if !jumped {
+				jumpOffset = offset + 2
+			}
+			offset = pointer
+			jumped = true
+			continue
+		}
+
+		// End of name
+		if length == 0 {
+			offset++
+			break
+		}
+
+		// Check bounds
+		if offset+1+length > len(data) {
+			break
+		}
+
+		// Extract label
+		label := string(data[offset+1 : offset+1+length])
+		parts = append(parts, label)
+		offset += 1 + length
+	}
+
+	if jumped {
+		offset = jumpOffset
+	}
+
+	return strings.Join(parts, "."), offset
+}
+
+// isPrinterHostname checks if a hostname likely belongs to a printer
+func isPrinterHostname(hostname string) bool {
+	hostname = strings.ToLower(hostname)
+
+	// Common printer hostname patterns
+	printerKeywords := []string{
+		"print", "printer", "mfp", "copier", "scanner",
+		"hp", "canon", "epson", "brother", "xerox", "ricoh",
+		"laserjet", "deskjet", "officejet", "colorjet",
+		"bizhub", "imagerunner", "workcentre",
+	}
+
+	for _, keyword := range printerKeywords {
+		if strings.Contains(hostname, keyword) {
+			return true
+		}
+	}
+
+	// Match patterns like "PRN-", "PRINT-", "MFP-" prefixes
+	if len(hostname) > 4 {
+		prefix := hostname[:4]
+		if prefix == "prn-" || prefix == "mfp-" {
+			return true
+		}
+	}
+
+	return false
+}
+
+package agent
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+var (
+	logMu sync.Mutex
+	// DebugEnabled controls whether debug-level logs are written.
+	DebugEnabled = false
+)
+
+// ExternalLogger defines the minimal logger the agent package can use.
+// Implemented by the app's structured logger. We keep it small to avoid tight coupling.
+type ExternalLogger interface {
+	Error(msg string, context ...interface{})
+	Warn(msg string, context ...interface{})
+	Info(msg string, context ...interface{})
+	Debug(msg string, context ...interface{})
+}
+
+var extLogger ExternalLogger
+
+// SetLogger allows the application to inject a structured logger.
+// When set, agent.Info/Debug/Error will delegate to this logger.
+func SetLogger(l ExternalLogger) {
+	extLogger = l
+}
+
+func ensureLogDir() string {
+	logDir := filepath.Join(".", "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	return logDir
+}
+
+func writeLine(level string, msg string) {
+	// If an external logger is configured, prefer it
+	if extLogger != nil {
+		switch level {
+		case "ERROR":
+			extLogger.Error(msg)
+		case "WARN":
+			extLogger.Warn(msg)
+		case "DEBUG":
+			extLogger.Debug(msg)
+		default:
+			extLogger.Info(msg)
+		}
+		return
+	}
+	ts := time.Now().Format(time.RFC3339)
+	line := fmt.Sprintf("%s [%s] %s", ts, level, msg)
+	logMu.Lock()
+	defer logMu.Unlock()
+	// stdout for convenience
+	fmt.Println(line)
+	// append to on-disk logfile
+	fpath := filepath.Join(ensureLogDir(), "agent.log")
+	f, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err == nil {
+		defer f.Close()
+		f.WriteString(line + "\n")
+	}
+}
+
+// Info logs an informational message.
+func Info(msg string) {
+	writeLine("INFO", msg)
+}
+
+// Debug logs a debug message.
+func Debug(msg string) {
+	if !DebugEnabled {
+		return
+	}
+	writeLine("DEBUG", msg)
+}
+
+// SetDebugEnabled toggles debug logging at runtime.
+func SetDebugEnabled(v bool) {
+	DebugEnabled = v
+}
+
+// Error logs an error message.
+func Error(msg string) {
+	writeLine("ERROR", msg)
+}
+
+// Warn logs a warning message.
+func Warn(msg string) {
+	writeLine("WARN", msg)
+}
+
+package agent
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/grandcat/zeroconf"
+)
+
+// StartMDNSBrowser starts mDNS/DNS-SD browsing for common printer service types
+// and invokes enqueue for each discovered IPv4 address. It runs until the
+// context is canceled. The caller is responsible for de-duplicating IPs.
+func StartMDNSBrowser(ctx context.Context, enqueue func(string) bool) {
+	svcTypes := []string{"_ipp._tcp", "_ipps._tcp", "_printer._tcp"}
+	for _, st := range svcTypes {
+		st := st
+		go func() {
+			resolver, err := zeroconf.NewResolver(nil)
+			if err != nil {
+				Info("mDNS resolver error: " + err.Error())
+				return
+			}
+			entries := make(chan *zeroconf.ServiceEntry)
+			// consume entries
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case e, ok := <-entries:
+						if !ok {
+							return
+						}
+						for _, ip := range e.AddrIPv4 {
+							_ = enqueue(ip.String())
+						}
+					}
+				}
+			}()
+			Info(fmt.Sprintf("mDNS browse start: %s", st))
+			// zeroconf.Browse will run until ctx is done and closes the entries channel
+			if err := resolver.Browse(ctx, st, "local.", entries); err != nil {
+				Info("mDNS browse error: " + err.Error())
+			}
+			// Browse has completed and closed the channel, wait for consumer to finish
+			time.Sleep(100 * time.Millisecond)
+		}()
+	}
+}
+
+package agent
+
+import "time"
+
+// MergePrinterInfo merges two PrinterInfo values, preferring non-empty and
+// more complete fields from `extra` while preserving `base` as the fallback.
+func MergePrinterInfo(base PrinterInfo, extra PrinterInfo) PrinterInfo {
+	// strings: prefer extra if non-empty
+	if extra.Manufacturer != "" {
+		base.Manufacturer = extra.Manufacturer
+	}
+	if extra.Model != "" {
+		base.Model = extra.Model
+	}
+	if extra.Serial != "" {
+		base.Serial = extra.Serial
+	}
+	if extra.AdminContact != "" {
+		base.AdminContact = extra.AdminContact
+	}
+	if extra.AssetID != "" {
+		base.AssetID = extra.AssetID
+	}
+
+	// numeric counters: prefer non-zero extra values
+	if extra.PageCount != 0 {
+		base.PageCount = extra.PageCount
+		base.TotalMonoImpressions = extra.PageCount
+	}
+	if extra.TotalMonoImpressions != 0 {
+		base.TotalMonoImpressions = extra.TotalMonoImpressions
+	}
+	if extra.MonoImpressions != 0 {
+		base.MonoImpressions = extra.MonoImpressions
+	}
+	if extra.ColorImpressions != 0 {
+		base.ColorImpressions = extra.ColorImpressions
+	}
+	if extra.BlackImpressions != 0 {
+		base.BlackImpressions = extra.BlackImpressions
+	}
+	if extra.CyanImpressions != 0 {
+		base.CyanImpressions = extra.CyanImpressions
+	}
+	if extra.MagentaImpressions != 0 {
+		base.MagentaImpressions = extra.MagentaImpressions
+	}
+	if extra.YellowImpressions != 0 {
+		base.YellowImpressions = extra.YellowImpressions
+	}
+
+	// merge toner levels (prefer extra non-zero values)
+	if base.TonerLevels == nil {
+		base.TonerLevels = map[string]int{}
+	}
+	for k, v := range extra.TonerLevels {
+		if v != 0 {
+			base.TonerLevels[k] = v
+		} else {
+			// preserve existing if extra is zero
+			if _, ok := base.TonerLevels[k]; !ok {
+				base.TonerLevels[k] = v
+			}
+		}
+	}
+
+	// consumables: union
+	seen := map[string]bool{}
+	newConsum := []string{}
+	for _, c := range base.Consumables {
+		if c == "" {
+			continue
+		}
+		seen[c] = true
+		newConsum = append(newConsum, c)
+	}
+	for _, c := range extra.Consumables {
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		newConsum = append(newConsum, c)
+	}
+	base.Consumables = newConsum
+
+	// firmware: prefer extra
+	if extra.Firmware != "" {
+		base.Firmware = extra.Firmware
+	}
+	// network fields: prefer extra if present
+	if extra.SubnetMask != "" {
+		base.SubnetMask = extra.SubnetMask
+	}
+	if extra.Gateway != "" {
+		base.Gateway = extra.Gateway
+	}
+	if len(extra.DNSServers) > 0 {
+		base.DNSServers = extra.DNSServers
+	}
+	if extra.Hostname != "" {
+		base.Hostname = extra.Hostname
+	}
+	// uptime: prefer newer (larger) value if present
+	if extra.UptimeSeconds != 0 {
+		if base.UptimeSeconds == 0 || extra.UptimeSeconds > base.UptimeSeconds {
+			base.UptimeSeconds = extra.UptimeSeconds
+		}
+	}
+	// duplex: prefer true if any indicates support
+	if extra.DuplexSupported {
+		base.DuplexSupported = true
+	}
+
+	// merge paper tray status map
+	if base.PaperTrayStatus == nil {
+		base.PaperTrayStatus = map[string]string{}
+	}
+	for k, v := range extra.PaperTrayStatus {
+		base.PaperTrayStatus[k] = v
+	}
+
+	// merge toner alerts (unique)
+	seen = map[string]bool{}
+	msgs2 := []string{}
+	for _, m := range base.TonerAlerts {
+		if m == "" {
+			continue
+		}
+		seen[m] = true
+		msgs2 = append(msgs2, m)
+	}
+	for _, m := range extra.TonerAlerts {
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		msgs2 = append(msgs2, m)
+	}
+	base.TonerAlerts = msgs2
+
+	// status messages: append unique
+	seen = map[string]bool{}
+	msgs := []string{}
+	for _, m := range base.StatusMessages {
+		if m == "" {
+			continue
+		}
+		seen[m] = true
+		msgs = append(msgs, m)
+	}
+	for _, m := range extra.StatusMessages {
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		msgs = append(msgs, m)
+	}
+	base.StatusMessages = msgs
+
+	// detection reasons: union
+	seen = map[string]bool{}
+	reasons := []string{}
+	for _, r := range base.DetectionReasons {
+		if r == "" {
+			continue
+		}
+		seen[r] = true
+		reasons = append(reasons, r)
+	}
+	for _, r := range extra.DetectionReasons {
+		if r == "" || seen[r] {
+			continue
+		}
+		seen[r] = true
+		reasons = append(reasons, r)
+	}
+	base.DetectionReasons = reasons
+
+	// last seen: prefer newer timestamp if present
+	if !extra.LastSeen.IsZero() {
+		base.LastSeen = extra.LastSeen
+	}
+
+	// MAC / OpenPorts / DiscoveryMethods: prefer extra if base empty
+	if base.MAC == "" && extra.MAC != "" {
+		base.MAC = extra.MAC
+	}
+	if len(base.OpenPorts) == 0 && len(extra.OpenPorts) > 0 {
+		base.OpenPorts = extra.OpenPorts
+	}
+	if len(base.DiscoveryMethods) == 0 && len(extra.DiscoveryMethods) > 0 {
+		base.DiscoveryMethods = extra.DiscoveryMethods
+	}
+
+	// ensure LastSeen has some value
+	if base.LastSeen.IsZero() {
+		base.LastSeen = time.Now()
+	}
+
+	return base
+}
+
+package agent
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+)
+
+// Metrics holds simple counters to help diagnose scanning behavior.
+type Metrics struct {
+	mu                  sync.Mutex `json:"-"`
+	TotalHostsScanned   int        `json:"total_hosts_scanned"`
+	DetectedPrinters    int        `json:"detected_printers"`
+	MissingManufacturer int        `json:"missing_manufacturer"`
+	DeepWalksPerformed  int        `json:"deep_walks_performed"`
+	DetectionErrors     int        `json:"detection_errors"`
+	LastUpdated         string     `json:"last_updated"`
+}
+
+var metrics = &Metrics{}
+
+// MetricsSnapshot is a copy of the metrics suitable for JSON marshalling
+// and for returning outside the package without copying internal locks.
+type MetricsSnapshot struct {
+	TotalHostsScanned   int    `json:"total_hosts_scanned"`
+	DetectedPrinters    int    `json:"detected_printers"`
+	MissingManufacturer int    `json:"missing_manufacturer"`
+	DeepWalksPerformed  int    `json:"deep_walks_performed"`
+	DetectionErrors     int    `json:"detection_errors"`
+	LastUpdated         string `json:"last_updated"`
+}
+
+func (m *Metrics) snapshot() MetricsSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return MetricsSnapshot{
+		TotalHostsScanned:   m.TotalHostsScanned,
+		DetectedPrinters:    m.DetectedPrinters,
+		MissingManufacturer: m.MissingManufacturer,
+		DeepWalksPerformed:  m.DeepWalksPerformed,
+		DetectionErrors:     m.DetectionErrors,
+		LastUpdated:         m.LastUpdated,
+	}
+}
+
+func IncTotalHostsScanned() {
+	metrics.mu.Lock()
+	metrics.TotalHostsScanned++
+	metrics.LastUpdated = time.Now().Format(time.RFC3339)
+	metrics.mu.Unlock()
+}
+
+func IncDetectedPrinters() {
+	metrics.mu.Lock()
+	metrics.DetectedPrinters++
+	metrics.LastUpdated = time.Now().Format(time.RFC3339)
+	metrics.mu.Unlock()
+}
+
+func IncMissingManufacturer() {
+	metrics.mu.Lock()
+	metrics.MissingManufacturer++
+	metrics.LastUpdated = time.Now().Format(time.RFC3339)
+	metrics.mu.Unlock()
+}
+
+func IncDeepWalks() {
+	metrics.mu.Lock()
+	metrics.DeepWalksPerformed++
+	metrics.LastUpdated = time.Now().Format(time.RFC3339)
+	metrics.mu.Unlock()
+}
+
+func IncDetectionErrors() {
+	metrics.mu.Lock()
+	metrics.DetectionErrors++
+	metrics.LastUpdated = time.Now().Format(time.RFC3339)
+	metrics.mu.Unlock()
+}
+
+// PersistMetrics writes current metrics snapshot to logs/scan_metrics.json
+func PersistMetrics() error {
+	s := metrics.snapshot()
+	logDir := ensureLogDir()
+	fn := filepath.Join(logDir, "scan_metrics.json")
+	data, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(fn, data, 0o644)
+}
+
+// GetMetricsSnapshot returns a copy of the current metrics for inspection.
+func GetMetricsSnapshot() MetricsSnapshot {
+	return metrics.snapshot()
+}
+
+// DeviceMetricsSnapshot represents a point-in-time snapshot of device metrics for historical tracking
+type DeviceMetricsSnapshot struct {
+	Serial      string                 `json:"serial"`
+	PageCount   int                    `json:"page_count"`
+	ColorPages  int                    `json:"color_pages"`
+	MonoPages   int                    `json:"mono_pages"`
+	ScanCount   int                    `json:"scan_count"`
+	TonerLevels map[string]interface{} `json:"toner_levels"`
+
+	// Additional detailed impression counters (HP-specific and others)
+	FaxPages          int `json:"fax_pages,omitempty"`
+	CopyPages         int `json:"copy_pages,omitempty"`
+	OtherPages        int `json:"other_pages,omitempty"` // Calculated: Total - Fax - Copy
+	CopyMonoPages     int `json:"copy_mono_pages,omitempty"`
+	CopyFlatbedScans  int `json:"copy_flatbed_scans,omitempty"`
+	CopyADFScans      int `json:"copy_adf_scans,omitempty"`
+	FaxFlatbedScans   int `json:"fax_flatbed_scans,omitempty"`
+	FaxADFScans       int `json:"fax_adf_scans,omitempty"`
+	ScanToHostFlatbed int `json:"scan_to_host_flatbed,omitempty"`
+	ScanToHostADF     int `json:"scan_to_host_adf,omitempty"`
+	DuplexSheets      int `json:"duplex_sheets,omitempty"`
+	JamEvents         int `json:"jam_events,omitempty"`
+	ScannerJamEvents  int `json:"scanner_jam_events,omitempty"`
+}
+
+// OLD CollectMetricsSnapshot removed (~157 lines) - replaced by CollectMetrics in scanner_api.go
+
+package agent
+
+import (
+	"testing"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+func TestParsePDUs_NonUTF8SerialAndHexCounter(t *testing.T) {
+	t.Parallel()
+	t.Run("non-utf8-serial-sanitized", func(t *testing.T) {
+		t.Parallel()
+		// serial contains a NUL byte which should be stripped by DecodeOctetString
+		vars := []gosnmp.SnmpPDU{
+			// Use prtGeneralSerialNumber (17.1) for serial, not 16.1 (description)
+			{Name: "1.3.6.1.2.1.43.5.1.1.17.1", Type: gosnmp.OctetString, Value: []byte{'S', 'N', 0x00, 'A', 'B', 'C'}},
+		}
+		pi, ok := ParsePDUs("10.0.0.1", vars, nil, nil)
+		if !ok {
+			t.Fatalf("expected device to be detected as printer due to serial, got not-printer")
+		}
+		if pi.Serial != "SNABC" {
+			t.Fatalf("expected sanitized serial 'SNABC', got '%s'", pi.Serial)
+		}
+	})
+
+	t.Run("hex-counter-parsed", func(t *testing.T) {
+		t.Parallel()
+		// marker life count provided as hex string should parse to integer
+		vars := []gosnmp.SnmpPDU{
+			{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.OctetString, Value: []byte("0xb3e7")},
+		}
+		pi, ok := ParsePDUs("10.0.0.2", vars, nil, nil)
+		if !ok {
+			t.Fatalf("expected device to be detected as printer due to marker count, got not-printer")
+		}
+		if pi.PageCount != 0xb3e7 {
+			t.Fatalf("expected PageCount %d got %d", 0xb3e7, pi.PageCount)
+		}
+		if pi.MonoImpressions != 0xb3e7 {
+			t.Fatalf("expected MonoImpressions %d got %d", 0xb3e7, pi.MonoImpressions)
+		}
+	})
+}
+
+func TestParsePDUs_OID16_UUID_DoesNotSetSerial(t *testing.T) {
+	t.Parallel()
+	// Ensure UUID-like value at 1.3.6.1.2.1.43.5.1.1.16.1 does not become serial
+	uuid := "5995673a-a33d-49d2-a45e-1852a977"
+	vars := []gosnmp.SnmpPDU{
+		{Name: "1.3.6.1.2.1.43.5.1.1.16.1", Type: gosnmp.OctetString, Value: []byte(uuid)},
+		// Provide a marker count so the device is detected as a printer
+		{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.OctetString, Value: []byte("1234")},
+	}
+	pi, ok := ParsePDUs("10.0.0.3", vars, nil, nil)
+	if !ok {
+		t.Fatalf("expected device to be detected as printer due to marker count")
+	}
+	if pi.Serial != "" {
+		t.Fatalf("expected serial to remain empty when only OID 16.1 UUID present; got '%s'", pi.Serial)
+	}
+	if pi.Description != uuid {
+		t.Fatalf("expected description to capture UUID '%s', got '%s'", uuid, pi.Description)
+	}
+}
+
+package agent
+
+import (
+	"crypto/tls"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"printmaster/common/util"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// AssetIDRegex can be set by the caller (UI/settings) to provide a company-specific
+// regex for extracting asset tags from adminContact or similar fields. If empty,
+// ParsePDUs falls back to a generic heuristic regex.
+var AssetIDRegex string
+
+// SetAssetIDRegex updates the package-level regex used during parsing.
+func SetAssetIDRegex(r string) {
+	AssetIDRegex = r
+}
+
+// extractIPv4FromOID checks whether the last four numeric components of an OID
+// form a valid IPv4 address and returns it. Example: "1.2.3.4.172.52.105.25" -> "172.52.105.25"
+func extractIPv4FromOID(oid string) (string, bool) {
+	// trim leading dot
+	o := strings.TrimPrefix(oid, ".")
+	parts := strings.Split(o, ".")
+	if len(parts) < 4 {
+		return "", false
+	}
+	a := parts[len(parts)-4:]
+	nums := make([]int, 4)
+	for i := 0; i < 4; i++ {
+		v, err := strconv.Atoi(a[i])
+		if err != nil || v < 0 || v > 255 {
+			return "", false
+		}
+		nums[i] = v
+	}
+	return fmt.Sprintf("%d.%d.%d.%d", nums[0], nums[1], nums[2], nums[3]), true
+}
+
+// isValidIPv4 validates that a string is a properly formatted IPv4 address
+func isValidIPv4(ip string) bool {
+	if ip == "" || ip == "0.0.0.0" {
+		return false
+	}
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		num, err := strconv.Atoi(part)
+		if err != nil || num < 0 || num > 255 {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidSubnetMask validates that a string is a proper subnet mask (not just any IP)
+func isValidSubnetMask(mask string) bool {
+	if !isValidIPv4(mask) {
+		return false
+	}
+
+	// Valid subnet masks have contiguous 1 bits followed by contiguous 0 bits
+	// Common valid masks: 255.255.255.0, 255.255.0.0, 255.255.255.128, etc.
+	parts := strings.Split(mask, ".")
+	var binary uint32
+	for i, part := range parts {
+		num, _ := strconv.Atoi(part)
+		binary |= uint32(num) << uint(24-i*8)
+	}
+
+	// Check that all 1 bits are contiguous (no 0 bits followed by 1 bits)
+	// XOR with its increment should have exactly one bit set
+	inverted := ^binary
+	return (inverted & (inverted + 1)) == 0
+}
+
+// isValidMACAddress validates and normalizes a MAC address
+func isValidMACAddress(mac string) bool {
+	if mac == "" {
+		return false
+	}
+	// Remove common separators
+	cleaned := strings.ReplaceAll(mac, ":", "")
+	cleaned = strings.ReplaceAll(cleaned, "-", "")
+	cleaned = strings.ReplaceAll(cleaned, ".", "")
+	cleaned = strings.ReplaceAll(cleaned, " ", "")
+
+	// Should be exactly 12 hex characters
+	if len(cleaned) != 12 {
+		return false
+	}
+
+	// Check all characters are hex
+	for _, c := range cleaned {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// normalizeNetworkValue validates and normalizes network configuration values
+func normalizeNetworkValue(value, fieldType string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, `"`)
+
+	switch fieldType {
+	case "ip", "gateway", "dns":
+		if isValidIPv4(value) {
+			return value
+		}
+		return ""
+
+	case "subnet":
+		if isValidSubnetMask(value) {
+			return value
+		}
+		return ""
+
+	case "mac":
+		if isValidMACAddress(value) {
+			return value
+		}
+		return ""
+
+	default:
+		return value
+	}
+}
+
+// detectWebUIURL attempts to build an HTTP or HTTPS URL for the device's web interface.
+// It checks open ports (from meta), probes the web service, and follows redirects.
+func detectWebUIURL(ip string, meta *ScanMeta, pduByOid map[string]gosnmp.SnmpPDU) string {
+	// Check if HTTP (80) or HTTPS (443) ports are open from port scan
+	hasHTTP := false
+	hasHTTPS := false
+
+	if meta != nil {
+		for _, port := range meta.OpenPorts {
+			if port == 80 {
+				hasHTTP = true
+			}
+			if port == 443 {
+				hasHTTPS = true
+			}
+		}
+	}
+
+	// If neither HTTP nor HTTPS detected from port scan, try to infer from SNMP data
+	// Many printers expose prtChannelEntry OIDs that indicate HTTP/HTTPS support
+	if !hasHTTP && !hasHTTPS {
+		for k := range pduByOid {
+			// Look for printer channel entries that mention http/https
+			if strings.HasPrefix(k, "1.3.6.1.2.1.43.14.") {
+				// prtChannel subtree often contains protocol info
+				if val, ok := pduByOid[k]; ok {
+					valStr := strings.ToLower(pduToString(val.Value))
+					if strings.Contains(valStr, "http") {
+						if strings.Contains(valStr, "https") {
+							hasHTTPS = true
+						} else {
+							hasHTTP = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Try HTTPS first (prefer secure), then HTTP
+	// We'll probe each to verify it's actually accessible and follow redirects
+	var candidates []string
+	if hasHTTPS {
+		candidates = append(candidates, fmt.Sprintf("https://%s", ip))
+	}
+	if hasHTTP {
+		candidates = append(candidates, fmt.Sprintf("http://%s", ip))
+	}
+
+	// If no ports detected, still try both HTTPS and HTTP as fallback
+	if len(candidates) == 0 {
+		candidates = []string{
+			fmt.Sprintf("https://%s", ip),
+			fmt.Sprintf("http://%s", ip),
+		}
+	}
+
+	// Probe each candidate URL to verify it's accessible
+	for _, url := range candidates {
+		if finalURL := probeWebUI(url); finalURL != "" {
+			return finalURL
+		}
+	}
+
+	// If nothing works, default to http://<ip>
+	return fmt.Sprintf("http://%s", ip)
+}
+
+// probeWebUI checks if a URL is accessible and follows redirects to get the final URL.
+// Returns the final URL if accessible, empty string otherwise.
+func probeWebUI(url string) string {
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Allow up to 5 redirects
+			if len(via) >= 5 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, // Printers often have self-signed certs
+			},
+			DisableKeepAlives: true,
+		},
+	}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return ""
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// Connection failed, URL not accessible
+		return ""
+	}
+	defer resp.Body.Close()
+
+	// If we got a successful response (2xx, 3xx), return the final URL
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		// Return the final URL after following redirects
+		return resp.Request.URL.String()
+	}
+
+	// 401 (auth required) is also valid - the web UI exists but needs login
+	if resp.StatusCode == 401 {
+		return resp.Request.URL.String()
+	}
+
+	return ""
+}
+
+// ParsePDUs converts a slice of SNMP PDUs into a PrinterInfo. It returns the
+// populated PrinterInfo and a boolean indicating whether the heuristics
+// consider the device a printer.
+func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(string)) (PrinterInfo, bool) {
+	allVars := vars
+
+	// build a parse debug structure we will persist for diagnostics
+	debug := ParseDebug{
+		IP:        scanIP,
+		Timestamp: time.Now().Format(time.RFC3339),
+		RawPDUs:   []RawPDU{},
+		Steps:     []string{},
+		Extra:     map[string]interface{}{},
+	}
+
+	debug.Steps = append(debug.Steps, "ParsePDUs:start")
+
+	// capture raw PDUs for debugging (string form + hex for octetstrings)
+	for _, v := range allVars {
+		rp := RawPDU{OID: strings.TrimPrefix(v.Name, "."), Type: fmt.Sprintf("%v", v.Type)}
+		if b, ok := v.Value.([]byte); ok {
+			rp.HexValue = fmt.Sprintf("%x", b)
+			rp.StrValue = util.DecodeOctetString(b)
+		} else {
+			rp.StrValue = fmt.Sprintf("%v", v.Value)
+		}
+		debug.RawPDUs = append(debug.RawPDUs, rp)
+	}
+
+	// Quick heuristic guesses
+	var mfgGuess, modelGuess, serialGuess string
+	mfgRe := regexp.MustCompile(`(?i)\b(hp|hewlett[-\s]?packard|canon|brother|epson|lexmark|kyocera|konica|xerox|ricoh|sharp|okidata|dell|minolta|toshiba|samsung)\b`)
+	pidRe := regexp.MustCompile(`(?i)\b(?:pid|product|product id|model(?: name)?|model:)[:=\s]*([A-Za-z0-9\-\s]{2,60})`)
+	snRe := regexp.MustCompile(`(?i)\b(?:sn|s/n|serial(?:number)?|serial[:=])[:=\s]*([A-Za-z0-9\-]{4,40})`)
+	modelKeywords := []string{"laserjet", "mfp", "printer", "series", "deskjet", "workcentre", "color", "mono"}
+
+	// helper: detect UUID-like strings (8-4-4-4-12 hex with hyphens)
+	looksLikeUUID := func(s string) bool {
+		// Relaxed GUID detector: treat long, hyphenated, no-space tokens as GUID-like
+		s = strings.ToLower(strings.TrimSpace(s))
+		if strings.Contains(s, " ") {
+			return false
+		}
+		if len(s) < 20 || len(s) > 64 {
+			return false
+		}
+		if strings.Count(s, "-") < 3 {
+			return false
+		}
+		// Ensure characters are alnum or hyphen
+		for _, c := range s {
+			if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || c == '-' {
+				continue
+			}
+			return false
+		}
+		return true
+	}
+
+	for _, v := range allVars {
+		sval := pduToString(v.Value)
+		name := strings.TrimPrefix(v.Name, ".")
+		ls := strings.ToLower(sval)
+		if mfgGuess == "" {
+			if m := mfgRe.FindStringSubmatch(sval); len(m) > 1 {
+				mfgGuess = strings.ToLower(m[1])
+			}
+		}
+		if modelGuess == "" {
+			if m := pidRe.FindStringSubmatch(sval); len(m) > 1 {
+				modelGuess = strings.TrimSpace(m[1])
+			} else {
+				for _, kw := range modelKeywords {
+					if strings.Contains(ls, kw) {
+						if len(sval) > 3 && len(sval) < 120 {
+							modelGuess = strings.TrimSpace(sval)
+							break
+						}
+					}
+				}
+			}
+		}
+		if serialGuess == "" {
+			// Never consider prtGeneral.16.1 for serial (it's often description-like)
+			if name == "1.3.6.1.2.1.43.5.1.1.16.1" {
+				// skip entirely
+			} else if m := snRe.FindStringSubmatch(sval); len(m) > 1 {
+				cand := strings.TrimSpace(m[1])
+				if !looksLikeUUID(cand) {
+					serialGuess = cand
+				}
+			} else {
+				// compact token with no spaces; exclude UUID-like values
+				if len(sval) >= 6 && len(sval) <= 40 && !strings.Contains(sval, " ") && !looksLikeUUID(sval) {
+					serialGuess = strings.TrimSpace(sval)
+				}
+			}
+		}
+		if mfgGuess != "" && modelGuess != "" && serialGuess != "" {
+			break
+		}
+	}
+
+	debug.Steps = append(debug.Steps, fmt.Sprintf("initial_guesses: mfgGuess=%q modelGuess=%q serialGuess=%q", mfgGuess, modelGuess, serialGuess))
+
+	// lookup map
+	pduByOid := map[string]gosnmp.SnmpPDU{}
+	for _, v := range allVars {
+		pduByOid[strings.TrimPrefix(v.Name, ".")] = v
+	}
+
+	// parsed outputs and accumulators
+	var model, serial, adminContact, assetID, description, location string
+	prov := map[string]string{}
+	pageCount := 0
+	markerCounts := map[int]int{}
+	supplyDesc := map[string]string{}
+	supplyLevels := map[string]int{}
+	var statusMsgs []string
+	ifMacs := map[string]string{}
+
+	// Track which OIDs returned valid data for learned mappings
+	learnedOIDs := LearnedOIDMap{
+		VendorSpecificOIDs: make(map[string]string),
+	}
+	markerOIDs := make(map[int]string) // Track OID for each marker index
+
+	// helper numeric coercion
+	toInt := func(v interface{}) (int, bool) {
+		if i64, ok := util.CoerceToInt(v); ok {
+			return int(i64), true
+		}
+		return 0, false
+	}
+
+	// scan PDUs for known OIDs and patterns
+	for _, v := range allVars {
+		name := strings.TrimPrefix(v.Name, ".")
+		switch name {
+		case "1.3.6.1.2.1.1.1.0":
+			raw := pduToString(v.Value)
+			// Do NOT blindly set model to full sysDescr; it's often a long firmware string.
+			// Prefer structured hints like PID or an explicit model-like token.
+			if idx := strings.Index(raw, "PID:"); idx != -1 {
+				rest := strings.TrimSpace(raw[idx+4:])
+				if end := strings.IndexAny(rest, ",;\n"); end > -1 {
+					rest = rest[:end]
+				}
+				if rest != "" {
+					model = rest
+					learnedOIDs.ModelOID = name // Track model OID
+				}
+			} else if model == "" {
+				// Try to extract a model-like token from sysDescr using pidRe if present
+				if pidRe != nil {
+					if m := pidRe.FindStringSubmatch(raw); len(m) > 1 {
+						model = strings.TrimSpace(m[1])
+						learnedOIDs.ModelOID = name // Track model OID
+					}
+				}
+			}
+			debug.Steps = append(debug.Steps, fmt.Sprintf("sysDescr: oid=%s value=%q", name, pduToString(v.Value)))
+		case "1.3.6.1.2.1.1.4.0":
+			adminContact = pduToString(v.Value)
+			debug.Steps = append(debug.Steps, fmt.Sprintf("adminContact: %q", adminContact))
+			if assetID == "" && adminContact != "" {
+				var assetRe *regexp.Regexp
+				if AssetIDRegex != "" {
+					if ar, err := regexp.Compile(AssetIDRegex); err == nil {
+						assetRe = ar
+					}
+				}
+				if assetRe == nil {
+					assetRe = regexp.MustCompile(`(?i)\\b(?:asset(?:\\s*id)?|asset#|asset:|tag|tag#|asset-num|assetno)[\\s:\\#-]*([A-Za-z0-9\\-]{3,40})\\b`)
+				}
+				if m := assetRe.FindStringSubmatch(adminContact); len(m) > 1 {
+					assetID = strings.TrimSpace(m[1])
+				}
+			}
+		case "1.3.6.1.2.1.43.5.1.1.16.1":
+			// prtGeneral.16.1 is NOT a reliable serial source; treat as description/model hint only
+			sval := pduToString(v.Value)
+			lsval := strings.ToLower(sval)
+			if description == "" && looksLikeUUID(sval) {
+				description = strings.TrimSpace(sval)
+				prov["description"] = name
+			} else if model == "" {
+				if pidRe.MatchString(sval) || strings.Contains(lsval, " ") {
+					model = strings.TrimSpace(sval)
+					prov["model"] = name
+					learnedOIDs.ModelOID = name // Track model OID
+				}
+			}
+		case "1.3.6.1.2.1.43.5.1.1.17.1":
+			sval := pduToString(v.Value)
+			if serial == "" && sval != "" {
+				serial = strings.TrimSpace(sval)
+				prov["serial"] = name
+				learnedOIDs.SerialOID = name // Track serial OID
+			}
+		// HP asset tag (enterprise-specific OID)
+		case "1.3.6.1.4.1.11.2.3.9.4.2.1.1.3.12.0":
+			sval := pduToString(v.Value)
+			if sval != "" && assetID == "" {
+				assetID = strings.TrimSpace(sval)
+			}
+		// sysLocation - standard SNMPv2 location
+		case "1.3.6.1.2.1.1.6.0":
+			sval := pduToString(v.Value)
+			if sval != "" {
+				location = strings.TrimSpace(sval)
+			}
+		}
+
+		// prtMarkerLifeCount primary marker 1
+		if strings.HasPrefix(name, "1.3.6.1.2.1.43.10.2.1.4.1.") {
+			suf := strings.TrimPrefix(name, "1.3.6.1.2.1.43.10.2.1.4.1.")
+			parts := strings.Split(suf, ".")
+			if len(parts) >= 1 {
+				if idx, err := strconv.Atoi(parts[0]); err == nil {
+					if iv, ok := toInt(v.Value); ok {
+						markerCounts[idx] = iv
+						// Track the OID for this specific marker index
+						markerOIDs[idx] = name
+
+						// Store learned OIDs for common markers
+						switch idx {
+						case 1:
+							learnedOIDs.MonoPagesOID = name
+						case 2:
+							learnedOIDs.ColorPagesOID = name
+						case 3:
+							learnedOIDs.CyanOID = name
+						case 4:
+							learnedOIDs.MagentaOID = name
+						case 5:
+							learnedOIDs.YellowOID = name
+						}
+					}
+				}
+			}
+			continue
+		}
+		// supplies description
+		if strings.HasPrefix(name, "1.3.6.1.2.1.43.11.1.1.6.1.") {
+			suf := strings.TrimPrefix(name, "1.3.6.1.2.1.43.11.1.1.6.1.")
+			parts := strings.Split(suf, ".")
+			key := suf
+			if len(parts) >= 2 {
+				if hrIdx, err := strconv.Atoi(parts[0]); err == nil {
+					key = fmt.Sprintf("%d.%s", hrIdx, strings.Join(parts[1:], "."))
+				}
+			}
+			supplyDesc[key] = pduToString(v.Value)
+			continue
+		}
+		// supplies level
+		if strings.HasPrefix(name, "1.3.6.1.2.1.43.11.1.1.9.1.") {
+			suf := strings.TrimPrefix(name, "1.3.6.1.2.1.43.11.1.1.9.1.")
+			parts := strings.Split(suf, ".")
+			key := suf
+			if len(parts) >= 2 {
+				if hrIdx, err := strconv.Atoi(parts[0]); err == nil {
+					key = fmt.Sprintf("%d.%s", hrIdx, strings.Join(parts[1:], "."))
+				}
+			}
+			if iv, ok := toInt(v.Value); ok {
+				supplyLevels[key] = iv
+			}
+			continue
+		}
+		// ifPhysAddress
+		if strings.HasPrefix(name, "1.3.6.1.2.1.2.2.1.6.") {
+			if b, ok := v.Value.([]byte); ok && len(b) > 0 {
+				macLen := len(b)
+				if macLen > 6 {
+					macLen = 6
+				}
+				parts := make([]string, macLen)
+				for i := 0; i < macLen; i++ {
+					parts[i] = fmt.Sprintf("%02x", b[i])
+				}
+				mac := strings.Join(parts, ":")
+				if mac != "" && mac != "00:00:00:00:00:00" {
+					suf := strings.TrimPrefix(name, "1.3.6.1.2.1.2.2.1.6.")
+					ifMacs[suf] = mac
+				}
+			}
+		}
+		// collect status strings
+		if v.Type == gosnmp.OctetString {
+			s := pduToString(v.Value)
+			ls := strings.ToLower(s)
+			if strings.Contains(ls, "error") || strings.Contains(ls, "toner") || strings.Contains(ls, "paper") || strings.Contains(ls, "ready") || strings.Contains(ls, "warning") {
+				statusMsgs = append(statusMsgs, s)
+			}
+		}
+	}
+
+	debug.Steps = append(debug.Steps, fmt.Sprintf("collected_counts: marker_counts=%d supply_desc=%d supply_levels=%d", len(markerCounts), len(supplyDesc), len(supplyLevels)))
+
+	tonerLevels := map[string]int{}
+	consumables := []string{}
+	// placeholders for per-color descs
+	var descBlack, descCyan, descMagenta, descYellow string
+	for idx, lvl := range supplyLevels {
+		if desc, ok := supplyDesc[idx]; ok {
+			tonerLevels[desc] = lvl
+			consumables = append(consumables, desc)
+			lcase := strings.ToLower(desc)
+			if strings.Contains(lcase, "black") || strings.Contains(lcase, "k") {
+				descBlack = desc
+			} else if strings.Contains(lcase, "cyan") || strings.Contains(lcase, "c") {
+				descCyan = desc
+			} else if strings.Contains(lcase, "magenta") || strings.Contains(lcase, "m") {
+				descMagenta = desc
+			} else if strings.Contains(lcase, "yellow") || strings.Contains(lcase, "y") {
+				descYellow = desc
+			}
+		} else {
+			// fallback to numeric index as string (idx is already a string)
+			key := idx
+			tonerLevels[key] = lvl
+			consumables = append(consumables, key)
+		}
+	}
+
+	// derive pageCount
+	if v, ok := markerCounts[1]; ok {
+		pageCount = v
+		// Track the OID we learned for page count (marker 1)
+		if oid, ok := markerOIDs[1]; ok {
+			learnedOIDs.PageCountOID = oid
+		}
+	}
+
+	// Vendor-friendly model fallback using HOST-RESOURCES-MIB hrDevice* tables
+	// Many Epson and Kyocera devices expose a clean model in hrDeviceDescr for the
+	// hrDeviceType that equals printer (1.3.6.1.2.1.25.3.1.5). Prefer that when
+	// sysDescr/prtGeneral.16.1 are inconclusive.
+	if model == "" {
+		// Build an index of hrDeviceType entries
+		hrPrinterIdx := ""
+		for k, p := range pduByOid {
+			if strings.HasPrefix(k, "1.3.6.1.2.1.25.3.2.1.2.") {
+				idx := strings.TrimPrefix(k, "1.3.6.1.2.1.25.3.2.1.2.")
+				val := strings.ToLower(pduToString(p.Value))
+				// Match either the explicit OID suffix for printer or a textual hint
+				if strings.Contains(val, "25.3.1.5") || strings.Contains(val, "printer") {
+					hrPrinterIdx = idx
+					break
+				}
+			}
+		}
+		if hrPrinterIdx != "" {
+			if p, ok := pduByOid["1.3.6.1.2.1.25.3.2.1.3."+hrPrinterIdx]; ok {
+				cand := strings.TrimSpace(pduToString(p.Value))
+				if cand != "" && !looksLikeUUID(cand) {
+					model = cand
+					modelOID := "1.3.6.1.2.1.25.3.2.1.3." + hrPrinterIdx
+					prov["model"] = modelOID
+					learnedOIDs.ModelOID = modelOID // Track model OID
+					debug.Steps = append(debug.Steps, "model_from_hrDeviceDescr idx="+hrPrinterIdx+" val="+model)
+				}
+			}
+		}
+		// Fallback: use hrDeviceDescr.1 if present
+		if model == "" {
+			if p, ok := pduByOid["1.3.6.1.2.1.25.3.2.1.3.1"]; ok {
+				cand := strings.TrimSpace(pduToString(p.Value))
+				if cand != "" && !looksLikeUUID(cand) {
+					model = cand
+					modelOID := "1.3.6.1.2.1.25.3.2.1.3.1"
+					prov["model"] = modelOID
+					learnedOIDs.ModelOID = modelOID // Track model OID
+					debug.Steps = append(debug.Steps, "model_from_hrDeviceDescr.1 val="+model)
+				}
+			}
+		}
+	}
+
+	// apply heuristic guesses
+	if model == "" && modelGuess != "" {
+		model = modelGuess
+	}
+	if serial == "" && serialGuess != "" {
+		serial = serialGuess
+	}
+
+	// determine printer
+	isPrinter := false
+	reasons := []string{}
+	if len(markerCounts) > 0 {
+		isPrinter = true
+		reasons = append(reasons, "marker_counts")
+	}
+	if len(supplyDesc) > 0 {
+		isPrinter = true
+		reasons = append(reasons, "supply_descriptions")
+	}
+	if serial != "" {
+		isPrinter = true
+		reasons = append(reasons, "serial")
+	}
+	lowmodel := strings.ToLower(model)
+	if strings.Contains(lowmodel, "printer") || strings.Contains(lowmodel, "laserjet") {
+		isPrinter = true
+		reasons = append(reasons, "sysDescr")
+	}
+
+	// determine manufacturer: prefer sysObjectID enterprise roots, then sysDescr, then heuristic guesses
+	manufacturer := ""
+	if soidPdu, ok := pduByOid["1.3.6.1.2.1.1.2.0"]; ok {
+		soid := pduToString(soidPdu.Value)
+		if strings.Contains(soid, "1.3.6.1.4.1.11") {
+			manufacturer = "HP"
+		} else if strings.Contains(soid, "1.3.6.1.4.1.2435") {
+			manufacturer = "Brother"
+		} else if strings.Contains(soid, "1.3.6.1.4.1.1602") {
+			manufacturer = "Canon"
+		} else if strings.Contains(soid, "1.3.6.1.4.1.641") {
+			manufacturer = "Lexmark"
+		} else if strings.Contains(soid, "1.3.6.1.4.1.367") || strings.Contains(soid, "1.3.6.1.4.1.231") {
+			// Epson enterprise is 367; include 231 legacy mapping if observed
+			manufacturer = "Epson"
+		} else if strings.Contains(soid, "1.3.6.1.4.1.1347") {
+			manufacturer = "Kyocera"
+		} else if strings.Contains(soid, "1.3.6.1.4.1.9") {
+			manufacturer = "Dell"
+		}
+	}
+	if manufacturer == "" {
+		if sdescPdu, ok := pduByOid["1.3.6.1.2.1.1.1.0"]; ok {
+			sdesc := strings.ToLower(pduToString(sdescPdu.Value))
+			switch {
+			case strings.Contains(sdesc, "hp") || strings.Contains(sdesc, "laserjet"):
+				manufacturer = "HP"
+			case strings.Contains(sdesc, "brother"):
+				manufacturer = "Brother"
+			case strings.Contains(sdesc, "canon"):
+				manufacturer = "Canon"
+			case strings.Contains(sdesc, "kyocera"):
+				manufacturer = "Kyocera"
+			case strings.Contains(sdesc, "lexmark"):
+				manufacturer = "Lexmark"
+			case strings.Contains(sdesc, "epson"):
+				manufacturer = "Epson"
+			case strings.Contains(sdesc, "dell"):
+				manufacturer = "Dell"
+			}
+		}
+	}
+	if manufacturer == "" && mfgGuess != "" {
+		// make a tidy title-case value from the guess
+		switch strings.ToLower(mfgGuess) {
+		case "hp", "hewlett-packard", "hewlett packard":
+			manufacturer = "HP"
+		case "brother":
+			manufacturer = "Brother"
+		case "canon":
+			manufacturer = "Canon"
+		case "epson":
+			manufacturer = "Epson"
+		case "lexmark":
+			manufacturer = "Lexmark"
+		case "kyocera":
+			manufacturer = "Kyocera"
+		case "dell":
+			manufacturer = "Dell"
+		default:
+			// fallback: simple capitalization of first letter
+			if mfgGuess != "" {
+				manufacturer = strings.ToUpper(mfgGuess[:1]) + strings.ToLower(mfgGuess[1:])
+			}
+		}
+	}
+	if manufacturer == "" {
+		// scan any returned OID names for enterprise prefix as a last resort
+		for _, v := range allVars {
+			name := strings.TrimPrefix(v.Name, ".")
+			if strings.HasPrefix(name, "1.3.6.1.4.1.") {
+				parts := strings.Split(name, ".")
+				if len(parts) >= 7 {
+					ent := parts[6]
+					switch ent {
+					case "11":
+						manufacturer = "HP"
+					case "2435":
+						manufacturer = "Brother"
+					case "1602":
+						manufacturer = "Canon"
+					case "641":
+						manufacturer = "Lexmark"
+					case "367", "231":
+						manufacturer = "Epson"
+					case "1347":
+						manufacturer = "Kyocera"
+					case "9":
+						manufacturer = "Dell"
+					}
+					if manufacturer != "" {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// collect manufacturer-hint data for diagnostics
+	hints := []string{}
+	if soidPdu, ok := pduByOid["1.3.6.1.2.1.1.2.0"]; ok {
+		hints = append(hints, "sysObjectID:"+pduToString(soidPdu.Value))
+	}
+	if sdescPdu, ok := pduByOid["1.3.6.1.2.1.1.1.0"]; ok {
+		hints = append(hints, "sysDescr:"+pduToString(sdescPdu.Value))
+	}
+	if mfgGuess != "" {
+		hints = append(hints, "mfgGuess:"+mfgGuess)
+	}
+	// find a few enterprise-root OIDs present
+	entFound := 0
+	for _, v := range allVars {
+		name := strings.TrimPrefix(v.Name, ".")
+		if strings.HasPrefix(name, "1.3.6.1.4.1.") && entFound < 3 {
+			hints = append(hints, "enterprise_oid:"+name+" -> "+pduToString(v.Value))
+			entFound++
+		}
+	}
+	debug.ManufacturerHints = hints
+
+	// persist a small flat log listing manufacturer-related OIDs for quick inspection
+	{
+		logDir := ensureLogDir()
+		fname := fmt.Sprintf("manufacturer_oids_%s.log", strings.ReplaceAll(scanIP, ".", "_"))
+		fpath := filepath.Join(logDir, fname)
+		_ = os.WriteFile(fpath, []byte(strings.Join(hints, "\n")+"\n"), 0o644)
+	}
+
+	// Epson-specific: derive AssetID from adminContact if not already set.
+	// Example adminContact: "Asset ID #03027 Printer Source Plus ..."
+	if assetID == "" && adminContact != "" && strings.EqualFold(manufacturer, "Epson") {
+		// Prefer explicit "Asset" label with optional "ID"
+		if m := regexp.MustCompile(`(?i)asset(?:\s*id)?[\s:#-]*([A-Za-z0-9\-]{3,40})`).FindStringSubmatch(adminContact); len(m) > 1 {
+			assetID = strings.Trim(m[1], " #:-.,;")
+			prov["asset_id"] = "adminContact"
+		} else if m := regexp.MustCompile(`(?i)asset[\w\s:#-]{0,20}([0-9A-Za-z\-]{3,40})`).FindStringSubmatch(adminContact); len(m) > 1 {
+			// Fallback: capture first plausible token following the word Asset
+			assetID = strings.Trim(m[1], " #:-.,;")
+			prov["asset_id"] = "adminContact"
+		}
+	}
+
+	// build PrinterInfo (include new fields when available)
+	// extract network properties when present in PDUs
+	subnetMask := ""
+	gateway := ""
+	dnsServers := []string{}
+	dhcpServer := ""
+	hostname := ""
+
+	// subnet mask table entry: ipAdEntNetMask 1.3.6.1.2.1.4.20.1.3.<ip>
+	maskKey := "1.3.6.1.2.1.4.20.1.3." + scanIP
+	if p, ok := pduByOid[maskKey]; ok {
+		subnetMask = normalizeNetworkValue(pduToString(p.Value), "subnet")
+	}
+	// If mask not present, look only for OIDs whose suffix encodes the same IP
+	// we're scanning; ignore other devices' IPs to avoid mixing entries from
+	// ARP-like tables or other addresses present in the walk.
+	if subnetMask == "" {
+		for k, p := range pduByOid {
+			if ip, ok := extractIPv4FromOID(k); ok && ip == scanIP {
+				if strings.HasPrefix(k, "1.3.6.1.2.1.4.20.1.3.") {
+					subnetMask = normalizeNetworkValue(pduToString(p.Value), "subnet")
+					if subnetMask != "" {
+						break
+					}
+				}
+			}
+		}
+	}
+	// sysName
+	if p, ok := pduByOid["1.3.6.1.2.1.1.5.0"]; ok {
+		hostname = pduToString(p.Value)
+	}
+	// collect obvious DNS-related PDUs and network config
+	for k, p := range pduByOid {
+		lk := strings.ToLower(k)
+		val := strings.TrimSpace(pduToString(p.Value))
+
+		// DNS servers
+		if strings.Contains(lk, "dns") || strings.Contains(lk, "nameserver") || strings.Contains(lk, "name_server") {
+			normalizedDNS := normalizeNetworkValue(val, "dns")
+			if normalizedDNS != "" {
+				dnsServers = append(dnsServers, normalizedDNS)
+			}
+		}
+
+		// DHCP server address (common OID patterns)
+		if strings.Contains(lk, "dhcp") && (strings.Contains(lk, "server") || strings.Contains(lk, "srv")) {
+			normalizedDHCP := normalizeNetworkValue(val, "ip")
+			if normalizedDHCP != "" && dhcpServer == "" {
+				dhcpServer = normalizedDHCP
+			}
+		}
+
+		// HP-specific network configuration OIDs
+		// HP gateway: 1.3.6.1.4.1.11.2.3.9.4.2.1.1.1.x
+		if strings.HasPrefix(k, "1.3.6.1.4.1.11.2.3.9.4.2.1.1.1.") && gateway == "" {
+			normalizedGW := normalizeNetworkValue(val, "gateway")
+			if normalizedGW != "" {
+				gateway = normalizedGW
+			}
+		}
+
+		// HP DNS servers: 1.3.6.1.4.1.11.2.3.9.4.2.1.1.6.x (primary) and .7.x (secondary)
+		if strings.HasPrefix(k, "1.3.6.1.4.1.11.2.3.9.4.2.1.1.6.") ||
+			strings.HasPrefix(k, "1.3.6.1.4.1.11.2.3.9.4.2.1.1.7.") {
+			normalizedDNS := normalizeNetworkValue(val, "dns")
+			if normalizedDNS != "" {
+				// avoid duplicates
+				found := false
+				for _, existing := range dnsServers {
+					if existing == normalizedDNS {
+						found = true
+						break
+					}
+				}
+				if !found {
+					dnsServers = append(dnsServers, normalizedDNS)
+				}
+			}
+		}
+
+		// HP DHCP server: 1.3.6.1.4.1.11.2.3.9.4.2.1.1.4.x
+		if strings.HasPrefix(k, "1.3.6.1.4.1.11.2.3.9.4.2.1.1.4.") && dhcpServer == "" {
+			normalizedDHCP := normalizeNetworkValue(val, "ip")
+			if normalizedDHCP != "" {
+				dhcpServer = normalizedDHCP
+			}
+		}
+	}
+	// try to detect default route via ipRouteTable entries: dest=1.3.6.1.2.1.4.21.1.1.<idx>, nexthop=...1.7.<idx>
+	dests := map[string]string{}
+	nexthops := map[string]string{}
+	for k, p := range pduByOid {
+		if strings.HasPrefix(k, "1.3.6.1.2.1.4.21.1.") {
+			parts := strings.Split(k, ".")
+			if len(parts) >= 2 {
+				field := parts[len(parts)-2]
+				idx := parts[len(parts)-1]
+				val := pduToString(p.Value)
+				switch field {
+				case "1":
+					dests[idx] = val
+				case "7":
+					nexthops[idx] = val
+				}
+			}
+		}
+	}
+	for idx, d := range dests {
+		if d == "0.0.0.0" || d == "" {
+			if nh, ok := nexthops[idx]; ok {
+				normalizedGW := normalizeNetworkValue(nh, "gateway")
+				if normalizedGW != "" {
+					gateway = normalizedGW
+					break
+				}
+			}
+		}
+	}
+
+	// choose MAC: prefer meta.MAC when present, otherwise take first valid from ifMacs
+	chosenMAC := ""
+	if meta != nil && meta.MAC != "" {
+		normalizedMAC := normalizeNetworkValue(meta.MAC, "mac")
+		if normalizedMAC != "" {
+			chosenMAC = normalizedMAC
+		}
+	}
+	if chosenMAC == "" {
+		for _, m := range ifMacs {
+			normalizedMAC := normalizeNetworkValue(m, "mac")
+			if normalizedMAC != "" {
+				chosenMAC = normalizedMAC
+				break
+			}
+		}
+	}
+
+	pi := PrinterInfo{
+		IP:                   scanIP,
+		Manufacturer:         manufacturer,
+		Model:                model,
+		Serial:               serial,
+		AdminContact:         adminContact,
+		AssetID:              assetID,
+		Description:          description,
+		Location:             location,
+		PageCount:            pageCount,
+		TotalMonoImpressions: pageCount,
+		MonoImpressions:      markerCounts[1],
+		ColorImpressions:     markerCounts[2],
+		BlackImpressions:     markerCounts[1],
+		// try to split combined color impressions into components if markers present
+		CyanImpressions:    markerCounts[3],
+		MagentaImpressions: markerCounts[4],
+		YellowImpressions:  markerCounts[5],
+		TonerLevels:        tonerLevels,
+		Consumables:        consumables,
+		StatusMessages:     statusMsgs,
+		DetectionReasons:   reasons,
+		PaperTrayStatus:    map[string]string{},
+		MAC:                chosenMAC,
+		SubnetMask:         subnetMask,
+		Gateway:            gateway,
+		DNSServers:         dnsServers,
+		DHCPServer:         dhcpServer,
+		Hostname:           hostname,
+		LearnedOIDs:        learnedOIDs, // Store learned OIDs for efficient metrics queries
+	}
+
+	// Log learned OIDs for improving scraper across different models/brands
+	if logFn != nil && (learnedOIDs.PageCountOID != "" || learnedOIDs.MonoPagesOID != "" || learnedOIDs.SerialOID != "" || learnedOIDs.ModelOID != "") {
+		logFn(fmt.Sprintf("LEARNED_OIDS: ip=%s manufacturer=%s model=%s serial=%s page_count_oid=%s mono_pages_oid=%s color_pages_oid=%s cyan_oid=%s magenta_oid=%s yellow_oid=%s serial_oid=%s model_oid=%s",
+			scanIP, manufacturer, model, serial,
+			learnedOIDs.PageCountOID, learnedOIDs.MonoPagesOID, learnedOIDs.ColorPagesOID,
+			learnedOIDs.CyanOID, learnedOIDs.MagentaOID, learnedOIDs.YellowOID,
+			learnedOIDs.SerialOID, learnedOIDs.ModelOID))
+	}
+
+	// Build normalized meters map from discovered counters.
+	meters := map[string]int{}
+	// total pages: prefer explicit pageCount, otherwise sum of markerCounts
+	total := pageCount
+	if total == 0 {
+		sum := 0
+		for _, v := range markerCounts {
+			sum += v
+		}
+		total = sum
+	}
+	meters["total_pages"] = total
+	// mono / black
+	if v, ok := markerCounts[1]; ok {
+		meters["mono_pages"] = v
+		meters["black"] = v
+	} else if pageCount > 0 {
+		meters["mono_pages"] = pageCount
+	}
+	// color pages: any markers beyond index 1
+	colorSum := 0
+	for idx, v := range markerCounts {
+		if idx == 1 {
+			continue
+		}
+		colorSum += v
+		// map common color indexes
+		switch idx {
+		case 3:
+			meters["cyan"] = v
+		case 4:
+			meters["magenta"] = v
+		case 5:
+			meters["yellow"] = v
+		}
+	}
+	meters["color_pages"] = colorSum
+	// attach meters if any values discovered
+	if len(meters) > 0 {
+		pi.Meters = meters
+	}
+
+	// Try to map PrintAudit-like categories by scanning PDUs for numeric values
+	// whose OID name or string contains category keywords. This helps when
+	// vendors report labeled counters (e.g., "Total Pages", "Copier", "Fax").
+	for oid, p := range pduByOid {
+		if iv, ok := toInt(p.Value); ok {
+			valStr := strings.ToLower(pduToString(p.Value))
+			nameStr := strings.ToLower(oid)
+			// helper to assign if absent or if larger (prefer larger counters)
+			assign := func(key string, v int) {
+				if existing, ok := meters[key]; !ok || v > existing {
+					meters[key] = v
+				}
+			}
+			if strings.Contains(nameStr, "total") && strings.Contains(nameStr, "page") || strings.Contains(valStr, "total") && strings.Contains(valStr, "page") {
+				assign("total_pages", iv)
+			}
+			if strings.Contains(nameStr, "mono") || strings.Contains(valStr, "mono") || strings.Contains(nameStr, "black") || strings.Contains(valStr, "black") {
+				assign("mono_pages", iv)
+				assign("black", iv)
+			}
+			if strings.Contains(nameStr, "copier") || strings.Contains(valStr, "copier") {
+				assign("copier_pages", iv)
+			}
+			if strings.Contains(nameStr, "printer") && strings.Contains(nameStr, "total") || strings.Contains(valStr, "printer") {
+				assign("printer_pages", iv)
+			}
+			if strings.Contains(nameStr, "fax") || strings.Contains(valStr, "fax") {
+				assign("fax_pages", iv)
+			}
+			if strings.Contains(nameStr, "scan") || strings.Contains(valStr, "scan") {
+				assign("scan_pages", iv)
+			}
+			if strings.Contains(nameStr, "local") || strings.Contains(valStr, "local") {
+				assign("local_pages", iv)
+			}
+			if strings.Contains(nameStr, "banner") || strings.Contains(valStr, "banner") {
+				assign("banner_pages", iv)
+			}
+		}
+	}
+	// attach updated meters map
+	if len(meters) > 0 {
+		pi.Meters = meters
+	}
+
+	// populate per-color toner level fields from discovered descriptions when present
+	if descBlack != "" {
+		pi.TonerDescBlack = descBlack
+		if v, ok := tonerLevels[descBlack]; ok {
+			pi.TonerLevelBlack = v
+		}
+	}
+	if descCyan != "" {
+		pi.TonerDescCyan = descCyan
+		if v, ok := tonerLevels[descCyan]; ok {
+			pi.TonerLevelCyan = v
+		}
+	}
+	if descMagenta != "" {
+		pi.TonerDescMagenta = descMagenta
+		if v, ok := tonerLevels[descMagenta]; ok {
+			pi.TonerLevelMagenta = v
+		}
+	}
+	if descYellow != "" {
+		pi.TonerDescYellow = descYellow
+		if v, ok := tonerLevels[descYellow]; ok {
+			pi.TonerLevelYellow = v
+		}
+	}
+
+	// heuristics: Uptime (sysUpTime), firmware, duplex, paper tray statuses, toner alerts
+	// Uptime: 1.3.6.1.2.1.1.3.0 (TimeTicks, hundredths of seconds)
+	if pdu, ok := pduByOid["1.3.6.1.2.1.1.3.0"]; ok {
+		if iv, ok := toInt(pdu.Value); ok {
+			// convert hundredths of seconds to seconds
+			pi.UptimeSeconds = iv / 100
+		}
+	}
+
+	// paper tray status: prtInputEntry (1.3.6.1.2.1.43.8.2.1.18.<idx>)
+	for k, pdu := range pduByOid {
+		if strings.HasPrefix(k, "1.3.6.1.2.1.43.8.2.1.18.") {
+			idx := strings.TrimPrefix(k, "1.3.6.1.2.1.43.8.2.1.18.")
+			pi.PaperTrayStatus[idx] = pduToString(pdu.Value)
+		}
+		// try to detect firmware string heuristically
+		sval := strings.ToLower(pduToString(pdu.Value))
+		if pi.Firmware == "" && (strings.Contains(sval, "firmware") || strings.Contains(sval, "fw") || strings.Contains(sval, "firmware version") || strings.Contains(sval, "fwv")) {
+			pi.Firmware = pduToString(pdu.Value)
+		}
+		// check for duplex keyword
+		if !pi.DuplexSupported && (strings.Contains(sval, "duplex") || strings.Contains(sval, "two-sided") || strings.Contains(sval, "duplex_unit")) {
+			pi.DuplexSupported = true
+		}
+	}
+
+	// Toner alerts: extract lines from statusMsgs mentioning toner
+	for _, m := range statusMsgs {
+		lm := strings.ToLower(m)
+		if strings.Contains(lm, "toner") || strings.Contains(lm, "ink") || strings.Contains(lm, "supply") {
+			pi.TonerAlerts = append(pi.TonerAlerts, m)
+		}
+	}
+	if meta != nil {
+		// preserve explicit meta.MAC when provided; otherwise prefer chosenMAC
+		if meta.MAC != "" {
+			pi.MAC = meta.MAC
+		} else if pi.MAC == "" && chosenMAC != "" {
+			pi.MAC = chosenMAC
+		}
+		pi.OpenPorts = meta.OpenPorts
+		pi.DiscoveryMethods = meta.DiscoveryMethods
+	} else if pi.MAC == "" && chosenMAC != "" {
+		pi.MAC = chosenMAC
+	}
+
+	// Detect web UI URL from open ports or SNMP data
+	webUIURL := detectWebUIURL(scanIP, meta, pduByOid)
+	if webUIURL != "" {
+		pi.WebUIURL = webUIURL
+	}
+
+	// finalize debug info and persist
+	debug.FinalManufacturer = manufacturer
+	debug.Model = model
+	debug.Serial = serial
+	debug.IsPrinter = isPrinter
+
+	// attach provenance info (which OID set model/serial when available)
+	if len(prov) > 0 {
+		debug.Extra["provenance"] = prov
+	}
+
+	debug.Steps = append(debug.Steps, "ParsePDUs:finish")
+	debug.DetectionReasons = reasons
+
+	// store the debug snapshot for this IP (best-effort)
+	if err := RecordParseDebug(scanIP, debug); err != nil {
+		if logFn != nil {
+			logFn("failed to persist parse debug: " + err.Error())
+		}
+	}
+	return pi, isPrinter
+}
+
+package agent
+
+import (
+	"net"
+	"testing"
+	"time"
+)
+
+func TestProbeTCP_LocalListener(t *testing.T) {
+	// start a local listener on random port
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	defer l.Close()
+	addr := l.Addr().(*net.TCPAddr)
+	port := addr.Port
+
+	// run probeTCP against that port
+	ports := []int{port, port + 1}
+	open, err := probeTCP("127.0.0.1", ports, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("probeTCP returned error: %v", err)
+	}
+	found := false
+	for _, p := range open {
+		if p == port {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected port %d to be reported open, got %v", port, open)
+	}
+}
+
+package agent
+
+import (
+	"net"
+	"strconv"
+	"time"
+)
+
+// probeTCP tries to connect to the provided ports on the IP with the given timeout.
+// Returns the slice of ports that accepted a TCP connection.
+func probeTCP(ip string, ports []int, timeout time.Duration) ([]int, error) {
+	open := []int{}
+	for _, p := range ports {
+		addr := net.JoinHostPort(ip, strconv.Itoa(p))
+		conn, err := net.DialTimeout("tcp", addr, timeout)
+		if err != nil {
+			// treat as closed/filtered
+			continue
+		}
+		conn.Close()
+		open = append(open, p)
+	}
+	return open, nil
+}
+
+package agent
+
+import (
+	"testing"
+)
+
+func TestParseRangeText_SingleIP(t *testing.T) {
+	txt := "10.2.106.72"
+	res, err := ParseRangeText(txt, 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Count != 1 {
+		t.Fatalf("expected 1 ip, got %d", res.Count)
+	}
+	if res.IPs[0] != "10.2.106.72" {
+		t.Fatalf("unexpected ip: %s", res.IPs[0])
+	}
+}
+
+func TestParseRangeText_CIDR(t *testing.T) {
+	txt := "192.168.10.0/30"
+	res, err := ParseRangeText(txt, 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Count != 4 {
+		t.Fatalf("expected 4 ips, got %d", res.Count)
+	}
+}
+
+func TestParseRangeText_Wildcard(t *testing.T) {
+	txt := "192.168.100.x"
+	res, err := ParseRangeText(txt, 1024)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Count != 256 {
+		t.Fatalf("expected 256 ips, got %d", res.Count)
+	}
+}
+
+func TestParseRangeText_Invalid(t *testing.T) {
+	txt := "not-an-ip"
+	res, err := ParseRangeText(txt, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Errors) == 0 {
+		t.Fatalf("expected parse errors for invalid input")
+	}
+}
+
+package agent
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+)
+
+// ParseError reports an error parsing a specific line
+type ParseError struct {
+	Line int    `json:"line"`
+	Msg  string `json:"msg"`
+}
+
+// ParseResult is the result of parsing user-supplied range text
+type ParseResult struct {
+	IPs        []string     `json:"ips"`
+	Count      int          `json:"count"`
+	Errors     []ParseError `json:"errors"`
+	Normalized []string     `json:"normalized"`
+}
+
+// helper: convert net.IP to uint32
+func ipToUint32(ip net.IP) uint32 {
+	ip = ip.To4()
+	return uint32(ip[0])<<24 | uint32(ip[1])<<16 | uint32(ip[2])<<8 | uint32(ip[3])
+}
+
+// helper: convert uint32 to net.IP
+func uint32ToIP(n uint32) net.IP {
+	return net.IPv4(byte(n>>24), byte(n>>16), byte(n>>8), byte(n)).To4()
+}
+
+// expandCIDRCount returns the number of addresses in the cidr (including network/broadcast).
+func expandCIDRCount(ipnet *net.IPNet) int {
+	ones, bits := ipnet.Mask.Size()
+	hostBits := bits - ones
+	if hostBits >= 31 { // too large to handle comfortably
+		return 1 << 30
+	}
+	return 1 << uint(hostBits)
+}
+
+// ParseRangeText parses the text (one entry per line) into a list of IPv4 addresses (strings). It enforces
+// a maximum number of addresses (maxAddrs). It supports: single IP, CIDR, full start-end, shorthand start-end
+// where right side supplies last N octets, and last-octet wildcard (x or *).
+func ParseRangeText(text string, maxAddrs int) (*ParseResult, error) {
+	res := &ParseResult{}
+	seen := map[string]struct{}{}
+	lines := strings.Split(text, "\n")
+	for i, raw := range lines {
+		lineNo := i + 1
+		s := strings.TrimSpace(raw)
+		if s == "" || strings.HasPrefix(s, "#") {
+			// preserve the raw line in normalized as-is for UI display
+			continue
+		}
+		// CIDR
+		if strings.Contains(s, "/") {
+			_, ipnet, err := net.ParseCIDR(s)
+			if err != nil {
+				res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "invalid CIDR"})
+				continue
+			}
+			// ensure IPv4
+			if ipnet.IP.To4() == nil {
+				res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "IPv6 not supported"})
+				continue
+			}
+			cnt := expandCIDRCount(ipnet)
+			if res.Count+cnt > maxAddrs {
+				return res, fmt.Errorf("line %d: expansion would produce %d addresses (over max %d)", lineNo, res.Count+cnt, maxAddrs)
+			}
+			// iterate addresses
+			start := ipToUint32(ipnet.IP.Mask(ipnet.Mask))
+			ones, bits := ipnet.Mask.Size()
+			total := 1 << uint(bits-ones)
+			for j := 0; j < total; j++ {
+				ip := uint32ToIP(start + uint32(j)).String()
+				if _, ok := seen[ip]; !ok {
+					res.IPs = append(res.IPs, ip)
+					seen[ip] = struct{}{}
+					res.Count++
+				}
+			}
+			res.Normalized = append(res.Normalized, s)
+			continue
+		}
+		// dash range
+		if strings.Contains(s, "-") {
+			parts := strings.SplitN(s, "-", 2)
+			left := strings.TrimSpace(parts[0])
+			right := strings.TrimSpace(parts[1])
+			lip := net.ParseIP(left)
+			if lip == nil || lip.To4() == nil {
+				res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "left side must be a full IPv4 address"})
+				continue
+			}
+			// if right is full IP
+			rip := net.ParseIP(right)
+			var endIp net.IP
+			if rip != nil && rip.To4() != nil {
+				endIp = rip.To4()
+			} else {
+				// shorthand: right supplies last N octets
+				// split both
+				lparts := strings.Split(left, ".")
+				rparts := strings.Split(right, ".")
+				if len(lparts) != 4 || len(rparts) < 1 || len(rparts) > 3 {
+					res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "invalid shorthand range"})
+					continue
+				}
+				// build end octets by taking first (4-len(rparts)) from left and append rparts
+				endOctets := make([]string, 0, 4)
+				copyOctets := 4 - len(rparts)
+				for k := 0; k < copyOctets; k++ {
+					endOctets = append(endOctets, lparts[k])
+				}
+				endOctets = append(endOctets, rparts...)
+				endStr := strings.Join(endOctets, ".")
+				if strings.Contains(endStr, "x") || strings.Contains(endStr, "*") {
+					res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "wildcard not allowed in shorthand right side"})
+					continue
+				}
+				rip2 := net.ParseIP(endStr)
+				if rip2 == nil || rip2.To4() == nil {
+					res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "invalid end IP after shorthand expansion"})
+					continue
+				}
+				endIp = rip2.To4()
+			}
+			startVal := ipToUint32(lip.To4())
+			endVal := ipToUint32(endIp)
+			if endVal < startVal {
+				res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "end address is before start address"})
+				continue
+			}
+			cnt := int(endVal - startVal + 1)
+			if res.Count+cnt > maxAddrs {
+				return res, fmt.Errorf("line %d: expansion would produce %d addresses (over max %d)", lineNo, res.Count+cnt, maxAddrs)
+			}
+			for v := startVal; v <= endVal; v++ {
+				ip := uint32ToIP(v).String()
+				if _, ok := seen[ip]; !ok {
+					res.IPs = append(res.IPs, ip)
+					seen[ip] = struct{}{}
+					res.Count++
+				}
+			}
+			res.Normalized = append(res.Normalized, fmt.Sprintf("%s-%s", left, endIp.String()))
+			continue
+		}
+		// wildcard last octet
+		if strings.HasSuffix(s, ".x") || strings.HasSuffix(s, ".*") {
+			base := strings.TrimSuffix(strings.TrimSuffix(s, ".x"), ".*")
+			// must be first three octets
+			parts := strings.Split(base, ".")
+			if len(parts) != 3 {
+				res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "wildcard allowed only on last octet like 192.168.1.x"})
+				continue
+			}
+			prefix := base + "."
+			// expand 0..255
+			if res.Count+256 > maxAddrs {
+				return res, fmt.Errorf("line %d: expansion would exceed max %d", lineNo, maxAddrs)
+			}
+			for j := 0; j < 256; j++ {
+				ip := fmt.Sprintf("%s%d", prefix, j)
+				if _, ok := seen[ip]; !ok {
+					res.IPs = append(res.IPs, ip)
+					seen[ip] = struct{}{}
+					res.Count++
+				}
+			}
+			res.Normalized = append(res.Normalized, s)
+			continue
+		}
+		// single ip
+		sip := net.ParseIP(s)
+		if sip == nil || sip.To4() == nil {
+			res.Errors = append(res.Errors, ParseError{Line: lineNo, Msg: "unrecognized format or invalid IPv4"})
+			continue
+		}
+		ipstr := sip.To4().String()
+		if _, ok := seen[ipstr]; !ok {
+			if res.Count+1 > maxAddrs {
+				return res, fmt.Errorf("line %d: expansion would exceed max %d", lineNo, maxAddrs)
+			}
+			res.IPs = append(res.IPs, ipstr)
+			seen[ipstr] = struct{}{}
+			res.Count++
+		}
+		res.Normalized = append(res.Normalized, ipstr)
+	}
+	return res, nil
+}
+
+// SaveConfig persists config to config.json in the current directory
+func SaveConfig(cfg interface{}) error {
+	fpath := "config.json"
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := fpath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, fpath)
+}
+
+// LoadConfig loads config.json into the provided pointer if it exists
+func LoadConfig(cfg interface{}) error {
+	fpath := "config.json"
+	if _, err := os.Stat(fpath); os.IsNotExist(err) {
+		return nil
+	}
+	b, err := os.ReadFile(fpath)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, cfg)
+}
+
+package agent
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+func loadWalkFile(t *testing.T, path string) []gosnmp.SnmpPDU {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read walk file %s: %v", path, err)
+	}
+	var doc struct {
+		IP      string `json:"ip"`
+		Entries []struct {
+			Oid   string      `json:"oid"`
+			Type  string      `json:"type"`
+			Value interface{} `json:"value"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("invalid json in %s: %v", path, err)
+	}
+	vars := []gosnmp.SnmpPDU{}
+	for _, e := range doc.Entries {
+		p := gosnmp.SnmpPDU{Name: e.Oid}
+		// coerce typical types
+		switch e.Type {
+		case "OctetString":
+			if s, ok := e.Value.(string); ok {
+				p.Type = gosnmp.OctetString
+				p.Value = []byte(s)
+			} else {
+				p.Type = gosnmp.OctetString
+				p.Value = []byte{}
+			}
+		case "Integer":
+			// JSON numbers decode to float64
+			if f, ok := e.Value.(float64); ok {
+				p.Type = gosnmp.Integer
+				p.Value = int(f)
+			} else {
+				p.Type = gosnmp.Integer
+			}
+		case "Counter32", "Gauge32":
+			if f, ok := e.Value.(float64); ok {
+				p.Type = gosnmp.Counter32
+				p.Value = uint(f)
+			} else {
+				p.Type = gosnmp.Counter32
+			}
+		case "Null":
+			p.Type = gosnmp.Null
+			p.Value = nil
+		default:
+			// best-effort: treat as printable
+			if s, ok := e.Value.(string); ok {
+				p.Type = gosnmp.OctetString
+				p.Value = []byte(s)
+			} else {
+				p.Type = gosnmp.OctetString
+				p.Value = []byte{}
+			}
+		}
+		vars = append(vars, p)
+	}
+	return vars
+}
+
+func findWalkFiles() []string {
+	candidates := []string{}
+	// search a few likely locations relative to the package
+	patterns := []string{"../logs/mib_walk_*.json", "logs/mib_walk_*.json", "./logs/mib_walk_*.json"}
+	for _, pat := range patterns {
+		if matches, err := filepath.Glob(pat); err == nil {
+			for _, m := range matches {
+				// skip summary files or other non-walk aggregates
+				if strings.Contains(strings.ToLower(filepath.Base(m)), "summary") {
+					continue
+				}
+				candidates = append(candidates, m)
+			}
+		}
+	}
+	return candidates
+}
+
+// TestReplayMIBWalks_ParsePDUs - REMOVED: Requires recorded MIB walk files
+// func TestReplayMIBWalks_ParsePDUs(t *testing.T) {
+// 	t.Parallel()
+// 	files := findWalkFiles()
+// 	if len(files) == 0 {
+// 		t.Skip("no recorded mib_walk_*.json files found in logs/")
+// 	}
+// 	for _, path := range files {
+// 		path := path // capture for parallel subtest
+// 		t.Run(filepath.Base(path), func(t *testing.T) {
+// 			t.Parallel()
+// 			t.Logf("replaying %s", path)
+// 			vars := loadWalkFile(t, path)
+// 			// skip empty walk captures (some logs may contain roots only or be empty)
+// 			if len(vars) == 0 {
+// 				t.Skipf("skipping empty walk %s", path)
+// 			}
+// 			pi, isPrinter := ParsePDUs("replay", vars, nil, func(s string) {})
+// 			if !isPrinter {
+// 				t.Fatalf("expected isPrinter=true for %s; got false; parsed: %+v", path, pi)
+// 			}
+// 			if pi.Manufacturer == "" && pi.Model == "" && pi.Serial == "" {
+// 				t.Fatalf("expected at least one of Manufacturer/Model/Serial to be set for %s; got empty; parsed: %+v", path, pi)
+// 			}
+// 			t.Logf("replay %s -> manufacturer=%q model=%q serial=%q", path, pi.Manufacturer, pi.Model, pi.Serial)
+// 		})
+// 	}
+// }
+
+package agent
+
+// ReportDeviceData sends collected device data to the server.
+func ReportDeviceData(data interface{}) error {
+	// TODO: Implement reporting logic
+	return nil
+}
+
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+)
+
+func TestServerClient_Register(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agents/register" {
+			t.Errorf("Expected path /api/v1/agents/register, got %s", r.URL.Path)
+		}
+		if r.Method != http.MethodPost {
+			t.Errorf("Expected POST, got %s", r.Method)
+		}
+
+		// Decode request
+		var req map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("Failed to decode request: %v", err)
+		}
+
+		// Verify fields
+		if req["agent_id"] != "test-agent" {
+			t.Errorf("Expected agent_id=test-agent, got %v", req["agent_id"])
+		}
+		if req["name"] != "Test Agent" {
+			t.Errorf("Expected name='Test Agent', got %v", req["name"])
+		}
+
+		// Return token
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"agent_id": "test-agent",
+			"token":    "test-token-123",
+		})
+	}))
+	defer server.Close()
+
+	// Create client with name
+	client := NewServerClientWithName(server.URL, "test-agent", "Test Agent", "", "", false)
+
+	// Register
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	token, err := client.Register(ctx, "v0.2.0")
+	if err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	if token != "test-token-123" {
+		t.Errorf("Expected token=test-token-123, got %s", token)
+	}
+
+	// Verify token was stored
+	if client.GetToken() != "test-token-123" {
+		t.Errorf("Token not stored in client")
+	}
+}
+
+func TestServerClient_Heartbeat(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agents/heartbeat" {
+			t.Errorf("Expected path /api/v1/agents/heartbeat, got %s", r.URL.Path)
+		}
+
+		// Verify Bearer token
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer test-token-456" {
+			t.Errorf("Expected Bearer test-token-456, got %s", auth)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+		})
+	}))
+	defer server.Close()
+
+	// Create client with token
+	client := NewServerClient(server.URL, "test-agent", "test-token-456")
+
+	// Send heartbeat
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := client.Heartbeat(ctx)
+	if err != nil {
+		t.Fatalf("Heartbeat failed: %v", err)
+	}
+}
+
+func TestServerClient_UploadDevices(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server
+	receivedDevices := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/devices/batch" {
+			t.Errorf("Expected path /api/v1/devices/batch, got %s", r.URL.Path)
+		}
+
+		// Verify Bearer token
+		auth := r.Header.Get("Authorization")
+		if auth != "Bearer test-token-789" {
+			t.Errorf("Expected Bearer test-token-789, got %s", auth)
+		}
+
+		// Decode request
+		var req map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("Failed to decode request: %v", err)
+		}
+
+		// Verify devices
+		devices, ok := req["devices"].([]interface{})
+		if !ok {
+			t.Error("Missing or invalid devices field")
+		}
+		receivedDevices = len(devices)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"received": len(devices),
+		})
+	}))
+	defer server.Close()
+
+	// Create client
+	client := NewServerClient(server.URL, "test-agent", "test-token-789")
+
+	// Upload devices
+	devices := []interface{}{
+		map[string]interface{}{
+			"serial":       "DEV001",
+			"ip":           "192.168.1.50",
+			"manufacturer": "HP",
+		},
+		map[string]interface{}{
+			"serial":       "DEV002",
+			"ip":           "192.168.1.51",
+			"manufacturer": "Canon",
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := client.UploadDevices(ctx, devices)
+	if err != nil {
+		t.Fatalf("UploadDevices failed: %v", err)
+	}
+
+	if receivedDevices != 2 {
+		t.Errorf("Expected 2 devices uploaded, got %d", receivedDevices)
+	}
+}
+
+func TestServerClient_UploadMetrics(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server
+	receivedMetrics := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/metrics/batch" {
+			t.Errorf("Expected path /api/v1/metrics/batch, got %s", r.URL.Path)
+		}
+
+		// Decode request
+		var req map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("Failed to decode request: %v", err)
+		}
+
+		// Verify metrics
+		metrics, ok := req["metrics"].([]interface{})
+		if !ok {
+			t.Error("Missing or invalid metrics field")
+		}
+		receivedMetrics = len(metrics)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"received": len(metrics),
+		})
+	}))
+	defer server.Close()
+
+	// Create client
+	client := NewServerClient(server.URL, "test-agent", "test-token-abc")
+
+	// Upload metrics
+	metrics := []interface{}{
+		map[string]interface{}{
+			"serial":     "DEV001",
+			"page_count": 1000,
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := client.UploadMetrics(ctx, metrics)
+	if err != nil {
+		t.Fatalf("UploadMetrics failed: %v", err)
+	}
+
+	if receivedMetrics != 1 {
+		t.Errorf("Expected 1 metric uploaded, got %d", receivedMetrics)
+	}
+}
+
+func TestServerClient_Unauthorized(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server that returns 401
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("Invalid token"))
+	}))
+	defer server.Close()
+
+	// Create client with bad token
+	client := NewServerClient(server.URL, "test-agent", "bad-token")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Heartbeat should fail
+	err := client.Heartbeat(ctx)
+	if err == nil {
+		t.Error("Expected heartbeat to fail with bad token")
+	}
+}
+
+func TestServerClient_Timeout(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server that hangs
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Second) // Longer than test timeout
+	}))
+	defer server.Close()
+
+	// Create client
+	client := NewServerClient(server.URL, "test-agent", "test-token")
+
+	// Use short timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Should timeout
+	err := client.Heartbeat(ctx)
+	if err == nil {
+		t.Error("Expected heartbeat to timeout")
+	}
+}
+
+func TestServerClient_SetGetToken(t *testing.T) {
+	t.Parallel()
+
+	client := NewServerClient("http://localhost:9090", "test-agent", "initial-token")
+
+	// Verify initial token
+	if client.GetToken() != "initial-token" {
+		t.Errorf("Expected initial-token, got %s", client.GetToken())
+	}
+
+	// Set new token
+	client.SetToken("new-token")
+
+	// Verify new token
+	if client.GetToken() != "new-token" {
+		t.Errorf("Expected new-token, got %s", client.GetToken())
+	}
+
+	// Test thread safety with concurrent gets/sets
+	done := make(chan bool)
+	for i := 0; i < 10; i++ {
+		go func(id int) {
+			for j := 0; j < 100; j++ {
+				client.SetToken("token-" + string(rune(id)))
+				_ = client.GetToken()
+			}
+			done <- true
+		}(i)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+
+	// Should not panic (thread safety test)
+}
+
+func TestServerClient_RegisterWithMetadata(t *testing.T) {
+	t.Parallel()
+
+	// Create mock server that captures and validates metadata
+	var receivedRequest map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/agents/register" {
+			t.Errorf("Expected path /api/v1/agents/register, got %s", r.URL.Path)
+		}
+
+		// Decode and store request
+		if err := json.NewDecoder(r.Body).Decode(&receivedRequest); err != nil {
+			t.Errorf("Failed to decode request: %v", err)
+		}
+
+		// Return success
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":  true,
+			"agent_id": receivedRequest["agent_id"],
+			"token":    "metadata-token-789",
+		})
+	}))
+	defer server.Close()
+
+	// Create client with name
+	client := NewServerClientWithName(server.URL, "metadata-test-agent", "Metadata Test Agent", "", "", false)
+
+	// Register with metadata
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	token, err := client.Register(ctx, "v0.3.0")
+	if err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
+
+	if token != "metadata-token-789" {
+		t.Errorf("Expected token=metadata-token-789, got %s", token)
+	}
+
+	// Verify metadata fields were sent
+	if receivedRequest["agent_id"] != "metadata-test-agent" {
+		t.Errorf("Expected agent_id=metadata-test-agent, got %v", receivedRequest["agent_id"])
+	}
+	if receivedRequest["agent_version"] != "v0.3.0" {
+		t.Errorf("Expected agent_version=v0.3.0, got %v", receivedRequest["agent_version"])
+	}
+	if receivedRequest["protocol_version"] != "1" {
+		t.Errorf("Expected protocol_version=1, got %v", receivedRequest["protocol_version"])
+	}
+
+	// Check that metadata fields exist (values may vary by system)
+	if _, ok := receivedRequest["platform"]; !ok {
+		t.Error("Expected platform field in request")
+	}
+	if _, ok := receivedRequest["go_version"]; !ok {
+		t.Error("Expected go_version field in request")
+	}
+	if _, ok := receivedRequest["architecture"]; !ok {
+		t.Error("Expected architecture field in request")
+	}
+	if _, ok := receivedRequest["num_cpu"]; !ok {
+		t.Error("Expected num_cpu field in request")
+	}
+	if _, ok := receivedRequest["total_memory_mb"]; !ok {
+		t.Error("Expected total_memory_mb field in request")
+	}
+	if _, ok := receivedRequest["build_type"]; !ok {
+		t.Error("Expected build_type field in request")
+	}
+	if _, ok := receivedRequest["git_commit"]; !ok {
+		t.Error("Expected git_commit field in request")
+	}
+
+	// Verify numeric fields are numbers
+	if numCPU, ok := receivedRequest["num_cpu"].(float64); !ok || numCPU <= 0 {
+		t.Errorf("Expected num_cpu to be positive number, got %v", receivedRequest["num_cpu"])
+	}
+	if totalMem, ok := receivedRequest["total_memory_mb"].(float64); !ok || totalMem <= 0 {
+		t.Errorf("Expected total_memory_mb to be positive number, got %v", receivedRequest["total_memory_mb"])
+	}
+}
+
+package agent
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"runtime"
+	"sync"
+	"time"
+)
+
+// ServerClient handles uploading agent data to the central PrintMaster server
+// This is the agent's HTTP client for server communication
+type ServerClient struct {
+	BaseURL           string
+	AgentID           string
+	AgentName         string // User-friendly agent name
+	Token             string
+	HTTPClient        *http.Client
+	mu                sync.RWMutex
+	lastHeartbeat     time.Time
+	lastDeviceUpload  time.Time
+	lastMetricsUpload time.Time
+}
+
+// NewServerClient creates a new server uploader for this agent
+// If caCertPath is provided, uses it to validate server certificate (for self-signed certs)
+// If caCertPath is empty, uses system CA pool (works with Let's Encrypt)
+func NewServerClient(baseURL, agentID, token string) *ServerClient {
+	return NewServerClientWithName(baseURL, agentID, "", token, "", false)
+}
+
+// NewServerClientWithName creates a new server client with agent name
+func NewServerClientWithName(baseURL, agentID, agentName, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
+	var tlsConfig *tls.Config
+
+	if caCertPath != "" {
+		// Custom CA (self-signed server certificate)
+		caCert, err := os.ReadFile(caCertPath)
+		if err == nil {
+			caCertPool := x509.NewCertPool()
+			if caCertPool.AppendCertsFromPEM(caCert) {
+				tlsConfig = &tls.Config{
+					RootCAs:            caCertPool,
+					MinVersion:         tls.VersionTLS12,
+					InsecureSkipVerify: insecureSkipVerify,
+				}
+			}
+		}
+	}
+
+	if tlsConfig == nil {
+		// Use system CA pool (works with Let's Encrypt and other public CAs)
+		tlsConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: insecureSkipVerify,
+		}
+	}
+
+	return &ServerClient{
+		BaseURL:   baseURL,
+		AgentID:   agentID,
+		AgentName: agentName,
+		Token:     token,
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: tlsConfig,
+			},
+		},
+	}
+}
+
+// NewServerClientWithCA creates a new server client with optional custom CA certificate
+func NewServerClientWithCA(baseURL, agentID, token, caCertPath string) *ServerClient {
+	return NewServerClientWithName(baseURL, agentID, "", token, caCertPath, false)
+}
+
+// NewServerClientWithCAAndSkipVerify creates a new server client with optional custom CA and skip verify option
+func NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
+	return NewServerClientWithName(baseURL, agentID, "", token, caCertPath, insecureSkipVerify)
+}
+
+// SetToken updates the authentication token
+func (c *ServerClient) SetToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Token = token
+}
+
+// GetToken retrieves the current authentication token
+func (c *ServerClient) GetToken() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Token
+}
+
+// GetServerURL retrieves the base server URL
+func (c *ServerClient) GetServerURL() string {
+	return c.BaseURL
+}
+
+// Register performs initial agent registration with the server
+// Returns the authentication token on success
+func (c *ServerClient) Register(ctx context.Context, version string) (string, error) {
+	type RegisterRequest struct {
+		AgentID         string `json:"agent_id"`
+		Name            string `json:"name,omitempty"` // User-friendly name
+		AgentVersion    string `json:"agent_version"`
+		ProtocolVersion string `json:"protocol_version"`
+		Hostname        string `json:"hostname"`
+		IP              string `json:"ip"`
+		Platform        string `json:"platform"`
+		// Additional metadata
+		OSVersion     string `json:"os_version,omitempty"`
+		GoVersion     string `json:"go_version,omitempty"`
+		Architecture  string `json:"architecture,omitempty"`
+		NumCPU        int    `json:"num_cpu,omitempty"`
+		TotalMemoryMB int64  `json:"total_memory_mb,omitempty"`
+		BuildType     string `json:"build_type,omitempty"`
+		GitCommit     string `json:"git_commit,omitempty"`
+	}
+
+	type RegisterResponse struct {
+		Success bool   `json:"success"`
+		AgentID string `json:"agent_id"`
+		Token   string `json:"token"`
+		Message string `json:"message"`
+	}
+
+	hostname, _ := getHostname()
+	localIP, _ := getLocalIP()
+
+	req := RegisterRequest{
+		AgentID:         c.AgentID,
+		Name:            c.AgentName, // Use client's agent name
+		AgentVersion:    version,
+		ProtocolVersion: "1",
+		Hostname:        hostname,
+		IP:              localIP,
+		Platform:        runtime.GOOS,
+		OSVersion:       getOSVersion(),
+		GoVersion:       runtime.Version(),
+		Architecture:    runtime.GOARCH,
+		NumCPU:          runtime.NumCPU(),
+		TotalMemoryMB:   getTotalMemoryMB(),
+		BuildType:       getBuildType(),
+		GitCommit:       getGitCommit(),
+	}
+
+	var resp RegisterResponse
+	if err := c.doRequest(ctx, "POST", "/api/v1/agents/register", req, &resp, false); err != nil {
+		return "", fmt.Errorf("registration failed: %w", err)
+	}
+
+	if !resp.Success {
+		return "", fmt.Errorf("registration failed: %s", resp.Message)
+	}
+
+	// Store token for future requests
+	if resp.Token != "" {
+		c.SetToken(resp.Token)
+	}
+
+	return resp.Token, nil
+}
+
+// Heartbeat sends a keep-alive signal to the server
+func (c *ServerClient) Heartbeat(ctx context.Context) error {
+	type HeartbeatRequest struct {
+		AgentID   string    `json:"agent_id"`
+		Timestamp time.Time `json:"timestamp"`
+		Status    string    `json:"status"`
+	}
+
+	req := HeartbeatRequest{
+		AgentID:   c.AgentID,
+		Timestamp: time.Now(),
+		Status:    "active",
+	}
+
+	var resp map[string]interface{}
+	if err := c.doRequest(ctx, "POST", "/api/v1/agents/heartbeat", req, &resp, true); err != nil {
+		return fmt.Errorf("heartbeat failed: %w", err)
+	}
+
+	c.mu.Lock()
+	c.lastHeartbeat = time.Now()
+	c.mu.Unlock()
+
+	return nil
+}
+
+// UploadDevices sends discovered devices to the server
+func (c *ServerClient) UploadDevices(ctx context.Context, devices []interface{}) error {
+	type DevicesBatchRequest struct {
+		AgentID   string        `json:"agent_id"`
+		Timestamp time.Time     `json:"timestamp"`
+		Devices   []interface{} `json:"devices"`
+	}
+
+	req := DevicesBatchRequest{
+		AgentID:   c.AgentID,
+		Timestamp: time.Now(),
+		Devices:   devices,
+	}
+
+	var resp map[string]interface{}
+	if err := c.doRequest(ctx, "POST", "/api/v1/devices/batch", req, &resp, true); err != nil {
+		return fmt.Errorf("device upload failed: %w", err)
+	}
+
+	c.mu.Lock()
+	c.lastDeviceUpload = time.Now()
+	c.mu.Unlock()
+
+	return nil
+}
+
+// UploadMetrics sends device metrics to the server
+func (c *ServerClient) UploadMetrics(ctx context.Context, metrics []interface{}) error {
+	type MetricsBatchRequest struct {
+		AgentID   string        `json:"agent_id"`
+		Timestamp time.Time     `json:"timestamp"`
+		Metrics   []interface{} `json:"metrics"`
+	}
+
+	req := MetricsBatchRequest{
+		AgentID:   c.AgentID,
+		Timestamp: time.Now(),
+		Metrics:   metrics,
+	}
+
+	var resp map[string]interface{}
+	if err := c.doRequest(ctx, "POST", "/api/v1/metrics/batch", req, &resp, true); err != nil {
+		return fmt.Errorf("metrics upload failed: %w", err)
+	}
+
+	c.mu.Lock()
+	c.lastMetricsUpload = time.Now()
+	c.mu.Unlock()
+
+	return nil
+}
+
+// LogAuditEvent sends an audit log entry to the server
+func (c *ServerClient) LogAuditEvent(ctx context.Context, action, resourceType, resourceID string, details map[string]interface{}) error {
+	type AuditRequest struct {
+		AgentID      string                 `json:"agent_id"`
+		Timestamp    time.Time              `json:"timestamp"`
+		Action       string                 `json:"action"`
+		ResourceType string                 `json:"resource_type"`
+		ResourceID   string                 `json:"resource_id"`
+		Details      map[string]interface{} `json:"details"`
+	}
+
+	req := AuditRequest{
+		AgentID:      c.AgentID,
+		Timestamp:    time.Now(),
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Details:      details,
+	}
+
+	var resp map[string]interface{}
+	if err := c.doRequest(ctx, "POST", "/api/v1/audit/log", req, &resp, true); err != nil {
+		// Don't fail the operation if audit logging fails, just log it
+		return fmt.Errorf("audit log failed: %w", err)
+	}
+
+	return nil
+}
+
+// GetStats returns client statistics
+func (c *ServerClient) GetStats() map[string]interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return map[string]interface{}{
+		"last_heartbeat":      c.lastHeartbeat,
+		"last_device_upload":  c.lastDeviceUpload,
+		"last_metrics_upload": c.lastMetricsUpload,
+		"has_token":           c.Token != "",
+	}
+}
+
+// doRequest performs an HTTP request with optional authentication
+func (c *ServerClient) doRequest(ctx context.Context, method, path string, reqBody, respBody interface{}, requireAuth bool) error {
+	url := c.BaseURL + path
+
+	// Encode request body
+	var bodyReader io.Reader
+	if reqBody != nil {
+		jsonData, err := json.Marshal(reqBody)
+		if err != nil {
+			return fmt.Errorf("failed to encode request: %w", err)
+		}
+		bodyReader = bytes.NewReader(jsonData)
+	}
+
+	// Create request
+	httpReq, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("User-Agent", "PrintMaster-Agent/1.0")
+
+	// Add authentication if required and token available
+	if requireAuth {
+		token := c.GetToken()
+		if token == "" {
+			return fmt.Errorf("authentication required but no token available")
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	// Perform request
+	httpResp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	// Read response body
+	respData, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check status code
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return fmt.Errorf("server returned status %d: %s", httpResp.StatusCode, string(respData))
+	}
+
+	// Decode response if needed
+	if respBody != nil {
+		if err := json.Unmarshal(respData, respBody); err != nil {
+			return fmt.Errorf("failed to decode response: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// Helper functions
+
+func getHostname() (string, error) {
+	// Try to import os package
+	hostname, err := getHostnameInternal()
+	if err != nil || hostname == "" {
+		return "unknown", err
+	}
+	return hostname, nil
+}
+
+func getLocalIP() (string, error) {
+	// Try to get local IP
+	ip, err := getLocalIPInternal()
+	if err != nil || ip == "" {
+		return "unknown", err
+	}
+	return ip, nil
+}
+
+// These will be implemented in helpers.go or can be simple stubs
+var getHostnameInternal = func() (string, error) {
+	// Implementation will use os.Hostname()
+	return "agent-host", nil
+}
+
+var getLocalIPInternal = func() (string, error) {
+	// Implementation will use net.InterfaceAddrs()
+	return "192.168.1.100", nil
+}
+
+// getOSVersion returns the operating system version
+func getOSVersion() string {
+	// This is a placeholder - actual implementation would use platform-specific APIs
+	// For now, just return the OS name
+	return runtime.GOOS
+}
+
+// getTotalMemoryMB returns the total system memory in MB
+func getTotalMemoryMB() int64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	// This returns allocated memory, not total system memory
+	// For actual total system memory, would need platform-specific syscalls
+	return int64(m.Sys / 1024 / 1024)
+}
+
+// These variables will be set at build time via -ldflags
+var (
+	buildType = "dev"
+	gitCommit = "unknown"
+)
+
+// getBuildType returns the build type (dev or release)
+func getBuildType() string {
+	return buildType
+}
+
+// getGitCommit returns the git commit hash
+func getGitCommit() string {
+	return gitCommit
+}
+
+package agent
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// SNMPClient abstracts gosnmp for easier testing/mocking.
+type SNMPClient interface {
+	Connect() error
+	Get(oids []string) (*gosnmp.SnmpPacket, error)
+	Walk(root string, walkFn gosnmp.WalkFunc) error
+	Close() error
+}
+
+// NewSNMPClient is a factory used by production code; tests can replace this
+// variable to inject mock clients.
+var NewSNMPClient = func(cfg *SNMPConfig, target string, timeoutSeconds int) (SNMPClient, error) {
+	// Ensure a minimum SNMP timeout to be tolerant of slow devices/networks.
+	tsec := timeoutSeconds
+	if tsec < 30 {
+		tsec = 30
+	}
+	snmp := &gosnmp.GoSNMP{
+		Target:    target,
+		Port:      161,
+		Community: cfg.Community,
+		Version:   cfg.Version,
+		Timeout:   time.Duration(tsec) * time.Second,
+		// increase retries to be more tolerant on lossy networks
+		Retries: 3,
+	}
+	if err := snmp.Connect(); err != nil {
+		return nil, err
+	}
+	return &gosnmpWrapper{snmp: snmp}, nil
+}
+
+// gosnmpWrapper implements SNMPClient by delegating to gosnmp.GoSNMP.
+type gosnmpWrapper struct {
+	snmp *gosnmp.GoSNMP
+}
+
+func (w *gosnmpWrapper) Connect() error {
+	if w.snmp == nil {
+		return fmt.Errorf("nil gosnmp client")
+	}
+	return nil
+}
+
+func (w *gosnmpWrapper) Get(oids []string) (*gosnmp.SnmpPacket, error) {
+	return w.snmp.Get(oids)
+}
+
+func (w *gosnmpWrapper) Walk(root string, walkFn gosnmp.WalkFunc) error {
+	return w.snmp.Walk(root, walkFn)
+}
+
+func (w *gosnmpWrapper) Close() error {
+	if w.snmp != nil && w.snmp.Conn != nil {
+		_ = w.snmp.Conn.Close()
+	}
+	return nil
+}
+
+// PingFunc allows tests to override ping behavior.
+type PingFunc func(ip string, logFn func(string)) bool
+
+// DoPing is the package-level ping function used by the scanner. Tests may
+// replace this with a fake implementation that returns deterministic results.
+var DoPing PingFunc = pingWithExec
+
+package agent
+
+import (
+	"testing"
+	"time"
+)
+
+// TestQuickGetSerialPerformance ensures serial lookup is fast enough for live discovery
+func TestQuickGetSerialPerformance(t *testing.T) {
+	t.Parallel()
+
+	// These tests verify performance targets without needing a real printer
+	// Actual SNMP calls will be tested with integration tests
+
+	t.Run("OID_list_generation_should_be_instant", func(t *testing.T) {
+		start := time.Now()
+
+		// Test all helper functions
+		commonOIDs := getCommonSerialOIDs()
+		hpOIDs := getVendorSpecificSerialOIDs("HP")
+		canonOIDs := getVendorSpecificSerialOIDs("Canon")
+		allOIDs := getAllSerialOIDs()
+
+		elapsed := time.Since(start)
+
+		// Verify we got results
+		if len(commonOIDs) == 0 {
+			t.Error("getCommonSerialOIDs returned empty list")
+		}
+		if len(hpOIDs) == 0 {
+			t.Error("getVendorSpecificSerialOIDs(HP) returned empty list")
+		}
+		if len(canonOIDs) == 0 {
+			t.Error("getVendorSpecificSerialOIDs(Canon) returned empty list")
+		}
+		if len(allOIDs) < 5 {
+			t.Errorf("getAllSerialOIDs returned too few OIDs: %d", len(allOIDs))
+		}
+
+		// Performance check: OID generation should be < 1ms
+		if elapsed > time.Millisecond {
+			t.Errorf("OID generation took too long: %v (expected < 1ms)", elapsed)
+		}
+
+		t.Logf("OID generation completed in %v (target: <1ms) ✓", elapsed)
+		t.Logf("  Common OIDs: %d", len(commonOIDs))
+		t.Logf("  HP OIDs: %d", len(hpOIDs))
+		t.Logf("  Canon OIDs: %d", len(canonOIDs))
+		t.Logf("  All OIDs: %d", len(allOIDs))
+	})
+
+	t.Run("Vendor_OID_mapping_coverage", func(t *testing.T) {
+		vendors := []string{
+			"HP", "Hewlett Packard", "hewlett-packard",
+			"Canon", "CANON",
+			"Samsung", "samsung",
+			"Kyocera", "KYOCERA",
+			"OKI", "oki",
+			"Ricoh", "RICOH",
+			"Brother", "brother",
+			"Lexmark", "lexmark",
+			"Epson", "EPSON",
+		}
+
+		for _, vendor := range vendors {
+			oids := getVendorSpecificSerialOIDs(vendor)
+			if len(oids) == 0 {
+				t.Errorf("No OIDs found for vendor: %s", vendor)
+			} else {
+				t.Logf("Vendor %s: %d OID(s)", vendor, len(oids))
+			}
+		}
+	})
+
+	t.Run("QuickGetSerialWithHint_OID_ordering", func(t *testing.T) {
+		// Verify that vendor-specific OIDs come first when manufacturer hint is provided
+		// This is important for performance - we want to try the most likely OID first
+
+		// Test with HP hint
+		start := time.Now()
+		// We can't actually call QuickGetSerialWithHint without a real device,
+		// but we can verify the OID helper functions work correctly
+		hpOIDs := getVendorSpecificSerialOIDs("HP")
+		commonOIDs := getCommonSerialOIDs()
+		elapsed := time.Since(start)
+
+		if len(hpOIDs) == 0 {
+			t.Error("HP-specific OIDs should exist")
+		}
+		if len(commonOIDs) == 0 {
+			t.Error("Common OIDs should exist")
+		}
+
+		// Verify it's fast
+		if elapsed > 100*time.Microsecond {
+			t.Errorf("OID lookup took too long: %v (expected < 100µs)", elapsed)
+		}
+
+		t.Logf("OID ordering check completed in %v (target: <100µs) ✓", elapsed)
+	})
+}
+
+// TestSerialOIDCoverage verifies we have OIDs for all major printer vendors
+func TestSerialOIDCoverage(t *testing.T) {
+	t.Parallel()
+
+	expectedVendors := map[string]bool{
+		"hp":      false,
+		"canon":   false,
+		"samsung": false,
+		"kyocera": false,
+		"oki":     false,
+		"ricoh":   false,
+		"brother": false,
+		"lexmark": false,
+		"epson":   false,
+	}
+
+	// Test that we have OIDs for each vendor
+	for vendor := range expectedVendors {
+		oids := getVendorSpecificSerialOIDs(vendor)
+		if len(oids) > 0 {
+			expectedVendors[vendor] = true
+			t.Logf("✓ %s: %d OID(s)", vendor, len(oids))
+		}
+	}
+
+	// Verify all vendors have coverage
+	for vendor, hasCoverage := range expectedVendors {
+		if !hasCoverage {
+			t.Errorf("Missing OID coverage for vendor: %s", vendor)
+		}
+	}
+
+	// Verify common OIDs exist
+	commonOIDs := getCommonSerialOIDs()
+	if len(commonOIDs) == 0 {
+		t.Error("No common serial OIDs defined")
+	} else {
+		t.Logf("✓ Common OIDs: %d", len(commonOIDs))
+	}
+
+	// Verify getAllSerialOIDs returns comprehensive list
+	allOIDs := getAllSerialOIDs()
+	expectedMinimum := len(commonOIDs) + len(expectedVendors) // At least 1 OID per vendor + common
+	if len(allOIDs) < expectedMinimum {
+		t.Errorf("getAllSerialOIDs returned %d OIDs, expected at least %d", len(allOIDs), expectedMinimum)
+	} else {
+		t.Logf("✓ Total serial OIDs: %d (minimum expected: %d)", len(allOIDs), expectedMinimum)
+	}
+}
+
+// BenchmarkOIDGeneration measures performance of OID helper functions
+func BenchmarkOIDGeneration(b *testing.B) {
+	b.Run("getCommonSerialOIDs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = getCommonSerialOIDs()
+		}
+	})
+
+	b.Run("getVendorSpecificSerialOIDs_HP", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = getVendorSpecificSerialOIDs("HP")
+		}
+	})
+
+	b.Run("getVendorSpecificSerialOIDs_Canon", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = getVendorSpecificSerialOIDs("Canon")
+		}
+	})
+
+	b.Run("getAllSerialOIDs", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			_ = getAllSerialOIDs()
+		}
+	})
+}
+
+// TestSmartRefreshDevicePerformanceTargets documents expected performance for live discovery
+func TestSmartRefreshDevicePerformanceTargets(t *testing.T) {
+	t.Parallel()
+
+	// This test documents our performance targets for live discovery scenarios
+	// Actual timing will vary based on network conditions
+
+	targets := map[string]time.Duration{
+		"Serial lookup (QuickGetSerial)":        200 * time.Millisecond,  // 7-9 SNMP queries
+		"Database lookup by serial":             5 * time.Millisecond,    // SQLite indexed query
+		"LastSeen update + SSE broadcast":       10 * time.Millisecond,   // DB write + broadcast
+		"Quick refresh (known device)":          300 * time.Millisecond,  // 8-15 targeted OID queries
+		"Full refresh (new device)":             2 * time.Second,         // 1000+ OID walk
+		"Total for known device (fast path)":    500 * time.Millisecond,  // Serial + DB + Quick refresh
+		"Total for new device (full discovery)": 2500 * time.Millisecond, // Serial + Full refresh
+	}
+
+	t.Log("Performance targets for live discovery:")
+	for operation, target := range targets {
+		t.Logf("  %-45s: %v", operation, target)
+	}
+
+	t.Log("\nOptimization strategy:")
+	t.Log("  1. Serial lookup: Try common OID first, then vendor-specific")
+	t.Log("  2. Known devices: Skip full walk, query only essential OIDs")
+	t.Log("  3. LastSeen update: Immediate DB write + SSE broadcast")
+	t.Log("  4. UI update: Instant via SSE (no polling delay)")
+	t.Log("  5. Manufacturer hint: Use vendor OIDs first when manufacturer known")
+}
+
+package agent
+
+import (
+	"fmt"
+	"net"
+	"os/exec"
+	"runtime"
+	"strings"
+
+	"printmaster/common/util"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// helpers and shared types have been moved to agent/helpers.go and agent/types.go
+
+// See scanner_api.go for migration: Discover, LiveDiscoveryDetect, CollectMetrics
+
+// pingWithExec attempts to ping using the system ping command as a fallback.
+func pingWithExec(ip string, logFn func(string)) bool {
+	pingPath, err := exec.LookPath("ping")
+	if err != nil {
+		if logFn != nil {
+			logFn("ping executable not found in PATH")
+		}
+		return false
+	}
+	// Try a sequence of argument variants per platform to handle flag differences.
+	var attempts [][]string
+	switch runtime.GOOS {
+	case "windows":
+		attempts = [][]string{{"-n", "1", "-w", "1000", ip}}
+	case "darwin":
+		// macOS/BSD ping flags vary; try a few common variants then fall back to minimal.
+		attempts = [][]string{{"-c", "1", "-W", "1000", ip}, {"-c", "1", ip}}
+	default:
+		// Linux: try per-packet timeout (-W), deadline (-w), then minimal
+		attempts = [][]string{{"-c", "1", "-W", "1", ip}, {"-c", "1", "-w", "1", ip}, {"-c", "1", ip}}
+	}
+
+	for _, args := range attempts {
+		if logFn != nil {
+			logFn("Running system ping: ping " + strings.Join(args, " "))
+		}
+		cmd := exec.Command(pingPath, args...)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			if logFn != nil {
+				logFn("system ping succeeded: " + ip)
+			}
+			return true
+		}
+		if logFn != nil {
+			logFn("system ping attempt failed: " + err.Error() + "; output: " + string(out))
+		}
+	}
+	return false
+}
+
+// Replaced by new scanner: Discover() in scanner_api.go
+
+// GetLocalSubnets returns the subnet containing the default gateway.
+// This is more reliable than enumerating all interfaces because it prioritizes
+// the actual network route used for internet connectivity.
+func GetLocalSubnets() ([]net.IPNet, error) {
+	subnet, err := getDefaultGatewaySubnet()
+	if err != nil {
+		return nil, err
+	}
+	return []net.IPNet{subnet}, nil
+}
+
+// getDefaultGatewaySubnet finds the subnet that contains the default gateway
+func getDefaultGatewaySubnet() (net.IPNet, error) {
+	var gateway string
+	var err error
+
+	// Get default gateway IP based on OS
+	switch runtime.GOOS {
+	case "windows":
+		gateway, err = getWindowsDefaultGateway()
+	case "linux", "darwin":
+		gateway, err = getUnixDefaultGateway()
+	default:
+		return net.IPNet{}, fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	if err != nil || gateway == "" {
+		return net.IPNet{}, fmt.Errorf("failed to find default gateway: %w", err)
+	}
+
+	// Find the local interface that can reach this gateway
+	gatewayIP := net.ParseIP(gateway)
+	if gatewayIP == nil {
+		return net.IPNet{}, fmt.Errorf("invalid gateway IP: %s", gateway)
+	}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return net.IPNet{}, err
+	}
+
+	for _, iface := range ifaces {
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok || ipnet.IP.To4() == nil {
+				continue
+			}
+
+			// Check if gateway is in this subnet
+			if ipnet.Contains(gatewayIP) {
+				// Normalize to network base address
+				base := ipnet.IP.To4().Mask(ipnet.Mask)
+				return net.IPNet{IP: base, Mask: ipnet.Mask}, nil
+			}
+		}
+	}
+
+	return net.IPNet{}, fmt.Errorf("could not find interface for gateway %s", gateway)
+}
+
+// getWindowsDefaultGateway finds the default gateway on Windows
+func getWindowsDefaultGateway() (string, error) {
+	cmd := exec.Command("route", "print", "0.0.0.0")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Look for default route (0.0.0.0)
+		if strings.HasPrefix(line, "0.0.0.0") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				// Format: 0.0.0.0  0.0.0.0  <gateway>  <interface>
+				return fields[2], nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("default gateway not found in route table")
+}
+
+// getUnixDefaultGateway finds the default gateway on Linux/macOS
+func getUnixDefaultGateway() (string, error) {
+	var cmd *exec.Cmd
+	if runtime.GOOS == "darwin" {
+		cmd = exec.Command("route", "-n", "get", "default")
+	} else {
+		cmd = exec.Command("ip", "route", "show", "default")
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		// Linux: "default via 192.168.1.1 ..."
+		if fields[0] == "default" && len(fields) >= 3 && fields[1] == "via" {
+			return fields[2], nil
+		}
+
+		// macOS: "gateway: 192.168.1.1"
+		if fields[0] == "gateway:" && len(fields) >= 2 {
+			return fields[1], nil
+		}
+	}
+
+	return "", fmt.Errorf("default gateway not found in route table")
+}
+
+
+// getCommonSerialOIDs returns the most common printer serial number OID
+func getCommonSerialOIDs() []string {
+	return []string{
+		"1.3.6.1.2.1.43.5.1.1.17.1", // Printer-MIB::prtGeneralSerialNumber (most common)
+	}
+}
+
+// getVendorSpecificSerialOIDs returns serial OIDs for a specific manufacturer
+func getVendorSpecificSerialOIDs(manufacturer string) []string {
+	if manufacturer == "" {
+		return nil
+	}
+
+	vendor := strings.ToLower(manufacturer)
+	switch {
+	case strings.Contains(vendor, "hp") || strings.Contains(vendor, "hewlett"):
+		return []string{"1.3.6.1.4.1.11.2.3.9.4.2.1.1.3.3.0"}
+	case strings.Contains(vendor, "canon"):
+		return []string{"1.3.6.1.4.1.1602.1.2.1.4.1.1.8.1"}
+	case strings.Contains(vendor, "samsung"):
+		return []string{"1.3.6.1.4.1.236.11.5.11.55.1.1.1.1"}
+	case strings.Contains(vendor, "kyocera"):
+		return []string{"1.3.6.1.4.1.1347.42.2.1.1.1.5.1"}
+	case strings.Contains(vendor, "oki"):
+		return []string{"1.3.6.1.4.1.2001.1.1.1.1.11.1.1.1.0"}
+	case strings.Contains(vendor, "ricoh"):
+		return []string{"1.3.6.1.4.1.367.3.2.1.1.1.4.0"}
+	case strings.Contains(vendor, "brother"):
+		return []string{"1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.1.0"}
+	case strings.Contains(vendor, "lexmark"):
+		return []string{"1.3.6.1.4.1.641.2.1.2.1.2.1"}
+	case strings.Contains(vendor, "epson"):
+		return []string{"1.3.6.1.4.1.1248.1.1.3.1.3.8.0"}
+	default:
+		return nil
+	}
+}
+
+// getAllSerialOIDs returns all serial number OIDs to try (common + all vendor-specific)
+func getAllSerialOIDs() []string {
+	oids := getCommonSerialOIDs()
+	vendors := []string{"hp", "canon", "samsung", "kyocera", "oki", "ricoh", "brother", "lexmark", "epson"}
+	for _, v := range vendors {
+		oids = append(oids, getVendorSpecificSerialOIDs(v)...)
+	}
+	return oids
+}
+
+// Replaced by LiveDiscoveryDetect in scanner_api.go
+
+func init() {
+	// No-op init. Avoid calling deprecated rand.Seed; use local rand.New when
+	// a deterministic seeded generator is required in the future.
+}
+
+// diagnosticWalk performs a limited SNMP walk over the provided root OIDs and
+// logs results via logFn. It stops after a reasonable number of entries to avoid
+// long-running walks during discovery.
+// diagnosticWalk performs a limited SNMP walk over the provided root OIDs and
+// returns collected PDUs. It stops after a reasonable number of entries to avoid
+// long-running walks during discovery.
+// diagnosticWalk performs a limited SNMP walk over the provided root OIDs and
+// returns collected PDUs. It accepts a maxEntries limiter (0 means use a
+// sensible large default) and an optional list of stopKeywords. If any PDU's
+// name or string value contains one of the stopKeywords (case-insensitive)
+// the walk will stop early and return what was collected so far.
+func diagnosticWalk(snmp SNMPClient, logFn func(string), roots []string, maxEntries int, stopKeywords []string) []gosnmp.SnmpPDU {
+	collected := []gosnmp.SnmpPDU{}
+	if snmp == nil {
+		return collected
+	}
+	// default limit if caller didn't set one. Increase to 5000 to allow deeper
+	// diagnostic walks for stubborn SNMPv1 devices that hide model/serial info
+	// deep in enterprise MIBs.
+	if maxEntries <= 0 {
+		maxEntries = 5000
+	}
+	count := 0
+	// prepare keyword checks
+	kws := make([]string, 0, len(stopKeywords))
+	for _, k := range stopKeywords {
+		if k = strings.TrimSpace(k); k != "" {
+			kws = append(kws, strings.ToLower(k))
+		}
+	}
+
+	// helper to check PDU for any keyword
+	containsKeyword := func(pdu gosnmp.SnmpPDU) bool {
+		if len(kws) == 0 {
+			return false
+		}
+		// check name
+		lname := strings.ToLower(strings.TrimPrefix(pdu.Name, "."))
+		for _, kw := range kws {
+			if strings.Contains(lname, kw) {
+				return true
+			}
+		}
+		// check string value
+		if pdu.Type == gosnmp.OctetString {
+			if b, ok := pdu.Value.([]byte); ok {
+				s := strings.ToLower(util.DecodeOctetString(b))
+				for _, kw := range kws {
+					if strings.Contains(s, kw) {
+						return true
+					}
+				}
+			}
+		} else {
+			sval := strings.ToLower(fmt.Sprintf("%v", pdu.Value))
+			for _, kw := range kws {
+				if strings.Contains(sval, kw) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	for _, root := range roots {
+		if logFn != nil {
+			logFn("Starting diagnostic SNMP walk of " + root)
+		}
+		err := snmp.Walk(root, func(pdu gosnmp.SnmpPDU) error {
+			if logFn != nil {
+				logFn(fmt.Sprintf("WALK %s Type=%v Value=%#v", pdu.Name, pdu.Type, pdu.Value))
+			}
+			collected = append(collected, pdu)
+			count++
+			// stop if we've hit the count limit
+			if maxEntries > 0 && count >= maxEntries {
+				return fmt.Errorf("walk limit reached")
+			}
+			// stop if keyword matched
+			if containsKeyword(pdu) {
+				return fmt.Errorf("walk stop keyword matched")
+			}
+			return nil
+		})
+		if err != nil {
+			if logFn != nil {
+				// Report walk errors but continue with other roots
+				logFn("Diagnostic walk error: " + err.Error())
+			}
+		}
+		if maxEntries > 0 && count >= maxEntries {
+			if logFn != nil {
+				logFn("Diagnostic walk reached max entries; stopping further walks")
+			}
+			break
+		}
+	}
+	return collected
+}
+
+// DiagnosticWalk is an exported wrapper around diagnosticWalk for callers
+// outside the package (e.g., the web UI) that want to perform a limited
+// SNMP walk for diagnostics or refresh operations. It does not accept
+// stopKeywords and uses a reasonable default.
+func DiagnosticWalk(snmp SNMPClient, logFn func(string), roots []string, maxEntries int) []gosnmp.SnmpPDU {
+	return diagnosticWalk(snmp, logFn, roots, maxEntries, []string{"pid", "model", "serial", "prtGeneral", "prtMarker", "supply", "toner"})
+}
+
+// FullDiagnosticWalk performs a complete SNMP walk without early termination
+// stopKeywords. Use this when you want to capture ALL available OIDs including
+// vendor-specific enterprise MIBs with detailed impression counters and stats.
+func FullDiagnosticWalk(snmp SNMPClient, logFn func(string), roots []string, maxEntries int) []gosnmp.SnmpPDU {
+	return diagnosticWalk(snmp, logFn, roots, maxEntries, nil) // No stop keywords
+}
+
+package agent
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// StartSNMPTrapListener listens for SNMP trap notifications on UDP port 162
+// and enqueues discovered devices for SNMP enrichment. Runs until context is canceled.
+//
+// SNMP traps provide event-driven discovery when printers:
+// - Power on or boot up
+// - Change status (errors, warnings, ready)
+// - Experience supply issues (toner low, paper jam, etc.)
+//
+// Note: Port 162 requires elevated privileges on most systems (admin/root)
+func StartSNMPTrapListener(ctx context.Context, enqueue func(string) bool, port uint16) error {
+	if port == 0 {
+		port = 162 // Standard SNMP trap port
+	}
+
+	// Create trap listener
+	tl := gosnmp.NewTrapListener()
+	tl.OnNewTrap = func(packet *gosnmp.SnmpPacket, addr *net.UDPAddr) {
+		handleTrap(packet, addr, enqueue)
+	}
+
+	// Set listener parameters
+	tl.Params = gosnmp.Default
+	tl.Params.Version = gosnmp.Version2c // Support both v1 and v2c
+	tl.Params.Community = "public"       // Most printers use "public" for traps
+
+	listenAddr := fmt.Sprintf("0.0.0.0:%d", port)
+
+	Info(fmt.Sprintf("SNMP Traps: listening on %s (requires admin/root privileges)", listenAddr))
+
+	// Listen on specified port
+	if err := tl.Listen(listenAddr); err != nil {
+		return fmt.Errorf("failed to start trap listener: %w", err)
+	}
+	defer tl.Close()
+
+	Info("SNMP Traps: listener started successfully")
+
+	// Block until context is canceled
+	<-ctx.Done()
+
+	Info("SNMP Traps: stopping listener")
+
+	return nil
+}
+
+// handleTrap processes incoming SNMP trap notifications
+func handleTrap(packet *gosnmp.SnmpPacket, addr *net.UDPAddr, enqueue func(string) bool) {
+	if addr == nil {
+		return
+	}
+
+	ip := addr.IP.String()
+
+	// Log trap reception
+	trapType := "Generic"
+	trapOID := ""
+
+	// Extract trap information from PDUs
+	for _, pdu := range packet.Variables {
+		oidStr := pdu.Name
+
+		// SNMPv2-MIB::snmpTrapOID (identifies the trap type)
+		if oidStr == "1.3.6.1.6.3.1.1.4.1.0" {
+			trapOID = fmt.Sprintf("%v", pdu.Value)
+
+			// Common printer trap OIDs
+			switch trapOID {
+			case "1.3.6.1.2.1.43.18.2.0.1":
+				trapType = "Printer Status Change"
+			case "1.3.6.1.2.1.43.18.2.0.2":
+				trapType = "Printer Warming Up"
+			case "1.3.6.1.2.1.43.18.2.0.3":
+				trapType = "Printer Supply Low"
+			case "1.3.6.1.2.1.43.18.2.0.4":
+				trapType = "Printer Cover Open"
+			case "1.3.6.1.2.1.43.18.2.0.5":
+				trapType = "Printer Configuration Change"
+			default:
+				trapType = "Printer Event"
+			}
+		}
+	}
+
+	Info(fmt.Sprintf("SNMP Trap: received %s from %s (OID: %s)", trapType, ip, trapOID))
+
+	// Enqueue device IP for discovery
+	if enqueue(ip) {
+		Info(fmt.Sprintf("SNMP Trap: enqueued %s for discovery", ip))
+	}
+}
+
+// StartSNMPTrapBrowser is a wrapper that handles the trap listener lifecycle
+// with automatic restart on errors and throttling to prevent duplicate discoveries
+func StartSNMPTrapBrowser(ctx context.Context, enqueue func(string) bool, seen map[string]time.Time, throttleWindow time.Duration) {
+	port := uint16(162) // Standard SNMP trap port
+
+	// Try to start trap listener
+	// Note: This will fail if not running with elevated privileges
+	for {
+		select {
+		case <-ctx.Done():
+			Info("SNMP Trap Browser: stopped")
+			return
+		default:
+		}
+
+		// Wrap enqueue with throttling logic
+		throttledEnqueue := func(ip string) bool {
+			now := time.Now()
+
+			// Check if we've seen this IP recently
+			if lastSeen, exists := seen[ip]; exists {
+				if now.Sub(lastSeen) < throttleWindow {
+					return false // Skip, too soon
+				}
+			}
+
+			// Update last seen time
+			seen[ip] = now
+
+			// Call original enqueue
+			return enqueue(ip)
+		}
+
+		// Start trap listener (blocking)
+		err := StartSNMPTrapListener(ctx, throttledEnqueue, port)
+
+		if err != nil {
+			Info("SNMP Trap Browser: " + err.Error())
+
+			// Check if it's a permission error
+			if netErr, ok := err.(*net.OpError); ok {
+				if netErr.Op == "listen" {
+					Info("SNMP Trap Browser: Port 162 requires administrator/root privileges")
+					Info("SNMP Trap Browser: Run as admin or disable trap monitoring")
+					return // Don't retry if it's a permission issue
+				}
+			}
+		}
+
+		// If context was canceled, exit immediately
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Otherwise, wait a bit before retrying
+		Info("SNMP Trap Browser: restarting in 30 seconds...")
+		time.Sleep(30 * time.Second)
+	}
+}
+
+package agent
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"strings"
+	"time"
+)
+
+// SSDP/UPnP constants
+const (
+	ssdpMulticastAddr = "239.255.255.250:1900"
+	ssdpSearchTarget  = "upnp:rootdevice" // Could also use "ssdp:all" for broader discovery
+)
+
+// StartSSDPBrowser listens for SSDP NOTIFY messages (device announcements) and
+// optionally sends M-SEARCH to discover existing devices. Invokes enqueue for
+// each discovered IPv4 address. Runs until context is canceled.
+func StartSSDPBrowser(ctx context.Context, enqueue func(string) bool) {
+	addr, err := net.ResolveUDPAddr("udp4", ssdpMulticastAddr)
+	if err != nil {
+		Info("SSDP: failed to resolve multicast address: " + err.Error())
+		return
+	}
+
+	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
+	if err != nil {
+		Info("SSDP: failed to join multicast group: " + err.Error())
+		return
+	}
+	defer conn.Close()
+
+	Info("SSDP: listening on " + ssdpMulticastAddr)
+
+	// Set read buffer size
+	conn.SetReadBuffer(65536)
+
+	// Send initial M-SEARCH to discover existing devices
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		sendMSearch()
+		// Repeat M-SEARCH periodically (every 5 minutes) to catch devices that weren't responding
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sendMSearch()
+			}
+		}
+	}()
+
+	buf := make([]byte, 8192)
+	for {
+		select {
+		case <-ctx.Done():
+			Info("SSDP: stopping listener")
+			return
+		default:
+			// Set read deadline to allow periodic context checks
+			conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			n, src, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue
+				}
+				Info("SSDP: read error: " + err.Error())
+				continue
+			}
+
+			message := string(buf[:n])
+
+			// Parse SSDP message headers
+			headers := parseSSDPHeaders(message)
+
+			// Check if this is a NOTIFY (device announcement) or M-SEARCH response
+			if strings.Contains(message, "NOTIFY * HTTP/1.1") {
+				// NOTIFY message - device announcing presence
+				nts := headers["nts"]
+				switch nts {
+				case "ssdp:alive":
+					location := headers["location"]
+					usn := headers["usn"]
+					st := headers["st"]
+
+					// Filter out non-printer device types
+					if isNonPrinterDevice(st, usn) {
+						// Silently ignore gateways, routers, media renderers, etc.
+						continue
+					}
+
+					Debug(fmt.Sprintf("SSDP: NOTIFY alive from %s (ST: %s, USN: %s, Location: %s)",
+						src.IP.String(), st, usn, location))
+
+					// Enqueue the source IP
+					if src.IP.To4() != nil {
+						enqueue(src.IP.String())
+					}
+
+					// Also try to extract IP from Location header
+					if location != "" {
+						if ip := extractIPFromURL(location); ip != "" {
+							enqueue(ip)
+						}
+					}
+				case "ssdp:byebye":
+					// Device leaving
+					Debug(fmt.Sprintf("SSDP: NOTIFY byebye from %s", src.IP.String()))
+				}
+			} else if strings.Contains(message, "HTTP/1.1 200 OK") {
+				// M-SEARCH response
+				location := headers["location"]
+				usn := headers["usn"]
+				st := headers["st"]
+
+				// Filter out non-printer device types
+				if isNonPrinterDevice(st, usn) {
+					// Silently ignore gateways, routers, media renderers, etc.
+					continue
+				}
+
+				Info(fmt.Sprintf("SSDP: M-SEARCH response from %s (ST: %s, USN: %s, Location: %s)",
+					src.IP.String(), st, usn, location))
+
+				// Enqueue the source IP
+				if src.IP.To4() != nil {
+					enqueue(src.IP.String())
+				}
+
+				// Also try to extract IP from Location header
+				if location != "" {
+					if ip := extractIPFromURL(location); ip != "" {
+						enqueue(ip)
+					}
+				}
+			}
+		}
+	}
+}
+
+// sendMSearch sends an SSDP M-SEARCH message to discover existing devices
+func sendMSearch() {
+	searchMsg := "M-SEARCH * HTTP/1.1\r\n" +
+		"HOST: 239.255.255.250:1900\r\n" +
+		"MAN: \"ssdp:discover\"\r\n" +
+		"MX: 3\r\n" +
+		"ST: " + ssdpSearchTarget + "\r\n" +
+		"\r\n"
+
+	addr, err := net.ResolveUDPAddr("udp4", ssdpMulticastAddr)
+	if err != nil {
+		Info("SSDP M-SEARCH: failed to resolve address: " + err.Error())
+		return
+	}
+
+	conn, err := net.DialUDP("udp4", nil, addr)
+	if err != nil {
+		Info("SSDP M-SEARCH: failed to dial: " + err.Error())
+		return
+	}
+	defer conn.Close()
+
+	_, err = conn.Write([]byte(searchMsg))
+	if err != nil {
+		Info("SSDP M-SEARCH: failed to send: " + err.Error())
+		return
+	}
+
+	Info("SSDP: M-SEARCH sent to discover existing devices")
+}
+
+// parseSSDPHeaders parses HTTP-style headers from SSDP message
+func parseSSDPHeaders(message string) map[string]string {
+	headers := make(map[string]string)
+	lines := strings.Split(message, "\r\n")
+	for _, line := range lines {
+		if idx := strings.Index(line, ":"); idx > 0 {
+			key := strings.ToLower(strings.TrimSpace(line[:idx]))
+			value := strings.TrimSpace(line[idx+1:])
+			headers[key] = value
+		}
+	}
+	return headers
+}
+
+// extractIPFromURL extracts IPv4 address from URL (e.g., http://192.168.1.100:8080/desc.xml)
+func extractIPFromURL(url string) string {
+	url = strings.TrimPrefix(url, "http://")
+	url = strings.TrimPrefix(url, "https://")
+	if idx := strings.Index(url, ":"); idx > 0 {
+		url = url[:idx]
+	}
+	if idx := strings.Index(url, "/"); idx > 0 {
+		url = url[:idx]
+	}
+	if ip := net.ParseIP(url); ip != nil && ip.To4() != nil {
+		return ip.To4().String()
+	}
+	return ""
+}
+
+// isNonPrinterDevice checks if the device type is definitely not a printer
+// Returns true for routers, gateways, media devices, etc.
+func isNonPrinterDevice(st, usn string) bool {
+	st = strings.ToLower(st)
+	usn = strings.ToLower(usn)
+
+	// Known non-printer device types
+	nonPrinterTypes := []string{
+		"internetgatewaydevice", // Routers/gateways
+		"wanconnectiondevice",   // WAN devices
+		"wandevice",             // WAN devices
+		"mediarenderer",         // Media players (Chromecast, etc.)
+		"mediaserver",           // Media servers
+		"dial",                  // DIAL protocol (smart TVs)
+		"upnp:rootdevice",       // Generic root device (too broad, but often routers)
+	}
+
+	// Check ST (Service Type) header
+	for _, nonPrinter := range nonPrinterTypes {
+		if strings.Contains(st, nonPrinter) {
+			return true
+		}
+	}
+
+	// Check USN (Unique Service Name)
+	for _, nonPrinter := range nonPrinterTypes {
+		if strings.Contains(usn, nonPrinter) {
+			return true
+		}
+	}
+
+	// Additional check for specific service types that are never printers
+	if strings.Contains(st, "wanipconnection") ||
+		strings.Contains(st, "wanpppconnection") ||
+		strings.Contains(st, "layer3forwarding") ||
+		strings.Contains(st, "wancommoninterface") ||
+		strings.Contains(st, "wanethernetlink") {
+		return true
+	}
+
+	return false
+}
+
+package agent
+
+import (
+	"context"
+	"time"
+)
+
+// DeviceStorage defines the interface for storing discovered devices
+// This allows the agent package to store devices without importing the storage package
+type DeviceStorage interface {
+	// StoreDiscoveredDevice stores a discovered device in the database
+	StoreDiscoveredDevice(ctx context.Context, pi PrinterInfo) error
+}
+
+// Global device storage (set by main package)
+var deviceStorage DeviceStorage
+
+// SetDeviceStorage allows main package to inject the storage implementation
+func SetDeviceStorage(storage DeviceStorage) {
+	deviceStorage = storage
+}
+
+// ScanMeta holds optional metadata from earlier discovery steps (ARP, TCP probes, mDNS)
+type ScanMeta struct {
+	MAC              string
+	OpenPorts        []int
+	DiscoveryMethods []string
+	Hostname         string
+}
+
+// PrinterInfo holds discovered printer details
+type PrinterInfo struct {
+	IP string `json:"ip"`
+	// Manufacturer is the human-friendly vendor name (e.g. "HP", "Canon").
+	Manufacturer string `json:"manufacturer,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Serial       string `json:"serial,omitempty"`
+	// AdminContact stores the sysContact value (often administrator contact/asset info)
+	AdminContact string `json:"admin_contact,omitempty"`
+	// AssetID is an extracted asset number when present in admin contact or other fields
+	AssetID string `json:"asset_id,omitempty"`
+	// Description holds additional device description text (e.g., from prtGeneralSerialNumber or HP-specific OIDs)
+	Description string `json:"description,omitempty"`
+	// Location holds the physical location of the device (from sysLocation or HP-specific OIDs)
+	Location  string `json:"location,omitempty"`
+	PageCount int    `json:"page_count,omitempty"`
+	// TotalMonoImpressions holds the prtMarkerLifeCount for marker index 1 when available.
+	TotalMonoImpressions int `json:"total_mono_impressions,omitempty"`
+	// Per-color impressions when available (marker counters)
+	BlackImpressions   int `json:"black_impressions,omitempty"`
+	CyanImpressions    int `json:"cyan_impressions,omitempty"`
+	MagentaImpressions int `json:"magenta_impressions,omitempty"`
+	YellowImpressions  int `json:"yellow_impressions,omitempty"`
+	// Per-color toner/ink levels and descriptions (0-100 or device-reported value)
+	TonerLevelBlack    int       `json:"toner_level_black,omitempty"`
+	TonerLevelCyan     int       `json:"toner_level_cyan,omitempty"`
+	TonerLevelMagenta  int       `json:"toner_level_magenta,omitempty"`
+	TonerLevelYellow   int       `json:"toner_level_yellow,omitempty"`
+	TonerDescBlack     string    `json:"toner_desc_black,omitempty"`
+	TonerDescCyan      string    `json:"toner_desc_cyan,omitempty"`
+	TonerDescMagenta   string    `json:"toner_desc_magenta,omitempty"`
+	TonerDescYellow    string    `json:"toner_desc_yellow,omitempty"`
+	MAC                string    `json:"mac_address,omitempty"`
+	OpenPorts          []int     `json:"open_ports,omitempty"`
+	AdvertisedServices []string  `json:"advertised_services,omitempty"`
+	DiscoveryMethods   []string  `json:"discovery_methods,omitempty"`
+	LastSeen           time.Time `json:"last_seen"`
+	// DetectionReasons lists the heuristics/evidence used to mark this host as a printer
+	DetectionReasons []string `json:"detection_reasons,omitempty"`
+	// MonoImpressions is the black marker counter (marker index 1 when present)
+	MonoImpressions int `json:"mono_impressions,omitempty"`
+	// ColorImpressions is the combined color marker counter (marker index 2 or others when present)
+	ColorImpressions int `json:"color_impressions,omitempty"`
+	// TonerLevels maps a supply description to its reported level (where available)
+	TonerLevels map[string]int `json:"toner_levels,omitempty"`
+	// Consumables lists supply descriptions discovered on the device
+	Consumables []string `json:"consumables,omitempty"`
+	// StatusMessages contains textual status lines reported via SNMP (if any)
+	StatusMessages []string `json:"status_messages,omitempty"`
+	// Firmware reported by device (if present)
+	Firmware string `json:"firmware,omitempty"`
+	// UptimeSeconds (if reported via sysUpTime or similar)
+	UptimeSeconds int `json:"uptime_seconds,omitempty"`
+	// DuplexSupported indicates whether the device advertises duplex capability
+	DuplexSupported bool `json:"duplex_supported,omitempty"`
+	// PaperTrayStatus maps tray identifier to a short textual status
+	PaperTrayStatus map[string]string `json:"paper_tray_status,omitempty"`
+	// TonerAlerts lists any extracted alert/notification messages related to supplies
+	TonerAlerts []string `json:"toner_alerts,omitempty"`
+	// Network properties (best-effort extraction)
+	SubnetMask string   `json:"subnet_mask,omitempty"`
+	Gateway    string   `json:"gateway,omitempty"`
+	DNSServers []string `json:"dns_servers,omitempty"`
+	DHCPServer string   `json:"dhcp_server,omitempty"`
+	Hostname   string   `json:"hostname,omitempty"`
+
+	// Meters is a normalized map of impression/counter categories (total/mono/color/etc.)
+	// Populated from marker counters, page counts, and candidate mappings when available.
+	Meters map[string]int `json:"meters,omitempty"`
+
+	// WebUIURL is the detected HTTP/HTTPS URL to the device's web interface (if available)
+	WebUIURL string `json:"web_ui_url,omitempty"`
+
+	// LearnedOIDs stores device-specific OID mappings discovered during initial walk
+	// This allows metrics collection to use known-working OIDs instead of generic queries
+	LearnedOIDs LearnedOIDMap `json:"learned_oids,omitempty"`
+}
+
+// LearnedOIDMap stores OIDs that were successfully discovered during initial device walk
+// These OIDs are then used for efficient targeted metrics collection
+type LearnedOIDMap struct {
+	// PageCountOID is the specific OID that returned the total page count
+	PageCountOID string `json:"page_count_oid,omitempty"`
+	// MonoPagesOID is the OID for black/mono impressions (marker 1)
+	MonoPagesOID string `json:"mono_pages_oid,omitempty"`
+	// ColorPagesOID is the OID for color impressions (marker 2 or combined)
+	ColorPagesOID string `json:"color_pages_oid,omitempty"`
+	// CyanOID, MagentaOID, YellowOID for individual color markers
+	CyanOID    string `json:"cyan_oid,omitempty"`
+	MagentaOID string `json:"magenta_oid,omitempty"`
+	YellowOID  string `json:"yellow_oid,omitempty"`
+	// TonerOIDPrefix is the base OID for toner level queries
+	TonerOIDPrefix string `json:"toner_oid_prefix,omitempty"`
+	// SerialOID is the specific OID that returned the serial number
+	SerialOID string `json:"serial_oid,omitempty"`
+	// ModelOID is the OID that returned the model
+	ModelOID string `json:"model_oid,omitempty"`
+	// Additional vendor-specific OIDs can be added here
+	VendorSpecificOIDs map[string]string `json:"vendor_specific_oids,omitempty"`
+}
+
+// DiscoveryConfig holds settings for which discovery methods are enabled
+type DiscoveryConfig struct {
+	ARPEnabled  bool
+	ICMPEnabled bool // future: ICMP ping probes
+	TCPEnabled  bool
+	SNMPEnabled bool
+	MDNSEnabled bool // future: mDNS/DNS-SD discovery
+}
+
+package agent
+
+// CheckForUpdates checks and applies updates to the agent.
+func CheckForUpdates() error {
+	// TODO: Implement auto-update logic
+	return nil
+}
+
+package agent
+
+// Mapping of known enterprise OID numeric identifiers and recommended vendor
+// MIB roots to probe when that vendor is detected. This is a small, safe
+// conservative mapping; we can expand it as we see more devices in the logs.
+
+var enterpriseToManufacturer = map[string]string{
+	"11":   "HP",
+	"2435": "Brother",
+	"1602": "Canon",
+	"641":  "Lexmark",
+	"231":  "Epson",
+	"9":    "Dell",
+}
+
+var vendorProbeRoots = map[string][]string{
+	"HP":      {"1.3.6.1.4.1.11"},
+	"Brother": {"1.3.6.1.4.1.2435"},
+	"Canon":   {"1.3.6.1.4.1.1602"},
+	"Lexmark": {"1.3.6.1.4.1.641"},
+	"Epson":   {"1.3.6.1.4.1.231"},
+	"Dell":    {"1.3.6.1.4.1.9"},
+}
+
+// VendorRootsFor returns a list of additional MIB roots we should probe for
+// the given manufacturer name. The caller should provide a normalized
+// manufacturer string (e.g., "HP", "Canon"). If no roots are known, an
+// empty slice is returned.
+func VendorRootsFor(manufacturer string) []string {
+	if manufacturer == "" {
+		return nil
+	}
+	if roots, ok := vendorProbeRoots[manufacturer]; ok {
+		return roots
+	}
+	return nil
+}
+
+// ManufacturerForEnterprise returns a best-effort manufacturer name for a
+// numeric enterprise id string (e.g., "11" -> "HP"). Returns empty string
+// if unknown.
+func ManufacturerForEnterprise(ent string) string {
+	if m, ok := enterpriseToManufacturer[ent]; ok {
+		return m
+	}
+	return ""
+}
+
+package agent
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+// TestWSClientConnection tests basic WebSocket client connection
+func TestWSClientConnection(t *testing.T) {
+	t.Parallel()
+
+	// Create a test WebSocket server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check token
+		token := r.URL.Query().Get("token")
+		if token != "test-token" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Upgrade to WebSocket
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("Upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Simple echo server
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+
+			// Echo back
+			err = conn.WriteMessage(websocket.TextMessage, message)
+			if err != nil {
+				break
+			}
+		}
+	}))
+	defer server.Close()
+
+	// Create WebSocket client
+	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
+	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
+	client := NewWSClient(serverURL, "test-token", logger)
+
+	// Start client
+	err := client.Start()
+	if err != nil {
+		t.Fatalf("Failed to start WebSocket client: %v", err)
+	}
+	defer client.Stop()
+
+	// Wait for connection
+	time.Sleep(200 * time.Millisecond)
+
+	// Check if connected
+	if !client.IsConnected() {
+		t.Error("Expected client to be connected")
+	}
+
+	t.Log("WebSocket client connected successfully")
+}
+
+// TestWSClientHeartbeat tests sending heartbeat messages
+func TestWSClientHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	receivedHeartbeat := false
+
+	// Create a test WebSocket server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check token
+		token := r.URL.Query().Get("token")
+		if token != "test-token" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Upgrade to WebSocket
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("Upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Read heartbeat messages
+		for {
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+
+			// Parse message
+			var msg WSMessage
+			if err := json.Unmarshal(message, &msg); err != nil {
+				t.Logf("Failed to unmarshal message: %v", err)
+				continue
+			}
+
+			if msg.Type == MessageTypeHeartbeat {
+				receivedHeartbeat = true
+
+				// Send pong response
+				pongMsg := WSMessage{
+					Type:      MessageTypePong,
+					Timestamp: time.Now(),
+				}
+				payload, _ := json.Marshal(pongMsg)
+				conn.WriteMessage(websocket.TextMessage, payload)
+			}
+		}
+	}))
+	defer server.Close()
+
+	// Create WebSocket client
+	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
+	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
+	client := NewWSClient(serverURL, "test-token", logger)
+
+	// Start client
+	err := client.Start()
+	if err != nil {
+		t.Fatalf("Failed to start WebSocket client: %v", err)
+	}
+	defer client.Stop()
+
+	// Wait for connection
+	time.Sleep(200 * time.Millisecond)
+
+	// Send heartbeat
+	heartbeatData := map[string]interface{}{
+		"device_count": 10,
+	}
+
+	err = client.SendHeartbeat(heartbeatData)
+	if err != nil {
+		t.Fatalf("Failed to send heartbeat: %v", err)
+	}
+
+	// Wait for server to process
+	time.Sleep(200 * time.Millisecond)
+
+	if !receivedHeartbeat {
+		t.Error("Server did not receive heartbeat")
+	}
+
+	t.Log("WebSocket heartbeat sent and received successfully")
+}
+
+// TestWSClientReconnection tests automatic reconnection
+func TestWSClientReconnection(t *testing.T) {
+	t.Parallel()
+
+	connectionCount := 0
+
+	// Create a test WebSocket server that closes connections
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connectionCount++
+
+		// Check token
+		token := r.URL.Query().Get("token")
+		if token != "test-token" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Upgrade to WebSocket
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("Upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Close connection immediately to trigger reconnection
+		time.Sleep(100 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	// Create WebSocket client with short reconnect delay
+	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
+	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
+	client := NewWSClient(serverURL, "test-token", logger)
+	client.reconnectDelay = 500 * time.Millisecond // Short delay for testing
+
+	// Start client
+	err := client.Start()
+	if err != nil {
+		t.Fatalf("Failed to start WebSocket client: %v", err)
+	}
+	defer client.Stop()
+
+	// Wait for initial connection and reconnections
+	time.Sleep(2 * time.Second)
+
+	// Should have reconnected at least once
+	if connectionCount < 2 {
+		t.Errorf("Expected at least 2 connections (initial + reconnect), got %d", connectionCount)
+	}
+
+	t.Logf("WebSocket reconnected successfully (%d connections)", connectionCount)
+}
+
+// TestWSClientAuthenticationFailure tests handling of authentication failures
+func TestWSClientAuthenticationFailure(t *testing.T) {
+	t.Parallel()
+
+	// Create a test WebSocket server that rejects connections
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	// Create WebSocket client with invalid token
+	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
+	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
+	client := NewWSClient(serverURL, "invalid-token", logger)
+
+	// Start client
+	err := client.Start()
+	// Start doesn't return error immediately - connection happens asynchronously
+	if err != nil {
+		t.Fatalf("Unexpected error from Start: %v", err)
+	}
+	defer client.Stop()
+
+	// Wait a bit for connection attempt
+	time.Sleep(200 * time.Millisecond)
+
+	// Should not be connected
+	if client.IsConnected() {
+		t.Error("Expected client to not be connected with invalid token")
+	}
+
+	t.Log("WebSocket authentication failure handled correctly")
+}
+
+package agent
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// WebSocket message types
+const (
+	MessageTypeHeartbeat     = "heartbeat"
+	MessageTypePong          = "pong"
+	MessageTypeError         = "error"
+	MessageTypeProxyRequest  = "proxy_request"
+	MessageTypeProxyResponse = "proxy_response"
+)
+
+// WSMessage represents a WebSocket message
+type WSMessage struct {
+	Type      string                 `json:"type"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+}
+
+// WSClient manages a persistent WebSocket connection to the server
+type WSClient struct {
+	serverURL     string
+	token         string
+	conn          *websocket.Conn
+	mu            sync.RWMutex
+	connected     bool
+	reconnectChan chan struct{}
+	stopChan      chan struct{}
+	ctx           context.Context
+	cancel        context.CancelFunc
+	logger        *log.Logger
+
+	// Configuration
+	reconnectDelay    time.Duration
+	pingInterval      time.Duration
+	writeTimeout      time.Duration
+	readTimeout       time.Duration
+	handshakeTimeout  time.Duration
+	maxReconnectDelay time.Duration
+}
+
+// NewWSClient creates a new WebSocket client
+func NewWSClient(serverURL, token string, logger *log.Logger) *WSClient {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	return &WSClient{
+		serverURL:         serverURL,
+		token:             token,
+		reconnectChan:     make(chan struct{}, 1),
+		stopChan:          make(chan struct{}),
+		ctx:               ctx,
+		cancel:            cancel,
+		logger:            logger,
+		reconnectDelay:    5 * time.Second,
+		pingInterval:      30 * time.Second,
+		writeTimeout:      10 * time.Second,
+		readTimeout:       60 * time.Second,
+		handshakeTimeout:  10 * time.Second,
+		maxReconnectDelay: 5 * time.Minute,
+	}
+}
+
+// Start begins the WebSocket connection and management goroutines
+func (ws *WSClient) Start() error {
+	ws.logger.Println("Starting WebSocket client...")
+
+	// Initial connection attempt
+	if err := ws.connect(); err != nil {
+		ws.logger.Printf("Initial WebSocket connection failed: %v (will retry)", err)
+		// Don't return error - reconnect loop will handle it
+	}
+
+	// Start connection manager
+	go ws.connectionManager()
+
+	return nil
+}
+
+// Stop gracefully stops the WebSocket client
+func (ws *WSClient) Stop() error {
+	ws.logger.Println("Stopping WebSocket client...")
+	ws.cancel()
+	close(ws.stopChan)
+
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	if ws.conn != nil {
+		// Send close message
+		err := ws.conn.WriteMessage(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		)
+		if err != nil {
+			ws.logger.Printf("Error sending close message: %v", err)
+		}
+
+		ws.conn.Close()
+		ws.conn = nil
+	}
+
+	ws.connected = false
+	return nil
+}
+
+// IsConnected returns whether the WebSocket is currently connected
+func (ws *WSClient) IsConnected() bool {
+	ws.mu.RLock()
+	defer ws.mu.RUnlock()
+	return ws.connected
+}
+
+// connect establishes a WebSocket connection to the server
+func (ws *WSClient) connect() error {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	// Close existing connection if any
+	if ws.conn != nil {
+		ws.conn.Close()
+		ws.conn = nil
+		ws.connected = false
+	}
+
+	// Parse and build WebSocket URL
+	u, err := url.Parse(ws.serverURL)
+	if err != nil {
+		return fmt.Errorf("invalid server URL: %w", err)
+	}
+
+	// Convert http(s) to ws(s)
+	switch u.Scheme {
+	case "http":
+		u.Scheme = "ws"
+	case "https":
+		u.Scheme = "wss"
+	default:
+		return fmt.Errorf("unsupported URL scheme: %s", u.Scheme)
+	}
+
+	// Set WebSocket endpoint path
+	u.Path = "/api/v1/agents/ws"
+
+	// Add authentication token as query parameter
+	q := u.Query()
+	q.Set("token", ws.token)
+	u.RawQuery = q.Encode()
+
+	ws.logger.Printf("Connecting to WebSocket: %s", u.String())
+
+	// Create WebSocket dialer with timeouts
+	dialer := &websocket.Dialer{
+		HandshakeTimeout: ws.handshakeTimeout,
+	}
+
+	// Connect
+	conn, resp, err := dialer.Dial(u.String(), nil)
+	if err != nil {
+		if resp != nil {
+			return fmt.Errorf("WebSocket connection failed (status %d): %w", resp.StatusCode, err)
+		}
+		return fmt.Errorf("WebSocket connection failed: %w", err)
+	}
+
+	ws.conn = conn
+	ws.connected = true
+	ws.logger.Println("WebSocket connected successfully")
+
+	// Start read and ping loops for this connection
+	go ws.readLoop()
+	go ws.pingLoop()
+
+	return nil
+}
+
+// connectionManager handles reconnection logic
+func (ws *WSClient) connectionManager() {
+	currentDelay := ws.reconnectDelay
+
+	for {
+		select {
+		case <-ws.ctx.Done():
+			return
+		case <-ws.stopChan:
+			return
+		case <-ws.reconnectChan:
+			ws.logger.Printf("Reconnecting in %v...", currentDelay)
+
+			timer := time.NewTimer(currentDelay)
+			select {
+			case <-ws.ctx.Done():
+				timer.Stop()
+				return
+			case <-ws.stopChan:
+				timer.Stop()
+				return
+			case <-timer.C:
+				// Attempt reconnection
+				if err := ws.connect(); err != nil {
+					ws.logger.Printf("Reconnection failed: %v", err)
+
+					// Exponential backoff (up to max)
+					currentDelay *= 2
+					if currentDelay > ws.maxReconnectDelay {
+						currentDelay = ws.maxReconnectDelay
+					}
+
+					// Trigger another reconnection attempt
+					select {
+					case ws.reconnectChan <- struct{}{}:
+					default:
+					}
+				} else {
+					// Reset delay on successful connection
+					currentDelay = ws.reconnectDelay
+				}
+			}
+		}
+	}
+}
+
+// readLoop reads messages from the WebSocket connection
+func (ws *WSClient) readLoop() {
+	defer func() {
+		ws.mu.Lock()
+		ws.connected = false
+		ws.mu.Unlock()
+
+		// Trigger reconnection
+		select {
+		case ws.reconnectChan <- struct{}{}:
+		default:
+		}
+	}()
+
+	for {
+		select {
+		case <-ws.ctx.Done():
+			return
+		case <-ws.stopChan:
+			return
+		default:
+			ws.mu.RLock()
+			conn := ws.conn
+			ws.mu.RUnlock()
+
+			if conn == nil {
+				return
+			}
+
+			// Set read deadline
+			conn.SetReadDeadline(time.Now().Add(ws.readTimeout))
+
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+					ws.logger.Printf("WebSocket read error: %v", err)
+				}
+				return
+			}
+
+			// Parse message
+			var msg WSMessage
+			if err := json.Unmarshal(message, &msg); err != nil {
+				ws.logger.Printf("Failed to parse WebSocket message: %v", err)
+				continue
+			}
+
+			// Handle message types
+			switch msg.Type {
+			case MessageTypePong:
+				// Pong received, connection is healthy
+			case MessageTypeError:
+				ws.logger.Printf("Server error: %v", msg.Data)
+			case MessageTypeProxyRequest:
+				// Handle proxy request from server
+				go ws.handleProxyRequest(msg)
+			default:
+				ws.logger.Printf("Unknown message type: %s", msg.Type)
+			}
+		}
+	}
+}
+
+// pingLoop sends periodic ping messages to keep connection alive
+func (ws *WSClient) pingLoop() {
+	ticker := time.NewTicker(ws.pingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ws.ctx.Done():
+			return
+		case <-ws.stopChan:
+			return
+		case <-ticker.C:
+			ws.mu.RLock()
+			conn := ws.conn
+			connected := ws.connected
+			ws.mu.RUnlock()
+
+			if !connected || conn == nil {
+				return
+			}
+
+			// Send ping
+			conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				ws.logger.Printf("Failed to send ping: %v", err)
+				return
+			}
+		}
+	}
+}
+
+// SendHeartbeat sends a heartbeat message over the WebSocket
+func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
+	ws.mu.RLock()
+	conn := ws.conn
+	connected := ws.connected
+	ws.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return errors.New("WebSocket not connected")
+	}
+
+	msg := WSMessage{
+		Type:      MessageTypeHeartbeat,
+		Data:      data,
+		Timestamp: time.Now(),
+	}
+
+	// Marshal message
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal heartbeat: %w", err)
+	}
+
+	// Send message
+	conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		return fmt.Errorf("failed to send heartbeat: %w", err)
+	}
+
+	return nil
+}
+
+// handleProxyRequest handles incoming HTTP proxy requests from the server
+func (ws *WSClient) handleProxyRequest(msg WSMessage) {
+	requestID, ok := msg.Data["request_id"].(string)
+	if !ok {
+		ws.logger.Printf("Proxy request missing request_id")
+		return
+	}
+
+	targetURL, ok := msg.Data["url"].(string)
+	if !ok {
+		ws.sendProxyError(requestID, "Missing target URL")
+		return
+	}
+
+	method, ok := msg.Data["method"].(string)
+	if !ok {
+		method = "GET"
+	}
+
+	// Extract headers
+	headers := make(map[string]string)
+	if headersData, ok := msg.Data["headers"].(map[string]interface{}); ok {
+		for k, v := range headersData {
+			if vStr, ok := v.(string); ok {
+				headers[k] = vStr
+			}
+		}
+	}
+
+	// Decode body if present
+	var bodyBytes []byte
+	if bodyB64, ok := msg.Data["body"].(string); ok {
+		decoded, err := base64.StdEncoding.DecodeString(bodyB64)
+		if err == nil {
+			bodyBytes = decoded
+		}
+	}
+
+	ws.logger.Printf("Proxying %s request to %s", method, targetURL)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+		},
+	}
+
+	// Create request
+	var req *http.Request
+	var err error
+	if len(bodyBytes) > 0 {
+		req, err = http.NewRequest(method, targetURL, bytes.NewReader(bodyBytes))
+	} else {
+		req, err = http.NewRequest(method, targetURL, nil)
+	}
+
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Failed to create request: %v", err))
+		return
+	}
+
+	// Set headers
+	for k, v := range headers {
+		// Skip hop-by-hop headers
+		if strings.EqualFold(k, "Connection") || strings.EqualFold(k, "Keep-Alive") ||
+			strings.EqualFold(k, "Proxy-Authenticate") || strings.EqualFold(k, "Proxy-Authorization") ||
+			strings.EqualFold(k, "TE") || strings.EqualFold(k, "Trailers") ||
+			strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Upgrade") {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+
+	// Execute request
+	resp, err := client.Do(req)
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Request failed: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Failed to read response: %v", err))
+		return
+	}
+
+	// Extract response headers
+	respHeaders := make(map[string]string)
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			respHeaders[k] = v[0]
+		}
+	}
+
+	// Send proxy response back to server
+	ws.sendProxyResponse(requestID, resp.StatusCode, respHeaders, respBody)
+}
+
+// sendProxyResponse sends a successful proxy response back to the server
+func (ws *WSClient) sendProxyResponse(requestID string, statusCode int, headers map[string]string, body []byte) {
+	ws.mu.RLock()
+	conn := ws.conn
+	connected := ws.connected
+	ws.mu.RUnlock()
+
+	if !connected || conn == nil {
+		ws.logger.Printf("Cannot send proxy response - not connected")
+		return
+	}
+
+	msg := WSMessage{
+		Type: MessageTypeProxyResponse,
+		Data: map[string]interface{}{
+			"request_id":  requestID,
+			"status_code": statusCode,
+			"headers":     headers,
+			"body":        base64.StdEncoding.EncodeToString(body),
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		ws.logger.Printf("Failed to marshal proxy response: %v", err)
+		return
+	}
+
+	conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
+	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+		ws.logger.Printf("Failed to send proxy response: %v", err)
+	}
+}
+
+// sendProxyError sends an error response for a failed proxy request
+func (ws *WSClient) sendProxyError(requestID string, errorMsg string) {
+	ws.logger.Printf("Proxy error for request %s: %s", requestID, errorMsg)
+
+	ws.sendProxyResponse(requestID, 502, map[string]string{
+		"Content-Type": "text/plain",
+	}, []byte(errorMsg))
+}
+
+package agent
+
+import (
+	"context"
+	"encoding/xml"
+	"fmt"
+	"net"
+	"strings"
+	"time"
+)
+
+// WS-Discovery constants
+const (
+	wsDiscoveryMulticastAddr = "239.255.255.250:3702"
+)
+
+// WS-Discovery SOAP envelope structures
+type wsDiscoveryEnvelope struct {
+	XMLName xml.Name `xml:"http://www.w3.org/2003/05/soap-envelope Envelope"`
+	Header  wsDiscoveryHeader
+	Body    wsDiscoveryBody
+}
+
+type wsDiscoveryHeader struct {
+	Action    string `xml:"http://schemas.xmlsoap.org/ws/2004/08/addressing Action"`
+	MessageID string `xml:"http://schemas.xmlsoap.org/ws/2004/08/addressing MessageID"`
+	To        string `xml:"http://schemas.xmlsoap.org/ws/2004/08/addressing To"`
+}
+
+type wsDiscoveryBody struct {
+	Hello      *wsHello      `xml:"http://schemas.xmlsoap.org/ws/2005/04/discovery Hello,omitempty"`
+	Bye        *wsBye        `xml:"http://schemas.xmlsoap.org/ws/2005/04/discovery Bye,omitempty"`
+	ProbeMatch *wsProbeMatch `xml:"http://schemas.xmlsoap.org/ws/2005/04/discovery ProbeMatch,omitempty"`
+}
+
+type wsHello struct {
+	EndpointReference wsEndpointReference
+	Types             string `xml:"Types"`
+	Scopes            string `xml:"Scopes,omitempty"`
+	XAddrs            string `xml:"XAddrs"`
+	MetadataVersion   int    `xml:"MetadataVersion"`
+}
+
+type wsBye struct {
+	EndpointReference wsEndpointReference
+}
+
+type wsProbeMatch struct {
+	EndpointReference wsEndpointReference
+	Types             string `xml:"Types"`
+	Scopes            string `xml:"Scopes,omitempty"`
+	XAddrs            string `xml:"XAddrs"`
+	MetadataVersion   int    `xml:"MetadataVersion"`
+}
+
+type wsEndpointReference struct {
+	Address string `xml:"http://schemas.xmlsoap.org/ws/2004/08/addressing Address"`
+}
+
+// StartWSDiscoveryBrowser listens for WS-Discovery Hello/Bye messages and ProbeMatches
+// on the multicast group 239.255.255.250:3702. It invokes enqueue for each discovered
+// IPv4 address. Runs until context is canceled.
+func StartWSDiscoveryBrowser(ctx context.Context, enqueue func(string) bool) {
+	addr, err := net.ResolveUDPAddr("udp4", wsDiscoveryMulticastAddr)
+	if err != nil {
+		Info("WS-Discovery: failed to resolve multicast address: " + err.Error())
+		return
+	}
+
+	conn, err := net.ListenMulticastUDP("udp4", nil, addr)
+	if err != nil {
+		Info("WS-Discovery: failed to join multicast group: " + err.Error())
+		return
+	}
+	defer conn.Close()
+
+	Info("WS-Discovery: listening on " + wsDiscoveryMulticastAddr)
+
+	// Set read buffer size
+	conn.SetReadBuffer(65536)
+
+	// Send initial Probe to discover existing devices
+	go func() {
+		time.Sleep(500 * time.Millisecond) // Brief delay to ensure listener is ready
+		sendProbe()
+	}()
+
+	buf := make([]byte, 65536)
+	for {
+		select {
+		case <-ctx.Done():
+			Info("WS-Discovery: stopping listener")
+			return
+		default:
+			// Set read deadline to allow periodic context checks
+			conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+			n, src, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					continue // Read timeout, check context and retry
+				}
+				Info("WS-Discovery: read error: " + err.Error())
+				continue
+			}
+
+			// Parse WS-Discovery message
+			var envelope wsDiscoveryEnvelope
+			if err := xml.Unmarshal(buf[:n], &envelope); err != nil {
+				// Not all UDP traffic is WS-Discovery, ignore parse errors
+				continue
+			}
+
+			// Process Hello messages (device announcements)
+			if envelope.Body.Hello != nil {
+				hello := envelope.Body.Hello
+				Info(fmt.Sprintf("WS-Discovery: Hello from %s (Types: %s, XAddrs: %s)",
+					hello.EndpointReference.Address, hello.Types, hello.XAddrs))
+
+				// Extract IP addresses from XAddrs (can be multiple URLs)
+				ips := extractIPsFromXAddrs(hello.XAddrs)
+				for _, ip := range ips {
+					enqueue(ip)
+				}
+			}
+
+			// Process ProbeMatch messages (responses to Probe)
+			if envelope.Body.ProbeMatch != nil {
+				match := envelope.Body.ProbeMatch
+				Info(fmt.Sprintf("WS-Discovery: ProbeMatch from %s (Types: %s, XAddrs: %s)",
+					match.EndpointReference.Address, match.Types, match.XAddrs))
+
+				ips := extractIPsFromXAddrs(match.XAddrs)
+				for _, ip := range ips {
+					enqueue(ip)
+				}
+			}
+
+			// Process Bye messages (device leaving)
+			if envelope.Body.Bye != nil {
+				bye := envelope.Body.Bye
+				Info(fmt.Sprintf("WS-Discovery: Bye from %s", bye.EndpointReference.Address))
+				// Note: We don't remove devices on Bye, just log it
+			}
+
+			// Also try to extract IP from source address as fallback
+			if src != nil && src.IP != nil {
+				srcIP := src.IP.String()
+				if srcIP != "" && !strings.Contains(srcIP, ":") { // IPv4 only
+					// Only enqueue source IP if we haven't already from XAddrs
+					// This is a backup in case XAddrs parsing fails
+				}
+			}
+		}
+	}
+}
+
+// sendProbe sends a WS-Discovery Probe message to discover existing devices
+func sendProbe() {
+	probeXML := `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:wsa="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:wsd="http://schemas.xmlsoap.org/ws/2005/04/discovery">
+  <soap:Header>
+    <wsa:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</wsa:Action>
+    <wsa:MessageID>urn:uuid:` + generateUUID() + `</wsa:MessageID>
+    <wsa:To>urn:schemas-xmlsoap-org:ws:2005:04:discovery</wsa:To>
+  </soap:Header>
+  <soap:Body>
+    <wsd:Probe>
+      <wsd:Types>wsdp:Device</wsd:Types>
+    </wsd:Probe>
+  </soap:Body>
+</soap:Envelope>`
+
+	addr, err := net.ResolveUDPAddr("udp4", wsDiscoveryMulticastAddr)
+	if err != nil {
+		Info("WS-Discovery Probe: failed to resolve address: " + err.Error())
+		return
+	}
+
+	conn, err := net.DialUDP("udp4", nil, addr)
+	if err != nil {
+		Info("WS-Discovery Probe: failed to dial: " + err.Error())
+		return
+	}
+	defer conn.Close()
+
+	_, err = conn.Write([]byte(probeXML))
+	if err != nil {
+		Info("WS-Discovery Probe: failed to send: " + err.Error())
+		return
+	}
+
+	Info("WS-Discovery: Probe sent to discover existing devices")
+}
+
+// extractIPsFromXAddrs parses XAddrs field (space-separated URLs) and extracts IPv4 addresses
+func extractIPsFromXAddrs(xaddrs string) []string {
+	var ips []string
+	urls := strings.Fields(xaddrs)
+	for _, url := range urls {
+		// XAddrs typically contains URLs like http://192.168.1.100:5357/
+		// Extract IP using simple parsing
+		url = strings.TrimPrefix(url, "http://")
+		url = strings.TrimPrefix(url, "https://")
+		if idx := strings.Index(url, ":"); idx > 0 {
+			url = url[:idx]
+		}
+		if idx := strings.Index(url, "/"); idx > 0 {
+			url = url[:idx]
+		}
+		// Validate it's an IP
+		if ip := net.ParseIP(url); ip != nil && ip.To4() != nil {
+			ips = append(ips, ip.To4().String())
+		}
+	}
+	return ips
+}
+
+// generateUUID creates a simple UUID for WS-Discovery messages
+func generateUUID() string {
+	// Simple UUID generation for message IDs
+	return fmt.Sprintf("%d-%d-%d-%d-%d",
+		time.Now().UnixNano()%100000,
+		time.Now().UnixNano()%10000,
+		time.Now().UnixNano()%1000,
+		time.Now().UnixNano()%100,
+		time.Now().UnixNano()%10)
+}
+

@@ -771,24 +771,36 @@ function renderAgentDetailsModal(agent) {
 
 // ====== Delete Agent ======
 async function deleteAgent(agentId, displayName) {
+    console.log('deleteAgent called:', agentId, displayName);
+    
     const confirmed = await showConfirm(
         `Are you sure you want to delete agent "${displayName}"?\n\nThis will permanently remove the agent and all its associated devices and metrics. This action cannot be undone.`,
         'Delete Agent',
         true // isDangerous
     );
     
+    console.log('User confirmed:', confirmed);
+    
     if (!confirmed) {
         return;
     }
     
     try {
+        console.log('Sending DELETE request to:', `/api/v1/agents/${agentId}`);
         const response = await fetch(`/api/v1/agents/${agentId}`, {
             method: 'DELETE'
         });
         
+        console.log('Response status:', response.status, response.statusText);
+        
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            const errorText = await response.text();
+            console.error('Delete failed:', errorText);
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
+        
+        const result = await response.json();
+        console.log('Delete successful:', result);
         
         showToast(`Agent "${displayName}" deleted successfully`, 'success');
         
@@ -806,7 +818,7 @@ async function deleteAgent(agentId, displayName) {
         }
     } catch (error) {
         console.error('Failed to delete agent:', error);
-        showToast('Failed to delete agent', 'error');
+        showToast(`Failed to delete agent: ${error.message}`, 'error');
     }
 }
 

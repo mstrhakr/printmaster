@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	commonstorage "printmaster/common/storage"
 	"time"
 )
 
@@ -34,42 +35,18 @@ type Agent struct {
 	LastMetricsSync time.Time `json:"last_metrics_sync,omitempty"` // Last metrics upload
 }
 
-// Device represents a printer device discovered by an agent
+// Device represents a printer device discovered by an agent (extends common Device)
 type Device struct {
-	Serial          string                 `json:"serial"`
-	AgentID         string                 `json:"agent_id"` // Which agent discovered this
-	IP              string                 `json:"ip"`
-	Manufacturer    string                 `json:"manufacturer,omitempty"`
-	Model           string                 `json:"model,omitempty"`
-	Hostname        string                 `json:"hostname,omitempty"`
-	Firmware        string                 `json:"firmware,omitempty"`
-	MACAddress      string                 `json:"mac_address,omitempty"`
-	SubnetMask      string                 `json:"subnet_mask,omitempty"`
-	Gateway         string                 `json:"gateway,omitempty"`
-	Consumables     []string               `json:"consumables,omitempty"`
-	StatusMessages  []string               `json:"status_messages,omitempty"`
-	LastSeen        time.Time              `json:"last_seen"`
-	FirstSeen       time.Time              `json:"first_seen"`
-	CreatedAt       time.Time              `json:"created_at"`
-	DiscoveryMethod string                 `json:"discovery_method,omitempty"`
-	AssetNumber     string                 `json:"asset_number,omitempty"`
-	Location        string                 `json:"location,omitempty"`
-	Description     string                 `json:"description,omitempty"`
-	WebUIURL        string                 `json:"web_ui_url,omitempty"`
-	RawData         map[string]interface{} `json:"raw_data,omitempty"`
+	commonstorage.Device // Embed common fields
+
+	AgentID string `json:"agent_id"` // Which agent discovered this (server-specific field)
 }
 
-// MetricsSnapshot represents device metrics at a point in time
+// MetricsSnapshot represents device metrics at a point in time (extends common MetricsSnapshot)
 type MetricsSnapshot struct {
-	ID          int64                  `json:"id"`
-	Serial      string                 `json:"serial"`
-	AgentID     string                 `json:"agent_id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	PageCount   int                    `json:"page_count,omitempty"`
-	ColorPages  int                    `json:"color_pages,omitempty"`
-	MonoPages   int                    `json:"mono_pages,omitempty"`
-	ScanCount   int                    `json:"scan_count,omitempty"`
-	TonerLevels map[string]interface{} `json:"toner_levels,omitempty"`
+	commonstorage.MetricsSnapshot // Embed common fields
+
+	AgentID string `json:"agent_id"` // Which agent reported this (server-specific field)
 }
 
 // AuditEntry represents an audit log entry for agent operations

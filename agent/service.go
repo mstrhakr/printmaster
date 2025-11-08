@@ -169,8 +169,3 @@ func getServiceLogPath() string {
 		return "/var/log/printmaster/agent.log"
 	}
 }
-
-// isRunningAsService detects if the agent is running as a system service
-func isRunningAsService() bool {
-	return !service.Interactive()
-}

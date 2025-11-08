@@ -6,29 +6,31 @@ import (
 
 // PrinterInfoToDevice converts agent.PrinterInfo to storage.Device
 func PrinterInfoToDevice(pi agent.PrinterInfo, isSaved bool) *Device {
-	device := &Device{
-		Serial:       pi.Serial,
-		IP:           pi.IP,
-		Manufacturer: pi.Manufacturer,
-		Model:        pi.Model,
-		Hostname:     pi.Hostname,
-		Firmware:     pi.Firmware,
-		MACAddress:   pi.MAC,
-		SubnetMask:   pi.SubnetMask,
-		Gateway:      pi.Gateway,
-		DNSServers:   pi.DNSServers,
-		DHCPServer:   pi.DHCPServer,
-		// NOTE: PageCount and TonerLevels not stored in Device - use MetricsSnapshot instead
-		StatusMessages:  pi.StatusMessages,
-		LastSeen:        pi.LastSeen,
-		IsSaved:         isSaved,
-		Visible:         true, // Default to visible
-		DiscoveryMethod: "snmp",
-		AssetNumber:     pi.AssetID,
-		Location:        pi.Location,
-		Description:     pi.Description,
-		WebUIURL:        pi.WebUIURL,
-	}
+	device := &Device{}
+
+	// Set common Device fields
+	device.Serial = pi.Serial
+	device.IP = pi.IP
+	device.Manufacturer = pi.Manufacturer
+	device.Model = pi.Model
+	device.Hostname = pi.Hostname
+	device.Firmware = pi.Firmware
+	device.MACAddress = pi.MAC
+	device.SubnetMask = pi.SubnetMask
+	device.Gateway = pi.Gateway
+	device.StatusMessages = pi.StatusMessages
+	device.LastSeen = pi.LastSeen
+	device.DiscoveryMethod = "snmp"
+	device.AssetNumber = pi.AssetID
+	device.Location = pi.Location
+	device.Description = pi.Description
+	device.WebUIURL = pi.WebUIURL
+
+	// Set agent-specific fields
+	device.DNSServers = pi.DNSServers
+	device.DHCPServer = pi.DHCPServer
+	device.IsSaved = isSaved
+	device.Visible = true
 
 	// Handle consumables
 	if len(pi.Consumables) > 0 {
@@ -197,14 +199,15 @@ func PrinterInfoToMetricsSnapshot(pi agent.PrinterInfo) *MetricsSnapshot {
 		tonerLevels[k] = v
 	}
 
-	snapshot := &MetricsSnapshot{
-		Serial:      pi.Serial,
-		Timestamp:   pi.LastSeen,
-		PageCount:   pi.PageCount,
-		ColorPages:  pi.ColorImpressions,
-		MonoPages:   pi.MonoImpressions,
-		TonerLevels: tonerLevels,
-	}
+	snapshot := &MetricsSnapshot{}
+
+	// Set common MetricsSnapshot fields
+	snapshot.Serial = pi.Serial
+	snapshot.Timestamp = pi.LastSeen
+	snapshot.PageCount = pi.PageCount
+	snapshot.ColorPages = pi.ColorImpressions
+	snapshot.MonoPages = pi.MonoImpressions
+	snapshot.TonerLevels = tonerLevels
 
 	return snapshot
 }

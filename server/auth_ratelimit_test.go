@@ -28,7 +28,7 @@ func TestAuthRateLimiter_BasicFunctionality(t *testing.T) {
 	}
 
 	// Second attempt
-	isBlocked, shouldLog, count = rl.RecordFailure(ip, token)
+	isBlocked, _, count = rl.RecordFailure(ip, token)
 	if isBlocked {
 		t.Error("Second attempt should not be blocked")
 	}
@@ -37,7 +37,7 @@ func TestAuthRateLimiter_BasicFunctionality(t *testing.T) {
 	}
 
 	// Third attempt - should trigger block
-	isBlocked, shouldLog, count = rl.RecordFailure(ip, token)
+	isBlocked, _, count = rl.RecordFailure(ip, token)
 	if !isBlocked {
 		t.Error("Third attempt should be blocked")
 	}
@@ -46,7 +46,7 @@ func TestAuthRateLimiter_BasicFunctionality(t *testing.T) {
 	}
 
 	// Fourth attempt - should still be blocked
-	isBlocked, shouldLog, count = rl.RecordFailure(ip, token)
+	isBlocked, _, _ = rl.RecordFailure(ip, token)
 	if !isBlocked {
 		t.Error("Fourth attempt should still be blocked")
 	}

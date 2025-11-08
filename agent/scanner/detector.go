@@ -134,22 +134,3 @@ func EnrichFunc(cfg DetectorConfig) func(ctx context.Context, ip string, vendorH
 		return result, nil
 	}
 }
-
-// MetricsFunc creates a metrics collection function for periodic data gathering.
-// This uses QueryMetrics profile to collect basic metrics.
-// Returns QueryResult with raw PDUs (no vendor-specific processing).
-func MetricsFunc(cfg DetectorConfig) func(ctx context.Context, ip string, vendorHint string) (*QueryResult, error) {
-	if cfg.SNMPTimeout == 0 {
-		cfg.SNMPTimeout = 10 // default 10 second timeout for metrics
-	}
-
-	return func(ctx context.Context, ip string, vendorHint string) (*QueryResult, error) {
-		// Use QueryMetrics to get basic metrics
-		result, err := QueryDevice(ctx, ip, QueryMetrics, vendorHint, cfg.SNMPTimeout)
-		if err != nil {
-			return nil, fmt.Errorf("metrics collection failed for %s: %w", ip, err)
-		}
-
-		return result, nil
-	}
-}

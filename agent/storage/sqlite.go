@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	commonstorage "printmaster/common/storage"
 	"strings"
 	"time"
 
@@ -1243,61 +1244,6 @@ func (s *SQLiteStore) GetScanHistory(ctx context.Context, serial string, limit i
 	return scans, rows.Err()
 }
 
-// GetScanAtTime returns the scan snapshot closest to the given timestamp
-func (s *SQLiteStore) GetScanAtTime(ctx context.Context, serial string, timestamp int64) (*ScanSnapshot, error) {
-	if serial == "" {
-		return nil, ErrInvalidSerial
-	}
-
-	targetTime := time.Unix(timestamp, 0)
-
-	query := `
-		SELECT id, serial, created_at, ip, hostname, firmware,
-		       consumables, status_messages,
-		       discovery_method, walk_filename, raw_data
-		FROM scan_history
-		WHERE serial = ?
-		ORDER BY ABS(strftime('%s', created_at) - ?) ASC
-		LIMIT 1
-	`
-
-	scan := &ScanSnapshot{}
-	var consumablesJSON, statusJSON, rawDataJSON sql.NullString
-
-	err := s.db.QueryRowContext(ctx, query, serial, timestamp).Scan(
-		&scan.ID,
-		&scan.Serial,
-		&scan.CreatedAt,
-		&scan.IP,
-		&scan.Hostname,
-		&scan.Firmware,
-		&consumablesJSON,
-		&statusJSON,
-		&scan.DiscoveryMethod,
-		&scan.WalkFilename,
-		&rawDataJSON,
-	)
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get scan at time %v: %w", targetTime, err)
-	}
-
-	// Unmarshal JSON fields
-	if consumablesJSON.Valid {
-		json.Unmarshal([]byte(consumablesJSON.String), &scan.Consumables)
-	}
-	if statusJSON.Valid {
-		json.Unmarshal([]byte(statusJSON.String), &scan.StatusMessages)
-	}
-	if rawDataJSON.Valid {
-		scan.RawData = json.RawMessage(rawDataJSON.String)
-	}
-
-	return scan, nil
-}
-
 // DeleteOldScans removes scan history older than the given timestamp
 func (s *SQLiteStore) DeleteOldScans(ctx context.Context, olderThan int64) (int, error) {
 	cutoffTime := time.Unix(olderThan, 0)
@@ -1337,31 +1283,24 @@ func (s *SQLiteStore) ShowAll(ctx context.Context) (int, error) {
 	return int(rows), nil
 }
 
-// MetricsSnapshot represents a point-in-time snapshot of device metrics
+// MetricsSnapshot represents a point-in-time snapshot of device metrics with agent-specific fields
 type MetricsSnapshot struct {
-	ID          int64                  `json:"id"`
-	Serial      string                 `json:"serial"`
-	Timestamp   time.Time              `json:"timestamp"`
-	PageCount   int                    `json:"page_count"`
-	ColorPages  int                    `json:"color_pages"`
-	MonoPages   int                    `json:"mono_pages"`
-	ScanCount   int                    `json:"scan_count"`
-	TonerLevels map[string]interface{} `json:"toner_levels"`
+	commonstorage.MetricsSnapshot // Embed common fields
 
-	// HP-specific detailed impression counters
-	FaxPages          int `json:"fax_pages"`
-	CopyPages         int `json:"copy_pages"`
-	OtherPages        int `json:"other_pages"`
-	CopyMonoPages     int `json:"copy_mono_pages"`
-	CopyFlatbedScans  int `json:"copy_flatbed_scans"`
-	CopyADFScans      int `json:"copy_adf_scans"`
-	FaxFlatbedScans   int `json:"fax_flatbed_scans"`
-	FaxADFScans       int `json:"fax_adf_scans"`
-	ScanToHostFlatbed int `json:"scan_to_host_flatbed"`
-	ScanToHostADF     int `json:"scan_to_host_adf"`
-	DuplexSheets      int `json:"duplex_sheets"`
-	JamEvents         int `json:"jam_events"`
-	ScannerJamEvents  int `json:"scanner_jam_events"`
+	// HP-specific detailed impression counters (agent-specific)
+	FaxPages          int `json:"fax_pages,omitempty"`
+	CopyPages         int `json:"copy_pages,omitempty"`
+	OtherPages        int `json:"other_pages,omitempty"`
+	CopyMonoPages     int `json:"copy_mono_pages,omitempty"`
+	CopyFlatbedScans  int `json:"copy_flatbed_scans,omitempty"`
+	CopyADFScans      int `json:"copy_adf_scans,omitempty"`
+	FaxFlatbedScans   int `json:"fax_flatbed_scans,omitempty"`
+	FaxADFScans       int `json:"fax_adf_scans,omitempty"`
+	ScanToHostFlatbed int `json:"scan_to_host_flatbed,omitempty"`
+	ScanToHostADF     int `json:"scan_to_host_adf,omitempty"`
+	DuplexSheets      int `json:"duplex_sheets,omitempty"`
+	JamEvents         int `json:"jam_events,omitempty"`
+	ScannerJamEvents  int `json:"scanner_jam_events,omitempty"`
 }
 
 // SaveMetricsSnapshot stores a metrics snapshot for a device

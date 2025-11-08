@@ -32,9 +32,10 @@ import (
 	"printmaster/agent/proxy"
 	"printmaster/agent/scanner"
 	"printmaster/agent/storage"
-	"printmaster/agent/util"
 	"printmaster/common/config"
 	"printmaster/common/logger"
+	commonutil "printmaster/common/util"
+	sharedweb "printmaster/common/web"
 	"runtime"
 	"strconv"
 	"strings"
@@ -559,7 +560,12 @@ func main() {
 	generateConfig := flag.Bool("generate-config", false, "Generate default config file and exit")
 	serviceCmd := flag.String("service", "", "Service control: install, uninstall, start, stop, run")
 	showVersion := flag.Bool("version", false, "Show version information and exit")
+	quiet := flag.Bool("quiet", false, "Suppress informational output (errors still shown)")
+	flag.BoolVar(quiet, "q", false, "Shorthand for --quiet")
 	flag.Parse()
+
+	// Set quiet mode globally for util functions
+	commonutil.SetQuietMode(*quiet)
 
 	// Show version if requested
 	if *showVersion {
@@ -612,65 +618,65 @@ func handleServiceCommand(cmd string) {
 	switch cmd {
 	case "install":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Fleet Management Agent")
 
 		// Check if service already exists and handle gracefully
 		status, _ := s.Status()
 		if status != service.StatusUnknown {
-			util.ShowWarning("Service already exists, removing first...")
+			commonutil.ShowWarning("Service already exists, removing first...")
 
 			// Stop if running
 			if status == service.StatusRunning {
-				util.ShowInfo("Stopping existing service...")
+				commonutil.ShowInfo("Stopping existing service...")
 				_ = s.Stop()
 				time.Sleep(2 * time.Second)
-				util.ShowSuccess("Service stopped")
+				commonutil.ShowSuccess("Service stopped")
 			}
 
 			// Uninstall existing
-			util.ShowInfo("Removing existing service...")
+			commonutil.ShowInfo("Removing existing service...")
 			if err := s.Uninstall(); err != nil {
 				// Ignore "marked for deletion" errors - we can still install over it
 				if !strings.Contains(err.Error(), "marked for deletion") {
-					util.ShowError(fmt.Sprintf("Failed to remove existing service: %v", err))
-					util.ShowCompletionScreen(false, "Installation Failed")
+					commonutil.ShowError(fmt.Sprintf("Failed to remove existing service: %v", err))
+					commonutil.ShowCompletionScreen(false, "Installation Failed")
 					os.Exit(1)
 				}
-				util.ShowWarning("Service marked for deletion, will install anyway")
+				commonutil.ShowWarning("Service marked for deletion, will install anyway")
 			} else {
-				util.ShowSuccess("Existing service removed")
+				commonutil.ShowSuccess("Existing service removed")
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
 
 		// Create service directories first
-		util.ShowInfo("Setting up directories...")
+		commonutil.ShowInfo("Setting up directories...")
 		time.Sleep(300 * time.Millisecond)
 		if err := setupServiceDirectories(); err != nil {
-			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
-			util.ShowCompletionScreen(false, "Installation Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			commonutil.ShowCompletionScreen(false, "Installation Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Directories ready")
+		commonutil.ShowSuccess("Directories ready")
 
-		util.ShowInfo("Installing service...")
+		commonutil.ShowInfo("Installing service...")
 		time.Sleep(500 * time.Millisecond)
 		err = s.Install()
 		if err != nil {
 			// If service already exists, that's actually okay for install
 			if strings.Contains(err.Error(), "already exists") {
-				util.ShowWarning("Service already exists (this is normal)")
+				commonutil.ShowWarning("Service already exists (this is normal)")
 			} else {
-				util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
-				util.ShowCompletionScreen(false, "Installation Failed")
+				commonutil.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+				commonutil.ShowCompletionScreen(false, "Installation Failed")
 				os.Exit(1)
 			}
 		}
-		util.ShowSuccess("Service installed")
+		commonutil.ShowSuccess("Service installed")
 
-		util.ShowCompletionScreen(true, "Service Installed!")
+		commonutil.ShowCompletionScreen(true, "Service Installed!")
 		fmt.Println()
-		util.ShowInfo("Use '--service start' to start the service")
+		commonutil.ShowInfo("Use '--service start' to start the service")
 
 	case "uninstall":
 		err = s.Uninstall()
@@ -682,88 +688,88 @@ func handleServiceCommand(cmd string) {
 
 	case "start":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Fleet Management Agent")
 
-		util.ShowInfo("Starting service...")
+		commonutil.ShowInfo("Starting service...")
 		err = s.Start()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
-			util.ShowCompletionScreen(false, "Start Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Start Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service started")
+		commonutil.ShowSuccess("Service started")
 
-		util.ShowCompletionScreen(true, "Service Started!")
+		commonutil.ShowCompletionScreen(true, "Service Started!")
 
 	case "stop":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Fleet Management Agent")
 
-		util.ShowInfo("Stopping service...")
+		commonutil.ShowInfo("Stopping service...")
 		done := make(chan bool)
-		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
+		go commonutil.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
 		err = s.Stop()
 		done <- true
 
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
-			util.ShowCompletionScreen(false, "Stop Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Stop Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service stopped")
+		commonutil.ShowSuccess("Service stopped")
 
-		util.ShowCompletionScreen(true, "Service Stopped!")
+		commonutil.ShowCompletionScreen(true, "Service Stopped!")
 
 	case "status":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Fleet Management Agent")
 
 		// Get service status
 		status, statusErr := s.Status()
 
 		fmt.Println()
-		util.ShowInfo("Service Status Information")
+		commonutil.ShowInfo("Service Status Information")
 		fmt.Println()
 
 		// Service state
 		var statusText, statusColor string
-		switch status {
+		switch status { //nolint:exhaustive
 		case service.StatusRunning:
 			statusText = "RUNNING"
-			statusColor = util.ColorGreen
+			statusColor = commonutil.ColorGreen
 		case service.StatusStopped:
 			statusText = "STOPPED"
-			statusColor = util.ColorYellow
+			statusColor = commonutil.ColorYellow
 		case service.StatusUnknown:
 			statusText = "NOT INSTALLED"
-			statusColor = util.ColorRed
+			statusColor = commonutil.ColorRed
 		default:
 			statusText = "UNKNOWN"
-			statusColor = util.ColorDim
+			statusColor = commonutil.ColorDim
 		}
 
 		if statusErr != nil {
 			fmt.Printf("  %sService State:%s %s%s%s (%v)\n",
-				util.ColorDim, util.ColorReset,
-				statusColor, statusText, util.ColorReset,
+				commonutil.ColorDim, commonutil.ColorReset,
+				statusColor, statusText, commonutil.ColorReset,
 				statusErr)
 		} else {
 			fmt.Printf("  %sService State:%s %s%s%s\n",
-				util.ColorDim, util.ColorReset,
-				statusColor, util.ColorBold+statusText, util.ColorReset)
+				commonutil.ColorDim, commonutil.ColorReset,
+				statusColor, commonutil.ColorBold+statusText, commonutil.ColorReset)
 		}
 
 		// Service configuration
 		cfg := getServiceConfig()
-		fmt.Printf("  %sService Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.Name)
-		fmt.Printf("  %sDisplay Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.DisplayName)
-		fmt.Printf("  %sDescription:%s   %s\n", util.ColorDim, util.ColorReset, cfg.Description)
-		fmt.Printf("  %sData Directory:%s %s\n", util.ColorDim, util.ColorReset, cfg.WorkingDirectory)
+		fmt.Printf("  %sService Name:%s  %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.Name)
+		fmt.Printf("  %sDisplay Name:%s  %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.DisplayName)
+		fmt.Printf("  %sDescription:%s   %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.Description)
+		fmt.Printf("  %sData Directory:%s %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.WorkingDirectory)
 
 		// Try to get more details on Windows
 		if runtime.GOOS == "windows" && status == service.StatusRunning {
 			fmt.Println()
-			util.ShowInfo("Checking service details...")
+			commonutil.ShowInfo("Checking service details...")
 
 			// Use sc.exe to query service for more info
 			cmd := exec.Command("sc", "query", cfg.Name)
@@ -773,7 +779,7 @@ func handleServiceCommand(cmd string) {
 				for _, line := range lines {
 					line = strings.TrimSpace(line)
 					if strings.Contains(line, "PID") {
-						fmt.Printf("  %s%s%s\n", util.ColorDim, line, util.ColorReset)
+						fmt.Printf("  %s%s%s\n", commonutil.ColorDim, line, commonutil.ColorReset)
 					}
 				}
 			}
@@ -782,67 +788,68 @@ func handleServiceCommand(cmd string) {
 			cmd = exec.Command("wmic", "service", "where", fmt.Sprintf("name='%s'", cfg.Name), "get", "ProcessId,Started", "/value")
 			output, err = cmd.Output()
 			if err == nil {
-				fmt.Printf("  %s%s%s\n", util.ColorDim, strings.TrimSpace(string(output)), util.ColorReset)
+				fmt.Printf("  %s%s%s\n", commonutil.ColorDim, strings.TrimSpace(string(output)), commonutil.ColorReset)
 			}
 		}
 
 		fmt.Println()
 
 		// Show helpful next steps based on status
-		if status == service.StatusRunning {
-			util.ShowInfo("Service is running normally")
+		switch status {
+		case service.StatusRunning:
+			commonutil.ShowInfo("Service is running normally")
 			fmt.Println()
-			fmt.Printf("  %sWeb UI:%s http://localhost:8080 or https://localhost:8443\n", util.ColorDim, util.ColorReset)
-		} else if status == service.StatusStopped {
-			util.ShowWarning("Service is installed but not running")
+			fmt.Printf("  %sWeb UI:%s http://localhost:8080 or https://localhost:8443\n", commonutil.ColorDim, commonutil.ColorReset)
+		case service.StatusStopped:
+			commonutil.ShowWarning("Service is installed but not running")
 			fmt.Println()
-			util.ShowInfo("Use '--service start' to start the service")
-		} else {
-			util.ShowWarning("Service is not installed")
+			commonutil.ShowInfo("Use '--service start' to start the service")
+		default:
+			commonutil.ShowWarning("Service is not installed")
 			fmt.Println()
-			util.ShowInfo("Use '--service install' to install the service")
+			commonutil.ShowInfo("Use '--service install' to install the service")
 		}
 
 		fmt.Println()
-		util.PromptToContinue()
+		commonutil.PromptToContinue()
 
 	case "restart":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Fleet Management Agent")
 
-		util.ShowInfo("Stopping service...")
+		commonutil.ShowInfo("Stopping service...")
 		if err := s.Stop(); err != nil {
-			util.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
-			util.ShowCompletionScreen(false, "Restart Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Restart Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service stopped")
+		commonutil.ShowSuccess("Service stopped")
 
 		time.Sleep(1 * time.Second)
 
-		util.ShowInfo("Starting service...")
+		commonutil.ShowInfo("Starting service...")
 		if err := s.Start(); err != nil {
-			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
-			util.ShowCompletionScreen(false, "Restart Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Restart Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service started")
+		commonutil.ShowSuccess("Service started")
 
-		util.ShowCompletionScreen(true, "Service Restarted!")
+		commonutil.ShowCompletionScreen(true, "Service Restarted!")
 
 	case "update":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Fleet Management Agent")
 
 		// Stop service if running
-		util.ShowInfo("Stopping service...")
+		commonutil.ShowInfo("Stopping service...")
 		done := make(chan bool)
-		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
+		go commonutil.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
 
 		stopErr := s.Stop()
 		if stopErr != nil {
 			done <- true
-			util.ShowWarning("Service not running or already stopped")
+			commonutil.ShowWarning("Service not running or already stopped")
 		} else {
 			// Wait for service to fully stop (max 30 seconds)
 			for i := 0; i < 30; i++ {
@@ -857,52 +864,52 @@ func handleServiceCommand(cmd string) {
 				}
 			}
 			done <- true
-			util.ShowSuccess("Service stopped")
+			commonutil.ShowSuccess("Service stopped")
 		}
 
 		// Uninstall existing service
-		util.ShowInfo("Uninstalling old service...")
+		commonutil.ShowInfo("Uninstalling old service...")
 		time.Sleep(500 * time.Millisecond)
 		if err := s.Uninstall(); err != nil {
-			util.ShowWarning("Service not installed or already removed")
+			commonutil.ShowWarning("Service not installed or already removed")
 		} else {
-			util.ShowSuccess("Service uninstalled")
+			commonutil.ShowSuccess("Service uninstalled")
 		}
 
 		// Setup directories
-		util.ShowInfo("Setting up directories...")
+		commonutil.ShowInfo("Setting up directories...")
 		time.Sleep(300 * time.Millisecond)
 		if err := setupServiceDirectories(); err != nil {
-			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
-			util.ShowCompletionScreen(false, "Update Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			commonutil.ShowCompletionScreen(false, "Update Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Directories ready")
+		commonutil.ShowSuccess("Directories ready")
 
 		// Reinstall service
-		util.ShowInfo("Installing updated service...")
+		commonutil.ShowInfo("Installing updated service...")
 		time.Sleep(500 * time.Millisecond)
 		err = s.Install()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
-			util.ShowCompletionScreen(false, "Update Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Update Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service installed")
+		commonutil.ShowSuccess("Service installed")
 
 		// Start service
-		util.ShowInfo("Starting service...")
+		commonutil.ShowInfo("Starting service...")
 		time.Sleep(500 * time.Millisecond)
 		err = s.Start()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
-			util.ShowCompletionScreen(false, "Update Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Update Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service started")
+		commonutil.ShowSuccess("Service started")
 
 		// Show completion screen
-		util.ShowCompletionScreen(true, "Service Updated Successfully!")
+		commonutil.ShowCompletionScreen(true, "Service Updated Successfully!")
 
 	case "run":
 		// Run as service (called by service manager)
@@ -989,39 +996,6 @@ func runAsService() {
 	if err != nil {
 		os.Exit(1)
 	}
-}
-
-// findConfigFile looks for config.ini in multiple locations
-func findConfigFile() (string, []byte, error) {
-	// Check multiple locations in order of preference
-	var searchPaths []string
-
-	// 1. ProgramData directory (for services on Windows)
-	if runtime.GOOS == "windows" {
-		searchPaths = append(searchPaths, filepath.Join(os.Getenv("ProgramData"), "PrintMaster", "config.ini"))
-	}
-
-	// 2. System config directories (Linux/Mac)
-	if runtime.GOOS != "windows" {
-		searchPaths = append(searchPaths, "/etc/printmaster/config.ini")
-	}
-
-	// 3. Executable directory
-	if exePath, err := os.Executable(); err == nil {
-		searchPaths = append(searchPaths, filepath.Join(filepath.Dir(exePath), "config.ini"))
-	}
-
-	// 4. Current working directory
-	searchPaths = append(searchPaths, filepath.Join(".", "config.ini"))
-
-	// Try each path
-	for _, path := range searchPaths {
-		if data, err := os.ReadFile(path); err == nil {
-			return path, data, nil
-		}
-	}
-
-	return "", nil, fmt.Errorf("config.ini not found in any search path")
 }
 
 // runInteractive starts the agent in foreground mode (normal operation)
@@ -1177,7 +1151,7 @@ func runInteractive(ctx context.Context) {
 	// Secret key for encrypting local credentials
 	dataDir := filepath.Dir(dbPath)
 	secretPath := filepath.Join(dataDir, "agent_secret.key")
-	secretKey, skErr := util.LoadOrCreateKey(secretPath)
+	secretKey, skErr := commonutil.LoadOrCreateKey(secretPath)
 	if skErr != nil {
 		appLogger.Warn("Could not prepare local secret key", "error", skErr, "path", secretPath)
 	} else {
@@ -1754,28 +1728,28 @@ func runInteractive(ctx context.Context) {
 								appLogger.WarnRateLimited("trap_metrics_"+serial, 5*time.Minute, "SNMP Trap: metrics collection failed", "serial", serial, "error", err)
 							} else {
 								// Convert to storage format
-								storageSnapshot := &storage.MetricsSnapshot{
-									Serial:            agentSnapshot.Serial,
-									Timestamp:         time.Now(),
-									PageCount:         agentSnapshot.PageCount,
-									ColorPages:        agentSnapshot.ColorPages,
-									MonoPages:         agentSnapshot.MonoPages,
-									ScanCount:         agentSnapshot.ScanCount,
-									TonerLevels:       agentSnapshot.TonerLevels,
-									FaxPages:          agentSnapshot.FaxPages,
-									CopyPages:         agentSnapshot.CopyPages,
-									OtherPages:        agentSnapshot.OtherPages,
-									CopyMonoPages:     agentSnapshot.CopyMonoPages,
-									CopyFlatbedScans:  agentSnapshot.CopyFlatbedScans,
-									CopyADFScans:      agentSnapshot.CopyADFScans,
-									FaxFlatbedScans:   agentSnapshot.FaxFlatbedScans,
-									FaxADFScans:       agentSnapshot.FaxADFScans,
-									ScanToHostFlatbed: agentSnapshot.ScanToHostFlatbed,
-									ScanToHostADF:     agentSnapshot.ScanToHostADF,
-									DuplexSheets:      agentSnapshot.DuplexSheets,
-									JamEvents:         agentSnapshot.JamEvents,
-									ScannerJamEvents:  agentSnapshot.ScannerJamEvents,
-								}
+								storageSnapshot := &storage.MetricsSnapshot{}
+								storageSnapshot.Serial = agentSnapshot.Serial
+								storageSnapshot.Timestamp = time.Now()
+								storageSnapshot.PageCount = agentSnapshot.PageCount
+								storageSnapshot.ColorPages = agentSnapshot.ColorPages
+								storageSnapshot.MonoPages = agentSnapshot.MonoPages
+								storageSnapshot.ScanCount = agentSnapshot.ScanCount
+								storageSnapshot.TonerLevels = agentSnapshot.TonerLevels
+								storageSnapshot.FaxPages = agentSnapshot.FaxPages
+								storageSnapshot.CopyPages = agentSnapshot.CopyPages
+								storageSnapshot.OtherPages = agentSnapshot.OtherPages
+								storageSnapshot.CopyMonoPages = agentSnapshot.CopyMonoPages
+								storageSnapshot.CopyFlatbedScans = agentSnapshot.CopyFlatbedScans
+								storageSnapshot.CopyADFScans = agentSnapshot.CopyADFScans
+								storageSnapshot.FaxFlatbedScans = agentSnapshot.FaxFlatbedScans
+								storageSnapshot.FaxADFScans = agentSnapshot.FaxADFScans
+								storageSnapshot.ScanToHostFlatbed = agentSnapshot.ScanToHostFlatbed
+								storageSnapshot.ScanToHostADF = agentSnapshot.ScanToHostADF
+								storageSnapshot.DuplexSheets = agentSnapshot.DuplexSheets
+								storageSnapshot.JamEvents = agentSnapshot.JamEvents
+								storageSnapshot.ScannerJamEvents = agentSnapshot.ScannerJamEvents
+
 								// Save to database (error already logged in storage layer)
 								if err := deviceStore.SaveMetricsSnapshot(ctx, storageSnapshot); err == nil {
 									appLogger.Debug("SNMP Trap: collected metrics", "serial", serial)
@@ -1785,9 +1759,7 @@ func runInteractive(ctx context.Context) {
 					}
 				}(ip)
 				return true
-			}
-
-			// Call browser with 10-minute throttle window
+			} // Call browser with 10-minute throttle window
 			agent.StartSNMPTrapBrowser(ctx, h, snmpTrapSeen, 10*time.Minute)
 
 			snmpTrapMu.Lock()
@@ -1961,27 +1933,26 @@ func runInteractive(ctx context.Context) {
 			}
 
 			// Convert to storage type
-			storageSnapshot := &storage.MetricsSnapshot{
-				Serial:            agentSnapshot.Serial,
-				PageCount:         agentSnapshot.PageCount,
-				ColorPages:        agentSnapshot.ColorPages,
-				MonoPages:         agentSnapshot.MonoPages,
-				ScanCount:         agentSnapshot.ScanCount,
-				TonerLevels:       agentSnapshot.TonerLevels,
-				FaxPages:          agentSnapshot.FaxPages,
-				CopyPages:         agentSnapshot.CopyPages,
-				OtherPages:        agentSnapshot.OtherPages,
-				CopyMonoPages:     agentSnapshot.CopyMonoPages,
-				CopyFlatbedScans:  agentSnapshot.CopyFlatbedScans,
-				CopyADFScans:      agentSnapshot.CopyADFScans,
-				FaxFlatbedScans:   agentSnapshot.FaxFlatbedScans,
-				FaxADFScans:       agentSnapshot.FaxADFScans,
-				ScanToHostFlatbed: agentSnapshot.ScanToHostFlatbed,
-				ScanToHostADF:     agentSnapshot.ScanToHostADF,
-				DuplexSheets:      agentSnapshot.DuplexSheets,
-				JamEvents:         agentSnapshot.JamEvents,
-				ScannerJamEvents:  agentSnapshot.ScannerJamEvents,
-			}
+			storageSnapshot := &storage.MetricsSnapshot{}
+			storageSnapshot.Serial = agentSnapshot.Serial
+			storageSnapshot.PageCount = agentSnapshot.PageCount
+			storageSnapshot.ColorPages = agentSnapshot.ColorPages
+			storageSnapshot.MonoPages = agentSnapshot.MonoPages
+			storageSnapshot.ScanCount = agentSnapshot.ScanCount
+			storageSnapshot.TonerLevels = agentSnapshot.TonerLevels
+			storageSnapshot.FaxPages = agentSnapshot.FaxPages
+			storageSnapshot.CopyPages = agentSnapshot.CopyPages
+			storageSnapshot.OtherPages = agentSnapshot.OtherPages
+			storageSnapshot.CopyMonoPages = agentSnapshot.CopyMonoPages
+			storageSnapshot.CopyFlatbedScans = agentSnapshot.CopyFlatbedScans
+			storageSnapshot.CopyADFScans = agentSnapshot.CopyADFScans
+			storageSnapshot.FaxFlatbedScans = agentSnapshot.FaxFlatbedScans
+			storageSnapshot.FaxADFScans = agentSnapshot.FaxADFScans
+			storageSnapshot.ScanToHostFlatbed = agentSnapshot.ScanToHostFlatbed
+			storageSnapshot.ScanToHostADF = agentSnapshot.ScanToHostADF
+			storageSnapshot.DuplexSheets = agentSnapshot.DuplexSheets
+			storageSnapshot.JamEvents = agentSnapshot.JamEvents
+			storageSnapshot.ScannerJamEvents = agentSnapshot.ScannerJamEvents
 
 			// Save to database (error already logged in storage layer)
 			if err := deviceStore.SaveMetricsSnapshot(ctx, storageSnapshot); err != nil {
@@ -2270,9 +2241,22 @@ func runInteractive(ctx context.Context) {
 	// Serve static assets (CSS, JS) from embedded filesystem
 	http.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
 		// Strip /static/ prefix to get the filename
-		filePath := "web" + strings.TrimPrefix(r.URL.Path, "/static")
+		fileName := strings.TrimPrefix(r.URL.Path, "/static/")
 
-		// Read file from embedded filesystem
+		// Serve shared assets from common/web package
+		if fileName == "shared.css" {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.Write([]byte(sharedweb.SharedCSS))
+			return
+		}
+		if fileName == "shared.js" {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Write([]byte(sharedweb.SharedJS))
+			return
+		}
+
+		// Serve other files from embedded filesystem
+		filePath := "web/" + fileName
 		content, err := webFS.ReadFile(filePath)
 		if err != nil {
 			http.NotFound(w, r)
@@ -2756,7 +2740,8 @@ func runInteractive(ctx context.Context) {
 	http.HandleFunc("/database/rotation_warning", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		if r.Method == "GET" {
+		switch r.Method {
+		case "GET":
 			// Check if rotation flag is set
 			var rotationInfo map[string]interface{}
 			err := agentConfigStore.GetConfigValue("database_rotation", &rotationInfo)
@@ -2776,7 +2761,7 @@ func runInteractive(ctx context.Context) {
 				"rotated_at":  rotationInfo["rotated_at"],
 				"backup_path": rotationInfo["backup_path"],
 			})
-		} else if r.Method == "POST" {
+		case "POST":
 			// Clear the rotation warning flag
 			if err := agentConfigStore.SetConfigValue("database_rotation", nil); err != nil {
 				appLogger.Error("Failed to clear rotation warning", "error", err)
@@ -2787,7 +2772,7 @@ func runInteractive(ctx context.Context) {
 				"success": true,
 				"message": "Rotation warning cleared",
 			})
-		} else {
+		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
@@ -3121,7 +3106,7 @@ func runInteractive(ctx context.Context) {
 
 	// Endpoint: Save Web UI credentials (moved out of proxy response modifier)
 	http.HandleFunc("/device/webui-credentials", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
+		switch r.Method { //nolint:exhaustive
 		case http.MethodGet:
 			serial := r.URL.Query().Get("serial")
 			if serial == "" {
@@ -3154,7 +3139,7 @@ func runInteractive(ctx context.Context) {
 			}
 			enc := ""
 			if req.Password != "" && len(secretKey) == 32 {
-				if v, err := util.EncryptToB64(secretKey, req.Password); err == nil {
+				if v, err := commonutil.EncryptToB64(secretKey, req.Password); err == nil {
 					enc = v
 				}
 			}
@@ -3316,7 +3301,7 @@ func runInteractive(ctx context.Context) {
 				if !hasValidSession && len(secretKey) == 32 && cr.Password != "" {
 					appLogger.Info("Proxy: pre-authenticating for main page request", "serial", serial, "manufacturer", device.Manufacturer)
 					if adapter := proxy.GetAdapterForManufacturer(device.Manufacturer); adapter != nil {
-						if pw, err := util.DecryptFromB64(secretKey, cr.Password); err == nil {
+						if pw, err := commonutil.DecryptFromB64(secretKey, cr.Password); err == nil {
 							if jar, err := adapter.Login(targetURL, cr.Username, pw, appLogger); err == nil {
 								proxySessionCache.Set(serial, jar)
 								appLogger.Info("Proxy: pre-auth successful, cookies ready", "serial", serial, "manufacturer", device.Manufacturer)
@@ -3402,7 +3387,7 @@ func runInteractive(ctx context.Context) {
 					// Attempt vendor-specific login
 					if adapter := proxy.GetAdapterForManufacturer(device.Manufacturer); adapter != nil {
 						appLogger.Debug("Proxy: attempting vendor login", "manufacturer", device.Manufacturer, "serial", serial, "adapter", adapter.Name())
-						if pw, err := util.DecryptFromB64(secretKey, cr.Password); err == nil {
+						if pw, err := commonutil.DecryptFromB64(secretKey, cr.Password); err == nil {
 							if jar, err := adapter.Login(targetURL, cr.Username, pw, appLogger); err == nil {
 								sessionJar = jar
 								proxySessionCache.Set(serial, jar)
@@ -3553,7 +3538,7 @@ window.top.location.href = '/proxy/%s/';
 			// Add Authorization for Basic auth
 			if cr, err := getCreds(serial); err == nil && cr != nil && cr.AuthType == "basic" && cr.AutoLogin {
 				if len(secretKey) == 32 && cr.Password != "" {
-					if pw, err := util.DecryptFromB64(secretKey, cr.Password); err == nil {
+					if pw, err := commonutil.DecryptFromB64(secretKey, cr.Password); err == nil {
 						userpass := cr.Username + ":" + pw
 						req.Header.Set("Authorization", "Basic "+basicAuth(userpass))
 					}
@@ -4194,27 +4179,26 @@ window.top.location.href = '/proxy/%s/';
 		}
 
 		// Convert to storage type
-		storageSnapshot := &storage.MetricsSnapshot{
-			Serial:            agentSnapshot.Serial,
-			PageCount:         agentSnapshot.PageCount,
-			ColorPages:        agentSnapshot.ColorPages,
-			MonoPages:         agentSnapshot.MonoPages,
-			ScanCount:         agentSnapshot.ScanCount,
-			TonerLevels:       agentSnapshot.TonerLevels,
-			FaxPages:          agentSnapshot.FaxPages,
-			CopyPages:         agentSnapshot.CopyPages,
-			OtherPages:        agentSnapshot.OtherPages,
-			CopyMonoPages:     agentSnapshot.CopyMonoPages,
-			CopyFlatbedScans:  agentSnapshot.CopyFlatbedScans,
-			CopyADFScans:      agentSnapshot.CopyADFScans,
-			FaxFlatbedScans:   agentSnapshot.FaxFlatbedScans,
-			FaxADFScans:       agentSnapshot.FaxADFScans,
-			ScanToHostFlatbed: agentSnapshot.ScanToHostFlatbed,
-			ScanToHostADF:     agentSnapshot.ScanToHostADF,
-			DuplexSheets:      agentSnapshot.DuplexSheets,
-			JamEvents:         agentSnapshot.JamEvents,
-			ScannerJamEvents:  agentSnapshot.ScannerJamEvents,
-		}
+		storageSnapshot := &storage.MetricsSnapshot{}
+		storageSnapshot.Serial = agentSnapshot.Serial
+		storageSnapshot.PageCount = agentSnapshot.PageCount
+		storageSnapshot.ColorPages = agentSnapshot.ColorPages
+		storageSnapshot.MonoPages = agentSnapshot.MonoPages
+		storageSnapshot.ScanCount = agentSnapshot.ScanCount
+		storageSnapshot.TonerLevels = agentSnapshot.TonerLevels
+		storageSnapshot.FaxPages = agentSnapshot.FaxPages
+		storageSnapshot.CopyPages = agentSnapshot.CopyPages
+		storageSnapshot.OtherPages = agentSnapshot.OtherPages
+		storageSnapshot.CopyMonoPages = agentSnapshot.CopyMonoPages
+		storageSnapshot.CopyFlatbedScans = agentSnapshot.CopyFlatbedScans
+		storageSnapshot.CopyADFScans = agentSnapshot.CopyADFScans
+		storageSnapshot.FaxFlatbedScans = agentSnapshot.FaxFlatbedScans
+		storageSnapshot.FaxADFScans = agentSnapshot.FaxADFScans
+		storageSnapshot.ScanToHostFlatbed = agentSnapshot.ScanToHostFlatbed
+		storageSnapshot.ScanToHostADF = agentSnapshot.ScanToHostADF
+		storageSnapshot.DuplexSheets = agentSnapshot.DuplexSheets
+		storageSnapshot.JamEvents = agentSnapshot.JamEvents
+		storageSnapshot.ScannerJamEvents = agentSnapshot.ScannerJamEvents
 
 		// Save to database
 		ctx := context.Background()

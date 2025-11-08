@@ -91,7 +91,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		if authRateLimiter != nil {
 			isBlocked, shouldLog, attemptCount = authRateLimiter.RecordFailure(clientIP, tokenPrefix)
 		} else {
-			shouldLog = true
+			isBlocked, shouldLog = false, true
 		}
 
 		if serverLogger != nil && shouldLog {
@@ -135,7 +135,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		if authRateLimiter != nil {
 			isBlocked, shouldLog, attemptCount = authRateLimiter.RecordFailure(clientIP, tokenPrefix)
 		} else {
-			shouldLog = true
+			isBlocked, shouldLog = false, true
 		}
 
 		if serverLogger != nil && shouldLog {

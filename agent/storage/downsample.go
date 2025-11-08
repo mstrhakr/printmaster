@@ -452,9 +452,10 @@ func averageTonerLevels(samplesStr string) map[string]interface{} {
 			inQuotes = !inQuotes
 		}
 		if !inQuotes {
-			if char == '{' {
+			switch char {
+			case '{':
 				braceCount++
-			} else if char == '}' {
+			case '}':
 				braceCount--
 			}
 		}

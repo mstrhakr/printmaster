@@ -19,14 +19,22 @@ import (
 	"path/filepath"
 	"printmaster/common/config"
 	"printmaster/common/logger"
+	commonutil "printmaster/common/util"
+	sharedweb "printmaster/common/web"
 	"printmaster/server/storage"
-	"printmaster/server/util"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/kardianos/service"
+)
+
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+const (
+	agentContextKey contextKey = "agent"
 )
 
 //go:embed web
@@ -150,10 +158,15 @@ func main() {
 	configPath := flag.String("config", "config.toml", "Configuration file path")
 	generateConfig := flag.Bool("generate-config", false, "Generate default config file and exit")
 	showVersion := flag.Bool("version", false, "Show version information and exit")
+	quiet := flag.Bool("quiet", false, "Suppress informational output (errors still shown)")
+	flag.BoolVar(quiet, "q", false, "Shorthand for --quiet")
 
 	// Service management flags
 	svcCommand := flag.String("service", "", "Service command: install, uninstall, start, stop, restart, run")
 	flag.Parse()
+
+	// Set quiet mode globally for util functions
+	commonutil.SetQuietMode(*quiet)
 
 	// Show version if requested
 	if *showVersion {
@@ -343,190 +356,191 @@ func handleServiceCommand(cmd string) {
 	switch cmd {
 	case "install":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Central Management Server")
 
 		// Check if service already exists and handle gracefully
 		status, _ := s.Status()
 		if status != service.StatusUnknown {
-			util.ShowWarning("Service already exists, removing first...")
+			commonutil.ShowWarning("Service already exists, removing first...")
 
 			// Stop if running
 			if status == service.StatusRunning {
-				util.ShowInfo("Stopping existing service...")
+				commonutil.ShowInfo("Stopping existing service...")
 				_ = s.Stop()
 				time.Sleep(2 * time.Second)
-				util.ShowSuccess("Service stopped")
+				commonutil.ShowSuccess("Service stopped")
 			}
 
 			// Uninstall existing
-			util.ShowInfo("Removing existing service...")
+			commonutil.ShowInfo("Removing existing service...")
 			if err := s.Uninstall(); err != nil {
 				if !strings.Contains(err.Error(), "marked for deletion") {
-					util.ShowError(fmt.Sprintf("Failed to remove existing service: %v", err))
-					util.ShowCompletionScreen(false, "Installation Failed")
+					commonutil.ShowError(fmt.Sprintf("Failed to remove existing service: %v", err))
+					commonutil.ShowCompletionScreen(false, "Installation Failed")
 					os.Exit(1)
 				}
-				util.ShowWarning("Service marked for deletion, will install anyway")
+				commonutil.ShowWarning("Service marked for deletion, will install anyway")
 			} else {
-				util.ShowSuccess("Existing service removed")
+				commonutil.ShowSuccess("Existing service removed")
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
 
 		// Create service directories first
-		util.ShowInfo("Setting up directories...")
+		commonutil.ShowInfo("Setting up directories...")
 		time.Sleep(300 * time.Millisecond)
 		if err := setupServiceDirectories(); err != nil {
-			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
-			util.ShowCompletionScreen(false, "Installation Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			commonutil.ShowCompletionScreen(false, "Installation Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Directories ready")
+		commonutil.ShowSuccess("Directories ready")
 
-		util.ShowInfo("Installing service...")
+		commonutil.ShowInfo("Installing service...")
 		time.Sleep(500 * time.Millisecond)
 		err = s.Install()
 		if err != nil {
 			if strings.Contains(err.Error(), "already exists") {
-				util.ShowWarning("Service already exists (this is normal)")
+				commonutil.ShowWarning("Service already exists (this is normal)")
 			} else {
-				util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
-				util.ShowCompletionScreen(false, "Installation Failed")
+				commonutil.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+				commonutil.ShowCompletionScreen(false, "Installation Failed")
 				os.Exit(1)
 			}
 		}
-		util.ShowSuccess("Service installed")
+		commonutil.ShowSuccess("Service installed")
 
-		util.ShowCompletionScreen(true, "Service Installed!")
+		commonutil.ShowCompletionScreen(true, "Service Installed!")
 		fmt.Println()
-		util.ShowInfo("Use '--service start' to start the service")
+		commonutil.ShowInfo("Use '--service start' to start the service")
 
 	case "uninstall":
-		util.ShowBanner(Version, GitCommit, BuildTime)
-		util.ShowInfo("Uninstalling service...")
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Central Management Server")
+		commonutil.ShowInfo("Uninstalling service...")
 		err = s.Uninstall()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to uninstall service: %v", err))
-			util.ShowCompletionScreen(false, "Uninstall Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to uninstall service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Uninstall Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service uninstalled")
-		util.ShowCompletionScreen(true, "Service Uninstalled!")
+		commonutil.ShowSuccess("Service uninstalled")
+		commonutil.ShowCompletionScreen(true, "Service Uninstalled!")
 
 	case "start":
-		util.ShowBanner(Version, GitCommit, BuildTime)
-		util.ShowInfo("Starting service...")
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Central Management Server")
+		commonutil.ShowInfo("Starting service...")
 		err = s.Start()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
-			util.ShowCompletionScreen(false, "Start Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Start Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service started")
-		util.ShowCompletionScreen(true, "Service Started!")
+		commonutil.ShowSuccess("Service started")
+		commonutil.ShowCompletionScreen(true, "Service Started!")
 
 	case "stop":
-		util.ShowBanner(Version, GitCommit, BuildTime)
-		util.ShowInfo("Stopping service...")
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Central Management Server")
+		commonutil.ShowInfo("Stopping service...")
 		done := make(chan bool)
-		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
+		go commonutil.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
 		err = s.Stop()
 		done <- true
 
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
-			util.ShowCompletionScreen(false, "Stop Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to stop service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Stop Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service stopped")
-		util.ShowCompletionScreen(true, "Service Stopped!")
+		commonutil.ShowSuccess("Service stopped")
+		commonutil.ShowCompletionScreen(true, "Service Stopped!")
 
 	case "status":
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Central Management Server")
 
 		status, statusErr := s.Status()
 
 		fmt.Println()
-		util.ShowInfo("Service Status Information")
+		commonutil.ShowInfo("Service Status Information")
 		fmt.Println()
 
 		var statusText, statusColor string
-		switch status {
+		switch status { //nolint:exhaustive
 		case service.StatusRunning:
 			statusText = "RUNNING"
-			statusColor = util.ColorGreen
+			statusColor = commonutil.ColorGreen
 		case service.StatusStopped:
 			statusText = "STOPPED"
-			statusColor = util.ColorYellow
+			statusColor = commonutil.ColorYellow
 		case service.StatusUnknown:
 			statusText = "NOT INSTALLED"
-			statusColor = util.ColorRed
+			statusColor = commonutil.ColorRed
 		default:
 			statusText = "UNKNOWN"
-			statusColor = util.ColorDim
+			statusColor = commonutil.ColorDim
 		}
 
 		if statusErr != nil {
 			fmt.Printf("  %sService State:%s %s%s%s (%v)\n",
-				util.ColorDim, util.ColorReset,
-				statusColor, statusText, util.ColorReset,
+				commonutil.ColorDim, commonutil.ColorReset,
+				statusColor, statusText, commonutil.ColorReset,
 				statusErr)
 		} else {
 			fmt.Printf("  %sService State:%s %s%s%s\n",
-				util.ColorDim, util.ColorReset,
-				statusColor, util.ColorBold+statusText, util.ColorReset)
+				commonutil.ColorDim, commonutil.ColorReset,
+				statusColor, commonutil.ColorBold+statusText, commonutil.ColorReset)
 		}
 
 		cfg := getServiceConfig()
-		fmt.Printf("  %sService Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.Name)
-		fmt.Printf("  %sDisplay Name:%s  %s\n", util.ColorDim, util.ColorReset, cfg.DisplayName)
-		fmt.Printf("  %sDescription:%s   %s\n", util.ColorDim, util.ColorReset, cfg.Description)
-		fmt.Printf("  %sData Directory:%s %s\n", util.ColorDim, util.ColorReset, cfg.WorkingDirectory)
+		fmt.Printf("  %sService Name:%s  %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.Name)
+		fmt.Printf("  %sDisplay Name:%s  %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.DisplayName)
+		fmt.Printf("  %sDescription:%s   %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.Description)
+		fmt.Printf("  %sData Directory:%s %s\n", commonutil.ColorDim, commonutil.ColorReset, cfg.WorkingDirectory)
 
 		fmt.Println()
 
-		if status == service.StatusRunning {
-			util.ShowInfo("Server is running normally")
+		switch status {
+		case service.StatusRunning:
+			commonutil.ShowInfo("Server is running normally")
 			fmt.Println()
-			fmt.Printf("  %sHTTPS URL:%s https://localhost:9443\n", util.ColorDim, util.ColorReset)
-		} else if status == service.StatusStopped {
-			util.ShowWarning("Service is installed but not running")
+			fmt.Printf("  %sHTTPS URL:%s https://localhost:9443\n", commonutil.ColorDim, commonutil.ColorReset)
+		case service.StatusStopped:
+			commonutil.ShowWarning("Service is installed but not running")
 			fmt.Println()
-			util.ShowInfo("Use '--service start' to start the service")
-		} else {
-			util.ShowWarning("Service is not installed")
+			commonutil.ShowInfo("Use '--service start' to start the service")
+		default:
+			commonutil.ShowWarning("Service is not installed")
 			fmt.Println()
-			util.ShowInfo("Use '--service install' to install the service")
+			commonutil.ShowInfo("Use '--service install' to install the service")
 		}
 
 		fmt.Println()
-		util.PromptToContinue()
+		commonutil.PromptToContinue()
 
 	case "restart":
-		util.ShowBanner(Version, GitCommit, BuildTime)
-		util.ShowInfo("Restarting service...")
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Central Management Server")
+		commonutil.ShowInfo("Restarting service...")
 		err = s.Restart()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to restart service: %v", err))
-			util.ShowCompletionScreen(false, "Restart Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to restart service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Restart Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service restarted")
-		util.ShowCompletionScreen(true, "Service Restarted!")
+		commonutil.ShowSuccess("Service restarted")
+		commonutil.ShowCompletionScreen(true, "Service Restarted!")
 
 	case "update":
 		// Show banner
-		util.ShowBanner(Version, GitCommit, BuildTime)
+		commonutil.ShowBanner(Version, GitCommit, BuildTime, "Central Management Server")
 
 		// Stop service if running
-		util.ShowInfo("Stopping service...")
+		commonutil.ShowInfo("Stopping service...")
 		done := make(chan bool)
-		go util.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
+		go commonutil.AnimateProgress(0, "Stopping service (may take up to 30 seconds)", done)
 
 		stopErr := s.Stop()
 		if stopErr != nil {
 			done <- true
-			util.ShowWarning("Service not running or already stopped")
+			commonutil.ShowWarning("Service not running or already stopped")
 		} else {
 			// Wait for service to fully stop (max 30 seconds)
 			for i := 0; i < 30; i++ {
@@ -541,52 +555,52 @@ func handleServiceCommand(cmd string) {
 				}
 			}
 			done <- true
-			util.ShowSuccess("Service stopped")
+			commonutil.ShowSuccess("Service stopped")
 		}
 
 		// Uninstall existing service
-		util.ShowInfo("Uninstalling old service...")
+		commonutil.ShowInfo("Uninstalling old service...")
 		time.Sleep(500 * time.Millisecond)
 		if err := s.Uninstall(); err != nil {
-			util.ShowWarning("Service not installed or already removed")
+			commonutil.ShowWarning("Service not installed or already removed")
 		} else {
-			util.ShowSuccess("Service uninstalled")
+			commonutil.ShowSuccess("Service uninstalled")
 		}
 
 		// Setup directories
-		util.ShowInfo("Setting up directories...")
+		commonutil.ShowInfo("Setting up directories...")
 		time.Sleep(300 * time.Millisecond)
 		if err := setupServiceDirectories(); err != nil {
-			util.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
-			util.ShowCompletionScreen(false, "Update Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to setup service directories: %v", err))
+			commonutil.ShowCompletionScreen(false, "Update Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Directories ready")
+		commonutil.ShowSuccess("Directories ready")
 
 		// Reinstall service
-		util.ShowInfo("Installing updated service...")
+		commonutil.ShowInfo("Installing updated service...")
 		time.Sleep(500 * time.Millisecond)
 		err = s.Install()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to install service: %v", err))
-			util.ShowCompletionScreen(false, "Update Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to install service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Update Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service installed")
+		commonutil.ShowSuccess("Service installed")
 
 		// Start service
-		util.ShowInfo("Starting service...")
+		commonutil.ShowInfo("Starting service...")
 		time.Sleep(500 * time.Millisecond)
 		err = s.Start()
 		if err != nil {
-			util.ShowError(fmt.Sprintf("Failed to start service: %v", err))
-			util.ShowCompletionScreen(false, "Update Failed")
+			commonutil.ShowError(fmt.Sprintf("Failed to start service: %v", err))
+			commonutil.ShowCompletionScreen(false, "Update Failed")
 			os.Exit(1)
 		}
-		util.ShowSuccess("Service started")
+		commonutil.ShowSuccess("Service started")
 
 		// Show completion screen
-		util.ShowCompletionScreen(true, "Service Updated Successfully!")
+		commonutil.ShowCompletionScreen(true, "Service Updated Successfully!")
 
 	case "run":
 		// This is called by the service manager when starting the service
@@ -929,7 +943,7 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 			if authRateLimiter != nil {
 				isBlocked, shouldLog, attemptCount = authRateLimiter.RecordFailure(clientIP, tokenPrefix)
 			} else {
-				shouldLog = true // Always log if rate limiter not initialized
+				isBlocked, shouldLog = false, true // Always log if rate limiter not initialized
 			}
 
 			if serverLogger != nil && shouldLog {
@@ -971,7 +985,7 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Store agent info in request context for handlers to use
-		ctx = context.WithValue(r.Context(), "agent", agent)
+		ctx = context.WithValue(r.Context(), agentContextKey, agent)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
@@ -1302,7 +1316,7 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get authenticated agent from context
-	agent := r.Context().Value("agent").(*storage.Agent)
+	agent := r.Context().Value(agentContextKey).(*storage.Agent)
 
 	// Update agent last_seen
 	ctx := context.Background()
@@ -1378,7 +1392,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	switch r.Method {
+	switch r.Method { //nolint:exhaustive
 	case http.MethodGet:
 		agent, err := serverStore.GetAgent(ctx, agentID)
 		if err != nil {
@@ -1674,12 +1688,11 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 	stored := 0
 	for _, deviceMap := range req.Devices {
 		// Convert map to Device struct (simplified - in production, use proper unmarshaling)
-		device := &storage.Device{
-			AgentID:   req.AgentID,
-			LastSeen:  req.Timestamp,
-			FirstSeen: req.Timestamp,
-			CreatedAt: req.Timestamp,
-		}
+		device := &storage.Device{}
+		device.AgentID = req.AgentID
+		device.LastSeen = req.Timestamp
+		device.FirstSeen = req.Timestamp
+		device.CreatedAt = req.Timestamp
 
 		// Extract fields from map
 		if v, ok := deviceMap["serial"].(string); ok {
@@ -1737,7 +1750,7 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get authenticated agent from context
-	agent := r.Context().Value("agent").(*storage.Agent)
+	agent := r.Context().Value(agentContextKey).(*storage.Agent)
 
 	if serverLogger != nil {
 		serverLogger.Info("Devices stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Devices))
@@ -1808,10 +1821,9 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	stored := 0
 	for _, metricMap := range req.Metrics {
-		metric := &storage.MetricsSnapshot{
-			AgentID:   req.AgentID,
-			Timestamp: req.Timestamp,
-		}
+		metric := &storage.MetricsSnapshot{}
+		metric.AgentID = req.AgentID
+		metric.Timestamp = req.Timestamp
 
 		// Extract fields
 		if v, ok := metricMap["serial"].(string); ok {
@@ -1847,7 +1859,7 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get authenticated agent from context
-	agent := r.Context().Value("agent").(*storage.Agent)
+	agent := r.Context().Value(agentContextKey).(*storage.Agent)
 
 	if serverLogger != nil {
 		serverLogger.Info("Metrics stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Metrics))
@@ -1889,13 +1901,28 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleStatic(w http.ResponseWriter, r *http.Request) {
-	// Remove /static/ prefix to get file path
-	filePath := "web" + r.URL.Path[len("/static"):]
+	// Remove /static/ prefix to get file name
+	fileName := strings.TrimPrefix(r.URL.Path, "/static/")
 
-	// Read file from embedded FS
+	// Serve shared assets from common/web package
+	if fileName == "shared.css" {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.SharedCSS))
+		return
+	}
+	if fileName == "shared.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.SharedJS))
+		return
+	}
+
+	// Serve other files from embedded FS
+	filePath := "web/" + fileName
 	content, err := webFS.ReadFile(filePath)
 	if err != nil {
-		serverLogger.Warn("Static file not found", "path", filePath)
+		serverLogger.Warn("Static file not found", "fileName", fileName)
 		http.NotFound(w, r)
 		return
 	}
@@ -1915,28 +1942,4 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
 	w.Write(content)
-}
-
-// getDefaultDBPath returns platform-specific database path
-func getDefaultDBPath() string {
-	// Check if running in Docker (common pattern: DOCKER env var or /var/lib/printmaster exists)
-	if os.Getenv("DOCKER") == "true" || fileExists("/var/lib/printmaster") {
-		return "/var/lib/printmaster/server/printmaster.db"
-	}
-
-	switch runtime.GOOS {
-	case "windows":
-		return `C:\ProgramData\PrintMaster\server.db`
-	case "darwin":
-		home, _ := os.UserHomeDir()
-		return home + "/Library/Application Support/PrintMaster/server.db"
-	default: // linux, etc.
-		home, _ := os.UserHomeDir()
-		return home + "/.local/share/printmaster/server.db"
-	}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"printmaster/agent/util"
+	"printmaster/common/util"
 
 	"github.com/gosnmp/gosnmp"
 )
