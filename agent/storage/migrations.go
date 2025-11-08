@@ -67,6 +67,32 @@ var expectedSchema = map[string][]string{
 		"jam_events INTEGER DEFAULT 0",
 		"scanner_jam_events INTEGER DEFAULT 0",
 	},
+	// metrics_raw is the runtime name for migrated metrics; include the same
+	// expected columns so auto-migration can add missing fields to metrics_raw
+	// when upgrading older databases that already have a metrics_raw table.
+	"metrics_raw": {
+		"id INTEGER PRIMARY KEY AUTOINCREMENT",
+		"serial TEXT NOT NULL",
+		"timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+		"page_count INTEGER DEFAULT 0",
+		"color_pages INTEGER DEFAULT 0",
+		"mono_pages INTEGER DEFAULT 0",
+		"scan_count INTEGER DEFAULT 0",
+		"toner_levels TEXT",
+		"fax_pages INTEGER DEFAULT 0",
+		"copy_pages INTEGER DEFAULT 0",
+		"other_pages INTEGER DEFAULT 0",
+		"copy_mono_pages INTEGER DEFAULT 0",
+		"copy_flatbed_scans INTEGER DEFAULT 0",
+		"copy_adf_scans INTEGER DEFAULT 0",
+		"fax_flatbed_scans INTEGER DEFAULT 0",
+		"fax_adf_scans INTEGER DEFAULT 0",
+		"scan_to_host_flatbed INTEGER DEFAULT 0",
+		"scan_to_host_adf INTEGER DEFAULT 0",
+		"duplex_sheets INTEGER DEFAULT 0",
+		"jam_events INTEGER DEFAULT 0",
+		"scanner_jam_events INTEGER DEFAULT 0",
+	},
 	"scan_history": {
 		"id INTEGER PRIMARY KEY AUTOINCREMENT",
 		"serial TEXT NOT NULL",

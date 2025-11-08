@@ -491,7 +491,7 @@ docker run -d \
 
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║          PrintMaster Release Automation             ║" -ForegroundColor Cyan
+Write-Host "║           PrintMaster Release Automation             ║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
@@ -609,7 +609,7 @@ try {
     # Summary
     Write-Host ""
     Write-Host "╔══════════════════════════════════════════════════════╗" -ForegroundColor Green
-    Write-Host "║              Release Complete! 🎉                    ║" -ForegroundColor Green
+    Write-Host "║                  Release Complete!                   ║" -ForegroundColor Green
     Write-Host "╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
     Write-Host ""
     

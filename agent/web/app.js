@@ -691,38 +691,64 @@ async function loadUsageGraph(serial) {
             return;
         }
 
-        // Group by day and calculate deltas
-        const dailyData = {};
-        let prevCount = 0;
 
-        history.forEach((snap, i) => {
-            const count = snap.page_count || 0;
-            const date = new Date(snap.timestamp);
-            const dayKey = date.toISOString().split('T')[0];
+        // Convert raw snapshots to delta samples (page deltas between snapshots)
+        function snapshotsToDeltas(snaps) {
+            const deltas = [];
+            let prev = null;
+            snaps.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            snaps.forEach((s) => {
+                const count = s.page_count || 0;
+                const ts = new Date(s.timestamp);
+                if (prev !== null) {
+                    const delta = Math.max(0, count - prev.count);
+                    deltas.push({ ts: ts, pages: delta });
+                }
+                prev = { ts: ts, count: count };
+            });
+            return deltas;
+        }
 
-            // Calculate delta from previous snapshot
-            const delta = i > 0 ? Math.max(0, count - prevCount) : 0;
+        // Bucket deltas into up to `bins` buckets (summing pages per bucket)
+        function bucketDeltas(deltas, bins) {
+            if (!deltas || deltas.length === 0) return [];
+            const start = deltas[0].ts.getTime();
+            const end = deltas[deltas.length - 1].ts.getTime();
+            const span = Math.max(1, end - start);
+            const bucketMs = Math.max(1, Math.ceil(span / bins));
+            const buckets = [];
+            for (let i = 0; i < bins; i++) buckets.push({ pages: 0, ts: new Date(start + i * bucketMs) });
 
-            if (!dailyData[dayKey]) {
-                dailyData[dayKey] = { date: date, pages: 0, count: count };
-            }
-            dailyData[dayKey].pages += delta;
-            dailyData[dayKey].count = Math.max(dailyData[dayKey].count, count);
+            deltas.forEach(d => {
+                const idx = Math.min(bins - 1, Math.floor((d.ts.getTime() - start) / bucketMs));
+                buckets[idx].pages += d.pages;
+            });
 
-            prevCount = count;
-        });
+            // Filter out zero buckets to avoid empty bars when possible
+            return buckets.map(b => ({ date: b.ts, pages: b.pages })).filter(b => b.pages > 0);
+        }
 
-        // Convert to array and sort by date
-        const dataPoints = Object.values(dailyData)
-            .sort((a, b) => a.date - b.date)
-            .filter(d => d.pages > 0); // Only show days with activity
+        // Decide how many buckets to show based on container width; keep reasonable limits
+        const maxPoints = Math.max(24, Math.min(600, Math.floor((container.offsetWidth || 300) / 2)));
+
+        const deltas = snapshotsToDeltas(history);
+        let dataPoints = [];
+        if (deltas.length === 0) {
+            dataPoints = [];
+        } else if (deltas.length <= maxPoints) {
+            // Convert deltas to daily-like points if their timestamps fall on same day
+            dataPoints = deltas.map(d => ({ date: d.ts, pages: d.pages })).filter(d => d.pages > 0);
+        } else {
+            // Too many points; bucket them down to maxPoints
+            dataPoints = bucketDeltas(deltas, maxPoints);
+        }
 
         if (dataPoints.length === 0) {
-            container.innerHTML = '<div class="usage-graph-no-data">No print activity in past 7 days</div>';
+            container.innerHTML = '<div class="usage-graph-no-data">No print activity in requested range</div>';
             return;
         }
 
-        // Render SVG line graph
+        // Render SVG line graph (auto-sized / downsampled)
         renderUsageGraphSVG(container, dataPoints, serial);
 
     } catch (err) {

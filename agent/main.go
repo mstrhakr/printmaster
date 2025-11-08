@@ -4102,8 +4102,12 @@ window.top.location.href = '/proxy/%s/';
 		}
 
 		ctx := context.Background()
-		snapshots, err := deviceStore.GetMetricsHistory(ctx, serial, since, until)
+		// Use tiered metrics retrieval so the store returns the best-resolution
+		// data for the requested time range (raw/hourly/daily/monthly).
+		snapshots, err := deviceStore.GetTieredMetricsHistory(ctx, serial, since, until)
 		if err != nil {
+			// Log the error server-side to aid debugging (will appear in agent logs)
+			agent.Error(fmt.Sprintf("Failed to get metrics history: serial=%s error=%v", serial, err))
 			http.Error(w, "failed to get metrics history: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
