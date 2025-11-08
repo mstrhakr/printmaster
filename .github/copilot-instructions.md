@@ -1,17 +1,83 @@
 # Copilot Instructions for PrintMaster Project
 
-# Always check the docs, especially if we are starting a new project. 
+**PrintMaster** is a cross-platform printer fleet management system with distributed agent-server architecture. Agents discover and monitor network printers via SNMP; servers aggregate multi-site data with real-time WebSocket communication.
 
-## Cross-Platform Support
+**Key Documentation**: Always check `docs/` for detailed design docs - particularly `BUILD_WORKFLOW.md`, `PROJECT_STRUCTURE.md`, and `ROADMAP.md`.
 
-- Full cross-platform compatibility (Windows, Mac, Linux) is paramount for project success. All code, dependencies, and features must be designed, tested, and maintained to work seamlessly across supported operating systems.
+---
+
+## Architecture Overview
+
+### Component Structure
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│   Agent     │────────▶│   Server    │◀────────│   Agent     │
+│   Site A    │  API v1 │  (Central)  │  API v1 │   Site B    │
+│  (Go+Web)   │ WebSocket│ (Go+SQLite) │WebSocket│  (Go+Web)   │
+└─────────────┘         └─────────────┘         └─────────────┘
+```
+
+**Agent** (`agent/`): Standalone binary with embedded web UI, discovers printers via SNMP/mDNS/WS-Discovery, stores locally in SQLite, optionally reports to server
+**Server** (`server/`): Central hub for multi-agent management, aggregates devices/metrics, WebSocket proxy for remote device access, web UI for fleet view
+**Common** (`common/`): Shared packages (logger, config) used by both components
+
+### Critical Data Flows
+
+**Agent Identity System** (stable UUID + display name):
+- Agent generates UUID once on first run → persisted to `{datadir}/agent_id`
+- Registration sends both UUID (stable) and name (configurable)
+- Proxy URLs use UUID to remain stable when names change
+- See `agent/config.go::LoadOrGenerateAgentID()`
+
+**Discovery Pipeline** (3-stage):
+1. **Liveness**: Fast TCP port probe (80/443/9100) → filter alive hosts
+2. **Detection**: Compact SNMP query (serial number only) → confirm printer
+3. **Deep Scan**: Full SNMP walk → collect all device metadata
+- See `agent/scanner/pipeline.go` for pool architecture
+- See `agent/scanner/detector.go` for stage functions
+
+**Device-to-Metrics Separation** (schema v7+):
+- Device table: Identity/network info (Serial, IP, Model, MAC) - relatively static
+- Metrics table: Time-series data (PageCount, TonerLevels) - high update frequency
+- Downsampling: raw → hourly → daily → monthly (Netdata-style tiering)
+- See `agent/storage/sqlite.go` schema and `server/storage/types.go`
+
+**WebSocket Proxy** (server-to-agent tunneling):
+- Server proxies HTTP requests through WebSocket to access agent/device UIs
+- Prevents infinite loops via `X-PrintMaster-Proxied` meta tag injection
+- See `server/main.go::proxyThroughWebSocket()` and `server/websocket.go`
+
+---
+
+## Cross-Platform Requirements
+
+- **Full cross-platform support is mandatory** (Windows, Mac, Linux)
+- Pure Go dependencies only (no CGO) - use `modernc.org/sqlite` not `mattn/go-sqlite3`
+- Platform-specific paths: Use `config.GetDataDirectory()` from `common/config/`
+- Test on all platforms before major releases
+
+---
 
 ## Code Organization & Best Practices
 
-- Prioritize clean, professional, and maintainable code
-- Modular code is good, Smaller file sizes where appropriate, if you think you should pull out a module you should ask about it. keep main down in size when you can/should
-- Follow industry standards and best practices for Go and UI development
-- Organize code by feature and responsibility (e.g., agent logic, UI, utilities)
+### Module Structure
+- `agent/main.go`: HTTP server, UI, API endpoints (keep lean, extract logic to packages)
+- `agent/agent/`: Discovery protocols (mDNS, SSDP, WS-Discovery, SNMP traps, LLMNR, ARP)
+- `agent/scanner/`: SNMP querying, 3-stage pipeline, device detection
+- `agent/storage/`: SQLite persistence (DeviceStore, AgentConfigStore interfaces)
+- `agent/upload_worker.go`: Background worker for server communication
+- `server/main.go`: HTTP/WebSocket handlers, agent management
+- `server/storage/`: Server-side SQLite (Agent, Device, Metrics tables)
+- `server/websocket.go`: WebSocket connection management and proxy protocol
+
+### Key Patterns
+- **Interface-based design**: `storage.DeviceStore`, `scanner.SNMPClient` for testability
+- **Dependency injection**: Pass interfaces to constructors (see `UploadWorker`, `Scanner`)
+- **Context propagation**: Use `context.Context` for cancellation/timeout (all SNMP queries)
+- **Embed for UI**: `//go:embed web` for bundling static assets
+- **Structured logging**: Use `common/logger` with SSE streaming to UI
+
+---
 
 ## Testing Guidelines
 
@@ -22,31 +88,104 @@
 - Ensure tests are independent and don't share mutable state when running in parallel
 
 ### Running Tests
-
 - **ALWAYS use the `runTests` tool** instead of terminal commands for running tests
 - If tests pass or fail, the code already built successfully (compilation verified)
 - Use `runTests` with specific file paths to run targeted tests
 - Only use terminal for non-test commands (benchmarks, manual builds, etc.)
 - The `runTests` tool is pre-approved and won't prompt for user confirmation
 
-## UI Architecture
+### Test Architecture
+- `tests/http_api_test.go`: E2E agent registration, heartbeat, device upload
+- `tests/websocket_proxy_test.go`: WebSocket proxy flow, error handling, HTML meta injection
+- Mock interfaces: `scanner.SNMPClient`, `storage.DeviceStore` for unit tests
+- Use `httptest.NewServer()` for HTTP endpoint testing
 
-- Desktop UI should only be implemented if it is easy and fully cross-platform (Windows, Mac, Linux). Prioritize web UI for universal compatibility.
-- Avoid tightly coupling UI and agent logic
-- Use interfaces and dependency injection for testability
-- Document all exported functions, types, and modules
-- Use consistent formatting (`gofmt`) and linting (`golint`)
-- Maintain up-to-date documentation and roadmap files
-- Scaffold tests for all major features and keep coverage high
+---
 
-## Project Structure
+## Build & Release Workflow
 
-## Data Storage Plan
+### Daily Development
+```powershell
+# Build agent (dev mode with debug info)
+.\build.ps1 agent
 
-- Use in-memory storage (Go slice/map) for discovered printer info before uploading to server
-- Prioritize lightweight, fast, and dependency-free agent operation
-- Consider persistent storage (SQLite/BoltDB) only if needed for reliability or advanced features
-- Utilities and helpers in a separate package
+# Build server
+.\build.ps1 server
+
+# Build both
+.\build.ps1 both
+
+# Run all tests
+.\build.ps1 test-all
+
+# Check project status (versions, git, processes)
+.\status.ps1
+```
+
+**Build script features**:
+- Automatically injects version, git commit, build time via `-ldflags`
+- Dev builds: Full debug info, no stripping
+- Release builds: Optimized, stripped symbols
+- See `build.ps1` for implementation
+
+### VS Code Integration
+**Tasks (Ctrl+Shift+B)**:
+- Build: Agent/Server/Both (Dev)
+- Test: Agent/Server (all)
+- Release: Agent/Server/Both Patch/Minor/Major
+- Git: Status/Commit/Push/Pull
+
+**Launch Configs (F5)**:
+- Debug: Agent (Default Port), Server (Default Port), Agent + Server Together
+- All configs auto-kill existing processes via preLaunchTask
+
+### Making Releases
+**CRITICAL: Use `release.ps1` for all version bumps - NEVER edit VERSION files manually**
+
+```powershell
+# Patch release (0.1.0 → 0.1.1) - Bug fixes
+.\release.ps1 agent patch
+
+# Minor release (0.1.0 → 0.2.0) - New features
+.\release.ps1 agent minor
+
+# Major release (0.1.0 → 1.0.0) - Breaking changes
+.\release.ps1 agent major
+
+# Release both components together
+.\release.ps1 both patch
+```
+
+**What `release.ps1` does**:
+1. ✅ Checks git status (warns if uncommitted changes)
+2. ✅ Bumps version in VERSION file(s) using SemVer
+3. ✅ Runs all tests (fails if any test fails)
+4. ✅ Builds optimized release binary
+5. ✅ Commits VERSION file with message "chore: Release agent v0.2.0"
+6. ✅ Creates git tag (v0.2.0 for agent, server-v0.2.0 for server)
+7. ✅ Pushes commit and tags to GitHub
+
+**Flags**:
+- `--DryRun`: Preview without executing
+- `--SkipTests`: Skip test execution (NOT recommended)
+- `--SkipPush`: Commit/tag locally but don't push
+
+### Git Workflow
+**Commit message conventions** (Conventional Commits):
+- `feat:` - New features
+- `fix:` - Bug fixes
+- `docs:` - Documentation only
+- `chore:` - Maintenance (version bumps, deps)
+- `refactor:` - Code restructuring without behavior change
+- `test:` - Test additions/changes
+
+**Copilot should**:
+- Suggest `release.ps1` when user asks to "bump version" or "make a release"
+- Remind user to commit working changes before releasing
+- Use git commands directly for normal commits, but ALWAYS use `release.ps1` for releases
+- Check `.\status.ps1` output when unclear about project state
+
+---
 
 ## Tool Usage Priority
 
@@ -61,208 +200,116 @@
   - Non-Go commands (git, npm, etc.)
   - Background processes (servers, watch mode)
 
-## Terminal Usage Guidelines
-
-- **ALWAYS check the terminal's current working directory before running commands**
-- Use the terminal context provided to know where you are (Cwd field)
+### Terminal Usage Guidelines
+- **ALWAYS check terminal's current working directory before running commands**
+- Use terminal context provided (Cwd field)
 - **CRITICAL: Use ONLY absolute paths with `cd` command - NEVER use relative paths**
   - ✅ Correct: `cd C:\temp\printmaster\agent`
   - ❌ Wrong: `cd agent` or `cd ..\agent` or `cd .\storage`
 - If you need to change directories:
   1. Check current Cwd from terminal context
-  2. Determine the full absolute path needed
+  2. Determine full absolute path needed
   3. Use `cd <absolute-path>` with complete path
-- Never assume you're in a specific directory - verify first by checking Cwd
-- Example: If Cwd is `C:\temp\printmaster\agent` and you need storage subdirectory, use `cd C:\temp\printmaster\agent\storage` (NOT `cd storage`)
 
-## Build and Compilation
-
+### Build and Compilation
 - **If tests pass or fail, compilation was already successful**
 - Don't run separate `go build` commands after successful test runs
 - Use `get_errors` tool to check for compile-time errors before running tests
 - Test execution implies successful build of the tested package
 
+---
+
+## Database Schema & Migrations
+
+### Current Schema Version: 8 (Nov 2025)
+**Key tables**:
+- `devices`: Identity/network info (Serial PK, IP, Manufacturer, Model, Hostname, Firmware, MAC, etc.)
+- `metrics_history`: Time-series data (Timestamp, Serial FK, PageCount, ColorPages, TonerLevels JSON)
+- `metrics_hourly`, `metrics_daily`, `metrics_monthly`: Downsampled aggregates
+- `agents` (server): AgentID (UUID) PK, Name (display), Hostname, Token, Platform, Version
+- `scan_history`: Audit trail of device state changes
+
+### Migration Strategy
+- **Schema migrations are idempotent** - safe to run multiple times
+- **Automatic database rotation on failure**: If migration fails, old DB is backed up and new one created
+- User notification via UI warnings (see `agent/web/app.js::checkDatabaseRotationWarning()`)
+- Count-based backup cleanup (keeps 10 most recent)
+- See `agent/storage/sqlite.go::initSchema()` for migration logic
+
+### Key Schema Decisions
+- **NO PageCount/TonerLevels in devices table** (removed in schema v7) - moved to metrics_history for time-series
+- **IsSaved bool**: Discovered devices can be "saved" to persist across clears
+- **Visible bool**: Soft-delete for devices (hidden but not deleted)
+- **Agent UUID separation**: agent_id (stable UUID) vs name (user-configurable display name)
+
+---
+
 ## Project Structure Reference
 
 ```
-c:\temp\printmaster\
-├── agent\                      # Main Go module (go.mod here)
-│   ├── main.go                 # HTTP server, embedded UI
-│   ├── agent\                  # Core discovery logic
-│   ├── storage\               # Database layer (SQLite)
-│   ├── logger\                # Structured logging
-│   ├── scanner\               # Network scanning
-│   ├── util\                  # Helpers
-│   └── tools\                 # CLI utilities
-├── .github\
-│   └── copilot-instructions.md # This file
-├── docs\                      # Documentation
-├── .vscode\
-│   └── tasks.json             # Build tasks
-└── logs\                      # Runtime logs
+printmaster/
+├── agent/                      # Main Go module (go.mod here)
+│   ├── main.go                 # HTTP server, embedded UI, SSE hub
+│   ├── upload_worker.go        # Background server sync (heartbeat/upload)
+│   ├── agent/                  # Discovery logic (mDNS, SSDP, WS-Discovery, LLMNR, ARP)
+│   ├── scanner/                # SNMP pipeline (liveness → detection → deep scan)
+│   │   ├── pipeline.go         # 3-stage worker pools
+│   │   ├── detector.go         # Detection/deep-scan functions
+│   │   ├── query.go            # SNMP query execution
+│   │   └── capabilities/       # Device capability detection
+│   ├── storage/                # SQLite persistence
+│   │   ├── sqlite.go           # Database operations
+│   │   ├── interface.go        # DeviceStore/AgentConfigStore interfaces
+│   │   └── agent_config.go     # Settings CRUD
+│   ├── proxy/                  # WebSocket proxy (agent-side)
+│   ├── util/                   # Helpers (parsing, encryption)
+│   ├── tools/                  # CLI utilities (MIB walk aggregation, etc.)
+│   └── web/                    # Embedded web UI (app.js, styles.css, index.html)
+├── server/                     # Server Go module (separate go.mod)
+│   ├── main.go                 # HTTP/WebSocket handlers, registration
+│   ├── websocket.go            # WebSocket connection management, proxy protocol
+│   ├── storage/                # Server-side SQLite (Agent, Device, Metrics tables)
+│   │   ├── types.go            # Data structures, Store interface
+│   │   └── sqlite.go           # Database operations
+│   └── web/                    # Embedded server web UI
+├── common/                     # Shared packages (logger, config)
+│   ├── logger/                 # Structured logging with SSE streaming
+│   └── config/                 # Platform-aware config paths
+├── tests/                      # E2E integration tests
+│   ├── http_api_test.go        # Agent registration, heartbeat, device upload
+│   └── websocket_proxy_test.go # WebSocket proxy flow, HTML injection
+├── docs/                       # Comprehensive documentation
+│   ├── BUILD_WORKFLOW.md       # Build, test, release procedures ⭐
+│   ├── PROJECT_STRUCTURE.md    # Module descriptions
+│   ├── ROADMAP.md              # Version milestones, feature plans
+│   └── [30+ design docs]
+├── build.ps1                   # Build automation
+├── release.ps1                 # Release automation
+├── status.ps1                  # Project status checker
+└── VERSION / server/VERSION    # Semantic version files
 ```
 
-## Key Database Schema
-
-### storage.Device
-
-- 26 fields: Serial (PK), IP, Manufacturer, Model, Hostname, Firmware, MACAddress, etc.
-- NO PageCount, NO TonerLevels (removed in schema v7 - moved to metrics_history)
-- IsSaved bool, Visible bool for filtering
-
-### storage.MetricsSnapshot
-
-- Timestamp, Serial, PageCount, ColorPages, MonoPages, ScanCount
-- TonerLevels map[string]interface{}
-- Time-series data separated from device identity in metrics_history table
-
-## Build & Release Workflow
-
-### Daily Development Workflow
-
-**Use the new automation tools for all build and release tasks:**
-
-1. **Building Code**:
-
-   - Use VS Code tasks (Ctrl+Shift+B) → "Build: Agent (Dev)" or "Build: Server (Dev)"
-   - Or run: `.\build.ps1 agent` / `.\build.ps1 server` / `.\build.ps1 both`
-   - Build script automatically injects version, git commit, build time into binaries
-2. **Running Tests**:
-
-   - ALWAYS use `runTests` tool for Go tests (pre-approved, no prompts)
-   - Or use VS Code task: "Test: Agent (all)" / "Test: Server (all)"
-   - Tests must pass before any release
-3. **Debugging**:
-
-   - Use VS Code launch configs (F5)
-   - Available: "Debug: Agent (Default Port)", "Debug: Server (Default Port)", "Debug: Agent + Server Together"
-   - All configs auto-kill existing processes via preLaunchTask
-4. **Checking Status**:
-
-   - Run `.\status.ps1` to see versions, git status, build artifacts, running processes
-   - Use before starting work or before making releases
-
-### Making Releases
-
-**IMPORTANT: Use `release.ps1` for all version bumps and releases**
-
-**When to Release:**
-
-- **PATCH** (0.1.0 → 0.1.1): After bug fixes, performance improvements, docs updates
-- **MINOR** (0.1.0 → 0.2.0): After adding new features (backward compatible)
-- **MAJOR** (0.1.0 → 1.0.0): After breaking changes or API changes (rare pre-1.0)
-
-**How to Release:**
-
-```powershell
-# Patch release (bug fixes)
-.\release.ps1 agent patch
-
-# Minor release (new features)
-.\release.ps1 agent minor
-
-# Major release (breaking changes)
-.\release.ps1 agent major
-
-# Release server component
-.\release.ps1 server patch
-
-# Release both components together
-.\release.ps1 both patch
-```
-
-**What `release.ps1` Does Automatically:**
-
-1. ✅ Checks git status (warns if uncommitted changes)
-2. ✅ Bumps version in VERSION file(s) (using SemVer)
-3. ✅ Runs all tests (fails if any test fails)
-4. ✅ Builds optimized release binary (stripped, production-ready)
-5. ✅ Commits VERSION file with message like "chore: Release agent v0.2.0"
-6. ✅ Creates git tag (e.g., v0.2.0 for agent, server-v0.2.0 for server)
-7. ✅ Pushes commit and tags to GitHub
-
-**Release Flags:**
-
-- `--DryRun` - Preview what would happen without doing it
-- `--SkipTests` - Skip test execution (NOT recommended!)
-- `--SkipPush` - Commit and tag locally but don't push to GitHub
-
-**Release Checklist for Copilot:**
-
-- [ ] Ask user which component (agent/server/both) and bump type (patch/minor/major)
-- [ ] Ensure working directory is clean (or warn user)
-- [ ] Let `release.ps1` handle the entire workflow
-- [ ] DO NOT manually edit VERSION files - let the script do it
-- [ ] DO NOT manually commit/tag - let the script do it
-- [ ] After successful release, verify with `git log --oneline -1` and `git tag -l`
-
-### Git Workflow Integration
-
-**When making code changes:**
-
-1. Make changes and test locally (`.\build.ps1 agent`, `runTests`)
-2. Commit regularly with meaningful messages:
-   - `feat:` for new features
-   - `fix:` for bug fixes
-   - `docs:` for documentation
-   - `chore:` for maintenance tasks
-   - `refactor:` for code restructuring
-3. Push to GitHub: `git push`
-4. When ready to release: Use `.\release.ps1` (never manual version bumps)
-
-**Available VS Code Git Tasks:**
-
-- "Git: Status" - Check current status
-- "Git: Commit All" - Stage and commit all changes
-- "Git: Push" - Push to GitHub
-- "Git: Pull" - Pull latest changes
-
-**Copilot Should:**
-
-- Suggest using `release.ps1` when user asks to "bump version" or "make a release"
-- Remind user to commit working changes before releasing
-- Use git commands directly for normal commits, but ALWAYS use `release.ps1` for releases
-- Check `.\status.ps1` output when unclear about project state
-
-### VS Code Integration Reference
-
-**Tasks (Ctrl+Shift+B):**
-
-- Build: Agent/Server/Both (Dev)
-- Test: Agent/Server (all)
-- Release: Agent/Server/Both Patch/Minor/Major
-- Git: Status/Commit/Push/Pull
-- Utility: Kill processes, Show logs, Show version
-
-**Launch Configs (F5):**
-
-- Debug: Agent (Default Port) / Agent (Port 9090) / Agent (Custom Config)
-- Debug: Server (Default Port) / Server (Port 8080)
-- Debug: Current Test Function / All Tests in Package
-- Debug: Agent + Server Together (compound config)
-
-**Helper Scripts:**
-
-- `status.ps1` - Quick project overview
-- `build.ps1` - Build components (dev or release mode)
-- `release.ps1` - Automated release workflow
-- `version.ps1` - Show current versions
+---
 
 ## Contribution Guidelines
 
 - All code should be clean, well-documented, and follow project structure
-- New features should include tests and documentation
-- Roadmap and structure files should be updated with major changes
-- Use `release.ps1` for all version bumps and releases (never manual)
-- Commit often with conventional commit messages (feat:, fix:, docs:, chore:)
+- New features should include tests and documentation updates
+- Update `docs/ROADMAP.md` when completing milestones
+- Use `release.ps1` for all version bumps (never manual VERSION edits)
+- Commit often with conventional commit messages (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`)
 - Test locally before pushing (`runTests` tool or VS Code tasks)
+- Keep `main.go` files lean - extract complex logic to packages
 
 ## Documentation Reference
 
-- `docs/BUILD_WORKFLOW.md` - Complete build, test, and release guide
+- `docs/BUILD_WORKFLOW.md` - Complete build, test, and release guide ⭐
+- `docs/PROJECT_STRUCTURE.md` - Module descriptions and file organization
+- `docs/ROADMAP.md` - Version milestones and feature roadmap
+- `docs/API.md` - HTTP API reference
+- `docs/CONFIGURATION.md` - Config file reference
 - `GIT_INTEGRATION_SUMMARY.md` - Git/GitHub integration reference
-- `docs/ROADMAP_TO_1.0.md` - Feature roadmap and milestones
 
 ---
 
-These instructions ensure the project remains organized, professional, and easy to maintain as it grows. The automated build and release workflow keeps versioning consistent and reduces human error.
+**These instructions ensure the project remains organized, professional, and maintainable. The automated build/release workflow keeps versioning consistent and reduces human error.**
