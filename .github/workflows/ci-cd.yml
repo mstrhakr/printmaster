@@ -62,9 +62,49 @@ jobs:
         flags: ${{ matrix.component }}
         fail_ci_if_error: false
 
+  test-e2e:
+    name: Run E2E Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-e2e-${{ hashFiles('tests/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-e2e-
+      continue-on-error: true
+    
+    - name: Download E2E test dependencies
+      working-directory: ./tests
+      run: go mod download
+    
+    - name: Run E2E tests
+      working-directory: ./tests
+      run: go test -v -count=1 ./...
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-test-results
+        path: tests/*.log
+        if-no-files-found: ignore
+
   build-binaries:
     name: Build Release Binaries
-    needs: test
+    needs: [test, test-e2e]
     if: github.event_name == 'release'
     runs-on: ${{ matrix.os }}
     strategy:
@@ -140,7 +180,7 @@ jobs:
 
   build-docker:
     name: Build and Push Docker Images
-    needs: test
+    needs: [test, test-e2e]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release'
     permissions:
