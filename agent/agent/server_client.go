@@ -101,9 +101,10 @@ func (c *ServerClient) GetServerURL() string {
 
 // Register performs initial agent registration with the server
 // Returns the authentication token on success
-func (c *ServerClient) Register(ctx context.Context, version string) (string, error) {
+func (c *ServerClient) Register(ctx context.Context, version, name string) (string, error) {
 	type RegisterRequest struct {
 		AgentID         string `json:"agent_id"`
+		Name            string `json:"name,omitempty"` // User-friendly name
 		AgentVersion    string `json:"agent_version"`
 		ProtocolVersion string `json:"protocol_version"`
 		Hostname        string `json:"hostname"`
@@ -131,6 +132,7 @@ func (c *ServerClient) Register(ctx context.Context, version string) (string, er
 
 	req := RegisterRequest{
 		AgentID:         c.AgentID,
+		Name:            name,
 		AgentVersion:    version,
 		ProtocolVersion: "1",
 		Hostname:        hostname,

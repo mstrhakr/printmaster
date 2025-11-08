@@ -2152,19 +2152,41 @@ func runInteractive(ctx context.Context) {
 	// Load server configuration from TOML and start upload worker
 	var uploadWorker *UploadWorker
 	if agentConfig != nil && agentConfig.Server.Enabled {
-		appLogger.Info("Server integration enabled",
-			"url", agentConfig.Server.URL,
-			"agent_id", agentConfig.Server.AgentID,
-			"ca_path", agentConfig.Server.CAPath,
-			"upload_interval", agentConfig.Server.UploadInterval,
-			"heartbeat_interval", agentConfig.Server.HeartbeatInterval)
-
-		// Load authentication token from file
+		// Get or generate stable agent ID
 		dataDir, err := config.GetDataDirectory("agent", true)
 		if err != nil {
 			appLogger.Error("Failed to get data directory", "error", err)
 			return
 		}
+
+		// Load or generate agent UUID (stable identifier)
+		agentID := agentConfig.Server.AgentID
+		if agentID == "" {
+			agentID, err = LoadOrGenerateAgentID(dataDir)
+			if err != nil {
+				appLogger.Error("Failed to generate agent ID", "error", err)
+				return
+			}
+			appLogger.Info("Generated new agent ID", "agent_id", agentID)
+			// Note: We don't save back to config file - agent_id is persisted separately
+		}
+
+		// Use Name field for display purposes, default to hostname if not set
+		agentName := agentConfig.Server.Name
+		if agentName == "" {
+			hostname, _ := os.Hostname()
+			agentName = hostname
+		}
+
+		appLogger.Info("Server integration enabled",
+			"url", agentConfig.Server.URL,
+			"agent_id", agentID,
+			"agent_name", agentName,
+			"ca_path", agentConfig.Server.CAPath,
+			"upload_interval", agentConfig.Server.UploadInterval,
+			"heartbeat_interval", agentConfig.Server.HeartbeatInterval)
+
+		// Load authentication token from file
 		token := LoadServerToken(dataDir)
 		if token == "" {
 			appLogger.Debug("No saved server token found")
@@ -2174,13 +2196,14 @@ func runInteractive(ctx context.Context) {
 		go func() {
 			serverClient := agent.NewServerClientWithCAAndSkipVerify(
 				agentConfig.Server.URL,
-				agentConfig.Server.AgentID,
+				agentID, // Use stable UUID
 				token,
 				agentConfig.Server.CAPath,
 				agentConfig.Server.InsecureSkipVerify,
 			)
 
 			workerConfig := UploadWorkerConfig{
+				AgentName:         agentName,
 				HeartbeatInterval: time.Duration(agentConfig.Server.HeartbeatInterval) * time.Second,
 				UploadInterval:    time.Duration(agentConfig.Server.UploadInterval) * time.Second,
 				RetryAttempts:     3,

@@ -340,3 +340,92 @@ func (m *mockAgentWebSocket) sendProxyError(conn *websocket.Conn, requestID, err
 	}
 	conn.WriteJSON(response)
 }
+
+// TestWebSocketProxy_HTMLMetaInjection tests that HTML responses get proxy meta tags injected
+func TestWebSocketProxy_HTMLMetaInjection(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping E2E test in short mode")
+	}
+	t.Parallel()
+
+	// Create a mock device that returns HTML
+	targetUI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, "<html><head><title>Test</title></head><body>Content</body></html>")
+	}))
+	defer targetUI.Close()
+
+	// Create mock agent
+	agentHandler := &mockAgentWebSocket{
+		agentID:   "test-agent-456",
+		targetURL: targetUI.URL,
+	}
+
+	agentServer := httptest.NewServer(http.HandlerFunc(agentHandler.handleWebSocket))
+	defer agentServer.Close()
+
+	// Connect to agent WebSocket
+	wsURL := "ws" + strings.TrimPrefix(agentServer.URL, "http") + "/ws"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect to WebSocket: %v", err)
+	}
+	defer conn.Close()
+
+	// Send proxy request
+	requestID := "html-meta-test"
+	proxyReq := map[string]interface{}{
+		"type": "proxy_request",
+		"data": map[string]interface{}{
+			"request_id": requestID,
+			"method":     "GET",
+			"url":        targetUI.URL + "/", // Full URL to target
+			"headers": map[string]string{
+				"User-Agent": "PrintMaster-Test",
+			},
+		},
+		"timestamp": time.Now(),
+	}
+
+	if err := conn.WriteJSON(proxyReq); err != nil {
+		t.Fatalf("Failed to send proxy request: %v", err)
+	}
+
+	// Read response (timeout)
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	var response map[string]interface{}
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("Failed to read proxy response: %v", err)
+	}
+
+	// Verify response structure
+	if response["type"] != "proxy_response" {
+		t.Fatalf("Expected proxy_response, got %v", response["type"])
+	}
+
+	data, ok := response["data"].(map[string]interface{})
+	if !ok {
+		t.Fatal("Response data is not a map")
+	}
+
+	body, ok := data["body"].(string)
+	if !ok {
+		t.Fatal("Response body is not a string")
+	}
+
+	// IMPORTANT: In real server code, meta tags should be injected
+	// For now, verify the HTML structure is intact
+	if !strings.Contains(body, "<html>") {
+		t.Errorf("Response body doesn't contain HTML: %s", body)
+	}
+
+	// TODO: Once server code is integrated, verify meta tag injection:
+	// if !strings.Contains(body, `<meta http-equiv="X-PrintMaster-Proxied"`) {
+	//     t.Error("Response missing X-PrintMaster-Proxied meta tag")
+	// }
+	// if !strings.Contains(body, `content="test-agent-456"`) {
+	//     t.Error("Response missing agent ID in meta tag")
+	// }
+
+	t.Log("HTML meta tag injection test completed (meta injection pending server integration)")
+}

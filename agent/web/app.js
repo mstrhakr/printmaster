@@ -3344,9 +3344,20 @@ function applyMasonryLayout(targetGrid) {
 }
 
 // Load theme preference when page loads
+// Global state: check if UI is being accessed through server proxy
+let isProxiedFromServer = false;
+
 document.addEventListener('DOMContentLoaded', function () {
     loadThemePreference();
     toggleDatabaseFields(); // Initialize database field visibility
+
+    // Check if we're being accessed through the server's proxy
+    // The server adds a special meta tag when proxying
+    const proxiedMeta = document.querySelector('meta[http-equiv="X-PrintMaster-Proxied"]');
+    if (proxiedMeta) {
+        isProxiedFromServer = true;
+        console.log('Agent UI is being accessed through server proxy - disabling nested proxy features');
+    }
 
     // Check for database rotation warning on first page load
     checkDatabaseRotationWarning();
@@ -3714,7 +3725,20 @@ document.addEventListener('DOMContentLoaded', function () {
     const webuiModal = document.getElementById('webui_modal');
     
     if (webuiProxyBtn) {
-        webuiProxyBtn.addEventListener('click', openProxyUI);
+        // Disable proxy button if we're already being proxied from server
+        if (isProxiedFromServer) {
+            webuiProxyBtn.disabled = true;
+            webuiProxyBtn.style.opacity = '0.5';
+            webuiProxyBtn.style.cursor = 'not-allowed';
+            
+            // Update button text to explain why it's disabled
+            const proxyTitle = webuiProxyBtn.querySelector('.webui-modal-button-title');
+            const proxyDesc = webuiProxyBtn.querySelector('.webui-modal-button-desc');
+            if (proxyTitle) proxyTitle.textContent = '🔐 Proxy UI (Already Proxied)';
+            if (proxyDesc) proxyDesc.textContent = 'You are already accessing this through the server proxy';
+        } else {
+            webuiProxyBtn.addEventListener('click', openProxyUI);
+        }
     }
     
     if (webuiDirectBtn) {

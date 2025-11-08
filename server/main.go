@@ -1010,6 +1010,7 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		AgentID         string `json:"agent_id"`
+		Name            string `json:"name,omitempty"` // User-friendly name (optional)
 		AgentVersion    string `json:"agent_version"`
 		ProtocolVersion string `json:"protocol_version"`
 		Hostname        string `json:"hostname"`
@@ -1058,8 +1059,15 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save agent to database with token
+	// Use Name if provided, otherwise default to Hostname
+	agentName := req.Name
+	if agentName == "" {
+		agentName = req.Hostname
+	}
+
 	agent := &storage.Agent{
 		AgentID:         req.AgentID,
+		Name:            agentName,
 		Hostname:        req.Hostname,
 		IP:              req.IP,
 		Platform:        req.Platform,
@@ -1390,12 +1398,30 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 			}
 		}
 
+		// Add custom header to indicate this is a proxied response
+		// Agent UI can check for this header and disable device proxy buttons
+		w.Header().Set("X-PrintMaster-Proxied", "true")
+		w.Header().Set("X-PrintMaster-Agent-ID", agentID)
+
 		w.WriteHeader(statusCode)
 
 		// Write response body
 		if bodyB64, ok := resp.Data["body"].(string); ok {
 			bodyBytes, err := base64.StdEncoding.DecodeString(bodyB64)
 			if err == nil {
+				// If this is HTML, inject a meta tag so JavaScript can detect proxy state
+				contentType := w.Header().Get("Content-Type")
+				if strings.Contains(strings.ToLower(contentType), "text/html") {
+					bodyStr := string(bodyBytes)
+					// Inject meta tag after <head> tag
+					headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
+					if headIdx != -1 {
+						insertPos := headIdx + 6 // len("<head>")
+						metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">`
+						bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
+						bodyBytes = []byte(bodyStr)
+					}
+				}
 				w.Write(bodyBytes)
 			}
 		}

@@ -72,6 +72,7 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE TABLE IF NOT EXISTS agents (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		agent_id TEXT NOT NULL UNIQUE,
+		name TEXT NOT NULL DEFAULT '',
 		hostname TEXT NOT NULL,
 		ip TEXT NOT NULL,
 		platform TEXT NOT NULL,
@@ -167,6 +168,10 @@ func (s *SQLiteStore) initSchema() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Add name column if it doesn't exist (migration for existing databases)
+	// SQLite will error if column exists, so we ignore that specific error
+	_, _ = s.db.Exec("ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+
 	// Check/update schema version
 	var currentVersion int
 	err := s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&currentVersion)
@@ -189,13 +194,14 @@ func (s *SQLiteStore) initSchema() error {
 func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 	query := `
 		INSERT INTO agents (
-			agent_id, hostname, ip, platform, version, protocol_version, token, 
+			agent_id, name, hostname, ip, platform, version, protocol_version, token, 
 			registered_at, last_seen, status,
 			os_version, go_version, architecture, num_cpu, total_memory_mb,
 			build_type, git_commit, last_heartbeat
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(agent_id) DO UPDATE SET
+			name = excluded.name,
 			hostname = excluded.hostname,
 			ip = excluded.ip,
 			platform = excluded.platform,
@@ -215,7 +221,7 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
-		agent.AgentID, agent.Hostname, agent.IP, agent.Platform,
+		agent.AgentID, agent.Name, agent.Hostname, agent.IP, agent.Platform,
 		agent.Version, agent.ProtocolVersion, agent.Token, agent.RegisteredAt,
 		agent.LastSeen, agent.Status,
 		agent.OSVersion, agent.GoVersion, agent.Architecture, agent.NumCPU,
@@ -227,7 +233,7 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 // GetAgent retrieves an agent by ID
 func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, error) {
 	query := `
-		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
+		SELECT id, agent_id, name, hostname, ip, platform, version, protocol_version,
 		       token, registered_at, last_seen, status,
 		       os_version, go_version, architecture, num_cpu, total_memory_mb,
 		       build_type, git_commit, last_heartbeat, device_count,
@@ -237,13 +243,13 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 	`
 
 	var agent Agent
-	var osVersion, goVersion, architecture, buildType, gitCommit sql.NullString
+	var name, osVersion, goVersion, architecture, buildType, gitCommit sql.NullString
 	var numCPU, deviceCount sql.NullInt64
 	var totalMemoryMB sql.NullInt64
 	var lastHeartbeat, lastDeviceSync, lastMetricsSync sql.NullTime
 
 	err := s.db.QueryRowContext(ctx, query, agentID).Scan(
-		&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
+		&agent.ID, &agent.AgentID, &name, &agent.Hostname, &agent.IP,
 		&agent.Platform, &agent.Version, &agent.ProtocolVersion,
 		&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
 		&osVersion, &goVersion, &architecture, &numCPU, &totalMemoryMB,
@@ -259,6 +265,9 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 	}
 
 	// Handle nullable fields
+	if name.Valid {
+		agent.Name = name.String
+	}
 	if osVersion.Valid {
 		agent.OSVersion = osVersion.String
 	}
@@ -299,7 +308,7 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 // ListAgents returns all registered agents
 func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	query := `
-		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
+		SELECT id, agent_id, name, hostname, ip, platform, version, protocol_version,
 		       token, registered_at, last_seen, status,
 		       os_version, go_version, architecture, num_cpu, total_memory_mb,
 		       build_type, git_commit, last_heartbeat, device_count,
@@ -317,13 +326,13 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	var agents []*Agent
 	for rows.Next() {
 		var agent Agent
-		var osVersion, goVersion, architecture, buildType, gitCommit sql.NullString
+		var name, osVersion, goVersion, architecture, buildType, gitCommit sql.NullString
 		var numCPU, deviceCount sql.NullInt64
 		var totalMemoryMB sql.NullInt64
 		var lastHeartbeat, lastDeviceSync, lastMetricsSync sql.NullTime
 
 		err := rows.Scan(
-			&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
+			&agent.ID, &agent.AgentID, &name, &agent.Hostname, &agent.IP,
 			&agent.Platform, &agent.Version, &agent.ProtocolVersion,
 			&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
 			&osVersion, &goVersion, &architecture, &numCPU, &totalMemoryMB,
@@ -335,6 +344,9 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 		}
 
 		// Handle nullable fields
+		if name.Valid {
+			agent.Name = name.String
+		}
 		if osVersion.Valid {
 			agent.OSVersion = osVersion.String
 		}
@@ -378,15 +390,16 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 // GetAgentByToken retrieves an agent by bearer token
 func (s *SQLiteStore) GetAgentByToken(ctx context.Context, token string) (*Agent, error) {
 	query := `
-		SELECT id, agent_id, hostname, ip, platform, version, protocol_version,
+		SELECT id, agent_id, name, hostname, ip, platform, version, protocol_version,
 		       token, registered_at, last_seen, status
 		FROM agents
 		WHERE token = ?
 	`
 
 	var agent Agent
+	var name sql.NullString
 	err := s.db.QueryRowContext(ctx, query, token).Scan(
-		&agent.ID, &agent.AgentID, &agent.Hostname, &agent.IP,
+		&agent.ID, &agent.AgentID, &name, &agent.Hostname, &agent.IP,
 		&agent.Platform, &agent.Version, &agent.ProtocolVersion,
 		&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
 	)
@@ -396,6 +409,10 @@ func (s *SQLiteStore) GetAgentByToken(ctx context.Context, token string) (*Agent
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if name.Valid {
+		agent.Name = name.String
 	}
 
 	return &agent, nil

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,12 +33,13 @@ type SNMPConfig struct {
 type ServerConnectionConfig struct {
 	Enabled            bool   `toml:"enabled"`
 	URL                string `toml:"url"`
-	AgentID            string `toml:"agent_id"`
+	Name               string `toml:"name"` // User-friendly name (configurable)
 	CAPath             string `toml:"ca_path"`
 	InsecureSkipVerify bool   `toml:"insecure_skip_verify"` // Skip TLS verification (dev/testing only)
 	UploadInterval     int    `toml:"upload_interval_seconds"`
 	HeartbeatInterval  int    `toml:"heartbeat_interval_seconds"`
-	Token              string `toml:"token"` // Stored after registration
+	Token              string `toml:"token"`    // Stored after registration
+	AgentID            string `toml:"agent_id"` // Stable UUID (auto-generated, do not edit)
 }
 
 // WebConfig holds web UI settings
@@ -59,12 +62,13 @@ func DefaultAgentConfig() *AgentConfig {
 		Server: ServerConnectionConfig{
 			Enabled:            false,
 			URL:                "",
-			AgentID:            "",
+			Name:               "",
 			CAPath:             "",
 			InsecureSkipVerify: false,
 			UploadInterval:     300,
 			HeartbeatInterval:  60,
 			Token:              "",
+			AgentID:            "", // Will be auto-generated on first run
 		},
 		Database: config.DatabaseConfig{
 			Path: "", // Will use default platform-specific path
@@ -119,6 +123,9 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 	if val := os.Getenv("SERVER_URL"); val != "" {
 		cfg.Server.URL = val
 	}
+	if val := os.Getenv("AGENT_NAME"); val != "" {
+		cfg.Server.Name = val
+	}
 	if val := os.Getenv("AGENT_ID"); val != "" {
 		cfg.Server.AgentID = val
 	}
@@ -171,4 +178,38 @@ func SaveServerToken(dataDir, token string) error {
 	}
 	// Write with restrictive permissions (owner read/write only)
 	return os.WriteFile(tokenPath, []byte(token), 0600)
+}
+
+// LoadOrGenerateAgentID loads the agent ID from file or generates a new UUID
+func LoadOrGenerateAgentID(dataDir string) (string, error) {
+	idPath := filepath.Join(dataDir, "agent_id")
+
+	// Try to load existing ID
+	data, err := os.ReadFile(idPath)
+	if err == nil {
+		id := strings.TrimSpace(string(data))
+		if id != "" {
+			return id, nil
+		}
+	}
+
+	// Generate new UUID
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+
+	// Format as UUID (8-4-4-4-12)
+	id := fmt.Sprintf("%x-%x-%x-%x-%x",
+		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+
+	// Save for future use
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(idPath, []byte(id), 0600); err != nil {
+		return "", err
+	}
+
+	return id, nil
 }

@@ -8,7 +8,8 @@ import (
 // Agent represents a registered PrintMaster agent
 type Agent struct {
 	ID              int64     `json:"id"`
-	AgentID         string    `json:"agent_id"` // Unique agent identifier
+	AgentID         string    `json:"agent_id"` // Stable UUID identifier
+	Name            string    `json:"name"`     // User-friendly name (defaults to hostname)
 	Hostname        string    `json:"hostname"`
 	IP              string    `json:"ip"`
 	Platform        string    `json:"platform"`         // windows, linux, darwin
