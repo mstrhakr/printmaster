@@ -1317,6 +1317,56 @@ func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *Metrics
 
 	tonerJSON, _ := json.Marshal(snapshot.TonerLevels)
 
+	// Ignore snapshots where all primary counters are zero — likely an error/reset from device
+	if snapshot.PageCount == 0 && snapshot.ColorPages == 0 && snapshot.MonoPages == 0 && snapshot.ScanCount == 0 {
+		if storageLogger != nil {
+			storageLogger.WarnRateLimited("metrics_zero_"+snapshot.Serial, 5*time.Minute,
+				"Ignoring metrics snapshot where all counters are zero",
+				"serial", snapshot.Serial)
+		}
+		return nil
+	}
+
+	// Defensive check: ignore snapshots where cumulative counters decreased compared to latest saved
+	// (e.g., device returned 0 where previous was 45000). This avoids polluting history with invalid resets.
+	if latest, err := s.GetLatestMetrics(ctx, snapshot.Serial); err == nil && latest != nil {
+		// If page_count decreased, drop this snapshot
+		if snapshot.PageCount < latest.PageCount {
+			if storageLogger != nil {
+				storageLogger.WarnRateLimited("metrics_decrease_"+snapshot.Serial, 1*time.Minute,
+					"Dropping metrics snapshot because page_count decreased compared to latest",
+					"serial", snapshot.Serial, "latest", latest.PageCount, "incoming", snapshot.PageCount)
+			}
+			// Treat as non-fatal: do not save the snapshot
+			return nil
+		}
+		// Similarly for color/mono/scan counts (only if provided/non-zero on incoming)
+		if snapshot.ColorPages > 0 && snapshot.ColorPages < latest.ColorPages {
+			if storageLogger != nil {
+				storageLogger.WarnRateLimited("metrics_decrease_color_"+snapshot.Serial, 1*time.Minute,
+					"Dropping metrics snapshot because color_pages decreased compared to latest",
+					"serial", snapshot.Serial, "latest", latest.ColorPages, "incoming", snapshot.ColorPages)
+			}
+			return nil
+		}
+		if snapshot.MonoPages > 0 && snapshot.MonoPages < latest.MonoPages {
+			if storageLogger != nil {
+				storageLogger.WarnRateLimited("metrics_decrease_mono_"+snapshot.Serial, 1*time.Minute,
+					"Dropping metrics snapshot because mono_pages decreased compared to latest",
+					"serial", snapshot.Serial, "latest", latest.MonoPages, "incoming", snapshot.MonoPages)
+			}
+			return nil
+		}
+		if snapshot.ScanCount > 0 && snapshot.ScanCount < latest.ScanCount {
+			if storageLogger != nil {
+				storageLogger.WarnRateLimited("metrics_decrease_scan_"+snapshot.Serial, 1*time.Minute,
+					"Dropping metrics snapshot because scan_count decreased compared to latest",
+					"serial", snapshot.Serial, "latest", latest.ScanCount, "incoming", snapshot.ScanCount)
+			}
+			return nil
+		}
+	}
+
 	query := `
 		INSERT INTO metrics_raw (
 			serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
