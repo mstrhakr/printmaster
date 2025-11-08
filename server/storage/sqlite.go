@@ -435,7 +435,8 @@ func (s *SQLiteStore) DeleteAgent(ctx context.Context, agentID string) error {
 	defer tx.Rollback()
 
 	// Delete metrics for devices owned by this agent
-	if _, err := tx.ExecContext(ctx, `DELETE FROM metrics WHERE agent_id = ?`, agentID); err != nil {
+	// NOTE: metrics are stored in the metrics_history table (table name corrected)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM metrics_history WHERE agent_id = ?`, agentID); err != nil {
 		return fmt.Errorf("failed to delete metrics: %w", err)
 	}
 
