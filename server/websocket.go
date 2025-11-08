@@ -333,7 +333,7 @@ func isAgentConnectedWS(agentID string) bool {
 func closeAgentWebSocket(agentID string) {
 	wsConnectionsLock.Lock()
 	defer wsConnectionsLock.Unlock()
-	
+
 	if conn, exists := wsConnections[agentID]; exists {
 		conn.Close()
 		delete(wsConnections, agentID)
