@@ -194,21 +194,21 @@ function Save-CommitAndTag {
     
     # Add VERSION files
     if ($Component -eq 'both') {
-        git add agent/VERSION server/VERSION
+        $gitOutput = git add agent/VERSION server/VERSION 2>&1
         if ($Message) {
             $commitMsg = "$Message - v$Version"
         } else {
             $commitMsg = "chore: Release v$Version (agent + server)"
         }
     } elseif ($Component -eq 'server') {
-        git add server/VERSION
+        $gitOutput = git add server/VERSION 2>&1
         if ($Message) {
             $commitMsg = "$Message - server v$Version"
         } else {
             $commitMsg = "chore: Release server v$Version"
         }
     } else {
-        git add agent/VERSION
+        $gitOutput = git add agent/VERSION 2>&1
         if ($Message) {
             $commitMsg = "$Message - v$Version"
         } else {
@@ -217,7 +217,7 @@ function Save-CommitAndTag {
     }
     
     # Commit
-    git commit -m $commitMsg
+    $gitOutput = git commit -m $commitMsg 2>&1
     
     if ($LASTEXITCODE -ne 0) {
         throw "Git commit failed"
@@ -232,22 +232,22 @@ function Save-CommitAndTag {
         $serverVer = (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
         
         # Tag agent
-        git tag -a "agent-v$agentVer" -m "Agent Release v$agentVer"
+        $gitOutput = git tag -a "agent-v$agentVer" -m "Agent Release v$agentVer" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed for agent" }
         Write-Status "Tagged as agent-v$agentVer" "INFO"
         
         # Tag server
-        git tag -a "server-v$serverVer" -m "Server Release v$serverVer"
+        $gitOutput = git tag -a "server-v$serverVer" -m "Server Release v$serverVer" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
         Write-Status "Tagged as server-v$serverVer" "INFO"
     }
     elseif ($Component -eq 'server') {
-        git tag -a "server-v$Version" -m "Server Release v$Version"
+        $gitOutput = git tag -a "server-v$Version" -m "Server Release v$Version" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
         Write-Status "Tagged as server-v$Version" "INFO"
     }
     else {
-        git tag -a "agent-v$Version" -m "Agent Release v$Version"
+        $gitOutput = git tag -a "agent-v$Version" -m "Agent Release v$Version" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
         Write-Status "Tagged as agent-v$Version" "INFO"
     }
@@ -267,13 +267,13 @@ function Push-Release {
     }
     
     # Push commits
-    git push
+    $gitOutput = git push 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Git push failed"
     }
     
     # Push tags
-    git push --tags
+    $gitOutput = git push --tags 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Git push tags failed"
     }
@@ -466,10 +466,10 @@ docker run -d \
     
     # Create release with gh CLI
     try {
-        gh release create $Tag `
+        $ghOutput = gh release create $Tag `
             --title $Title `
             --notes $releaseNotes `
-            --latest
+            --latest 2>&1
         
         if ($LASTEXITCODE -ne 0) {
             throw "GitHub release creation failed"
