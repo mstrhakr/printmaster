@@ -2,11 +2,9 @@
 
 ## Overview
 
-PrintMaster Server uses **multi-stage Docker builds** with **multi-architecture support** for minimal image sizes:
+PrintMaster Server uses **multi-stage Docker builds** with **multi-architecture support** for production-ready minimal images:
 
-- **Default**: Distroless base (~30MB) - Production-ready, includes CA certs, non-root user
-- **Scratch**: Ultra-minimal (~10MB) - Absolute smallest, debugging harder
-- **Alpine**: Debug-friendly (~100MB) - Includes shell and tools
+- **Distroless base (~30MB)**: Production-ready, includes CA certs, non-root user, excellent security
 
 ### Supported Architectures
 
@@ -20,19 +18,18 @@ All images are built for multiple architectures automatically:
 
 Docker automatically pulls the correct architecture for your platform.
 
-## Image Variants
+## Image Details
 
-| Dockerfile | Base Image | Size | Shell | Health Check | Use Case |
-|------------|-----------|------|-------|--------------|----------|
-| `Dockerfile` (default) | `distroless/static:nonroot` | ~30MB | ❌ | External only | **Production (recommended)** |
-| `Dockerfile.scratch` | `scratch` | ~10MB | ❌ | None | Ultra-minimal production |
-| `Dockerfile.alpine` | `alpine:latest` | ~100MB | ✅ | Built-in | Development/debugging |
+**Base Image**: `gcr.io/distroless/static:nonroot`
+- **Size**: ~30MB (70% smaller than Alpine-based images)
+- **Security**: No shell, no package manager, minimal attack surface
+- **User**: Runs as non-root user (UID 65532)
+- **Contents**: CA certificates, timezone data, minimal runtime
+- **Health Check**: Use external monitoring (no built-in tools)
 
 **Image tags:**
-- `latest` - Latest distroless build (default)
-- `latest-scratch` - Latest scratch build (ultra-minimal)
-- `v0.7.0` - Specific version (distroless)
-- `v0.7.0-scratch` - Specific version (scratch)
+- `latest` - Latest stable build (recommended)
+- `v0.7.0` - Specific version tag
 
 ## Quick Start
 
@@ -59,22 +56,12 @@ docker-compose down
 # Pull the latest image (distroless, auto-detects architecture)
 docker pull ghcr.io/mstrhakr/printmaster-server:latest
 
-# Or pull the scratch variant
-docker pull ghcr.io/mstrhakr/printmaster-server:latest-scratch
-
-# Run with default settings (distroless base)
+# Run with default settings
 docker run -d \
   --name printmaster-server \
   -p 9443:9443 \
   -v printmaster-data:/var/lib/printmaster/server \
   ghcr.io/mstrhakr/printmaster-server:latest
-
-# Run the scratch variant (smallest)
-docker run -d \
-  --name printmaster-server \
-  -p 9443:9443 \
-  -v printmaster-data:/var/lib/printmaster/server \
-  ghcr.io/mstrhakr/printmaster-server:latest-scratch
 
 # Run behind reverse proxy (HTTP mode)
 docker run -d \
@@ -89,14 +76,8 @@ docker run -d \
 ### Building Custom Images
 
 ```bash
-# Default distroless build
-docker build -t printmaster-server:distroless -f server/Dockerfile .
-
-# Scratch build (ultra-minimal)
-docker build -t printmaster-server:scratch -f server/Dockerfile.scratch .
-
-# Alpine build (with debugging tools) - if you create this variant
-docker build -t printmaster-server:alpine -f server/Dockerfile.alpine .
+# Build distroless image (default)
+docker build -t printmaster-server:latest -f server/Dockerfile .
 ```
 
 ## Why Minimal Images?
@@ -104,14 +85,13 @@ docker build -t printmaster-server:alpine -f server/Dockerfile.alpine .
 ### Benefits
 
 **Size Reduction**
-- **Distroless**: ~30MB (99MB smaller than traditional Go Alpine images)
-- **Scratch**: ~10MB (absolute minimum, just the binary)
+- **Distroless**: ~30MB (70% smaller than traditional Go Alpine images)
 - Faster image pulls, less bandwidth, faster deployments
 
 **Security**
 - Smaller attack surface (fewer packages = fewer CVEs)
-- Distroless: No shell, no package manager, no unnecessary tools
-- Scratch: Literally nothing except your binary
+- No shell, no package manager, no unnecessary tools
+- Runs as non-root user (UID 65532)
 - Reduced risk of supply chain attacks
 
 **Performance**
@@ -120,19 +100,22 @@ docker build -t printmaster-server:alpine -f server/Dockerfile.alpine .
 - Smaller storage requirements
 
 **Trade-offs**
-- **Distroless/Scratch**: No shell access (`docker exec -it` won't work)
-- **Distroless/Scratch**: No built-in health check tools (use external monitoring)
-- **Distroless**: Harder to debug (but safer in production)
+- No shell access (`docker exec -it` won't work for interactive debugging)
+- No built-in health check tools (use external monitoring or TCP checks)
+- Harder to troubleshoot inside the container (use logs and external tools)
 
-### When to Use Each
+### When to Use Distroless
 
-| Situation | Recommended Image |
-|-----------|------------------|
-| Production deployment | **Distroless** (default) |
-| Production, size-critical | **Scratch** |
-| Development/debugging | **Alpine** (if created) |
-| CI/CD testing | **Distroless** |
-| Need shell access | **Alpine** (create custom) |
+**✅ Recommended for:**
+- Production deployments (default choice)
+- Security-conscious environments
+- Cloud-native applications
+- CI/CD testing
+- Kubernetes/container orchestration platforms
+
+**❌ Not ideal for:**
+- Local development requiring shell access (use native binaries instead)
+- Situations requiring in-container debugging (use external logging/monitoring)
 
 ## Multi-Architecture Support
 
@@ -161,7 +144,7 @@ docker run -d \
   -p 9443:9443 \
   -v /mnt/usb/printmaster:/var/lib/printmaster/server \
   --restart unless-stopped \
-  ghcr.io/mstrhakr/printmaster-server:latest-scratch
+  ghcr.io/mstrhakr/printmaster-server:latest
 ```
 
 **AWS Graviton (ARM-based servers):**

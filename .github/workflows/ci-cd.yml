@@ -241,15 +241,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        variant:
-          - dockerfile: Dockerfile
-            suffix: ''
-            description: 'distroless'
-          - dockerfile: Dockerfile.scratch
-            suffix: '-scratch'
-            description: 'scratch'
     
     steps:
     - name: Checkout code
@@ -286,13 +277,11 @@ jobs:
         echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
         echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
     
-    - name: Extract metadata for ${{ matrix.variant.description }}
+    - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-server
-        flavor: |
-          suffix=${{ matrix.variant.suffix }},onlatest=true
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -302,11 +291,11 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
           type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event_name == 'release' }}
     
-    - name: Build and push Docker image (${{ matrix.variant.description }})
+    - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./server/${{ matrix.variant.dockerfile }}
+        file: ./server/Dockerfile
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
@@ -314,8 +303,8 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           BUILD_TIME=${{ steps.version.outputs.build_time }}
           GIT_COMMIT=${{ steps.version.outputs.git_commit }}
-        cache-from: type=gha,scope=${{ matrix.variant.description }}
-        cache-to: type=gha,mode=max,scope=${{ matrix.variant.description }}
+        cache-from: type=gha,scope=distroless
+        cache-to: type=gha,mode=max,scope=distroless
         platforms: linux/amd64,linux/arm64,linux/arm/v7
         provenance: false
         sbom: false
