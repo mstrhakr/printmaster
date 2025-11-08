@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	commonutil "printmaster/common/util"
+
 	"github.com/kardianos/service"
 )
 
@@ -169,15 +171,15 @@ func setupServiceDirectories() error {
 		if err := WriteDefaultConfig(configPath); err != nil {
 			// Check if error is because file already exists (race condition)
 			if strings.Contains(err.Error(), "already exists") {
-				fmt.Printf("Configuration already exists at: %s\n", configPath)
+				commonutil.ShowInfo(fmt.Sprintf("Configuration already exists at: %s", configPath))
 			} else {
 				return fmt.Errorf("failed to generate default config at %s: %w", configPath, err)
 			}
 		} else {
-			fmt.Printf("Generated default configuration at: %s\n", configPath)
+			commonutil.ShowInfo(fmt.Sprintf("Generated default configuration at: %s", configPath))
 		}
 	} else {
-		fmt.Printf("Configuration already exists at: %s\n", configPath)
+		commonutil.ShowInfo(fmt.Sprintf("Configuration already exists at: %s", configPath))
 	}
 
 	return nil

@@ -29,6 +29,14 @@ if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 }
 
+# ANSI color codes
+$ColorReset = "`e[0m"
+$ColorDim = "`e[2m"
+$ColorRed = "`e[31m"
+$ColorGreen = "`e[32m"
+$ColorYellow = "`e[33m"
+$ColorBlue = "`e[34m"
+
 function Write-BuildLog {
     param([string]$Message, [string]$Level = "INFO")
     
@@ -37,18 +45,24 @@ function Write-BuildLog {
         $script:LogFile = Join-Path $LogDir "build.log"
     }
     
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    # ISO 8601 timestamp format (industry standard)
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    
+    # Determine color based on level
+    $levelColor = switch ($Level) {
+        "ERROR"   { $ColorRed }
+        "WARN"    { $ColorYellow }
+        default   { $ColorBlue }  # INFO uses blue
+    }
+    
+    # Format: dim-timestamp colored-[LEVEL] message
+    $consoleMessage = "${ColorDim}${timestamp}${ColorReset} ${levelColor}[${Level}]${ColorReset} ${Message}"
     $logMessage = "[$timestamp] [$Level] $Message"
     
     # Write to console
-    switch ($Level) {
-        "ERROR" { Write-Host $logMessage -ForegroundColor Red }
-        "WARN"  { Write-Host $logMessage -ForegroundColor Yellow }
-        "SUCCESS" { Write-Host $logMessage -ForegroundColor Green }
-        default { Write-Host $logMessage }
-    }
+    Write-Host $consoleMessage
     
-    # Append to log file
+    # Append to log file (plain text)
     Add-Content -Path $script:LogFile -Value $logMessage
 }
 
@@ -92,7 +106,7 @@ function Remove-BuildArtifacts {
         }
     }
     
-    Write-BuildLog "Clean complete" "SUCCESS"
+    Write-BuildLog "Clean complete" "INFO"
 }
 
 function Test-Prerequisites {
@@ -105,7 +119,7 @@ function Test-Prerequisites {
         Write-BuildLog "Install Go from: https://go.dev/dl/" "ERROR"
         return $false
     }
-    Write-BuildLog "Found: $goVersion" "SUCCESS"
+    Write-BuildLog "Found: $goVersion" "INFO"
     
     # Check for staticcheck
     $staticcheckVersion = & staticcheck -version 2>&1
@@ -117,9 +131,9 @@ function Test-Prerequisites {
             Write-BuildLog "Failed to install staticcheck" "ERROR"
             return $false
         }
-        Write-BuildLog "staticcheck installed successfully" "SUCCESS"
+        Write-BuildLog "staticcheck installed successfully" "INFO"
     } else {
-        Write-BuildLog "Found staticcheck: $staticcheckVersion" "SUCCESS"
+        Write-BuildLog "Found staticcheck: $staticcheckVersion" "INFO"
     }
     
     # Check git (for version injection)
@@ -127,7 +141,7 @@ function Test-Prerequisites {
     if ($LASTEXITCODE -ne 0) {
         Write-BuildLog "Git not found - version info will be limited" "WARN"
     } else {
-        Write-BuildLog "Found: $gitVersion" "SUCCESS"
+        Write-BuildLog "Found: $gitVersion" "INFO"
     }
     
     return $true
@@ -149,19 +163,69 @@ function Invoke-Linters {
         Write-BuildLog "Running go vet..." "INFO"
         & go vet ./...
         if ($LASTEXITCODE -ne 0) {
-            Write-BuildLog "go vet found issues" "ERROR"
+            $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} $Component failed go vet checks"
+            Add-Content -Path $script:LogFile -Value "[$timestamp] [ERROR] FAIL: $Component failed go vet checks"
             return $false
         }
-        Write-BuildLog "go vet: PASS" "SUCCESS"
+        # Colorize PASS
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}PASS:${ColorReset} $Component passed go vet checks"
+        Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] PASS: $Component passed go vet checks"
         
         # Run staticcheck
         Write-BuildLog "Running staticcheck..." "INFO"
         & staticcheck ./...
         if ($LASTEXITCODE -ne 0) {
-            Write-BuildLog "staticcheck found issues" "ERROR"
+            $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} $Component failed staticcheck"
+            Add-Content -Path $script:LogFile -Value "[$timestamp] [ERROR] FAIL: $Component failed staticcheck"
             return $false
         }
-        Write-BuildLog "staticcheck: PASS" "SUCCESS"
+        # Colorize PASS
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}PASS:${ColorReset} $Component passed staticcheck"
+        Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] PASS: $Component passed staticcheck"
+        
+        return $true
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Invoke-Tests {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$Component
+    )
+    
+    Write-BuildLog "Running tests for $Component..." "INFO"
+    
+    $componentDir = Join-Path $ProjectRoot $Component
+    Push-Location $componentDir
+    
+    try {
+        # Run tests with verbose output
+        $testOutput = & go test ./... -v 2>&1
+        $testExitCode = $LASTEXITCODE
+        
+        if ($testExitCode -ne 0) {
+            # Show test output on failure
+            Write-Host ""
+            $testOutput | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            Write-Host ""
+            # Colorize FAIL
+            $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} $Component failed tests"
+            Add-Content -Path $script:LogFile -Value "[$timestamp] [ERROR] FAIL: $Component failed tests"
+            return $false
+        }
+        
+        # Colorize PASS
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}PASS:${ColorReset} $Component passed tests"
+        Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] PASS: $Component passed tests"
         
         return $true
     }
@@ -206,7 +270,7 @@ function Build-Agent {
                 
                 # Save new version
                 Set-Content -Path $versionFile -Value $version -NoNewline
-                Write-BuildLog "Version incremented to: $version" "SUCCESS"
+                Write-BuildLog "Version incremented to: $version" "INFO"
             } else {
                 Write-BuildLog "Invalid version format in VERSION file, expected x.y.z" "WARN"
             }
@@ -324,8 +388,10 @@ function Build-Agent {
             if (Test-Path "printmaster-agent.exe") {
                 $fileSize = (Get-Item "printmaster-agent.exe").Length
                 $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
-                Write-BuildLog "Build successful: printmaster-agent.exe ($fileSizeMB MB)" "SUCCESS"
-                Write-BuildLog "Binary location: $(Join-Path (Get-Location) 'printmaster-agent.exe')" "SUCCESS"
+                $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+                Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} printmaster-agent.exe ($fileSizeMB MB)"
+                Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] SUCCESS: printmaster-agent.exe ($fileSizeMB MB)"
+                Write-BuildLog "Binary location: $(Join-Path (Get-Location) 'printmaster-agent.exe')" "INFO"
             } else {
                 Write-BuildLog "Build reported success but executable not found!" "ERROR"
                 return $false
@@ -378,7 +444,7 @@ function Build-Server {
                 
                 # Save new version
                 Set-Content -Path $versionFile -Value $version -NoNewline
-                Write-BuildLog "Server version incremented to: $version" "SUCCESS"
+                Write-BuildLog "Server version incremented to: $version" "INFO"
             } else {
                 Write-BuildLog "Invalid version format in VERSION file, expected x.y.z" "WARN"
             }
@@ -496,8 +562,10 @@ function Build-Server {
             if (Test-Path "printmaster-server.exe") {
                 $fileSize = (Get-Item "printmaster-server.exe").Length
                 $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
-                Write-BuildLog "Build successful: printmaster-server.exe ($fileSizeMB MB)" "SUCCESS"
-                Write-BuildLog "Binary location: $(Join-Path (Get-Location) 'printmaster-server.exe')" "SUCCESS"
+                $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+                Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} printmaster-server.exe ($fileSizeMB MB)"
+                Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] SUCCESS: printmaster-server.exe ($fileSizeMB MB)"
+                Write-BuildLog "Binary location: $(Join-Path (Get-Location) 'printmaster-server.exe')" "INFO"
             } else {
                 Write-BuildLog "Build reported success but executable not found!" "ERROR"
                 return $false
@@ -537,14 +605,14 @@ function Test-Storage {
             if ($line -match "FAIL|ERROR") {
                 Write-BuildLog $line "ERROR"
             } elseif ($line -match "PASS|ok") {
-                Write-BuildLog $line "SUCCESS"
+                Write-BuildLog $line "INFO"
             } else {
                 Write-BuildLog $line
             }
         }
         
         if ($testExitCode -eq 0) {
-            Write-BuildLog "Storage tests passed" "SUCCESS"
+            Write-BuildLog "Storage tests passed" "INFO"
             return $true
         } else {
             Write-BuildLog "Storage tests failed with exit code $testExitCode" "ERROR"
@@ -579,14 +647,14 @@ function Test-All {
             if ($line -match "FAIL|ERROR") {
                 Write-BuildLog $line "ERROR"
             } elseif ($line -match "PASS|ok") {
-                Write-BuildLog $line "SUCCESS"
+                Write-BuildLog $line "INFO"
             } else {
                 Write-BuildLog $line
             }
         }
         
         if ($testExitCode -eq 0) {
-            Write-BuildLog "All tests passed" "SUCCESS"
+            Write-BuildLog "All tests passed" "INFO"
             return $true
         } else {
             Write-BuildLog "Tests failed with exit code $testExitCode" "ERROR"
@@ -622,12 +690,22 @@ switch ($Target) {
             Write-BuildLog "Linter checks failed for agent" "ERROR"
             exit 1
         }
+        # Run tests before build
+        if (-not (Invoke-Tests -Component 'agent')) {
+            Write-BuildLog "Tests failed for agent" "ERROR"
+            exit 1
+        }
         $success = Build-Agent -IsRelease:$Release -IncrementVersion:$IncrementVersion
     }
     'server' {
         # Run linters before build
         if (-not (Invoke-Linters -Component 'server')) {
             Write-BuildLog "Linter checks failed for server" "ERROR"
+            exit 1
+        }
+        # Run tests before build
+        if (-not (Invoke-Tests -Component 'server')) {
+            Write-BuildLog "Tests failed for server" "ERROR"
             exit 1
         }
         $success = Build-Server -IsRelease:$Release -IncrementVersion:$IncrementVersion
@@ -640,6 +718,15 @@ switch ($Target) {
         }
         if (-not (Invoke-Linters -Component 'server')) {
             Write-BuildLog "Linter checks failed for server" "ERROR"
+            exit 1
+        }
+        # Run tests for both components
+        if (-not (Invoke-Tests -Component 'agent')) {
+            Write-BuildLog "Tests failed for agent" "ERROR"
+            exit 1
+        }
+        if (-not (Invoke-Tests -Component 'server')) {
+            Write-BuildLog "Tests failed for server" "ERROR"
             exit 1
         }
         # Build both agent and server
@@ -671,9 +758,13 @@ Write-BuildLog "=== Build Complete ===" "INFO"
 Write-BuildLog "Log file: $LogFile" "INFO"
 
 if ($success) {
-    Write-BuildLog "Result: SUCCESS" "SUCCESS"
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} Build script completed with exit code 0"
+    Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] SUCCESS: Build script completed with exit code 0"
     exit 0
 } else {
-    Write-BuildLog "Result: FAILED" "ERROR"
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} Build script failed with exit code 1"
+    Add-Content -Path $script:LogFile -Value "[$timestamp] [ERROR] FAIL: Build script failed with exit code 1"
     exit 1
 }

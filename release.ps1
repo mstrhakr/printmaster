@@ -32,16 +32,35 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = $PSScriptRoot
 
+# ANSI color codes for consistent formatting
+$ColorReset = "`e[0m"
+$ColorDim = "`e[2m"
+$ColorRed = "`e[31m"
+$ColorGreen = "`e[32m"
+$ColorYellow = "`e[33m"
+$ColorBlue = "`e[34m"
+$ColorCyan = "`e[36m"
+
 function Write-Status {
     param([string]$Message, [string]$Level = "INFO")
-    $timestamp = Get-Date -Format "HH:mm:ss"
-    switch ($Level) {
-        "ERROR" { Write-Host "[$timestamp] ❌ $Message" -ForegroundColor Red }
-        "WARN"  { Write-Host "[$timestamp] ⚠️  $Message" -ForegroundColor Yellow }
-        "SUCCESS" { Write-Host "[$timestamp] ✅ $Message" -ForegroundColor Green }
-        "STEP" { Write-Host "`n[$timestamp] 🔹 $Message" -ForegroundColor Cyan }
-        default { Write-Host "[$timestamp] ℹ️  $Message" }
+    
+    # ISO 8601 timestamp format (industry standard)
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    
+    # Determine color based on level
+    $levelColor = switch ($Level) {
+        "ERROR"   { $ColorRed }
+        "WARN"    { $ColorYellow }
+        "STEP"    { $ColorCyan }
+        default   { $ColorBlue }  # INFO
     }
+    
+    # Map STEP to INFO for standard log levels
+    $displayLevel = if ($Level -eq "STEP") { "INFO" } else { $Level }
+    
+    # Format: dim-timestamp colored-[LEVEL] message
+    $consoleMessage = "${ColorDim}${timestamp}${ColorReset} ${levelColor}[${displayLevel}]${ColorReset} ${Message}"
+    Write-Host $consoleMessage
 }
 
 function Get-GitStatus {
@@ -117,7 +136,8 @@ function Build-Component {
         throw "Build failed for $Component"
     }
     
-    Write-Status "$Component built successfully" "SUCCESS"
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} $Component built"
     
     # Create versioned release binary
     $componentDir = Join-Path $ProjectRoot $Component
@@ -126,7 +146,7 @@ function Build-Component {
     
     if (Test-Path $sourceBinary) {
         Copy-Item $sourceBinary $releaseBinary -Force
-        Write-Status "Created release binary: printmaster-$Component-v$Version.exe" "SUCCESS"
+        Write-Status "Created release binary: printmaster-$Component-v$Version.exe" "INFO"
     }
 }
 
@@ -150,7 +170,8 @@ function Invoke-Tests {
             throw "Tests failed for $Component"
         }
         
-        Write-Status "All tests passed for $Component" "SUCCESS"
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}PASS:${ColorReset} $Component passed all tests"
     }
     finally {
         Pop-Location
@@ -202,7 +223,7 @@ function Save-CommitAndTag {
         throw "Git commit failed"
     }
     
-    Write-Status "Committed: $commitMsg" "SUCCESS"
+    Write-Status "Committed: $commitMsg" "INFO"
     
     # Tag - create separate tags for each component
     if ($Component -eq 'both') {
@@ -213,22 +234,22 @@ function Save-CommitAndTag {
         # Tag agent
         git tag -a "agent-v$agentVer" -m "Agent Release v$agentVer"
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed for agent" }
-        Write-Status "Tagged as agent-v$agentVer" "SUCCESS"
+        Write-Status "Tagged as agent-v$agentVer" "INFO"
         
         # Tag server
         git tag -a "server-v$serverVer" -m "Server Release v$serverVer"
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
-        Write-Status "Tagged as server-v$serverVer" "SUCCESS"
+        Write-Status "Tagged as server-v$serverVer" "INFO"
     }
     elseif ($Component -eq 'server') {
         git tag -a "server-v$Version" -m "Server Release v$Version"
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
-        Write-Status "Tagged as server-v$Version" "SUCCESS"
+        Write-Status "Tagged as server-v$Version" "INFO"
     }
     else {
         git tag -a "agent-v$Version" -m "Agent Release v$Version"
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
-        Write-Status "Tagged as agent-v$Version" "SUCCESS"
+        Write-Status "Tagged as agent-v$Version" "INFO"
     }
 }
 
@@ -257,7 +278,8 @@ function Push-Release {
         throw "Git push tags failed"
     }
     
-    Write-Status "Pushed to GitHub successfully" "SUCCESS"
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} Pushed to GitHub"
 }
 
 function Get-ChangelogSinceLastTag {
@@ -453,11 +475,12 @@ docker run -d \
             throw "GitHub release creation failed"
         }
         
-        Write-Status "GitHub Release created: $Title" "SUCCESS"
+        Write-Status "GitHub Release created: $Title" "INFO"
         Write-Status "View at: https://github.com/mstrhakr/printmaster/releases/tag/$Tag" "INFO"
     }
     catch {
-        Write-Status "Failed to create GitHub release: $_" "ERROR"
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} GitHub release creation failed: $_"
         Write-Status "Continuing anyway - you can create it manually later" "WARN"
     }
 }
@@ -497,7 +520,7 @@ try {
             throw "Release cancelled - commit or stash changes first"
         }
     } else {
-        Write-Status "Working directory is clean" "SUCCESS"
+        Write-Status "Working directory is clean" "INFO"
     }
     
     # Check if on main/master branch
@@ -517,19 +540,19 @@ try {
         $agentVersion = Update-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
         $serverVersion = Update-Version -VersionFile (Join-Path $ProjectRoot "server\VERSION") -BumpType $BumpType
         
-        Write-Status "Agent: $($agentVersion.Old) → $($agentVersion.New)" "SUCCESS"
-        Write-Status "Server: $($serverVersion.Old) → $($serverVersion.New)" "SUCCESS"
+        Write-Status "Agent: $($agentVersion.Old) → $($agentVersion.New)" "INFO"
+        Write-Status "Server: $($serverVersion.Old) → $($serverVersion.New)" "INFO"
         
         $finalVersion = $agentVersion.New  # Use agent version for tag
     } 
     elseif ($Component -eq 'server') {
         $versionInfo = Update-Version -VersionFile (Join-Path $ProjectRoot "server\VERSION") -BumpType $BumpType
-        Write-Status "Server: $($versionInfo.Old) → $($versionInfo.New)" "SUCCESS"
+        Write-Status "Server: $($versionInfo.Old) → $($versionInfo.New)" "INFO"
         $finalVersion = $versionInfo.New
     }
     else {
         $versionInfo = Update-Version -VersionFile (Join-Path $ProjectRoot "agent\VERSION") -BumpType $BumpType
-        Write-Status "Agent: $($versionInfo.Old) → $($versionInfo.New)" "SUCCESS"
+        Write-Status "Agent: $($versionInfo.Old) → $($versionInfo.New)" "INFO"
         $finalVersion = $versionInfo.New
     }
     
@@ -591,12 +614,12 @@ try {
     Write-Host ""
     
     if ($Component -eq "both") {
-        Write-Status "Agent Version: $($agentVersion.New)" "SUCCESS"
-        Write-Status "Server Version: $($serverVersion.New)" "SUCCESS"
+        Write-Status "Agent Version: $($agentVersion.New)" "INFO"
+        Write-Status "Server Version: $($serverVersion.New)" "INFO"
     } else {
-        Write-Status "Version: $finalVersion" "SUCCESS"
+        Write-Status "Version: $finalVersion" "INFO"
     }
-    Write-Status "Component: $Component" "SUCCESS"
+    Write-Status "Component: $Component" "INFO"
     
     if (-not $SkipPush -and -not $DryRun) {
         $repoUrl = git remote get-url origin 2>$null
@@ -611,12 +634,28 @@ try {
 }
 catch {
     Write-Host ""
-    Write-Status "Release failed: $_" "ERROR"
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} Release failed: $_"
     Write-Host ""
-    Write-Status "To recover:" "WARN"
-    Write-Status "  1. Fix the issue" "INFO"
-    Write-Status "  2. Revert VERSION changes: git restore VERSION server/VERSION" "INFO"
-    Write-Status "  3. Try again" "INFO"
+    
+    # Automatically revert VERSION file changes
+    Write-Status "Reverting VERSION file changes..." "WARN"
+    
+    if (-not $DryRun) {
+        if ($Component -eq 'both') {
+            git restore agent/VERSION server/VERSION 2>$null
+            Write-Status "Reverted VERSION files for agent and server" "INFO"
+        } elseif ($Component -eq 'server') {
+            git restore server/VERSION 2>$null
+            Write-Status "Reverted VERSION file for server" "INFO"
+        } else {
+            git restore agent/VERSION 2>$null
+            Write-Status "Reverted VERSION file for agent" "INFO"
+        }
+    }
+    
+    Write-Host ""
+    Write-Status "Fix the issue and try again" "WARN"
     Write-Host ""
     exit 1
 }

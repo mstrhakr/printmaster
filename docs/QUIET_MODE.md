@@ -37,8 +37,6 @@ In quiet mode, the following are **NOT** displayed:
 - ✗ ASCII art banner
 - ✗ Progress bars
 - ✗ Spinners
-- ✗ Success messages (`ShowSuccess`)
-- ✗ Informational messages (`ShowInfo`)
 - ✗ "Press Enter to continue" prompts
 - ✗ Fancy completion screens
 
@@ -46,10 +44,21 @@ In quiet mode, the following are **NOT** displayed:
 
 These are **ALWAYS** displayed (even in quiet mode):
 
-- ✓ **Errors** (`ShowError`) - Critical for troubleshooting
-- ✓ **Warnings** (`ShowWarning`) - Safety-critical messages
-- ✓ Completion status (simplified format: `✓ Message` or `✗ Message`)
+- ✓ **Errors** - Critical for troubleshooting
+- ✓ **Warnings** - Safety-critical messages
+- ✓ **Info messages** - Important status updates
+- ✓ **Success messages** - Operation confirmations
 - ✓ Requested output (like `--version`)
+
+**Format in Quiet Mode**: All output uses standardized log format with timestamps and colorized log levels:
+- Format: `timestamp [LEVEL] message`
+- Timestamp: ISO 8601 format with timezone (e.g., `2025-11-08T13:45:30-05:00`) - de-emphasized (dim/gray)
+- Level colors are **consistent based on severity**:
+  - **[INFO]** → Blue - informational messages
+  - **[WARN]** → Yellow - warnings and non-critical issues
+  - **[ERROR]** → Red - errors and failures
+- Message: Plain text, no formatting
+- No emojis, clean machine-parseable output
 
 ## Examples
 
@@ -89,10 +98,10 @@ PS> .\printmaster-agent.exe --service install
 
 ```powershell
 PS> .\printmaster-agent.exe --service install --quiet
-✓ PrintMaster Agent Service Installed
+2025-11-08T14:23:45-05:00 [INFO] PrintMaster Agent Service Installed
 ```
 
-**That's it!** No banner, no progress bars, just the result.
+**That's it!** No banner, no progress bars, just a clean log entry with ISO 8601 timestamp.
 
 ## Error Handling in Quiet Mode
 
@@ -100,10 +109,10 @@ Errors are **always visible**, ensuring you never miss critical issues:
 
 ```powershell
 PS> .\printmaster-agent.exe --service install -q
-  ✗ Failed to install service: access denied
+2025-11-08T14:23:45-05:00 [ERROR] Failed to install service: access denied
 ```
 
-Even in quiet mode, errors use the error formatting (red ✗) to ensure visibility.
+Even in quiet mode, errors use the standard log format with red coloring for visibility.
 
 ## Use Cases
 
@@ -117,9 +126,9 @@ Write-Host "Deploying PrintMaster Agent..."
 .\printmaster-agent.exe --service install --quiet
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✓ Agent installed successfully"
+    Write-Host "Agent installed successfully"
 } else {
-    Write-Host "✗ Agent installation failed"
+    Write-Host "Agent installation failed"
     exit 1
 }
 ```
@@ -163,7 +172,7 @@ func SetQuietMode(quiet bool) {
 
 ### Function-Level Checks
 
-Each `Show*` function checks the flag:
+Each `Show*` function checks the flag and outputs log-formatted messages:
 
 ```go
 func ShowBanner(version, gitCommit, buildDate string) {
@@ -174,24 +183,55 @@ func ShowBanner(version, gitCommit, buildDate string) {
     // ... render banner ...
 }
 
+func ShowSuccess(message string) {
+    if quietMode {
+        // In quiet mode, output as a log entry
+        timestamp := time.Now().Format("2006-01-02 15:04:05")
+        fmt.Printf("%s%s [INFO] %s%s\n", ColorGreen, timestamp, message, ColorReset)
+        return
+    }
+    ClearLine()
+    fmt.Printf("  %s✓%s %s\n", ColorGreen, ColorReset, message)
+}
+
 func ShowError(message string) {
-    // Errors ALWAYS shown (no quietMode check)
+    // Errors ALWAYS shown (even in quiet mode)
+    if quietMode {
+        // In quiet mode, output as a log entry
+        timestamp := time.Now().Format("2006-01-02 15:04:05")
+        fmt.Printf("%s%s [ERROR] %s%s\n", ColorRed, timestamp, message, ColorReset)
+        return
+    }
     ClearLine()
     fmt.Printf("  %s✗%s %s\n", ColorRed, ColorReset, message)
+}
+
+func ShowWarning(message string) {
+    // Warnings ALWAYS shown (even in quiet mode)
+    if quietMode {
+        // In quiet mode, output as a log entry
+        timestamp := time.Now().Format("2006-01-02 15:04:05")
+        fmt.Printf("%s%s [WARN] %s%s\n", ColorYellow, timestamp, message, ColorReset)
+        return
+    }
+    ClearLine()
+    fmt.Printf("  %s⚠%s %s\n", ColorYellow, ColorReset, message)
 }
 ```
 
 ### Completion Screen Simplification
 
-In quiet mode, the fancy box is replaced with a simple line:
+In quiet mode, the fancy box is replaced with a log-formatted line:
 
 ```go
 func ShowCompletionScreen(success bool, message string) {
     if quietMode {
+        // In quiet mode, output as a log entry
+        timestamp := time.Now().Format("2006-01-02 15:04:05")
         if success {
-            fmt.Printf("✓ %s\n", message)
+            fmt.Printf("%s%s [INFO] %s%s\n", ColorGreen, timestamp, message, ColorReset)
         } else {
-            fmt.Printf("✗ %s\n", message)
+            fmt.Printf("%s%s [ERROR] %s%s\n", ColorRed, timestamp, message, ColorReset)
         }
         return
     }

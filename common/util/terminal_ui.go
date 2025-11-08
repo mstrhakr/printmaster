@@ -7,17 +7,31 @@ import (
 	"time"
 )
 
-// Global quiet mode flag
+// Global quiet and silent mode flags
 var quietMode bool
+var silentMode bool
 
 // SetQuietMode enables or disables quiet mode for all terminal output
 func SetQuietMode(quiet bool) {
 	quietMode = quiet
 }
 
+// SetSilentMode enables or disables silent mode (suppresses ALL output including errors)
+func SetSilentMode(silent bool) {
+	silentMode = silent
+	if silent {
+		quietMode = true // Silent mode implies quiet mode
+	}
+}
+
 // IsQuietMode returns true if quiet mode is enabled
 func IsQuietMode() bool {
 	return quietMode
+}
+
+// IsSilentMode returns true if silent mode is enabled
+func IsSilentMode() bool {
+	return silentMode
 }
 
 // ANSI color codes
@@ -116,7 +130,15 @@ func ClearLine() {
 
 // ShowSuccess displays a success message
 func ShowSuccess(message string) {
+	if silentMode {
+		return // Silent mode suppresses everything
+	}
 	if quietMode {
+		// In quiet mode, output as a log entry
+		// Format: dim-timestamp colorized-level message
+		// INFO level = Blue (consistent with ShowInfo)
+		timestamp := time.Now().Format(time.RFC3339)
+		fmt.Printf("%s%s%s %s[INFO]%s %s\n", ColorDim, timestamp, ColorReset, ColorBlue, ColorReset, message)
 		return
 	}
 	ClearLine()
@@ -125,14 +147,31 @@ func ShowSuccess(message string) {
 
 // ShowError displays an error message
 func ShowError(message string) {
+	if silentMode {
+		return // Silent mode suppresses everything
+	}
 	// Errors are always shown, even in quiet mode
+	if quietMode {
+		// In quiet mode, output as a log entry
+		// Format: dim-timestamp colorized-level message
+		timestamp := time.Now().Format(time.RFC3339)
+		fmt.Printf("%s%s%s %s[ERROR]%s %s\n", ColorDim, timestamp, ColorReset, ColorRed, ColorReset, message)
+		return
+	}
 	ClearLine()
 	fmt.Printf("  %s✗%s %s\n", ColorRed, ColorReset, message)
 }
 
 // ShowInfo displays an info message
 func ShowInfo(message string) {
+	if silentMode {
+		return // Silent mode suppresses everything
+	}
 	if quietMode {
+		// In quiet mode, output as a log entry
+		// Format: dim-timestamp colorized-level message
+		timestamp := time.Now().Format(time.RFC3339)
+		fmt.Printf("%s%s%s %s[INFO]%s %s\n", ColorDim, timestamp, ColorReset, ColorBlue, ColorReset, message)
 		return
 	}
 	ClearLine()
@@ -141,7 +180,17 @@ func ShowInfo(message string) {
 
 // ShowWarning displays a warning message
 func ShowWarning(message string) {
+	if silentMode {
+		return // Silent mode suppresses everything
+	}
 	// Warnings are always shown, even in quiet mode (safety-critical)
+	if quietMode {
+		// In quiet mode, output as a log entry
+		// Format: dim-timestamp colorized-level message
+		timestamp := time.Now().Format(time.RFC3339)
+		fmt.Printf("%s%s%s %s[WARN]%s %s\n", ColorDim, timestamp, ColorReset, ColorYellow, ColorReset, message)
+		return
+	}
 	ClearLine()
 	fmt.Printf("  %s⚠%s %s\n", ColorYellow, ColorReset, message)
 }
@@ -158,12 +207,18 @@ func PromptToContinue() {
 
 // ShowCompletionScreen shows a final completion screen
 func ShowCompletionScreen(success bool, message string) {
+	if silentMode {
+		return // Silent mode suppresses everything
+	}
 	if quietMode {
-		// In quiet mode, just show a simple message
+		// In quiet mode, output as a log entry
+		// Format: dim-timestamp colorized-level message
+		// Colors based on log level: INFO=Blue, ERROR=Red
+		timestamp := time.Now().Format(time.RFC3339)
 		if success {
-			fmt.Printf("✓ %s\n", message)
+			fmt.Printf("%s%s%s %s[INFO]%s %s\n", ColorDim, timestamp, ColorReset, ColorBlue, ColorReset, message)
 		} else {
-			fmt.Printf("✗ %s\n", message)
+			fmt.Printf("%s%s%s %s[ERROR]%s %s\n", ColorDim, timestamp, ColorReset, ColorRed, ColorReset, message)
 		}
 		return
 	}

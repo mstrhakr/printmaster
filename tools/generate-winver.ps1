@@ -14,6 +14,29 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# ANSI color codes for consistent formatting
+$ColorReset = "`e[0m"
+$ColorDim = "`e[2m"
+$ColorRed = "`e[31m"
+$ColorGreen = "`e[32m"
+$ColorYellow = "`e[33m"
+$ColorBlue = "`e[34m"
+
+function Write-Log {
+    param([string]$Message, [string]$Level = "INFO")
+    
+    # ISO 8601 timestamp format (industry standard)
+    $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+    $levelColor = switch ($Level) {
+        "ERROR" { $ColorRed }
+        "WARN"  { $ColorYellow }
+        default { $ColorBlue }
+    }
+    
+    $consoleMessage = "${ColorDim}${timestamp}${ColorReset} ${levelColor}[${Level}]${ColorReset} ${Message}"
+    Write-Host $consoleMessage
+}
+
 # Parse semantic version
 # Input can be "0.3.4" or "0.3.4.9-dev" (dev builds include build number)
 # Strip any suffix after dash for parsing
@@ -90,35 +113,38 @@ $versionInfoJson = @{
 $jsonPath = Join-Path $outputPath "versioninfo.json"
 $versionInfoJson | ConvertTo-Json -Depth 10 | Set-Content -Path $jsonPath -Encoding UTF8
 
-Write-Host "[INFO] Generated version info: $jsonPath" -ForegroundColor Cyan
-Write-Host "[INFO] Version: $Version ($fileVersion)" -ForegroundColor Cyan
+Write-Log "Generated version info: $jsonPath" "INFO"
+Write-Log "Version: $Version ($fileVersion)" "INFO"
 
 # Check if goversioninfo is installed
 $goversioninfo = Get-Command goversioninfo -ErrorAction SilentlyContinue
 
 if (-not $goversioninfo) {
-    Write-Host "[WARN] goversioninfo not found, attempting to install..." -ForegroundColor Yellow
+    Write-Log "goversioninfo not found, attempting to install..." "WARN"
     try {
         go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
         $goversioninfo = Get-Command goversioninfo -ErrorAction SilentlyContinue
     }
     catch {
-        Write-Host "[ERROR] Failed to install goversioninfo: $_" -ForegroundColor Red
-        Write-Host "[WARN] Continuing without version resource embedding" -ForegroundColor Yellow
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} Failed to install goversioninfo: $_"
+        Write-Log "Continuing without version resource embedding" "WARN"
         return
     }
 }
 
 if ($goversioninfo) {
-    Write-Host "[INFO] Generating Windows resource file..." -ForegroundColor Cyan
+    Write-Log "Generating Windows resource file..." "INFO"
     Push-Location $outputPath
     try {
         & goversioninfo -o resource.syso
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "[SUCCESS] Generated resource.syso" -ForegroundColor Green
+            $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} Generated resource.syso"
         }
         else {
-            Write-Host "[ERROR] goversioninfo failed with exit code $LASTEXITCODE" -ForegroundColor Red
+            $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} goversioninfo failed with exit code $LASTEXITCODE"
         }
     }
     finally {

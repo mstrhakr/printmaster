@@ -158,15 +158,21 @@ func main() {
 	configPath := flag.String("config", "config.toml", "Configuration file path")
 	generateConfig := flag.Bool("generate-config", false, "Generate default config file and exit")
 	showVersion := flag.Bool("version", false, "Show version information and exit")
-	quiet := flag.Bool("quiet", false, "Suppress informational output (errors still shown)")
+	quiet := flag.Bool("quiet", false, "Suppress informational output (errors/warnings still shown)")
 	flag.BoolVar(quiet, "q", false, "Shorthand for --quiet")
+	silent := flag.Bool("silent", false, "Suppress ALL output (complete silence)")
+	flag.BoolVar(silent, "s", false, "Shorthand for --silent")
 
 	// Service management flags
 	svcCommand := flag.String("service", "", "Service command: install, uninstall, start, stop, restart, run")
 	flag.Parse()
 
-	// Set quiet mode globally for util functions
-	commonutil.SetQuietMode(*quiet)
+	// Set quiet/silent mode globally for util functions
+	if *silent {
+		commonutil.SetSilentMode(true)
+	} else {
+		commonutil.SetQuietMode(*quiet)
+	}
 
 	// Show version if requested
 	if *showVersion {
@@ -504,13 +510,9 @@ func handleServiceCommand(cmd string) {
 			fmt.Println()
 			fmt.Printf("  %sHTTPS URL:%s https://localhost:9443\n", commonutil.ColorDim, commonutil.ColorReset)
 		case service.StatusStopped:
-			commonutil.ShowWarning("Service is installed but not running")
-			fmt.Println()
-			commonutil.ShowInfo("Use '--service start' to start the service")
+			commonutil.ShowWarning("Service is installed but not running - Use '--service start' to start the service")
 		default:
-			commonutil.ShowWarning("Service is not installed")
-			fmt.Println()
-			commonutil.ShowInfo("Use '--service install' to install the service")
+			commonutil.ShowWarning("Service is not installed - Use '--service install' to install the service")
 		}
 
 		fmt.Println()
