@@ -1239,6 +1239,28 @@ input[type="checkbox"]:indeterminate::before {
   margin-bottom: 12px;
 }
 
+/* Connection type badge (small colored dot) shown on agent cards */
+.conn-badge {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.04) inset;
+}
+.conn-badge.ws {
+  background: #28a745; /* green */
+}
+.conn-badge.http {
+  background: #f39c12; /* amber */
+}
+.conn-badge.none {
+  background: #6c757d; /* gray */
+}
+.conn-badge[aria-label] {
+  cursor: default;
+}
+
 .device-card-title {
   font-size: 15px;
   font-weight: 600;
