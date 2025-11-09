@@ -67,6 +67,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		tokenPrefix = token[:8]
 	}
 
+	// Always log incoming WS attempt (helps diagnose why agents don't complete handshake)
+	log.Printf("Incoming WebSocket connection attempt from %s token=%s user_agent=%s", clientIP, tokenPrefix+"...", r.Header.Get("User-Agent"))
+
 	// Check if this IP+token is currently blocked
 	if authRateLimiter != nil {
 		if isBlocked, blockedUntil := authRateLimiter.IsBlocked(clientIP, tokenPrefix); isBlocked {
@@ -182,6 +185,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 				"ip", clientIP,
 				"error", err)
 		}
+		log.Printf("WebSocket upgrade failed for agent_id=%s ip=%s err=%v", agent.AgentID, clientIP, err)
 		return
 	}
 
@@ -192,6 +196,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			"ip", clientIP,
 			"remote_addr", r.RemoteAddr)
 	}
+	// Fallback log in case structured logger is not initialized
+	log.Printf("Agent WebSocket connected (fallback) agent_id=%s hostname=%s ip=%s remote_addr=%s", agent.AgentID, agent.Hostname, clientIP, r.RemoteAddr)
 
 	// Register connection
 	wsConnectionsLock.Lock()
@@ -371,6 +377,8 @@ func handleWSProxyResponse(msg WSMessage) {
 		log.Printf("Proxy response missing request_id")
 		return
 	}
+
+	log.Printf("Received WS proxy response for request_id=%s", requestID)
 
 	// Find the waiting channel for this request
 	proxyRequestsLock.Lock()
