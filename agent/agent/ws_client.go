@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"crypto/tls"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -402,10 +404,12 @@ func (ws *WSClient) handleProxyRequest(msg WSMessage) {
 
 	ws.logger.Printf("Proxying %s request to %s", method, targetURL)
 
-	// Create HTTP client with timeout
+	// Create HTTP client with timeout. Accept self-signed certs from devices
+	// because many printers expose self-signed HTTPS interfaces.
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
+			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 		},

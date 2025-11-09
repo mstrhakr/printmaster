@@ -170,7 +170,29 @@ func (s *SQLiteStore) initSchema() error {
 
 	// Add name column if it doesn't exist (migration for existing databases)
 	// SQLite will error if column exists, so we ignore that specific error
-	_, _ = s.db.Exec("ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''")
+	// Best-effort migrations for agents table: attempt to add newer columns that
+	// may be missing from older database files. We intentionally ignore errors
+	// (column already exists) so this is safe to run on existing DBs.
+	altStmts := []string{
+		"ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE agents ADD COLUMN os_version TEXT",
+		"ALTER TABLE agents ADD COLUMN go_version TEXT",
+		"ALTER TABLE agents ADD COLUMN architecture TEXT",
+		"ALTER TABLE agents ADD COLUMN num_cpu INTEGER DEFAULT 0",
+		"ALTER TABLE agents ADD COLUMN total_memory_mb INTEGER DEFAULT 0",
+		"ALTER TABLE agents ADD COLUMN build_type TEXT",
+		"ALTER TABLE agents ADD COLUMN git_commit TEXT",
+		"ALTER TABLE agents ADD COLUMN last_heartbeat DATETIME",
+		"ALTER TABLE agents ADD COLUMN device_count INTEGER DEFAULT 0",
+		"ALTER TABLE agents ADD COLUMN last_device_sync DATETIME",
+		"ALTER TABLE agents ADD COLUMN last_metrics_sync DATETIME",
+	}
+
+	for _, stmt := range altStmts {
+		if _, _ = s.db.Exec(stmt); true {
+			// ignore errors - best-effort migration
+		}
+	}
 
 	// Check/update schema version
 	var currentVersion int
