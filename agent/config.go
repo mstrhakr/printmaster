@@ -132,6 +132,11 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 	if val := os.Getenv("SERVER_CA_PATH"); val != "" {
 		cfg.Server.CAPath = val
 	}
+	if val := os.Getenv("SERVER_INSECURE_SKIP_VERIFY"); val != "" {
+		// Accept common true-ish values
+		lower := strings.ToLower(val)
+		cfg.Server.InsecureSkipVerify = (lower == "1" || lower == "true" || lower == "yes")
+	}
 	if val := os.Getenv("WEB_HTTP_PORT"); val != "" {
 		if port, err := strconv.Atoi(val); err == nil {
 			cfg.Web.HTTPPort = port
