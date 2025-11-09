@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"net/http"
 	"net/url"
 	"strings"
@@ -167,9 +168,21 @@ func (ws *WSClient) connect() error {
 
 	ws.logger.Printf("Connecting to WebSocket: %s", u.String())
 
-	// Create WebSocket dialer with timeouts
+	// Determine whether to skip TLS verification for the WebSocket dialer.
+	// This respects the same environment variable used by agent config
+	// (SERVER_INSECURE_SKIP_VERIFY) so the behavior can be toggled at runtime.
+	skipVerify := false
+	if val := os.Getenv("SERVER_INSECURE_SKIP_VERIFY"); val != "" {
+		lv := strings.ToLower(val)
+		if lv == "1" || lv == "true" || lv == "yes" {
+			skipVerify = true
+		}
+	}
+
+	// Create WebSocket dialer with timeouts and TLS settings
 	dialer := &websocket.Dialer{
 		HandshakeTimeout: ws.handshakeTimeout,
+		TLSClientConfig:  &tls.Config{InsecureSkipVerify: skipVerify},
 	}
 
 	// Connect
