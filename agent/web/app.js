@@ -1829,6 +1829,43 @@ function updateSubnetDisplay() {
         const subnet = (d && d.discovery && d.discovery.detected_subnet) ? d.discovery.detected_subnet : '(unable to detect)';
         const subnetEl = document.getElementById('detected_subnet_display');
         if (subnetEl) subnetEl.textContent = subnet;
+        // If detected subnet is a CIDR and expands beyond MAX_ADDRS, disable the subnet scan toggle
+        try {
+            const MAX_ADDRS = 10000;
+            if (subnet && subnet.includes('/') ) {
+                const cnt = estimateRangeCount(subnet);
+                const scanEl = document.getElementById('scan_local_subnet_enabled');
+                if (cnt > MAX_ADDRS) {
+                    if (scanEl) {
+                        scanEl.checked = false;
+                        scanEl.disabled = true;
+                    }
+                    // Persistently turn off subnet scanning so server/agent also respects it
+                    try {
+                        fetch('/settings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ discovery: { subnet_scan: false } })
+                        }).then(r => {
+                            if (!r.ok) {
+                                console.warn('Failed to persist subnet_scan=false');
+                            }
+                        }).catch(e => console.warn('Persist subnet_scan failed', e));
+                    } catch (e) {
+                        console.warn('Persist subnet_scan failed', e);
+                    }
+
+                    showToast(`Detected subnet ${subnet} expands to ${cnt} addresses (over ${MAX_ADDRS}). Subnet scanning has been disabled to avoid excessive scans. It has been turned off and cannot be re-enabled until you update ranges or enable manually. Use manual ranges or passive discovery.`, 'error', 10000);
+                } else {
+                    if (scanEl) {
+                        // ensure it's enabled (but don't override user's saved value)
+                        scanEl.disabled = false;
+                    }
+                }
+            }
+        } catch (e) {
+            // ignore parsing errors
+        }
     })
 }
 
