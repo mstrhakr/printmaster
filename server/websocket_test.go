@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	wscommon "printmaster/common/ws"
 	"printmaster/server/storage"
 
 	"github.com/gorilla/websocket"
@@ -106,7 +107,7 @@ func TestWebSocketHeartbeat(t *testing.T) {
 	defer ws.Close()
 
 	// Send heartbeat message
-	heartbeatMsg := WSMessage{
+	heartbeatMsg := wscommon.Message{
 		Type: "heartbeat",
 		Data: map[string]interface{}{
 			"device_count": 5,
@@ -131,7 +132,7 @@ func TestWebSocketHeartbeat(t *testing.T) {
 		t.Fatalf("Failed to read pong: %v", err)
 	}
 
-	var pongMsg WSMessage
+	var pongMsg wscommon.Message
 	err = json.Unmarshal(message, &pongMsg)
 	if err != nil {
 		t.Fatalf("Failed to unmarshal pong: %v", err)
