@@ -15,8 +15,7 @@ import (
 	"time"
 
 	"crypto/tls"
-
-	"github.com/gorilla/websocket"
+	wscommon "printmaster/common/ws"
 )
 
 // maskTokenForLog returns a copy of the URL string with the token query parameter masked
@@ -34,27 +33,13 @@ func maskTokenForLog(u *url.URL) string {
 	return u.String()
 }
 
-// WebSocket message types
-const (
-	MessageTypeHeartbeat     = "heartbeat"
-	MessageTypePong          = "pong"
-	MessageTypeError         = "error"
-	MessageTypeProxyRequest  = "proxy_request"
-	MessageTypeProxyResponse = "proxy_response"
-)
-
-// WSMessage represents a WebSocket message
-type WSMessage struct {
-	Type      string                 `json:"type"`
-	Data      map[string]interface{} `json:"data,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-}
+// Use shared message types from wscommon
 
 // WSClient manages a persistent WebSocket connection to the server
 type WSClient struct {
 	serverURL     string
 	token         string
-	conn          *websocket.Conn
+	conn          *wscommon.Conn
 	mu            sync.RWMutex
 	connected     bool
 	reconnectChan chan struct{}
@@ -122,22 +107,14 @@ func (ws *WSClient) Stop() error {
 	defer ws.mu.Unlock()
 
 	if ws.conn != nil {
-		// Send close message
-		// Set a short write deadline to avoid hangs during shutdown
-		ws.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		err := ws.conn.WriteMessage(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
-		)
-		if err != nil {
-			ErrorCtx("Error sending close message", "error", err)
+		// Close underlying connection (no explicit close-frame to keep wrapper small)
+		if err := ws.conn.Close(); err != nil {
+			ErrorCtx("Error closing WS connection", "error", err)
 		} else {
-			InfoCtx("Sent WebSocket close message to server")
+			InfoCtx("Closed WebSocket connection object")
 		}
-
-		ws.conn.Close()
 		ws.conn = nil
-		InfoCtx("Closed WebSocket connection object")
+        
 	}
 
 	ws.connected = false
@@ -219,16 +196,8 @@ func (ws *WSClient) connect() error {
 	// Use the same configured policy passed into the WS client (via ServerClient)
 	skipVerify := ws.insecureSkipVerify
 
-	// Create WebSocket dialer with timeouts and TLS settings
-	dialer := &websocket.Dialer{
-		HandshakeTimeout: ws.handshakeTimeout,
-		TLSClientConfig:  &tls.Config{InsecureSkipVerify: skipVerify},
-	}
-
-	DebugCtx("WebSocket dialer TLS InsecureSkipVerify", "skip_verify", skipVerify)
-
-	// Connect
-	conn, resp, err := dialer.Dial(u.String(), nil)
+	// Connect using shared ws wrapper
+	conn, resp, err := wscommon.Dial(u.String(), nil, &tls.Config{InsecureSkipVerify: skipVerify}, ws.handshakeTimeout)
 	if err != nil {
 		// Try to include HTTP response body and headers from the upgrade attempt for easier debugging
 		if resp != nil {
@@ -255,10 +224,10 @@ func (ws *WSClient) connect() error {
 	if resp != nil {
 		respInfo = resp.Status
 	}
-	InfoCtx("WebSocket connected successfully", "status", respInfo, "remote", conn.RemoteAddr(), "subprotocols", conn.Subprotocol(), "respHeaders", resp.Header)
+	InfoCtx("WebSocket connected successfully", "status", respInfo, "remote", conn.RemoteAddr(), "respHeaders", resp.Header)
 
 	// Start read and ping loops for this connection
-	// Ensure pong updates extend our read deadline
+	// Ensure pong updates extend our read deadline using wrapper
 	conn.SetPongHandler(func(appData string) error {
 		conn.SetReadDeadline(time.Now().Add(ws.readTimeout))
 		DebugCtx("Pong received, extended read deadline")
@@ -355,9 +324,9 @@ func (ws *WSClient) readLoop() {
 			// Set read deadline
 			conn.SetReadDeadline(time.Now().Add(ws.readTimeout))
 
-			_, message, err := conn.ReadMessage()
+			message, err := conn.ReadMessage()
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				if wscommon.IsUnexpectedCloseError(err, wscommon.CloseNormalClosure) {
 					WarnCtx("WebSocket read error", "error", err)
 				} else {
 					DebugCtx("WebSocket read returned error", "error", err)
@@ -365,8 +334,8 @@ func (ws *WSClient) readLoop() {
 				return
 			}
 
-			// Parse message
-			var msg WSMessage
+			// Parse message into shared wscommon.Message
+			var msg wscommon.Message
 			if err := json.Unmarshal(message, &msg); err != nil {
 				DebugCtx("Failed to parse WebSocket message", "error", err)
 				continue
@@ -388,11 +357,11 @@ func (ws *WSClient) readLoop() {
 
 			// Handle message types
 			switch msg.Type {
-			case MessageTypePong:
+			case wscommon.MessageTypePong:
 				// Pong received, connection is healthy
-			case MessageTypeError:
+			case wscommon.MessageTypeError:
 				WarnCtx("Server error", "data", msg.Data)
-			case MessageTypeProxyRequest:
+			case wscommon.MessageTypeProxyRequest:
 				// Handle proxy request from server
 				// Log some request details to help trace proxy issues
 				if requestID, ok := msg.Data["request_id"].(string); ok {
@@ -438,9 +407,8 @@ func (ws *WSClient) pingLoop() {
 				return
 			}
 
-			// Send ping
-			conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
-			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			// Send ping using wrapper helper
+			if err := conn.WritePing(ws.writeTimeout); err != nil {
 				WarnCtx("Failed to send ping", "error", err)
 				return
 			}
@@ -461,8 +429,8 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 		return errors.New("WebSocket not connected")
 	}
 
-	msg := WSMessage{
-		Type:      MessageTypeHeartbeat,
+	msg := wscommon.Message{
+		Type:      wscommon.MessageTypeHeartbeat,
 		Data:      data,
 		Timestamp: time.Now(),
 	}
@@ -480,9 +448,8 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 		return fmt.Errorf("failed to marshal heartbeat: %w", err)
 	}
 
-	// Send message
-	conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
-	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+	// Send message using wrapper
+	if err := conn.WriteRaw(payload, ws.writeTimeout); err != nil {
 		return fmt.Errorf("failed to send heartbeat: %w", err)
 	}
 
@@ -490,7 +457,7 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 }
 
 // handleProxyRequest handles incoming HTTP proxy requests from the server
-func (ws *WSClient) handleProxyRequest(msg WSMessage) {
+func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	requestID, ok := msg.Data["request_id"].(string)
 	if !ok {
 		WarnCtx("Proxy request missing request_id")
@@ -615,8 +582,8 @@ func (ws *WSClient) sendProxyResponse(requestID string, statusCode int, headers 
 		return
 	}
 
-	msg := WSMessage{
-		Type: MessageTypeProxyResponse,
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeProxyResponse,
 		Data: map[string]interface{}{
 			"request_id":  requestID,
 			"status_code": statusCode,
@@ -632,8 +599,7 @@ func (ws *WSClient) sendProxyResponse(requestID string, statusCode int, headers 
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
-	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+	if err := conn.WriteRaw(payload, ws.writeTimeout); err != nil {
 		WarnCtx("Failed to send proxy response", "error", err)
 	}
 }

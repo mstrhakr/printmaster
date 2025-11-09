@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	wscommon "printmaster/common/ws"
 )
 
 var upgrader = websocket.Upgrader{
@@ -109,18 +110,18 @@ func TestWSClientHeartbeat(t *testing.T) {
 			}
 
 			// Parse message
-			var msg WSMessage
+			var msg wscommon.Message
 			if err := json.Unmarshal(message, &msg); err != nil {
 				t.Logf("Failed to unmarshal message: %v", err)
 				continue
 			}
 
-			if msg.Type == MessageTypeHeartbeat {
+			if msg.Type == wscommon.MessageTypeHeartbeat {
 				receivedHeartbeat = true
 
 				// Send pong response
-				pongMsg := WSMessage{
-					Type:      MessageTypePong,
+				pongMsg := wscommon.Message{
+					Type:      wscommon.MessageTypePong,
 					Timestamp: time.Now(),
 				}
 				payload, _ := json.Marshal(pongMsg)
