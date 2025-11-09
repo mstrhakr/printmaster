@@ -32,9 +32,6 @@ server/printmaster-server.exe
 *.buildnumber
 *.lastversion
 
-# Dependency directories (vendor is optional)
-vendor/
-
 # IDE and editor files
 # Keep .vscode/ tasks and launch configs for team consistency
 .vscode/*
