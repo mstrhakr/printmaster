@@ -1519,8 +1519,10 @@ func handleDeviceProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get device to find its IP and associated agent
+	// Use ListAllDevices to search across all agents (passing an empty agent id
+	// to ListDevices would incorrectly filter for agent_id = '')
 	ctx := context.Background()
-	devices, err := serverStore.ListDevices(ctx, "")
+	devices, err := serverStore.ListAllDevices(ctx)
 	if err != nil {
 		http.Error(w, "Failed to query devices", http.StatusInternalServerError)
 		return
@@ -1820,7 +1822,7 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 
 	// Get all devices across all agents
-	devices, err := serverStore.ListDevices(ctx, "")
+	devices, err := serverStore.ListAllDevices(ctx)
 	if err != nil {
 		if serverLogger != nil {
 			serverLogger.Error("Failed to list devices", "error", err)
