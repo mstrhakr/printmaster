@@ -1239,27 +1239,43 @@ input[type="checkbox"]:indeterminate::before {
   margin-bottom: 12px;
 }
 
-/* Connection type badge (small colored dot) shown on agent cards */
+/* Connection type badge (info-style oval, matching agent capability badges) */
 .conn-badge {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  display: inline-block;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 2px rgba(0,0,0,0.04) inset;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+.conn-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--highlight);
 }
 .conn-badge.ws {
-  background: #28a745; /* green */
+  background: linear-gradient(135deg, rgba(40,167,69,0.10) 0%, rgba(40,167,69,0.06) 100%);
+  border-color: rgba(40,167,69,0.25);
+  color: #155724;
 }
 .conn-badge.http {
-  background: #f39c12; /* amber */
+  background: linear-gradient(135deg, rgba(243,156,18,0.10) 0%, rgba(243,156,18,0.06) 100%);
+  border-color: rgba(243,156,18,0.25);
+  color: #7a4a03;
 }
-.conn-badge.none {
-  background: #6c757d; /* gray */
+.conn-badge.none, .conn-badge.off, .conn-badge.unknown {
+  background: linear-gradient(135deg, rgba(108,117,125,0.06) 0%, rgba(108,117,125,0.03) 100%);
+  border-color: rgba(0,0,0,0.08);
+  color: var(--muted);
 }
-.conn-badge[aria-label] {
-  cursor: default;
-}
+.conn-badge[aria-label] { cursor: default; }
 
 .device-card-title {
   font-size: 15px;

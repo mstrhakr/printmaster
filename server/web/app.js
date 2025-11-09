@@ -515,7 +515,11 @@ function renderAgentCard(agent) {
                 <div class="device-card-row">
                     <span class="device-card-label">Status</span>
                     <span class="device-card-value agent-status-value" style="color:${statusColor}">
-                        ${agent.connection_type ? `<span class="conn-badge ${agent.connection_type}" title="Connection: ${agent.connection_type === 'ws' ? 'WebSocket (live)' : agent.connection_type === 'http' ? 'HTTP (recent)' : 'Offline'}" aria-label="Connection status"></span> ` : ''}● ${agent.status || 'unknown'}
+                        ${agent.connection_type ? (function(){
+                            const label = agent.connection_type === 'ws' ? 'WS' : agent.connection_type === 'http' ? 'HTTP' : 'OFF';
+                            const title = `Connection: ${agent.connection_type === 'ws' ? 'WebSocket (live)' : agent.connection_type === 'http' ? 'HTTP (recent)' : 'Offline'}`;
+                            return `<span class="conn-badge ${agent.connection_type}" title="${title}" aria-label="Connection status">${label}</span> `;
+                        })() : ''}● ${agent.status || 'unknown'}
                     </span>
                 </div>
                 
