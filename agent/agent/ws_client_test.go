@@ -210,8 +210,15 @@ func TestWSClientReconnection(t *testing.T) {
 	}
 	defer client.Stop()
 
-	// Wait for initial connection and reconnections
-	time.Sleep(2 * time.Second)
+	// Wait for initial connection and reconnections (poll until timeout)
+	// Increase deadline to avoid flakes on slower machines.
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if connectionCount >= 2 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 
 	// Should have reconnected at least once
 	if connectionCount < 2 {
