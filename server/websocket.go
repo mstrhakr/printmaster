@@ -29,9 +29,11 @@ var (
 	wsConnections     = make(map[string]*websocket.Conn)
 	wsConnectionsLock sync.RWMutex
 
-	// Counters for diagnostics
-	wsPingFailures     int64
-	wsDisconnectEvents int64
+	// (global counters removed - using per-agent diagnostics maps below)
+	// Per-agent diagnostics
+	wsDiagLock sync.RWMutex
+	wsPingFailuresPerAgent = make(map[string]int64)
+	wsDisconnectEventsPerAgent = make(map[string]int64)
 
 	// Track pending proxy requests awaiting responses from agents
 	proxyRequests     = make(map[string]chan WSMessage) // key: requestID
@@ -266,6 +268,20 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 					if serverLogger != nil {
 						serverLogger.Warn("WebSocket ping failed, closing connection", "agent_id", agent.AgentID, "error", err)
 					}
+					wsDiagLock.Lock()
+					wsPingFailuresPerAgent[agent.AgentID]++
+					pf := wsPingFailuresPerAgent[agent.AgentID]
+					de := wsDisconnectEventsPerAgent[agent.AgentID]
+					wsDiagLock.Unlock()
+					// Broadcast diagnostic SSE event so UI can update
+					sseHub.Broadcast(SSEEvent{
+						Type: "agent_ws_diag",
+						Data: map[string]interface{}{
+							"agent_id": agent.AgentID,
+							"ws_ping_failures": pf,
+							"ws_disconnect_events": de,
+						},
+					})
 					conn.Close()
 					return
 				}
@@ -295,7 +311,20 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 				},
 			})
 			// Mark disconnect event for diagnostics
-			wsDisconnectEvents++
+			wsDiagLock.Lock()
+			wsDisconnectEventsPerAgent[agent.AgentID]++
+			pf := wsPingFailuresPerAgent[agent.AgentID]
+			de := wsDisconnectEventsPerAgent[agent.AgentID]
+			wsDiagLock.Unlock()
+			// Broadcast diagnostic SSE event so UI can update
+			sseHub.Broadcast(SSEEvent{
+				Type: "agent_ws_diag",
+				Data: map[string]interface{}{
+					"agent_id": agent.AgentID,
+					"ws_ping_failures": pf,
+					"ws_disconnect_events": de,
+				},
+			})
 
 			// Debounce marking offline: wait a short window before flipping DB state
 			go func(agentID string) {
