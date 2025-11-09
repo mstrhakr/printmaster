@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -471,10 +472,11 @@ func (l *Logger) Close() error {
 
 // LevelFromString converts a string to a LogLevel
 func LevelFromString(s string) LogLevel {
-	switch s {
+	// Accept case-insensitive level names and trim whitespace
+	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "ERROR":
 		return ERROR
-	case "WARN":
+	case "WARN", "WARNING":
 		return WARN
 	case "INFO":
 		return INFO

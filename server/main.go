@@ -305,6 +305,8 @@ func runServer(ctx context.Context) {
 	log.Printf("Database: %s", cfg.Database.Path)
 	serverLogger.Info("Initializing database", "path", cfg.Database.Path)
 
+	// Inject structured logger into storage package so DB initialization logs are structured
+	storage.SetLogger(serverLogger)
 	serverStore, err = storage.NewSQLiteStore(cfg.Database.Path)
 	if err != nil {
 		serverLogger.Error("Failed to initialize database", "error", err)

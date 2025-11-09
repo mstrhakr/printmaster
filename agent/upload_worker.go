@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
 	"sync"
 	"time"
 
@@ -100,11 +98,8 @@ func (w *UploadWorker) Start(ctx context.Context, version string) error {
 		serverURL := w.client.GetServerURL()
 		token := w.client.GetToken()
 
-		// Create a standard logger for WSClient (writes to default output)
-		stdLogger := log.New(os.Stdout, "[WS] ", log.LstdFlags)
-
 		w.wsClientMu.Lock()
-		w.wsClient = agent.NewWSClient(serverURL, token, stdLogger)
+		w.wsClient = agent.NewWSClient(serverURL, token, w.client.IsInsecureSkipVerify())
 		w.wsClientMu.Unlock()
 
 		// Start WebSocket client (non-blocking, handles reconnection internally)

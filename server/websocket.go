@@ -68,7 +68,17 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 	}
 
 	// Always log incoming WS attempt (helps diagnose why agents don't complete handshake)
-	log.Printf("Incoming WebSocket connection attempt from %s token=%s user_agent=%s", clientIP, tokenPrefix+"...", r.Header.Get("User-Agent"))
+	if serverLogger != nil {
+		serverLogger.Info("Incoming WebSocket connection attempt",
+			"ip", clientIP,
+			"token", tokenPrefix+"...",
+			"user_agent", r.Header.Get("User-Agent"))
+		serverLogger.Debug("Incoming WebSocket raw headers",
+			"remote_addr", r.RemoteAddr,
+			"headers", r.Header)
+	} else {
+		log.Printf("Incoming WebSocket connection attempt from %s token=%s user_agent=%s", clientIP, tokenPrefix+"...", r.Header.Get("User-Agent"))
+	}
 
 	// Check if this IP+token is currently blocked
 	if authRateLimiter != nil {
@@ -79,6 +89,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 					"token", tokenPrefix+"...",
 					"blocked_until", blockedUntil.Format(time.RFC3339),
 					"user_agent", r.Header.Get("User-Agent"))
+				serverLogger.Debug("Blocked WebSocket details", "remote_addr", r.RemoteAddr)
 			}
 			http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
 			return
@@ -86,6 +97,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 	}
 
 	// Authenticate agent
+	if serverLogger != nil {
+		serverLogger.Debug("Authenticating WebSocket token", "token_prefix", tokenPrefix+"...", "ip", clientIP)
+	}
 	agent, err := serverStore.GetAgentByToken(r.Context(), token)
 	if err != nil {
 		// Record failed attempt and check if we should log
@@ -175,6 +189,10 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		authRateLimiter.RecordSuccess(clientIP, tokenPrefix)
 	}
 
+	if serverLogger != nil {
+		serverLogger.Debug("WebSocket authentication success", "agent_id_guess", agent.AgentID, "hostname", agent.Hostname, "ip", clientIP)
+	}
+
 	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -184,8 +202,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 				"hostname", agent.Hostname,
 				"ip", clientIP,
 				"error", err)
+		} else {
+			log.Printf("WebSocket upgrade failed for agent_id=%s ip=%s err=%v", agent.AgentID, clientIP, err)
 		}
-		log.Printf("WebSocket upgrade failed for agent_id=%s ip=%s err=%v", agent.AgentID, clientIP, err)
 		return
 	}
 
@@ -195,9 +214,12 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			"hostname", agent.Hostname,
 			"ip", clientIP,
 			"remote_addr", r.RemoteAddr)
+		serverLogger.Debug("Agent WebSocket connect details", "user_agent", r.Header.Get("User-Agent"), "headers", r.Header)
 	}
 	// Fallback log in case structured logger is not initialized
-	log.Printf("Agent WebSocket connected (fallback) agent_id=%s hostname=%s ip=%s remote_addr=%s", agent.AgentID, agent.Hostname, clientIP, r.RemoteAddr)
+	if serverLogger == nil {
+		log.Printf("Agent WebSocket connected (fallback) agent_id=%s hostname=%s ip=%s remote_addr=%s", agent.AgentID, agent.Hostname, clientIP, r.RemoteAddr)
+	}
 
 	// Register connection
 	wsConnectionsLock.Lock()
@@ -210,6 +232,10 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 	}
 	wsConnections[agent.AgentID] = conn
 	wsConnectionsLock.Unlock()
+
+	if serverLogger != nil {
+		serverLogger.Debug("Registered WebSocket connection for agent", "agent_id", agent.AgentID)
+	}
 
 	// Broadcast agent_connected event to UI via SSE
 	if sseHub != nil {
@@ -257,15 +283,31 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				log.Printf("WebSocket error for agent %s: %v", agent.AgentID, err)
+				if serverLogger != nil {
+					serverLogger.Warn("WebSocket error",
+						"agent_id", agent.AgentID,
+						"error", err)
+				} else {
+					log.Printf("WebSocket error for agent %s: %v", agent.AgentID, err)
+				}
 			}
 			break
+		}
+
+		if serverLogger != nil {
+			serverLogger.Debug("WebSocket raw message received", "agent_id", agent.AgentID, "len", len(message))
 		}
 
 		// Parse message
 		var msg WSMessage
 		if err := json.Unmarshal(message, &msg); err != nil {
-			log.Printf("Failed to parse WebSocket message from agent %s: %v", agent.AgentID, err)
+			if serverLogger != nil {
+				serverLogger.Warn("Failed to parse WebSocket message",
+					"agent_id", agent.AgentID,
+					"error", err)
+			} else {
+				log.Printf("Failed to parse WebSocket message from agent %s: %v", agent.AgentID, err)
+			}
 			sendWSError(conn, "Invalid message format")
 			continue
 		}
@@ -277,7 +319,13 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		case MessageTypeProxyResponse:
 			handleWSProxyResponse(msg)
 		default:
-			log.Printf("Unknown WebSocket message type from agent %s: %s", agent.AgentID, msg.Type)
+			if serverLogger != nil {
+				serverLogger.Warn("Unknown WebSocket message type",
+					"agent_id", agent.AgentID,
+					"type", msg.Type)
+			} else {
+				log.Printf("Unknown WebSocket message type from agent %s: %s", agent.AgentID, msg.Type)
+			}
 			sendWSError(conn, "Unknown message type")
 		}
 	}
@@ -374,11 +422,19 @@ func closeAgentWebSocket(agentID string) {
 func handleWSProxyResponse(msg WSMessage) {
 	requestID, ok := msg.Data["request_id"].(string)
 	if !ok {
-		log.Printf("Proxy response missing request_id")
+		if serverLogger != nil {
+			serverLogger.Warn("Proxy response missing request_id")
+		} else {
+			log.Printf("Proxy response missing request_id")
+		}
 		return
 	}
 
-	log.Printf("Received WS proxy response for request_id=%s", requestID)
+	if serverLogger != nil {
+		serverLogger.Debug("Received WS proxy response", "request_id", requestID)
+	} else {
+		log.Printf("Received WS proxy response for request_id=%s", requestID)
+	}
 
 	// Find the waiting channel for this request
 	proxyRequestsLock.Lock()
@@ -389,7 +445,11 @@ func handleWSProxyResponse(msg WSMessage) {
 	proxyRequestsLock.Unlock()
 
 	if !exists {
-		log.Printf("Received proxy response for unknown request ID: %s", requestID)
+		if serverLogger != nil {
+			serverLogger.Warn("Received proxy response for unknown request ID", "request_id", requestID)
+		} else {
+			log.Printf("Received proxy response for unknown request ID: %s", requestID)
+		}
 		return
 	}
 
@@ -398,7 +458,11 @@ func handleWSProxyResponse(msg WSMessage) {
 	case respChan <- msg:
 		// Successfully delivered
 	case <-time.After(5 * time.Second):
-		log.Printf("Timeout delivering proxy response for request ID: %s", requestID)
+		if serverLogger != nil {
+			serverLogger.Warn("Timeout delivering proxy response", "request_id", requestID)
+		} else {
+			log.Printf("Timeout delivering proxy response for request ID: %s", requestID)
+		}
 	}
 }
 

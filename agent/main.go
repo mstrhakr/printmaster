@@ -1042,7 +1042,12 @@ func runInteractive(ctx context.Context) {
 		defer appLogger.Close()
 	}
 
-	appLogger.Info("Printer Fleet Agent starting", "startup_scan", "disabled")
+	appLogger.Info("Printer Fleet Agent starting",
+		"startup_scan", "disabled",
+		"version", Version,
+		"build_time", BuildTime,
+		"git_commit", GitCommit,
+		"build_type", BuildType)
 
 	// Provide the app logger to the agent package so internal logs are structured
 	agent.SetLogger(appLogger)

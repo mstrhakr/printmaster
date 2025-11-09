@@ -8,10 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +18,21 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// maskTokenForLog returns a copy of the URL string with the token query parameter masked
+func maskTokenForLog(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	q := u.Query()
+	if q.Get("token") != "" {
+		q.Set("token", "***")
+		u2 := *u
+		u2.RawQuery = q.Encode()
+		return u2.String()
+	}
+	return u.String()
+}
 
 // WebSocket message types
 const (
@@ -48,50 +61,52 @@ type WSClient struct {
 	stopChan      chan struct{}
 	ctx           context.Context
 	cancel        context.CancelFunc
-	logger        *log.Logger
+	// Use package-level structured logger (agent.Info/Debug/Error/Warn)
 
 	// Configuration
-	reconnectDelay    time.Duration
-	pingInterval      time.Duration
-	writeTimeout      time.Duration
-	readTimeout       time.Duration
-	handshakeTimeout  time.Duration
-	maxReconnectDelay time.Duration
+	reconnectDelay     time.Duration
+	pingInterval       time.Duration
+	writeTimeout       time.Duration
+	readTimeout        time.Duration
+	handshakeTimeout   time.Duration
+	maxReconnectDelay  time.Duration
+	insecureSkipVerify bool
 }
 
 // NewWSClient creates a new WebSocket client
-func NewWSClient(serverURL, token string, logger *log.Logger) *WSClient {
+func NewWSClient(serverURL, token string, insecureSkipVerify bool) *WSClient {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &WSClient{
-		serverURL:         serverURL,
-		token:             token,
-		reconnectChan:     make(chan struct{}, 1),
-		stopChan:          make(chan struct{}),
-		ctx:               ctx,
-		cancel:            cancel,
-		logger:            logger,
-		reconnectDelay:    5 * time.Second,
-		pingInterval:      30 * time.Second,
-		writeTimeout:      10 * time.Second,
-		readTimeout:       60 * time.Second,
-		handshakeTimeout:  10 * time.Second,
-		maxReconnectDelay: 5 * time.Minute,
+		serverURL:     serverURL,
+		token:         token,
+		reconnectChan: make(chan struct{}, 1),
+		stopChan:      make(chan struct{}),
+		ctx:           ctx,
+		cancel:        cancel,
+		// No stdlib logger; use agent package logging helpers instead
+		reconnectDelay:     5 * time.Second,
+		pingInterval:       30 * time.Second,
+		writeTimeout:       10 * time.Second,
+		readTimeout:        60 * time.Second,
+		handshakeTimeout:   10 * time.Second,
+		maxReconnectDelay:  5 * time.Minute,
+		insecureSkipVerify: insecureSkipVerify,
 	}
 }
 
 // Start begins the WebSocket connection and management goroutines
 func (ws *WSClient) Start() error {
-	ws.logger.Println("Starting WebSocket client...")
+	InfoCtx("Starting WebSocket client")
 
 	// Initial connection attempt
 	if err := ws.connect(); err != nil {
-		ws.logger.Printf("Initial WebSocket connection failed: %v (will retry)", err)
+		WarnCtx("Initial WebSocket connection failed (will retry)", "error", err)
 		// Don't return error - reconnect loop will handle it
 	}
 
 	// Start connection manager
-	ws.logger.Println("Starting connection manager goroutine")
+	InfoCtx("Starting connection manager goroutine")
 	go ws.connectionManager()
 
 	return nil
@@ -99,7 +114,7 @@ func (ws *WSClient) Start() error {
 
 // Stop gracefully stops the WebSocket client
 func (ws *WSClient) Stop() error {
-	ws.logger.Println("Stopping WebSocket client...")
+	InfoCtx("Stopping WebSocket client")
 	ws.cancel()
 	close(ws.stopChan)
 
@@ -115,14 +130,14 @@ func (ws *WSClient) Stop() error {
 			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
 		)
 		if err != nil {
-			ws.logger.Printf("Error sending close message: %v", err)
+			ErrorCtx("Error sending close message", "error", err)
 		} else {
-			ws.logger.Printf("Sent WebSocket close message to server")
+			InfoCtx("Sent WebSocket close message to server")
 		}
 
 		ws.conn.Close()
 		ws.conn = nil
-		ws.logger.Printf("Closed WebSocket connection object")
+		InfoCtx("Closed WebSocket connection object")
 	}
 
 	ws.connected = false
@@ -167,9 +182,9 @@ func (ws *WSClient) connect() error {
 
 		select {
 		case <-done:
-			ws.logger.Printf("Stop: connection and goroutines appear to have shut down (or timed check)")
+			DebugCtx("Stop: connection and goroutines appear to have shut down (or timed check)")
 		case <-time.After(6 * time.Second):
-			ws.logger.Printf("Stop: timeout waiting for goroutines to exit")
+			DebugCtx("Stop: timeout waiting for goroutines to exit")
 		}
 	}
 
@@ -197,18 +212,12 @@ func (ws *WSClient) connect() error {
 	q.Set("token", ws.token)
 	u.RawQuery = q.Encode()
 
-	ws.logger.Printf("Connecting to WebSocket: %s", u.String())
+	// Log the target URL but mask token for privacy in logs
+	InfoCtx("Connecting to WebSocket", "url", maskTokenForLog(u))
 
 	// Determine whether to skip TLS verification for the WebSocket dialer.
-	// This respects the same environment variable used by agent config
-	// (SERVER_INSECURE_SKIP_VERIFY) so the behavior can be toggled at runtime.
-	skipVerify := false
-	if val := os.Getenv("SERVER_INSECURE_SKIP_VERIFY"); val != "" {
-		lv := strings.ToLower(val)
-		if lv == "1" || lv == "true" || lv == "yes" {
-			skipVerify = true
-		}
-	}
+	// Use the same configured policy passed into the WS client (via ServerClient)
+	skipVerify := ws.insecureSkipVerify
 
 	// Create WebSocket dialer with timeouts and TLS settings
 	dialer := &websocket.Dialer{
@@ -216,27 +225,37 @@ func (ws *WSClient) connect() error {
 		TLSClientConfig:  &tls.Config{InsecureSkipVerify: skipVerify},
 	}
 
-	ws.logger.Printf("WebSocket dialer TLS InsecureSkipVerify=%v", skipVerify)
+	DebugCtx("WebSocket dialer TLS InsecureSkipVerify", "skip_verify", skipVerify)
 
 	// Connect
 	conn, resp, err := dialer.Dial(u.String(), nil)
 	if err != nil {
-		// Try to include HTTP response body from the upgrade attempt for easier debugging
+		// Try to include HTTP response body and headers from the upgrade attempt for easier debugging
 		if resp != nil {
 			var bodyBytes []byte
 			if resp.Body != nil {
 				bodyBytes, _ = io.ReadAll(resp.Body)
 			}
-			ws.logger.Printf("WebSocket dial failed - status=%d respBody=%s err=%v", resp.StatusCode, string(bodyBytes), err)
+			// Log status, a short preview of body, and response headers (if any)
+			preview := string(bodyBytes)
+			if len(preview) > 1024 {
+				preview = preview[:1024] + "..."
+			}
+			WarnCtx("WebSocket dial failed", "status", resp.StatusCode, "respBodyPreview", preview, "respHeaders", resp.Header, "error", err)
 			return fmt.Errorf("WebSocket connection failed (status %d): %w", resp.StatusCode, err)
 		}
-		ws.logger.Printf("WebSocket dial failed - err=%v", err)
+		WarnCtx("WebSocket dial failed", "error", err)
 		return fmt.Errorf("WebSocket connection failed: %w", err)
 	}
 
 	ws.conn = conn
 	ws.connected = true
-	ws.logger.Println("WebSocket connected successfully")
+	// Log some connection info for debugging
+	var respInfo string
+	if resp != nil {
+		respInfo = resp.Status
+	}
+	InfoCtx("WebSocket connected successfully", "status", respInfo, "remote", conn.RemoteAddr(), "subprotocols", conn.Subprotocol(), "respHeaders", resp.Header)
 
 	// Start read and ping loops for this connection
 	go ws.readLoop()
@@ -247,7 +266,7 @@ func (ws *WSClient) connect() error {
 
 // connectionManager handles reconnection logic
 func (ws *WSClient) connectionManager() {
-	ws.logger.Println("connectionManager started")
+	DebugCtx("connectionManager started")
 	currentDelay := ws.reconnectDelay
 
 	for {
@@ -257,28 +276,29 @@ func (ws *WSClient) connectionManager() {
 		case <-ws.stopChan:
 			return
 		case <-ws.reconnectChan:
-			ws.logger.Printf("Reconnecting in %v...", currentDelay)
+			DebugCtx("Reconnecting in", "delay", currentDelay)
 
 			timer := time.NewTimer(currentDelay)
 			select {
 			case <-ws.ctx.Done():
 				timer.Stop()
-				ws.logger.Println("connectionManager exiting due to context cancellation")
+				DebugCtx("connectionManager exiting due to context cancellation")
 				return
 			case <-ws.stopChan:
 				timer.Stop()
-				ws.logger.Println("connectionManager exiting due to stopChan")
+				DebugCtx("connectionManager exiting due to stopChan")
 				return
 			case <-timer.C:
 				// Attempt reconnection
 				if err := ws.connect(); err != nil {
-					ws.logger.Printf("Reconnection failed: %v", err)
+					WarnCtx("Reconnection failed", "error", err)
 
 					// Exponential backoff (up to max)
 					currentDelay *= 2
 					if currentDelay > ws.maxReconnectDelay {
 						currentDelay = ws.maxReconnectDelay
 					}
+					DebugCtx("Next reconnect attempt in", "delay", currentDelay)
 
 					// Trigger another reconnection attempt
 					select {
@@ -306,7 +326,7 @@ func (ws *WSClient) readLoop() {
 		case ws.reconnectChan <- struct{}{}:
 		default:
 		}
-		ws.logger.Println("readLoop exiting")
+		DebugCtx("readLoop exiting")
 	}()
 
 	for {
@@ -321,7 +341,7 @@ func (ws *WSClient) readLoop() {
 			ws.mu.RUnlock()
 
 			if conn == nil {
-				ws.logger.Println("readLoop: conn is nil, exiting")
+				DebugCtx("readLoop: conn is nil, exiting")
 				return
 			}
 
@@ -331,9 +351,9 @@ func (ws *WSClient) readLoop() {
 			_, message, err := conn.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					ws.logger.Printf("WebSocket read error: %v", err)
+					WarnCtx("WebSocket read error", "error", err)
 				} else {
-					ws.logger.Printf("WebSocket read returned error: %v", err)
+					DebugCtx("WebSocket read returned error", "error", err)
 				}
 				return
 			}
@@ -341,7 +361,7 @@ func (ws *WSClient) readLoop() {
 			// Parse message
 			var msg WSMessage
 			if err := json.Unmarshal(message, &msg); err != nil {
-				ws.logger.Printf("Failed to parse WebSocket message: %v", err)
+				DebugCtx("Failed to parse WebSocket message", "error", err)
 				continue
 			}
 
@@ -353,9 +373,9 @@ func (ws *WSClient) readLoop() {
 					rid = v
 				}
 				if rid != "" {
-					ws.logger.Printf("Received WS message type=%s request_id=%s", msg.Type, rid)
+					DebugCtx("Received WS message", "type", msg.Type, "request_id", rid)
 				} else {
-					ws.logger.Printf("Received WS message type=%s", msg.Type)
+					DebugCtx("Received WS message", "type", msg.Type)
 				}
 			}
 
@@ -364,7 +384,7 @@ func (ws *WSClient) readLoop() {
 			case MessageTypePong:
 				// Pong received, connection is healthy
 			case MessageTypeError:
-				ws.logger.Printf("Server error: %v", msg.Data)
+				WarnCtx("Server error", "data", msg.Data)
 			case MessageTypeProxyRequest:
 				// Handle proxy request from server
 				// Log some request details to help trace proxy issues
@@ -374,14 +394,14 @@ func (ws *WSClient) readLoop() {
 						if m, ok := msg.Data["method"].(string); ok && m != "" {
 							method = m
 						}
-						ws.logger.Printf("Incoming proxy_request id=%s method=%s url=%s", requestID, method, urlStr)
+						DebugCtx("Incoming proxy_request", "id", requestID, "method", method, "url", urlStr)
 					} else {
-						ws.logger.Printf("Incoming proxy_request id=%s (no url provided)", requestID)
+						DebugCtx("Incoming proxy_request", "id", requestID, "note", "no url provided")
 					}
 				}
 				go ws.handleProxyRequest(msg)
 			default:
-				ws.logger.Printf("Unknown message type: %s", msg.Type)
+				DebugCtx("Unknown message type", "type", msg.Type)
 			}
 		}
 	}
@@ -391,14 +411,14 @@ func (ws *WSClient) readLoop() {
 func (ws *WSClient) pingLoop() {
 	ticker := time.NewTicker(ws.pingInterval)
 	defer ticker.Stop()
-	ws.logger.Println("pingLoop started")
+	DebugCtx("pingLoop started")
 	for {
 		select {
 		case <-ws.ctx.Done():
-			ws.logger.Println("pingLoop exiting due to context cancellation")
+			DebugCtx("pingLoop exiting due to context cancellation")
 			return
 		case <-ws.stopChan:
-			ws.logger.Println("pingLoop exiting due to stopChan")
+			DebugCtx("pingLoop exiting due to stopChan")
 			return
 		case <-ticker.C:
 			ws.mu.RLock()
@@ -407,17 +427,17 @@ func (ws *WSClient) pingLoop() {
 			ws.mu.RUnlock()
 
 			if !connected || conn == nil {
-				ws.logger.Println("pingLoop: not connected, exiting")
+				DebugCtx("pingLoop: not connected, exiting")
 				return
 			}
 
 			// Send ping
 			conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				ws.logger.Printf("Failed to send ping: %v", err)
+				WarnCtx("Failed to send ping", "error", err)
 				return
 			}
-			ws.logger.Println("pingLoop: sent ping")
+			DebugCtx("pingLoop: sent ping")
 		}
 	}
 }
@@ -430,7 +450,7 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 	ws.mu.RUnlock()
 
 	if !connected || conn == nil {
-		ws.logger.Println("SendHeartbeat called but WebSocket not connected")
+		DebugCtx("SendHeartbeat called but WebSocket not connected")
 		return errors.New("WebSocket not connected")
 	}
 
@@ -438,6 +458,13 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 		Type:      MessageTypeHeartbeat,
 		Data:      data,
 		Timestamp: time.Now(),
+	}
+
+	// Helpful debug: include device_count if present
+	if v, ok := data["device_count"]; ok {
+		DebugCtx("SendHeartbeat via WS", "device_count", v)
+	} else {
+		DebugCtx("SendHeartbeat via WS")
 	}
 
 	// Marshal message
@@ -459,7 +486,7 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 func (ws *WSClient) handleProxyRequest(msg WSMessage) {
 	requestID, ok := msg.Data["request_id"].(string)
 	if !ok {
-		ws.logger.Printf("Proxy request missing request_id")
+		WarnCtx("Proxy request missing request_id")
 		return
 	}
 
@@ -493,12 +520,12 @@ func (ws *WSClient) handleProxyRequest(msg WSMessage) {
 		}
 	}
 
-	ws.logger.Printf("Proxying %s request to %s", method, targetURL)
+	DebugCtx("Proxying request", "method", method, "url", targetURL)
 
 	// If stop requested, bail early
 	select {
 	case <-ws.ctx.Done():
-		ws.logger.Printf("handleProxyRequest %s: context cancelled before proxying", requestID)
+		DebugCtx("handleProxyRequest: context cancelled before proxying", "request_id", requestID)
 		ws.sendProxyError(requestID, "Server shutdown")
 		return
 	default:
@@ -544,7 +571,7 @@ func (ws *WSClient) handleProxyRequest(msg WSMessage) {
 	// Execute request
 	resp, err := client.Do(req)
 	if err != nil {
-		ws.logger.Printf("handleProxyRequest %s: client.Do error: %v", requestID, err)
+		WarnCtx("handleProxyRequest client.Do error", "request_id", requestID, "error", err)
 		ws.sendProxyError(requestID, fmt.Sprintf("Request failed: %v", err))
 		return
 	}
@@ -577,7 +604,7 @@ func (ws *WSClient) sendProxyResponse(requestID string, statusCode int, headers 
 	ws.mu.RUnlock()
 
 	if !connected || conn == nil {
-		ws.logger.Printf("Cannot send proxy response - not connected (requestID=%s)", requestID)
+		WarnCtx("Cannot send proxy response - not connected", "request_id", requestID)
 		return
 	}
 
@@ -594,19 +621,19 @@ func (ws *WSClient) sendProxyResponse(requestID string, statusCode int, headers 
 
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		ws.logger.Printf("Failed to marshal proxy response: %v", err)
+		WarnCtx("Failed to marshal proxy response", "error", err)
 		return
 	}
 
 	conn.SetWriteDeadline(time.Now().Add(ws.writeTimeout))
 	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-		ws.logger.Printf("Failed to send proxy response: %v", err)
+		WarnCtx("Failed to send proxy response", "error", err)
 	}
 }
 
 // sendProxyError sends an error response for a failed proxy request
 func (ws *WSClient) sendProxyError(requestID string, errorMsg string) {
-	ws.logger.Printf("Proxy error for request %s: %s", requestID, errorMsg)
+	WarnCtx("Proxy error for request", "request_id", requestID, "error", errorMsg)
 
 	ws.sendProxyResponse(requestID, 502, map[string]string{
 		"Content-Type": "text/plain",

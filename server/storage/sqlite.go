@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"time"
 
+	"printmaster/common/logger"
+
 	_ "modernc.org/sqlite" // Pure Go SQLite driver (no CGO required)
 )
 
@@ -21,6 +23,14 @@ type SQLiteStore struct {
 }
 
 const schemaVersion = 1
+
+// Optional package-level logger that can be set by the application (server)
+var Log *logger.Logger
+
+// SetLogger injects the structured logger from the main application.
+func SetLogger(l *logger.Logger) {
+	Log = l
+}
 
 // NewSQLiteStore creates a new SQLite-backed store
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
@@ -46,7 +56,12 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	log.Printf("Opened SQLite database at %s", dbPath)
+	// Use structured logger if set, otherwise fallback to stdlog
+	if Log != nil {
+		Log.Info("Opened SQLite database", "path", dbPath)
+	} else {
+		log.Printf("Opened SQLite database at %s", dbPath)
+	}
 
 	store := &SQLiteStore{
 		db:     db,
@@ -194,9 +209,17 @@ func (s *SQLiteStore) initSchema() error {
 	for _, stmt := range altStmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			// Ignore errors, but log them for visibility during migration
-			log.Printf("SQLite migration statement (ignored error): %s -> %v", stmt, err)
+			if Log != nil {
+				Log.Warn("SQLite migration statement (ignored error)", "stmt", stmt, "error", err)
+			} else {
+				log.Printf("SQLite migration statement (ignored error): %s -> %v", stmt, err)
+			}
 		} else {
-			log.Printf("SQLite migration statement applied (or already present): %s", stmt)
+			if Log != nil {
+				Log.Debug("SQLite migration statement applied (or already present)", "stmt", stmt)
+			} else {
+				log.Printf("SQLite migration statement applied (or already present): %s", stmt)
+			}
 		}
 	}
 
@@ -215,7 +238,11 @@ func (s *SQLiteStore) initSchema() error {
 		}
 	}
 
-	log.Printf("Schema initialized for DB %s (schemaVersion=%d)", s.dbPath, schemaVersion)
+	if Log != nil {
+		Log.Info("Schema initialized for DB", "path", s.dbPath, "schemaVersion", schemaVersion)
+	} else {
+		log.Printf("Schema initialized for DB %s (schemaVersion=%d)", s.dbPath, schemaVersion)
+	}
 
 	return nil
 }

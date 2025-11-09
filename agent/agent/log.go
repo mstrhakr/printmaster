@@ -72,10 +72,38 @@ func Info(msg string) {
 	writeLine("INFO", msg)
 }
 
+// InfoCtx logs an informational message with optional key/value context.
+func InfoCtx(msg string, context ...interface{}) {
+	if extLogger != nil {
+		extLogger.Info(msg, context...)
+		return
+	}
+	// Fallback: append context as a simple string
+	if len(context) > 0 {
+		msg = fmt.Sprintf("%s %v", msg, context)
+	}
+	writeLine("INFO", msg)
+}
+
 // Debug logs a debug message.
 func Debug(msg string) {
 	if !DebugEnabled {
 		return
+	}
+	writeLine("DEBUG", msg)
+}
+
+// DebugCtx logs a debug message with optional key/value context.
+func DebugCtx(msg string, context ...interface{}) {
+	if !DebugEnabled {
+		return
+	}
+	if extLogger != nil {
+		extLogger.Debug(msg, context...)
+		return
+	}
+	if len(context) > 0 {
+		msg = fmt.Sprintf("%s %v", msg, context)
 	}
 	writeLine("DEBUG", msg)
 }
@@ -93,4 +121,28 @@ func Error(msg string) {
 // Warn logs a warning message.
 func Warn(msg string) {
 	writeLine("WARN", msg)
+}
+
+// WarnCtx logs a warning message with optional key/value context.
+func WarnCtx(msg string, context ...interface{}) {
+	if extLogger != nil {
+		extLogger.Warn(msg, context...)
+		return
+	}
+	if len(context) > 0 {
+		msg = fmt.Sprintf("%s %v", msg, context)
+	}
+	writeLine("WARN", msg)
+}
+
+// ErrorCtx logs an error message with optional key/value context.
+func ErrorCtx(msg string, context ...interface{}) {
+	if extLogger != nil {
+		extLogger.Error(msg, context...)
+		return
+	}
+	if len(context) > 0 {
+		msg = fmt.Sprintf("%s %v", msg, context)
+	}
+	writeLine("ERROR", msg)
 }

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"runtime"
@@ -19,15 +18,16 @@ import (
 // ServerClient handles uploading agent data to the central PrintMaster server
 // This is the agent's HTTP client for server communication
 type ServerClient struct {
-	BaseURL           string
-	AgentID           string
-	AgentName         string // User-friendly agent name
-	Token             string
-	HTTPClient        *http.Client
-	mu                sync.RWMutex
-	lastHeartbeat     time.Time
-	lastDeviceUpload  time.Time
-	lastMetricsUpload time.Time
+	BaseURL            string
+	AgentID            string
+	AgentName          string // User-friendly agent name
+	Token              string
+	HTTPClient         *http.Client
+	InsecureSkipVerify bool
+	mu                 sync.RWMutex
+	lastHeartbeat      time.Time
+	lastDeviceUpload   time.Time
+	lastMetricsUpload  time.Time
 }
 
 // NewServerClient creates a new server uploader for this agent
@@ -39,7 +39,8 @@ func NewServerClient(baseURL, agentID, token string) *ServerClient {
 
 // NewServerClientWithName creates a new server client with agent name
 func NewServerClientWithName(baseURL, agentID, agentName, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
-	log.Printf("NewServerClientWithName baseURL=%s insecureSkipVerify=%v caCertPath=%s", baseURL, insecureSkipVerify, caCertPath)
+	// Use agent package logger for structured logging when available
+	Info(fmt.Sprintf("NewServerClientWithName baseURL=%s insecureSkipVerify=%v caCertPath=%s", baseURL, insecureSkipVerify, caCertPath))
 	var tlsConfig *tls.Config
 
 	if caCertPath != "" {
@@ -66,10 +67,11 @@ func NewServerClientWithName(baseURL, agentID, agentName, token, caCertPath stri
 	}
 
 	return &ServerClient{
-		BaseURL:   baseURL,
-		AgentID:   agentID,
-		AgentName: agentName,
-		Token:     token,
+		BaseURL:            baseURL,
+		AgentID:            agentID,
+		AgentName:          agentName,
+		Token:              token,
+		InsecureSkipVerify: insecureSkipVerify,
 		HTTPClient: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -87,6 +89,11 @@ func NewServerClientWithCA(baseURL, agentID, token, caCertPath string) *ServerCl
 // NewServerClientWithCAAndSkipVerify creates a new server client with optional custom CA and skip verify option
 func NewServerClientWithCAAndSkipVerify(baseURL, agentID, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
 	return NewServerClientWithName(baseURL, agentID, "", token, caCertPath, insecureSkipVerify)
+}
+
+// IsInsecureSkipVerify returns whether this client was configured to skip TLS verification.
+func (c *ServerClient) IsInsecureSkipVerify() bool {
+	return c.InsecureSkipVerify
 }
 
 // SetToken updates the authentication token
@@ -331,12 +338,12 @@ func (c *ServerClient) doRequest(ctx context.Context, method, path string, reqBo
 		token := c.GetToken()
 		tokenPresent = token != ""
 	}
-	log.Printf("HTTP request: method=%s url=%s requireAuth=%v tokenPresent=%v", method, url, requireAuth, tokenPresent)
+	Debug(fmt.Sprintf("HTTP request: method=%s url=%s requireAuth=%v tokenPresent=%v", method, url, requireAuth, tokenPresent))
 
 	// Perform request
 	httpResp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
-		log.Printf("HTTP request failed: %v", err)
+		Error(fmt.Sprintf("HTTP request failed: %v", err))
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer httpResp.Body.Close()
@@ -349,7 +356,7 @@ func (c *ServerClient) doRequest(ctx context.Context, method, path string, reqBo
 
 	// Check status code
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		log.Printf("Server returned non-2xx status %d for %s %s: %s", httpResp.StatusCode, method, url, string(respData))
+		Error(fmt.Sprintf("Server returned non-2xx status %d for %s %s: %s", httpResp.StatusCode, method, url, string(respData)))
 		return fmt.Errorf("server returned status %d: %s", httpResp.StatusCode, string(respData))
 	}
 

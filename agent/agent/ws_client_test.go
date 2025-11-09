@@ -2,7 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,8 +58,7 @@ func TestWSClientConnection(t *testing.T) {
 
 	// Create WebSocket client
 	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
-	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
-	client := NewWSClient(serverURL, "test-token", logger)
+	client := NewWSClient(serverURL, "test-token", false)
 
 	// Start client
 	err := client.Start()
@@ -134,8 +132,7 @@ func TestWSClientHeartbeat(t *testing.T) {
 
 	// Create WebSocket client
 	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
-	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
-	client := NewWSClient(serverURL, "test-token", logger)
+	client := NewWSClient(serverURL, "test-token", false)
 
 	// Start client
 	err := client.Start()
@@ -199,8 +196,7 @@ func TestWSClientReconnection(t *testing.T) {
 
 	// Create WebSocket client with short reconnect delay
 	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
-	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
-	client := NewWSClient(serverURL, "test-token", logger)
+	client := NewWSClient(serverURL, "test-token", false)
 	client.reconnectDelay = 500 * time.Millisecond // Short delay for testing
 
 	// Start client
@@ -240,8 +236,7 @@ func TestWSClientAuthenticationFailure(t *testing.T) {
 
 	// Create WebSocket client with invalid token
 	serverURL := "http" + strings.TrimPrefix(server.URL, "http")
-	logger := log.New(log.Writer(), "[TEST] ", log.LstdFlags)
-	client := NewWSClient(serverURL, "invalid-token", logger)
+	client := NewWSClient(serverURL, "invalid-token", false)
 
 	// Start client
 	err := client.Start()
@@ -260,4 +255,53 @@ func TestWSClientAuthenticationFailure(t *testing.T) {
 	}
 
 	t.Log("WebSocket authentication failure handled correctly")
+}
+
+// TestWSClientSkipVerify ensures the WS client respects the insecureSkipVerify flag
+// when dialing a wss:// server with a self-signed cert (httptest.NewTLSServer).
+func TestWSClientSkipVerify(t *testing.T) {
+	t.Parallel()
+
+	// TLS test server (self-signed cert) that upgrades to websocket and immediately closes
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Accept any token for this test
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("Upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+		// keep connection open long enough for the test to observe a connected state
+		time.Sleep(500 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	serverURL := server.URL
+
+	// When skipVerify = true, connection should succeed despite self-signed cert
+	clientGood := NewWSClient(serverURL, "test-token", true)
+	if err := clientGood.Start(); err != nil {
+		t.Fatalf("Failed to start WS client with skipVerify=true: %v", err)
+	}
+	defer clientGood.Stop()
+
+	// wait briefly for connection
+	time.Sleep(200 * time.Millisecond)
+	if !clientGood.IsConnected() {
+		t.Fatal("Expected WS client to be connected when insecureSkipVerify=true")
+	}
+
+	// When skipVerify = false, connection should fail (can't verify cert)
+	clientBad := NewWSClient(serverURL, "test-token", false)
+	if err := clientBad.Start(); err != nil {
+		// Start may not return error immediately; allow it to attempt
+		t.Logf("Start returned error (expected possible async behavior): %v", err)
+	}
+	defer clientBad.Stop()
+
+	// Give it time to try and fail
+	time.Sleep(300 * time.Millisecond)
+	if clientBad.IsConnected() {
+		t.Fatal("Expected WS client to NOT be connected when insecureSkipVerify=false to a self-signed server")
+	}
 }
