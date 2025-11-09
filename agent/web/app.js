@@ -1691,12 +1691,34 @@ function appendUiLog(msg, elId) {
 function loadSavedRanges() {
     fetch('/settings').then(r => r.ok ? r.json() : Promise.resolve(null)).then(d => {
         if (!d) return;
-        document.getElementById('ranges_text').value = (d.discovery && d.discovery.ranges_text) ? d.discovery.ranges_text : '';
+        const txt = (d.discovery && d.discovery.ranges_text) ? d.discovery.ranges_text : '';
+        document.getElementById('ranges_text').value = txt;
+        // On load, estimate expansion and warn if too large
+        try {
+            const cnt = estimateRangeCount(txt);
+            const MAX_ADDRS = 10000;
+            if (cnt > MAX_ADDRS) {
+                showToast(`Saved ranges expand to ${cnt} addresses which exceeds the allowed maximum of ${MAX_ADDRS}. Manual IP scanning may be disabled. Reduce ranges or enable passive discovery.`, 'error', 8000);
+            }
+        } catch (e) {
+            // Non-fatal - ignore parse failures here
+        }
     })
 }
 
 function saveRanges() {
     let txt = document.getElementById('ranges_text').value;
+    // Client-side guard: prevent saving ranges that expand beyond safe threshold
+    try {
+        const cnt = estimateRangeCount(txt);
+        const MAX_ADDRS = 10000; // keep consistent with server-side policy
+        if (cnt > MAX_ADDRS) {
+            showToast(`Cannot save ranges: expansion would produce ${cnt} addresses (over max ${MAX_ADDRS})`, 'error', 6000);
+            return;
+        }
+    } catch (e) {
+        // If estimation fails, proceed and let server validate
+    }
     fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discovery: { ranges_text: txt } }) })
         .then(async r => {
             if (!r.ok) { 
@@ -1709,6 +1731,91 @@ function saveRanges() {
         .catch(e => {
             showToast('Save failed: ' + e.message, 'error');
         })
+}
+
+// Estimate number of IP addresses represented by the ranges text.
+// Conservative: returns a large number (>MAX) if parsing uncertain.
+function estimateRangeCount(text) {
+    if (!text || !text.trim()) return 0;
+    const lines = text.split('\n');
+    let total = 0;
+    for (let raw of lines) {
+        const s = raw.trim();
+        if (!s || s.startsWith('#')) continue;
+
+        // CIDR
+        const cidrMatch = s.match(/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/);
+        if (cidrMatch) {
+            const prefix = parseInt(cidrMatch[2], 10);
+            if (isNaN(prefix) || prefix < 0 || prefix > 32) throw new Error('invalid CIDR');
+            const hostBits = 32 - prefix;
+            if (hostBits >= 31) return Number.MAX_SAFE_INTEGER;
+            const cnt = Math.pow(2, hostBits);
+            total += cnt;
+            continue;
+        }
+
+        // Wildcard like 192.168.1.x or 192.168.1.*
+        if (s.endsWith('.x') || s.endsWith('.*')) {
+            total += 256;
+            continue;
+        }
+
+        // Dash range
+        if (s.includes('-')) {
+            const parts = s.split('-').map(p => p.trim());
+            const left = parts[0];
+            const right = parts[1];
+            // If right is full IP
+            if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(right)) {
+                const start = ipToUint32_js(left);
+                const end = ipToUint32_js(right);
+                if (end < start) throw new Error('end before start');
+                total += (end - start + 1);
+                continue;
+            }
+            // shorthand: right supplies last octet(s) or single number
+            const lparts = left.split('.');
+            const rparts = right.split('.');
+            if (lparts.length !== 4) throw new Error('invalid left ip');
+            // build end IP
+            let endParts = [];
+            if (rparts.length >= 1 && rparts.length <= 3) {
+                const copy = 4 - rparts.length;
+                for (let i = 0; i < copy; i++) endParts.push(lparts[i]);
+                for (let rp of rparts) endParts.push(rp);
+                const start = ipToUint32_js(left);
+                const end = ipToUint32_js(endParts.join('.'));
+                if (end < start) throw new Error('end before start');
+                total += (end - start + 1);
+                continue;
+            }
+            // unknown format -> conservative
+            return Number.MAX_SAFE_INTEGER;
+        }
+
+        // Single IP
+        if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(s)) {
+            total += 1;
+            continue;
+        }
+
+        // Unrecognized -> conservative large
+        return Number.MAX_SAFE_INTEGER;
+    }
+    return total;
+}
+
+// helper: parse IPv4 dotted quad to uint32 (JS)
+function ipToUint32_js(ip) {
+    const parts = ip.split('.').map(n => parseInt(n, 10));
+    if (parts.length !== 4) throw new Error('invalid ip');
+    let n = 0;
+    for (let i = 0; i < 4; i++) {
+        if (isNaN(parts[i]) || parts[i] < 0 || parts[i] > 255) throw new Error('invalid ip octet');
+        n = (n << 8) + (parts[i] & 0xFF);
+    }
+    return n >>> 0;
 }
 
 function clearRanges() {
