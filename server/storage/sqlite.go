@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,6 +45,8 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
+
+	log.Printf("Opened SQLite database at %s", dbPath)
 
 	store := &SQLiteStore{
 		db:     db,
@@ -189,8 +192,11 @@ func (s *SQLiteStore) initSchema() error {
 	}
 
 	for _, stmt := range altStmts {
-		if _, _ = s.db.Exec(stmt); true {
-			// ignore errors - best-effort migration
+		if _, err := s.db.Exec(stmt); err != nil {
+			// Ignore errors, but log them for visibility during migration
+			log.Printf("SQLite migration statement (ignored error): %s -> %v", stmt, err)
+		} else {
+			log.Printf("SQLite migration statement applied (or already present): %s", stmt)
 		}
 	}
 
@@ -208,6 +214,8 @@ func (s *SQLiteStore) initSchema() error {
 			return fmt.Errorf("failed to update schema version: %w", err)
 		}
 	}
+
+	log.Printf("Schema initialized for DB %s (schemaVersion=%d)", s.dbPath, schemaVersion)
 
 	return nil
 }
