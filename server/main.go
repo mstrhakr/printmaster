@@ -15,12 +15,14 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"printmaster/common/config"
 	"printmaster/common/logger"
 	commonutil "printmaster/common/util"
 	sharedweb "printmaster/common/web"
+	wscommon "printmaster/common/ws"
 	"printmaster/server/storage"
 	"regexp"
 	"runtime"
@@ -152,6 +154,7 @@ var (
 	usingDefaultConfig bool             // Flag to indicate if using defaults vs loaded config
 	loadedConfigPath   string           // Path of the config file that was successfully loaded
 	sseHub             *SSEHub          // SSE hub for real-time UI updates
+	wsHub              *wscommon.Hub    // In-process hub for websocket-capable UI clients
 )
 
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
@@ -327,6 +330,27 @@ func runServer(ctx context.Context) {
 	// Initialize SSE hub for real-time UI updates if not already created (tests may have pre-initialized)
 	if sseHub == nil {
 		sseHub = NewSSEHub()
+	}
+	// Initialize wsHub and bridge SSE -> WS
+	if wsHub == nil {
+		wsHub = wscommon.NewHub()
+		// Create a bridge SSE client to forward events into wsHub
+		go func() {
+			client := sseHub.NewClient()
+			id := "sse-bridge"
+			ch := make(chan wscommon.Message, 20)
+			wsHub.Register(id, ch)
+			defer func() {
+				wsHub.Unregister(id)
+				sseHub.RemoveClient(client)
+				close(ch)
+			}()
+
+			for ev := range client.events {
+				m := wscommon.Message{Type: ev.Type, Data: ev.Data}
+				wsHub.Broadcast(m)
+			}
+		}()
 	}
 	serverLogger.Info("SSE hub initialized")
 
@@ -1057,6 +1081,9 @@ func setupRoutes() {
 	// Backwards-compatible SSE path used by some client bundles (/events)
 	http.HandleFunc("/events", handleSSE)
 
+	// UI WebSocket endpoint (for live UI liveness/status)
+	http.HandleFunc("/api/ws/ui", handleUIWebSocket)
+
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
@@ -1077,6 +1104,10 @@ func setupRoutes() {
 	// Web UI endpoints
 	http.HandleFunc("/", handleWebUI)
 	http.HandleFunc("/static/", handleStatic)
+
+	// Minimal settings & logs endpoints for the UI (placeholders)
+	http.HandleFunc("/api/settings", handleSettings)
+	http.HandleFunc("/api/logs", handleLogs)
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -1135,6 +1166,76 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// handleUIWebSocket upgrades a browser UI connection to WebSocket and forwards
+// SSE hub events to the connected UI client. This provides a low-latency
+// liveness/status channel for the web UI.
+func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Upgrade HTTP to WS using shared wrapper
+	conn, err := wscommon.UpgradeHTTP(w, r)
+	if err != nil {
+		if serverLogger != nil {
+			serverLogger.Warn("Failed to upgrade UI WebSocket", "error", err)
+		}
+		return
+	}
+
+	// Register with wsHub to receive bridged events from the SSE hub
+	clientID := fmt.Sprintf("ui-%d", time.Now().UnixNano())
+	ch := make(chan wscommon.Message, 20)
+	wsHub.Register(clientID, ch)
+	defer wsHub.Unregister(clientID)
+
+	// Send initial version message
+	versionMsg := wscommon.Message{
+		Type: "version",
+		Data: map[string]interface{}{
+			"version":    Version,
+			"build_time": BuildTime,
+			"git_commit": GitCommit,
+		},
+		Timestamp: time.Now(),
+	}
+	if payload, jerr := versionMsg.Marshal(); jerr == nil {
+		_ = conn.WriteRaw(payload, 5*time.Second)
+	}
+
+	// Forward hub events (from wsHub) to WS
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case ev, ok := <-ch:
+				if !ok {
+					return
+				}
+				if b, err := ev.Marshal(); err == nil {
+					if err := conn.WriteRaw(b, 10*time.Second); err != nil {
+						return
+					}
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	// Simple read loop to detect client disconnects. We don't expect inbound messages.
+	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		return nil
+	})
+
+	for {
+		if _, err := conn.ReadMessage(); err != nil {
+			break
+		}
+	}
+
+	close(done)
+	conn.Close()
 }
 
 func handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -1610,7 +1711,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 	requestID := fmt.Sprintf("%s-%d", agentID, time.Now().UnixNano())
 
 	// Create response channel
-	respChan := make(chan WSMessage, 1)
+	respChan := make(chan wscommon.Message, 1)
 
 	// Register the channel for this request
 	proxyRequestsLock.Lock()
@@ -1724,8 +1825,22 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 							bodyStr = bodyStr[:insertPos] + `<script src="/static/shared.js"></script>` + bodyStr[insertPos:]
 						}
 
-						metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">`
+						// Inject proxy meta tags and a <base> element so relative URLs resolve through the proxy
+						proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
+						metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
+							`<base href="` + proxyBase + `">`
 						bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
+
+						// Also rewrite any absolute URLs that point to the agent's local host (e.g. http://localhost:8080)
+						// so they reference the proxy path instead. Parse targetURL to find the origin portion.
+						if u, err := url.Parse(targetURL); err == nil {
+							origin := u.Scheme + "://" + u.Host
+							// Replace occurrences of origin (http://host:port) with proxyBase
+							bodyStr = strings.ReplaceAll(bodyStr, origin, proxyBase)
+							// Also replace protocol-relative occurrences like //host:port
+							protoRel := "//" + u.Host
+							bodyStr = strings.ReplaceAll(bodyStr, protoRel, proxyBase)
+						}
 						bodyBytes = []byte(bodyStr)
 					}
 				}
@@ -2023,4 +2138,62 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
 	w.Write(content)
+}
+
+// Minimal settings handler - returns a small placeholder payload and accepts POST
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// Return a lightweight settings object the UI can use as a probe
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"autosave":               true,
+			"server_http_port":       9090,
+			"server_https_port":      9443,
+			"metrics_retention_days": 365,
+			"audit_retention_days":   90,
+		})
+		return
+	case http.MethodPost:
+		// Accept and ignore for now (persisting real settings is out of scope)
+		var payload map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		return
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+}
+
+// Minimal logs handler - returns an array of recent server log lines (best-effort)
+func handleLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Try to read a logs file if present in the workspace (best-effort); otherwise return empty list
+	var lines []string
+
+	// Attempt to read workspace file from disk (not embedded) - this is optional
+	if b, err := os.ReadFile("logs/build.log"); err == nil {
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.TrimSpace(l) != "" {
+				lines = append(lines, l)
+			}
+		}
+	}
+
+	// If no lines found, return an informative placeholder
+	if len(lines) == 0 {
+		lines = []string{"No server logs available (placeholder response)."}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"logs": lines})
 }

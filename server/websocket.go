@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	wscommon "printmaster/common/ws"
 	"printmaster/server/storage"
 
 	"github.com/gorilla/websocket"
@@ -24,9 +25,7 @@ var (
 			return true
 		},
 	}
-
-	// Track active WebSocket connections by agent ID (string)
-	wsConnections     = make(map[string]*websocket.Conn)
+	wsConnections     = make(map[string]*wscommon.Conn)
 	wsConnectionsLock sync.RWMutex
 
 	// (global counters removed - using per-agent diagnostics maps below)
@@ -36,25 +35,11 @@ var (
 	wsDisconnectEventsPerAgent = make(map[string]int64)
 
 	// Track pending proxy requests awaiting responses from agents
-	proxyRequests     = make(map[string]chan WSMessage) // key: requestID
+	proxyRequests     = make(map[string]chan wscommon.Message) // key: requestID
 	proxyRequestsLock sync.RWMutex
 )
 
-// WSMessage represents a WebSocket message (matches agent's structure)
-type WSMessage struct {
-	Type      string                 `json:"type"`
-	Data      map[string]interface{} `json:"data,omitempty"`
-	Timestamp time.Time              `json:"timestamp"`
-}
-
-// WebSocket message types
-const (
-	MessageTypeHeartbeat     = "heartbeat"
-	MessageTypePong          = "pong"
-	MessageTypeError         = "error"
-	MessageTypeProxyRequest  = "proxy_request"
-	MessageTypeProxyResponse = "proxy_response"
-)
+// Use shared message type constants from wscommon
 
 // handleAgentWebSocket handles WebSocket connections from agents
 func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore storage.Store) {
@@ -199,8 +184,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		serverLogger.Debug("WebSocket authentication success", "agent_id_guess", agent.AgentID, "hostname", agent.Hostname, "ip", clientIP)
 	}
 
-	// Upgrade HTTP connection to WebSocket
-	conn, err := upgrader.Upgrade(w, r, nil)
+	// Upgrade HTTP connection to WebSocket (use shared wrapper)
+	conn, err := wscommon.UpgradeHTTP(w, r)
 	if err != nil {
 		if serverLogger != nil {
 			serverLogger.Error("WebSocket upgrade failed",
@@ -263,8 +248,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			select {
 			case <-pingTicker.C:
 				// send ping
-				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				if err := conn.WritePing(10 * time.Second); err != nil {
 					if serverLogger != nil {
 						serverLogger.Warn("WebSocket ping failed, closing connection", "agent_id", agent.AgentID, "error", err)
 					}
@@ -358,9 +342,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 
 	// Read messages from agent
 	for {
-		_, message, err := conn.ReadMessage()
+		message, err := conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+			if wscommon.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				if serverLogger != nil {
 					serverLogger.Warn("WebSocket error",
 						"agent_id", agent.AgentID,
@@ -377,7 +361,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		}
 
 		// Parse message
-		var msg WSMessage
+		var msg wscommon.Message
 		if err := json.Unmarshal(message, &msg); err != nil {
 			if serverLogger != nil {
 				serverLogger.Warn("Failed to parse WebSocket message",
@@ -392,9 +376,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 
 		// Handle different message types
 		switch msg.Type {
-		case "heartbeat":
+		case wscommon.MessageTypeHeartbeat:
 			handleWSHeartbeat(conn, agent, msg, serverStore)
-		case MessageTypeProxyResponse:
+		case wscommon.MessageTypeProxyResponse:
 			handleWSProxyResponse(msg)
 		default:
 			if serverLogger != nil {
@@ -410,7 +394,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 }
 
 // handleWSHeartbeat processes heartbeat messages received via WebSocket
-func handleWSHeartbeat(conn *websocket.Conn, agent *storage.Agent, msg WSMessage, serverStore storage.Store) {
+func handleWSHeartbeat(conn *wscommon.Conn, agent *storage.Agent, msg wscommon.Message, serverStore storage.Store) {
 	// Extract optional device count from heartbeat data
 	if deviceCount, ok := msg.Data["device_count"].(float64); ok {
 		agent.DeviceCount = int(deviceCount)
@@ -427,8 +411,8 @@ func handleWSHeartbeat(conn *websocket.Conn, agent *storage.Agent, msg WSMessage
 	log.Printf("WebSocket heartbeat received from agent %s", agent.AgentID)
 
 	// Send pong response
-	pongMsg := WSMessage{
-		Type:      "pong",
+	pongMsg := wscommon.Message{
+		Type:      wscommon.MessageTypePong,
 		Timestamp: time.Now(),
 	}
 
@@ -438,16 +422,15 @@ func handleWSHeartbeat(conn *websocket.Conn, agent *storage.Agent, msg WSMessage
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+	if err := conn.WriteRaw(payload, 10*time.Second); err != nil {
 		log.Printf("Failed to send pong to agent %s: %v", agent.AgentID, err)
 	}
 }
 
 // sendWSError sends an error message to the WebSocket client
-func sendWSError(conn *websocket.Conn, errorMsg string) {
-	msg := WSMessage{
-		Type: "error",
+func sendWSError(conn *wscommon.Conn, errorMsg string) {
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeError,
 		Data: map[string]interface{}{
 			"message": errorMsg,
 		},
@@ -460,14 +443,13 @@ func sendWSError(conn *websocket.Conn, errorMsg string) {
 		return
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+	if err := conn.WriteRaw(payload, 10*time.Second); err != nil {
 		log.Printf("Failed to send error message: %v", err)
 	}
 }
 
 // getAgentWSConnection returns the WebSocket connection for an agent, if connected
-func getAgentWSConnection(agentID string) (*websocket.Conn, bool) {
+func getAgentWSConnection(agentID string) (*wscommon.Conn, bool) {
 	wsConnectionsLock.RLock()
 	defer wsConnectionsLock.RUnlock()
 	conn, exists := wsConnections[agentID]
@@ -497,7 +479,7 @@ func closeAgentWebSocket(agentID string) {
 }
 
 // handleWSProxyResponse handles HTTP proxy responses from agents
-func handleWSProxyResponse(msg WSMessage) {
+func handleWSProxyResponse(msg wscommon.Message) {
 	requestID, ok := msg.Data["request_id"].(string)
 	if !ok {
 		if serverLogger != nil {
@@ -553,8 +535,8 @@ func sendProxyRequest(agentID string, requestID string, targetURL string, method
 		return fmt.Errorf("agent not connected via WebSocket")
 	}
 
-	msg := WSMessage{
-		Type: MessageTypeProxyRequest,
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeProxyRequest,
 		Data: map[string]interface{}{
 			"request_id": requestID,
 			"url":        targetURL,
@@ -570,8 +552,7 @@ func sendProxyRequest(agentID string, requestID string, targetURL string, method
 		return fmt.Errorf("failed to marshal proxy request: %w", err)
 	}
 
-	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+	if err := conn.WriteRaw(payload, 10*time.Second); err != nil {
 		return fmt.Errorf("failed to send proxy request: %w", err)
 	}
 
