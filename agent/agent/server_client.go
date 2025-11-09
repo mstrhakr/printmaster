@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"runtime"
@@ -38,6 +39,7 @@ func NewServerClient(baseURL, agentID, token string) *ServerClient {
 
 // NewServerClientWithName creates a new server client with agent name
 func NewServerClientWithName(baseURL, agentID, agentName, token, caCertPath string, insecureSkipVerify bool) *ServerClient {
+	log.Printf("NewServerClientWithName baseURL=%s insecureSkipVerify=%v caCertPath=%s", baseURL, insecureSkipVerify, caCertPath)
 	var tlsConfig *tls.Config
 
 	if caCertPath != "" {
@@ -323,9 +325,18 @@ func (c *ServerClient) doRequest(ctx context.Context, method, path string, reqBo
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 	}
 
+	// Perform request (log for debugging)
+	tokenPresent := false
+	if requireAuth {
+		token := c.GetToken()
+		tokenPresent = token != ""
+	}
+	log.Printf("HTTP request: method=%s url=%s requireAuth=%v tokenPresent=%v", method, url, requireAuth, tokenPresent)
+
 	// Perform request
 	httpResp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
+		log.Printf("HTTP request failed: %v", err)
 		return fmt.Errorf("request failed: %w", err)
 	}
 	defer httpResp.Body.Close()
@@ -338,6 +349,7 @@ func (c *ServerClient) doRequest(ctx context.Context, method, path string, reqBo
 
 	// Check status code
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		log.Printf("Server returned non-2xx status %d for %s %s: %s", httpResp.StatusCode, method, url, string(respData))
 		return fmt.Errorf("server returned status %d: %s", httpResp.StatusCode, string(respData))
 	}
 
