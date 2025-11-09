@@ -190,7 +190,8 @@ function initTabs() {
         } else if (targetTab === 'settings') {
             loadSettings();
         } else if (targetTab === 'logs') {
-            connectLogStream();
+            // Previously called connectLogStream() which no longer exists - use loadLogs()
+            loadLogs();
         }
     }
 }
