@@ -33,32 +33,65 @@ function connectSSE() {
     });
     
     eventSource.addEventListener('agent_registered', (e) => {
-        console.log('Agent registered:', e.data);
-        loadAgents(); // Reload agent list
+        try {
+            const data = JSON.parse(e.data);
+            console.log('Agent registered (SSE):', data);
+            // Add card dynamically
+            addAgentCard(data);
+        } catch (err) {
+            console.warn('Failed to parse agent_registered event, falling back to full reload:', err);
+            loadAgents();
+        }
     });
     
     eventSource.addEventListener('agent_connected', (e) => {
-        console.log('Agent connected:', e.data);
-        loadAgents(); // Reload to show active status
+        try {
+            const data = JSON.parse(e.data);
+            console.log('Agent connected (SSE):', data);
+            updateAgentConnection(data.agent_id, 'ws');
+        } catch (err) {
+            console.warn('Failed to parse agent_connected event, falling back to full reload:', err);
+            loadAgents();
+        }
     });
     
     eventSource.addEventListener('agent_disconnected', (e) => {
-        console.log('Agent disconnected:', e.data);
-        loadAgents(); // Reload to show disconnected status
+        try {
+            const data = JSON.parse(e.data);
+            console.log('Agent disconnected (SSE):', data);
+            updateAgentConnection(data.agent_id, 'none');
+        } catch (err) {
+            console.warn('Failed to parse agent_disconnected event, falling back to full reload:', err);
+            loadAgents();
+        }
     });
     
     eventSource.addEventListener('agent_heartbeat', (e) => {
-        console.log('Agent heartbeat:', e.data);
-        // Optionally update status without full reload
+        try {
+            const data = JSON.parse(e.data);
+            // Update agent's status/last seen in-place
+            updateAgentHeartbeat(data.agent_id, data.status);
+        } catch (err) {
+            console.log('Agent heartbeat (raw):', e.data);
+        }
     });
     
     eventSource.addEventListener('device_updated', (e) => {
-        console.log('Device updated:', e.data);
-        // Reload devices if we're on the devices tab
-        const devicesTab = document.querySelector('[data-tab="devices"]');
-        if (devicesTab && !devicesTab.classList.contains('hidden')) {
-            loadDevices();
-        }
+            try {
+                const data = JSON.parse(e.data);
+                console.log('Device updated (SSE):', data);
+                // If devices tab is visible, update in-place, otherwise ignore
+                const devicesTab = document.querySelector('[data-tab="devices"]');
+                if (devicesTab && !devicesTab.classList.contains('hidden')) {
+                    addOrUpdateDeviceCard(data);
+                }
+            } catch (err) {
+                console.warn('Failed to parse device_updated event, falling back to full reload:', err);
+                const devicesTab = document.querySelector('[data-tab="devices"]');
+                if (devicesTab && !devicesTab.classList.contains('hidden')) {
+                    loadDevices();
+                }
+            }
     });
     
     eventSource.onerror = (e) => {
@@ -489,7 +522,7 @@ function renderAgentCard(agent) {
             <div class="device-card-info">
                 <div class="device-card-row">
                     <span class="device-card-label">Status</span>
-                    <span class="device-card-value" style="color:${statusColor}">
+                    <span class="device-card-value agent-status-value" style="color:${statusColor}">
                         ● ${agent.status || 'unknown'}
                     </span>
                 </div>
@@ -513,7 +546,7 @@ function renderAgentCard(agent) {
                 
                 <div class="device-card-row">
                     <span class="device-card-label">Last Seen</span>
-                    <span class="device-card-value" title="${lastSeenDate ? lastSeenDate.toLocaleString() : 'Never'}">
+                    <span class="device-card-value agent-last-seen" title="${lastSeenDate ? lastSeenDate.toLocaleString() : 'Never'}">
                         ${lastSeenText}
                     </span>
                 </div>
@@ -540,6 +573,151 @@ function renderAgentCard(agent) {
             </div>
         </div>
     `;
+}
+
+// DOM helpers for incremental updates
+function findAgentsContainer() {
+    const container = document.getElementById('agents_list');
+    if (!container) return null;
+    let cards = container.querySelector('.device-cards-container');
+    if (!cards) {
+        cards = document.createElement('div');
+        cards.className = 'device-cards-container';
+        container.innerHTML = '';
+        container.appendChild(cards);
+    }
+    return cards;
+}
+
+function addAgentCard(agent) {
+    const cards = findAgentsContainer();
+    if (!cards) return;
+    // If card exists, replace it
+    const existing = cards.querySelector(`[data-agent-id="${agent.agent_id}"]`);
+    if (existing) {
+        existing.outerHTML = renderAgentCard(agent);
+        return;
+    }
+    // Insert at top
+    cards.insertAdjacentHTML('afterbegin', renderAgentCard(agent));
+}
+
+function removeAgentCard(agentId) {
+    const cards = findAgentsContainer();
+    if (!cards) return;
+    const existing = cards.querySelector(`[data-agent-id="${agentId}"]`);
+    if (existing) {
+        existing.classList.add('removing');
+        setTimeout(() => existing.remove(), 300);
+    }
+}
+
+function updateAgentConnection(agentId, connType) {
+    const cards = findAgentsContainer();
+    if (!cards) return;
+    const card = cards.querySelector(`[data-agent-id="${agentId}"]`);
+    if (!card) {
+        // If card missing, fetch single agent and add
+        fetch(`/api/v1/agents/${agentId}`).then(r => r.json()).then(a => addAgentCard(a)).catch(() => {});
+        return;
+    }
+    // Update connection badge
+    const badge = card.querySelector('.conn-badge');
+    if (badge) {
+        badge.classList.remove('ws','http','none');
+        badge.classList.add(connType);
+        const aria = connType === 'ws' ? 'Connection: WebSocket (live)' : connType === 'http' ? 'Connection: HTTP (recent)' : 'Connection: Offline';
+        badge.setAttribute('aria-label', aria);
+        badge.setAttribute('title', aria);
+    }
+    // Update Open UI button enablement
+    const openBtn = card.querySelector('.device-card-actions button[onclick^="openAgentUI"]');
+    if (openBtn) {
+        if (connType === 'ws') {
+            openBtn.removeAttribute('disabled');
+            openBtn.removeAttribute('title');
+        } else {
+            openBtn.setAttribute('disabled', 'disabled');
+            openBtn.setAttribute('title', 'Agent not connected via WebSocket');
+        }
+    }
+}
+
+function updateAgentHeartbeat(agentId, status) {
+    const cards = findAgentsContainer();
+    if (!cards) return;
+    const card = cards.querySelector(`[data-agent-id="${agentId}"]`);
+    if (!card) return;
+    const statusEl = card.querySelector('.agent-status-value');
+    if (statusEl) {
+        statusEl.textContent = '● ' + (status || 'unknown');
+        const colors = { 'active': 'var(--success)', 'inactive': 'var(--muted)', 'offline': 'var(--error)' };
+        statusEl.style.color = colors[status] || 'var(--muted)';
+    }
+    // Refresh last seen by fetching agent details
+    fetch(`/api/v1/agents/${agentId}`).then(r => r.json()).then(a => {
+        const lastSeenEl = card.querySelector('.agent-last-seen');
+        if (lastSeenEl && a.last_seen) {
+            const dt = new Date(a.last_seen);
+            const now = new Date();
+            const diff = now - dt;
+            const seconds = Math.floor(diff/1000);
+            const minutes = Math.floor(seconds/60);
+            const hours = Math.floor(minutes/60);
+            let text = 'Never';
+            if (hours > 0) text = `${hours}h ago`;
+            else if (minutes > 0) text = `${minutes}m ago`;
+            else if (seconds > 0) text = 'Just now';
+            lastSeenEl.textContent = text;
+            lastSeenEl.title = dt.toLocaleString();
+        }
+    }).catch(() => {});
+}
+
+// Device helpers for server UI
+function addOrUpdateDeviceCard(device) {
+    const container = document.getElementById('devices_cards');
+    if (!container) return;
+    const serial = device.serial || '';
+    if (!serial) {
+        // fallback: reload full devices
+        loadDevices();
+        return;
+    }
+    const existing = container.querySelector(`[data-serial="${serial}"]`);
+    const cardHtml = (function(d) {
+        return `
+        <div class="device-card" data-serial="${d.serial || ''}" data-agent-id="${d.agent_id || ''}">
+            <div class="device-card-header">
+                <div>
+                    <div class="device-card-title">${d.manufacturer || 'Unknown'} ${d.model || ''}</div>
+                    <div class="device-card-subtitle">${d.ip || 'N/A'}</div>
+                </div>
+            </div>
+            <div class="device-card-info">
+                <div class="device-card-row">
+                    <span class="device-card-label">Serial</span>
+                    <span class="device-card-value device-serial">${d.serial || 'N/A'}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Agent</span>
+                    <span class="device-card-value device-agent-id">${d.agent_id || 'N/A'}</span>
+                </div>
+            </div>
+            <div class="device-card-actions">
+                <button onclick="openDeviceUI('${d.serial}')" ${!d.ip || !d.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
+                    Open Web UI
+                </button>
+            </div>
+        </div>
+        `;
+    })(device);
+    if (existing) {
+        existing.outerHTML = cardHtml;
+    } else {
+        // insert at top
+        container.insertAdjacentHTML('afterbegin', cardHtml);
+    }
 }
 
 // ====== Agent Details ======
@@ -865,9 +1043,10 @@ function renderDevices(devices) {
         <div><strong>Total Devices:</strong> ${devices.length}</div>
     `;
     
-    // Render device cards (simplified for now)
-    container.innerHTML = devices.map(device => `
-        <div class="device-card">
+    // Render device cards (simplified for now) with data-serial for targeted updates
+    function renderDeviceCard(device) {
+        return `
+        <div class="device-card" data-serial="${device.serial || ''}" data-agent-id="${device.agent_id || ''}">
             <div class="device-card-header">
                 <div>
                     <div class="device-card-title">${device.manufacturer || 'Unknown'} ${device.model || ''}</div>
@@ -877,11 +1056,11 @@ function renderDevices(devices) {
             <div class="device-card-info">
                 <div class="device-card-row">
                     <span class="device-card-label">Serial</span>
-                    <span class="device-card-value">${device.serial || 'N/A'}</span>
+                    <span class="device-card-value device-serial">${device.serial || 'N/A'}</span>
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">Agent</span>
-                    <span class="device-card-value">${device.agent_id || 'N/A'}</span>
+                    <span class="device-card-value device-agent-id">${device.agent_id || 'N/A'}</span>
                 </div>
             </div>
             <div class="device-card-actions">
@@ -890,7 +1069,10 @@ function renderDevices(devices) {
                 </button>
             </div>
         </div>
-    `).join('');
+        `;
+    }
+
+    container.innerHTML = devices.map(device => renderDeviceCard(device)).join('');
 }
 
 // ====== Utility Functions ======

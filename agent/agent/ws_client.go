@@ -258,6 +258,13 @@ func (ws *WSClient) connect() error {
 	InfoCtx("WebSocket connected successfully", "status", respInfo, "remote", conn.RemoteAddr(), "subprotocols", conn.Subprotocol(), "respHeaders", resp.Header)
 
 	// Start read and ping loops for this connection
+	// Ensure pong updates extend our read deadline
+	conn.SetPongHandler(func(appData string) error {
+		conn.SetReadDeadline(time.Now().Add(ws.readTimeout))
+		DebugCtx("Pong received, extended read deadline")
+		return nil
+	})
+
 	go ws.readLoop()
 	go ws.pingLoop()
 

@@ -29,6 +29,10 @@ var (
 	wsConnections     = make(map[string]*websocket.Conn)
 	wsConnectionsLock sync.RWMutex
 
+	// Counters for diagnostics
+	wsPingFailures     int64
+	wsDisconnectEvents int64
+
 	// Track pending proxy requests awaiting responses from agents
 	proxyRequests     = make(map[string]chan WSMessage) // key: requestID
 	proxyRequestsLock sync.RWMutex
@@ -246,8 +250,36 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 		},
 	})
 
+	// Start server-side ping loop to detect half-open TCP connections and
+	// surface failures earlier. If ping fails, close the connection which
+	// triggers the cleanup below and marks the agent offline.
+	pingTicker := time.NewTicker(25 * time.Second)
+	pingDone := make(chan struct{})
+	go func() {
+		defer pingTicker.Stop()
+		for {
+			select {
+			case <-pingTicker.C:
+				// send ping
+				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					if serverLogger != nil {
+						serverLogger.Warn("WebSocket ping failed, closing connection", "agent_id", agent.AgentID, "error", err)
+					}
+					conn.Close()
+					return
+				}
+			case <-pingDone:
+				return
+			}
+		}
+	}()
+
 	// Handle connection cleanup on exit
 	defer func() {
+		// signal ping goroutine to stop
+		close(pingDone)
+
 		wsConnectionsLock.Lock()
 		if wsConnections[agent.AgentID] == conn {
 			delete(wsConnections, agent.AgentID)
@@ -262,6 +294,27 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 					"agent_id": agent.AgentID,
 				},
 			})
+			// Mark disconnect event for diagnostics
+			wsDisconnectEvents++
+
+			// Debounce marking offline: wait a short window before flipping DB state
+			go func(agentID string) {
+				// Wait 10 seconds to allow quick reconnects
+				time.Sleep(10 * time.Second)
+				// If agent reconnected, skip marking offline
+				if isAgentConnectedWS(agentID) {
+					if serverLogger != nil {
+						serverLogger.Debug("Agent reconnected during debounce window, skipping offline mark", "agent_id", agentID)
+					}
+					return
+				}
+				ctx := context.Background()
+				if err := serverStore.UpdateAgentHeartbeat(ctx, agentID, "offline"); err != nil {
+					if serverLogger != nil {
+						serverLogger.Warn("Failed to mark agent offline after WS disconnect", "agent_id", agentID, "error", err)
+					}
+				}
+			}(agent.AgentID)
 		}
 		wsConnectionsLock.Unlock()
 		conn.Close()
