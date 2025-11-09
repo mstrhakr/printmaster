@@ -1995,6 +1995,28 @@ func runInteractive(ctx context.Context) {
 				}
 			}
 		}
+
+		// Master IP scanning toggle (controls subnet/manual IP scanning)
+		if v, ok := req["ip_scanning_enabled"]; ok {
+			if vb, ok2 := v.(bool); ok2 {
+				if !vb {
+					// Stop any periodic per-IP scanning
+					stopAutoDiscover()
+					appLogger.Info("IP scanning disabled via settings: periodic and manual per-IP scans will be blocked")
+				} else {
+					// If enabling, only start auto-discover if auto_discover_enabled is true in the provided map
+					if ad, ok := req["auto_discover_enabled"]; ok {
+						if adb, ok2 := ad.(bool); ok2 && adb {
+							startAutoDiscover()
+							appLogger.Info("IP scanning enabled via settings: starting periodic scans")
+						}
+					} else {
+						// No auto_discover change provided; do not automatically start periodic scans here
+						appLogger.Info("IP scanning enabled via settings")
+					}
+				}
+			}
+		}
 		if v, ok := req["auto_discover_live_mdns"]; ok {
 			if vb, ok2 := v.(bool); ok2 {
 				if vb && autoDiscoverEnabled {
@@ -2358,6 +2380,14 @@ func runInteractive(ctx context.Context) {
 					discoverySettings[k] = v
 				}
 			}
+		}
+
+		// If IP scanning master toggle is explicitly disabled, skip discovery
+		if discoverySettings["ip_scanning_enabled"] == false {
+			agent.Info("Discovery skipped: IP scanning disabled in settings")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprint(w, "discovery skipped: IP scanning is disabled in settings")
+			return
 		}
 
 		// Get saved ranges from database (if manual ranges enabled)

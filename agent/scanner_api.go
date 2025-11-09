@@ -33,6 +33,18 @@ func Discover(
 	timeout int,
 ) ([]agent.PrinterInfo, error) {
 
+	// Respect master IP scanning toggle stored in discovery_settings.
+	if agentConfigStore != nil {
+		var stored map[string]interface{}
+		if err := agentConfigStore.GetConfigValue("discovery_settings", &stored); err == nil && stored != nil {
+			if v, ok := stored["ip_scanning_enabled"]; ok {
+				if vb, ok2 := v.(bool); ok2 && !vb {
+					return nil, fmt.Errorf("ip scanning is disabled in agent settings")
+				}
+			}
+		}
+	}
+
 	if concurrency <= 0 {
 		concurrency = 50
 	}
