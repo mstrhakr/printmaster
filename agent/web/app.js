@@ -1855,12 +1855,27 @@ function updateSubnetDisplay() {
                         console.warn('Persist subnet_scan failed', e);
                     }
 
+                    // Update inline reason text so users see why the control is disabled
+                    try {
+                        const reasonEl = document.getElementById('detected_subnet_reason');
+                        if (reasonEl) {
+                            reasonEl.textContent = `Disabled: ${subnet} expands to ${cnt} addresses (> ${MAX_ADDRS}). Subnet scanning has been turned off to avoid large scans. Use manual ranges or enable passive discovery.`;
+                            reasonEl.style.display = 'block';
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+
                     showToast(`Detected subnet ${subnet} expands to ${cnt} addresses (over ${MAX_ADDRS}). Subnet scanning has been disabled to avoid excessive scans. It has been turned off and cannot be re-enabled until you update ranges or enable manually. Use manual ranges or passive discovery.`, 'error', 10000);
                 } else {
                     if (scanEl) {
                         // ensure it's enabled (but don't override user's saved value)
                         scanEl.disabled = false;
                     }
+                    try {
+                        const reasonEl = document.getElementById('detected_subnet_reason');
+                        if (reasonEl) { reasonEl.style.display = 'none'; reasonEl.textContent = ''; }
+                    } catch (e) {}
                 }
             }
         } catch (e) {
