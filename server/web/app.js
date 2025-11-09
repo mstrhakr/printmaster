@@ -498,20 +498,12 @@ function renderAgentCard(agent) {
         else lastSeenText = 'Just now';
     }
     
-    // Small connection badge next to title
-    let connBadge = '';
-    if (agent.connection_type) {
-        const aria = `Connection: ${agent.connection_type === 'ws' ? 'WebSocket (live)' : agent.connection_type === 'http' ? 'HTTP (recent)' : 'Offline'}`;
-        connBadge = `<span class="conn-badge ${agent.connection_type}" aria-label="${aria}" title="${aria}"></span>`;
-    }
-
     return `
         <div class="device-card" data-agent-id="${agent.agent_id}">
             <div class="device-card-header">
                 <div>
                     <div style="display:flex;align-items:center;gap:8px">
                         <div class="device-card-title">${agent.hostname || agent.agent_id}</div>
-                        ${connBadge}
                     </div>
                     <div class="device-card-subtitle copyable" onclick="copyToClipboard('${agent.agent_id}')" title="Click to copy Agent ID">
                         ${agent.agent_id}
@@ -523,7 +515,7 @@ function renderAgentCard(agent) {
                 <div class="device-card-row">
                     <span class="device-card-label">Status</span>
                     <span class="device-card-value agent-status-value" style="color:${statusColor}">
-                        ● ${agent.status || 'unknown'}
+                        ${agent.connection_type ? `<span class="conn-badge ${agent.connection_type}" title="Connection: ${agent.connection_type === 'ws' ? 'WebSocket (live)' : agent.connection_type === 'http' ? 'HTTP (recent)' : 'Offline'}" aria-label="Connection status"></span> ` : ''}● ${agent.status || 'unknown'}
                     </span>
                 </div>
                 
