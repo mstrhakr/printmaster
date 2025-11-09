@@ -1261,19 +1261,22 @@ input[type="checkbox"]:indeterminate::before {
   border-color: var(--highlight);
 }
 .conn-badge.ws {
-  background: linear-gradient(135deg, rgba(40,167,69,0.10) 0%, rgba(40,167,69,0.06) 100%);
-  border-color: rgba(40,167,69,0.25);
-  color: #155724;
+  /* Blue - Live */
+  background: linear-gradient(135deg, rgba(0,123,255,0.10) 0%, rgba(0,123,255,0.06) 100%);
+  border-color: rgba(0,123,255,0.25);
+  color: #084f9b;
 }
 .conn-badge.http {
-  background: linear-gradient(135deg, rgba(243,156,18,0.10) 0%, rgba(243,156,18,0.06) 100%);
-  border-color: rgba(243,156,18,0.25);
+  /* Yellow - HTTP fallback */
+  background: linear-gradient(135deg, rgba(255,193,7,0.10) 0%, rgba(255,193,7,0.06) 100%);
+  border-color: rgba(255,193,7,0.25);
   color: #7a4a03;
 }
 .conn-badge.none, .conn-badge.off, .conn-badge.unknown {
-  background: linear-gradient(135deg, rgba(108,117,125,0.06) 0%, rgba(108,117,125,0.03) 100%);
-  border-color: rgba(0,0,0,0.08);
-  color: var(--muted);
+  /* Red - Disconnected */
+  background: linear-gradient(135deg, rgba(220,53,69,0.10) 0%, rgba(220,53,69,0.06) 100%);
+  border-color: rgba(220,53,69,0.25);
+  color: #7a0b0b;
 }
 .conn-badge[aria-label] { cursor: default; }
 

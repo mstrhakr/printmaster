@@ -516,9 +516,23 @@ function renderAgentCard(agent) {
                     <span class="device-card-label">Status</span>
                     <span class="device-card-value agent-status-value" style="color:${statusColor}">
                         ${agent.connection_type ? (function(){
-                            const label = agent.connection_type === 'ws' ? 'WS' : agent.connection_type === 'http' ? 'HTTP' : 'OFF';
-                            const title = `Connection: ${agent.connection_type === 'ws' ? 'WebSocket (live)' : agent.connection_type === 'http' ? 'HTTP (recent)' : 'Offline'}`;
-                            return `<span class="conn-badge ${agent.connection_type}" title="${title}" aria-label="Connection status">${label}</span> `;
+                            let label = '';
+                            let title = '';
+                            let cls = agent.connection_type;
+                            if (agent.connection_type === 'ws') {
+                                label = 'WEBSOCKETS: Live';
+                                title = 'WebSocket (live)';
+                                cls = 'ws';
+                            } else if (agent.connection_type === 'http') {
+                                label = 'WEBSOCKETS: HTTP(s) Fallback';
+                                title = 'HTTP(s) recent fallback';
+                                cls = 'http';
+                            } else {
+                                label = 'WEBSOCKETS: Disconnected';
+                                title = 'Disconnected';
+                                cls = 'none';
+                            }
+                            return `<span class="conn-badge ${cls}" title="${title}" aria-label="${label}">${label}</span> `;
                         })() : ''}● ${agent.status || 'unknown'}
                     </span>
                 </div>
