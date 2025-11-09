@@ -157,43 +157,35 @@
                     <h4 style="margin-top:0;color:var(--highlight)">IP Sources</h4>
                     <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">What to scan</div>
                     <div style="display:flex;flex-direction:column;gap:8px;">
-                        <div>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="scan_local_subnet_enabled" />
-                                <span><strong>Scan detected local subnet</strong></span>
-                            </label>
-                            <div style="margin-left:24px;margin-top:4px;color:var(--muted);font-size:12px;">
-                                Detected: <span id="detected_subnet_display"
-                                    style="font-family:monospace;">(loading...)</span>
+                            <!-- Parent toggle for all IP scanning features -->
+                            <div>
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="ip_scanning_enabled" />
+                                    <span><strong>Enable IP scanning</strong></span>
+                                    <span style="color:var(--muted);font-size:12px;">(controls subnet/manual ranges and active probes)</span>
+                                </label>
                             </div>
-                        </div>
-                        <div>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="manual_ranges_enabled" />
-                                <span>Manual IP ranges</span>
-                                <span style="color:var(--muted);font-size:12px;">(advanced: multi-subnet or
-                                    specific
-                                    targeting)</span>
-                            </label>
-                        </div>
 
-                        <!-- IP Ranges Configuration (shown when manual ranges enabled) -->
-                        <div id="ranges_config_section"
-                            style="margin:8px 0 0 12px;background:var(--panel);border:1px solid var(--border);border-radius:6px;display:none;">
-                            <div style="padding:12px;">
-                                <div style="color:var(--muted);font-size:12px;margin-bottom:8px">
-                                    Formats: <code>192.168.1.50</code> | <code>192.168.1.0/24</code> |
-                                    <code>192.168.1.1-50</code> | <code>192.168.1.x</code>
-                                </div>
-                                <textarea id="ranges_text"
-                                    style="width:100%;height:100px;font-family:monospace;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;box-sizing:border-box;"
-                                    placeholder="One entry per line"></textarea>
-                                <div style="margin-top:6px;">
-                                    <button onclick='clearRanges()'
-                                        style="font-size:12px;padding:4px 10px;">Clear</button>
+                            <div class="ipscan-subtoggle">
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="scan_local_subnet_enabled" />
+                                    <span><strong>Scan detected local subnet</strong></span>
+                                </label>
+                                <div style="margin-left:24px;margin-top:4px;color:var(--muted);font-size:12px;">
+                                    Detected: <span id="detected_subnet_display"
+                                        style="font-family:monospace;">(loading...)</span>
                                 </div>
                             </div>
-                        </div>
+
+                            <div class="ipscan-subtoggle">
+                                <label style="display:flex;align-items:center;gap:8px;">
+                                    <input type="checkbox" id="manual_ranges_enabled" />
+                                    <span>Manual IP ranges</span>
+                                    <span style="color:var(--muted);font-size:12px;">(advanced: multi-subnet or
+                                        specific
+                                        targeting)</span>
+                                </label>
+                            </div>
                     </div>
                 </div>
 
@@ -225,6 +217,26 @@
                                 live
                                 mDNS)</span>
                         </label>
+
+                        <!-- Advanced area for Active Probes - move ranges textarea here -->
+                        <details style="margin-top:10px;border:1px solid var(--border);padding:8px;border-radius:6px;" class="ipscan-subtoggle">
+                            <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Active Probes</summary>
+                            <div style="margin-top:8px;color:var(--muted);font-size:12px;margin-bottom:8px;">Advanced probe options and IP ranges (manual ranges)</div>
+                            <div style="padding:6px;">
+                                <div style="color:var(--muted);font-size:12px;margin-bottom:8px">
+                                    Formats: <code>192.168.1.50</code> | <code>192.168.1.0/24</code> |
+                                    <code>192.168.1.1-50</code> | <code>192.168.1.x</code>
+                                </div>
+                                <textarea id="ranges_text" class="advanced-setting-textarea"
+                                    style="width:100%;height:100px;font-family:monospace;font-size:12px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px;box-sizing:border-box;"
+                                    placeholder="One entry per line"></textarea>
+                                <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+                                    <button onclick='clearRanges()' style="font-size:12px;padding:4px 10px;">Clear</button>
+                                    <button onclick='saveRanges()' style="font-size:12px;padding:4px 10px;">Save ranges</button>
+                                    <span style="color:var(--muted);font-size:12px;margin-left:8px;">Ranges moved here from IP Sources</span>
+                                </div>
+                            </div>
+                        </details>
                     </div>
                 </div>
 

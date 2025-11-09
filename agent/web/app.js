@@ -1770,30 +1770,29 @@ function toggleAutoDiscoverUI() {
 // Show/hide the ranges configuration dropdown based on manual_ranges setting
 function toggleRangesDropdown() {
     const enabled = document.getElementById('manual_ranges_enabled')?.checked ?? true;
-    const rangesSection = document.getElementById('ranges_config_section');
-    if (!rangesSection) return;
+    const rangesEl = document.getElementById('ranges_text');
+    if (!rangesEl) return;
+    // Find the nearest details container (our Advanced Active Probes details) or parent
+    const container = rangesEl.closest('details') || rangesEl.parentElement;
+    if (!container) return;
 
     if (enabled) {
-        // Show with animation
-        rangesSection.style.display = 'block';
-        rangesSection.style.maxHeight = '0';
-        rangesSection.style.opacity = '0';
-        rangesSection.style.overflow = 'hidden';
-        setTimeout(() => {
-            rangesSection.style.transition = 'max-height 0.4s ease, opacity 0.3s ease';
-            rangesSection.style.maxHeight = '800px';
-            rangesSection.style.opacity = '1';
-        }, 10);
+        container.style.display = '';
+        try { container.open = true; } catch (e) { /* ignore */ }
     } else {
-        // Hide with animation
-        rangesSection.style.transition = 'max-height 0.4s ease, opacity 0.3s ease';
-        rangesSection.style.maxHeight = '0';
-        rangesSection.style.opacity = '0';
-        setTimeout(() => {
-            rangesSection.style.display = 'none';
-            rangesSection.style.overflow = 'visible';
-        }, 400);
+        try { container.open = false; } catch (e) { /* ignore */ }
+        container.style.display = 'none';
     }
+}
+
+// Toggle top-level IP scanning UI. Hides/shows elements that should be disabled when IP scanning is off.
+function toggleIPScanningUI() {
+    const enabled = document.getElementById('ip_scanning_enabled')?.checked ?? true;
+    document.querySelectorAll('.ipscan-subtoggle').forEach(el => {
+        el.style.display = enabled ? '' : 'none';
+    });
+    // Ensure ranges visibility respects both parent and manual_ranges checkbox
+    toggleRangesDropdown();
 }
 
 // Ranges are now displayed in ranges_text textarea via loadSavedRanges() function
@@ -4075,6 +4074,9 @@ function loadSettings() {
 
         document.getElementById('scan_local_subnet_enabled').checked = disc.subnet_scan !== false;
         document.getElementById('manual_ranges_enabled').checked = disc.manual_ranges !== false;
+    // Master IP scanning toggle (default enabled)
+    const ipScanEl = document.getElementById('ip_scanning_enabled');
+    if (ipScanEl) { ipScanEl.checked = disc.ip_scanning_enabled !== false; }
         document.getElementById('discovery_arp_enabled').checked = disc.arp_enabled !== false;
         document.getElementById('discovery_icmp_enabled').checked = disc.icmp_enabled !== false;
         document.getElementById('discovery_tcp_enabled').checked = disc.tcp_enabled !== false;
@@ -4104,7 +4106,8 @@ function loadSettings() {
         document.getElementById('passive_discovery_enabled').checked = passiveEnabled;
 
         // Update UI state based on loaded settings
-        toggleRangesDropdown();
+    toggleRangesDropdown();
+    toggleIPScanningUI();
         updateSubnetDisplay();
         document.getElementById('discover_now_btn').style.display = (disc.auto_discover_enabled === true) ? 'none' : 'inline-block';
 
@@ -4514,6 +4517,7 @@ function addAutoSaveHandlers() {
     // keep references so we can remove listeners later
     window.__settingsChangeHandler = () => { saveAllSettings().then(() => showAutosaveFeedback()); };
     window.__manualRangesHandler = () => { toggleRangesDropdown(); saveAllSettings().then(() => showAutosaveFeedback()); };
+    window.__ipScanningHandler = () => { toggleIPScanningUI(); saveAllSettings().then(() => showAutosaveFeedback()); };
 
     // Discovery settings
     document.getElementById('scan_local_subnet_enabled')?.addEventListener('change', window.__settingsChangeHandler);
@@ -4524,6 +4528,7 @@ function addAutoSaveHandlers() {
     document.getElementById('discovery_tcp_enabled')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('discovery_snmp_enabled')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('discovery_mdns_enabled')?.addEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('ip_scanning_enabled')?.addEventListener('change', window.__ipScanningHandler);
     // Auto-save ranges when the textarea loses focus
     const rangesEl = document.getElementById('ranges_text');
     if (rangesEl) { rangesEl.addEventListener('blur', window.__settingsChangeHandler); }
@@ -4587,6 +4592,7 @@ function addAutoSaveHandlers() {
     document.getElementById('discovery_live_snmptrap_enabled')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('discovery_live_llmnr_enabled')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('metrics_rescan_enabled')?.addEventListener('change', window.__settingsChangeHandler);
+    // Remove IP scanning handlers when autosave disabled
     document.getElementById('metrics_rescan_interval')?.addEventListener('change', window.__settingsChangeHandler);
 
     // Developer settings
@@ -4632,6 +4638,7 @@ function removeAutoSaveHandlers() {
     document.getElementById('discovery_live_snmptrap_enabled')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('discovery_live_llmnr_enabled')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('metrics_rescan_enabled')?.removeEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('ip_scanning_enabled')?.removeEventListener('change', window.__ipScanningHandler);
     document.getElementById('metrics_rescan_interval')?.removeEventListener('change', window.__settingsChangeHandler);
 
     document.getElementById('dev_debug_logging')?.removeEventListener('change', window.__settingsChangeHandler);
@@ -4650,6 +4657,8 @@ async function saveAllSettings(btn) {
         if (btn) { btn.disabled = true; btn.textContent = 'Applying...'; }
         // Compose discovery settings
         const discoverySettings = {
+            // Master IP scanning toggle
+            ip_scanning_enabled: document.getElementById('ip_scanning_enabled')?.checked ?? true,
             // IP Sources
             subnet_scan: document.getElementById('scan_local_subnet_enabled')?.checked ?? true,
             manual_ranges: document.getElementById('manual_ranges_enabled')?.checked ?? false,

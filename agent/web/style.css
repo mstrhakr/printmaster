@@ -2630,17 +2630,19 @@ span.flatpickr-weekday {
   }
 
   /* IP Ranges configuration mobile */
-  #ranges_config_section textarea {
+  textarea#ranges_text {
     font-size: 13px !important;
     height: 120px !important;
   }
 
-  #ranges_config_section button {
+  textarea#ranges_text + div button,
+  textarea#ranges_text ~ button {
     flex: 1;
     min-width: 80px;
   }
 
-  #ranges_config_section ul {
+  /* small list variant near ranges */
+  textarea#ranges_text ~ ul {
     font-size: 11px !important;
   }
 
