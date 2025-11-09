@@ -201,6 +201,13 @@ function Invoke-Tests {
     )
     
     Write-BuildLog "Running tests for $Component..." "INFO"
+
+    # Support skipping tests via environment variable for update/CI convenience.
+    if ($env:PRINTMASTER_SKIP_TESTS -eq '1') {
+        Write-BuildLog "Skipping tests for $Component because PRINTMASTER_SKIP_TESTS=1" "WARN"
+        Add-Content -Path $script:LogFile -Value "[$(Get-Date -Format 'yyyy-MM-ddTHH:mm:sszzz')] [WARN] Skipping tests for $Component due to PRINTMASTER_SKIP_TESTS=1"
+        return $true
+    }
     
     $componentDir = Join-Path $ProjectRoot $Component
     Push-Location $componentDir
