@@ -949,6 +949,23 @@ function renderAgentDetailsModal(agent) {
             </div>
         </div>
         
+        <!-- WS Diagnostics -->
+        <div style="margin-top:16px;">
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">WebSocket Diagnostics</h4>
+                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                    <div class="device-card-row">
+                        <span class="device-card-label">Ping Failures</span>
+                        <span class="device-card-value">${agent.ws_ping_failures || 0}</span>
+                    </div>
+                    <div class="device-card-row">
+                        <span class="device-card-label">Disconnect Events</span>
+                        <span class="device-card-value">${agent.ws_disconnect_events || 0}</span>
+                    </div>
+                    <div style="color:var(--muted);font-size:12px;">These counts are diagnostics from the server's WebSocket subsystem. They help indicate flaky connections or network issues.</div>
+                </div>
+            </div>
+        </div>
         <!-- Action Buttons -->
         <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
             <button onclick="openAgentUI('${agent.agent_id}')" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>

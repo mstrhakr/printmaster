@@ -1442,8 +1442,23 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 		// Remove sensitive token from response
 		agent.Token = ""
 
+		// Include WS diagnostic counters (per-agent) in the response
+		var pf int64
+		var de int64
+		wsDiagLock.RLock()
+		pf = wsPingFailuresPerAgent[agent.AgentID]
+		de = wsDisconnectEventsPerAgent[agent.AgentID]
+		wsDiagLock.RUnlock()
+
+		// Convert agent to a generic map so we can add extra fields without changing storage.Agent
+		var obj map[string]interface{}
+		buf, _ := json.Marshal(agent)
+		_ = json.Unmarshal(buf, &obj)
+		obj["ws_ping_failures"] = pf
+		obj["ws_disconnect_events"] = de
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(agent)
+		json.NewEncoder(w).Encode(obj)
 
 	case http.MethodDelete:
 		// Delete agent and all associated data

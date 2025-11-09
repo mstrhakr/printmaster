@@ -31,8 +31,8 @@ var (
 
 	// (global counters removed - using per-agent diagnostics maps below)
 	// Per-agent diagnostics
-	wsDiagLock sync.RWMutex
-	wsPingFailuresPerAgent = make(map[string]int64)
+	wsDiagLock                 sync.RWMutex
+	wsPingFailuresPerAgent     = make(map[string]int64)
 	wsDisconnectEventsPerAgent = make(map[string]int64)
 
 	// Track pending proxy requests awaiting responses from agents
@@ -277,8 +277,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 					sseHub.Broadcast(SSEEvent{
 						Type: "agent_ws_diag",
 						Data: map[string]interface{}{
-							"agent_id": agent.AgentID,
-							"ws_ping_failures": pf,
+							"agent_id":             agent.AgentID,
+							"ws_ping_failures":     pf,
 							"ws_disconnect_events": de,
 						},
 					})
@@ -320,8 +320,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			sseHub.Broadcast(SSEEvent{
 				Type: "agent_ws_diag",
 				Data: map[string]interface{}{
-					"agent_id": agent.AgentID,
-					"ws_ping_failures": pf,
+					"agent_id":             agent.AgentID,
+					"ws_ping_failures":     pf,
 					"ws_disconnect_events": de,
 				},
 			})
