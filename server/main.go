@@ -1105,6 +1105,9 @@ func setupRoutes() {
 	http.HandleFunc("/", handleWebUI)
 	http.HandleFunc("/static/", handleStatic)
 
+	// UI metrics summary endpoint (simple aggregated view for the UI)
+	http.HandleFunc("/api/metrics", handleMetricsSummary)
+
 	// Minimal settings & logs endpoints for the UI (placeholders)
 	http.HandleFunc("/api/settings", handleSettings)
 	http.HandleFunc("/api/logs", handleLogs)
@@ -1988,6 +1991,79 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(devices)
 }
 
+// handleMetricsSummary returns a lightweight metrics summary for the UI
+// It intentionally keeps the query simple (no heavy aggregation) and returns:
+// - agents_count
+// - devices_count
+// - devices_with_metrics_24h (devices that have at least one metric in the last 24h)
+// - recent: sample list of latest metrics for up to N devices
+func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Count agents
+	agents, err := serverStore.ListAgents(ctx)
+	if err != nil {
+		if serverLogger != nil {
+			serverLogger.Error("Failed to list agents for metrics summary", "error", err)
+		}
+		http.Error(w, "Failed to fetch metrics summary", http.StatusInternalServerError)
+		return
+	}
+
+	// Count devices
+	devices, err := serverStore.ListAllDevices(ctx)
+	if err != nil {
+		if serverLogger != nil {
+			serverLogger.Error("Failed to list devices for metrics summary", "error", err)
+		}
+		http.Error(w, "Failed to fetch metrics summary", http.StatusInternalServerError)
+		return
+	}
+
+	// For a lightweight recent-metrics view, sample up to N devices and fetch their latest metrics
+	const sampleN = 20
+	recent := make([]map[string]interface{}, 0)
+	devicesWithRecent := 0
+	cutoff := time.Now().Add(-24 * time.Hour)
+
+	for i, dev := range devices {
+		if i >= sampleN {
+			break
+		}
+		if dev == nil || dev.Serial == "" {
+			continue
+		}
+		m, err := serverStore.GetLatestMetrics(ctx, dev.Serial)
+		if err != nil {
+			// no metrics for this device or DB error - skip
+			continue
+		}
+		if m.Timestamp.After(cutoff) {
+			devicesWithRecent++
+		}
+		recent = append(recent, map[string]interface{}{
+			"serial":     m.Serial,
+			"timestamp":  m.Timestamp,
+			"page_count": m.PageCount,
+		})
+	}
+
+	resp := map[string]interface{}{
+		"agents_count":            len(agents),
+		"devices_count":           len(devices),
+		"devices_with_metrics_24h": devicesWithRecent,
+		"recent":                  recent,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // Metrics batch upload - agent sends device metrics
 func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -2111,6 +2187,27 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 		w.Write([]byte(sharedweb.SharedJS))
+		return
+	}
+	// Serve vendored flatpickr assets from common/web if requested
+	if fileName == "vendor/flatpickr/flatpickr.min.css" {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		if b, err := sharedweb.VendorFiles.ReadFile("vendor/flatpickr/flatpickr.min.css"); err == nil {
+			w.Write(b)
+		} else {
+			http.Error(w, "Not found", http.StatusNotFound)
+		}
+		return
+	}
+	if fileName == "vendor/flatpickr/flatpickr.min.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		if b, err := sharedweb.VendorFiles.ReadFile("vendor/flatpickr/flatpickr.min.js"); err == nil {
+			w.Write(b)
+		} else {
+			http.Error(w, "Not found", http.StatusNotFound)
+		}
 		return
 	}
 

@@ -273,6 +273,7 @@ function initTabs() {
             const tabNames = {
                 'agents': 'Agents',
                 'devices': 'Devices',
+                'metrics': 'Metrics',
                 'settings': 'Settings',
                 'logs': 'Logs'
             };
@@ -282,6 +283,8 @@ function initTabs() {
         // Load data for specific tabs
         if (targetTab === 'devices') {
             loadDevices();
+        } else if (targetTab === 'metrics') {
+            loadMetrics();
         } else if (targetTab === 'settings') {
             loadSettings();
         } else if (targetTab === 'logs') {
@@ -291,180 +294,32 @@ function initTabs() {
     }
 }
 
-// ====== Toast Notification System ======
+// ====== Toast Notification System (delegates to shared implementation)
 function showToast(message, type = 'success', duration = 3000) {
-    const container = document.getElementById('toast_container');
-    if (!container) return;
-    
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    
-    const icons = {
-        success: '✓',
-        error: '✗',
-        info: 'ℹ'
-    };
-    
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type] || icons.info}</span>
-        <span class="toast-message">${message}</span>
-    `;
-    
-    container.appendChild(toast);
-    
-    // Auto-remove after duration
-    setTimeout(() => {
-        toast.classList.add('toast-hiding');
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.parentNode.removeChild(toast);
-            }
-        }, 300);
-    }, duration);
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+        try { return window.showToast(message, type, duration); } catch (e) { console.warn('shared.showToast failed', e); }
+    }
+    // Fallback: minimal toast using alert (very conservative)
+    try { alert(message); } catch (e) { /* noop */ }
 }
 
 // ====== Confirmation Modal System ======
+// ====== Confirmation Modal System (delegates to shared implementation)
 function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById('confirm_modal');
-        const titleEl = document.getElementById('confirm_modal_title');
-        const messageEl = document.getElementById('confirm_modal_message');
-        const confirmBtn = document.getElementById('confirm_modal_confirm');
-        const cancelBtn = document.getElementById('confirm_modal_cancel');
-        const closeX = document.getElementById('confirm_modal_close_x');
-        
-        if (!modal || !titleEl || !messageEl || !confirmBtn || !cancelBtn) {
-            // Fallback to browser confirm if modal not available
-            resolve(confirm(message));
-            return;
-        }
-        
-        // Set content
-        titleEl.textContent = title;
-        messageEl.textContent = message;
-        
-        // Style confirm button based on danger level
-        confirmBtn.className = isDangerous ? 
-            'modal-button modal-button-danger' : 
-            'modal-button modal-button-primary';
-        
-        // Show modal
-        modal.style.display = 'flex';
-        
-        // Handle confirm
-        const onConfirm = () => {
-            cleanup();
-            resolve(true);
-        };
-        
-        // Handle cancel
-        const onCancel = () => {
-            cleanup();
-            resolve(false);
-        };
-        
-        // Cleanup function
-        const cleanup = () => {
-            modal.style.display = 'none';
-            confirmBtn.removeEventListener('click', onConfirm);
-            cancelBtn.removeEventListener('click', onCancel);
-            if (closeX) closeX.removeEventListener('click', onCancel);
-            modal.removeEventListener('click', onBackdropClick);
-        };
-        
-        // Backdrop click closes modal
-        const onBackdropClick = (e) => {
-            if (e.target === modal) {
-                onCancel();
-            }
-        };
-        
-        // Attach event listeners
-        confirmBtn.addEventListener('click', onConfirm);
-        cancelBtn.addEventListener('click', onCancel);
-        if (closeX) closeX.addEventListener('click', onCancel);
-        modal.addEventListener('click', onBackdropClick);
-    });
+    if (typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
+        try { return window.showConfirm(message, title, isDangerous); } catch (e) { console.warn('shared.showConfirm failed', e); }
+    }
+    // Fallback to native confirm wrapped in a Promise
+    return Promise.resolve(confirm(message));
 }
 
 // Alert-style modal (no cancel button, just OK to dismiss)
+// Alert-style modal (delegates to shared implementation)
 function showAlert(message, title = 'Notice', isDangerous = false, showDontRemindCheckbox = false) {
-    const modal = document.getElementById('confirm_modal');
-    const titleEl = document.getElementById('confirm_modal_title');
-    const messageEl = document.getElementById('confirm_modal_message');
-    const confirmBtn = document.getElementById('confirm_modal_confirm');
-    const cancelBtn = document.getElementById('confirm_modal_cancel');
-    const closeX = document.getElementById('confirm_modal_close_x');
-    
-    if (!modal || !titleEl || !messageEl || !confirmBtn) {
-        alert(message);
-        return;
+    if (typeof window !== 'undefined' && typeof window.showAlert === 'function') {
+        try { return window.showAlert(message, title, isDangerous, showDontRemindCheckbox); } catch (e) { console.warn('shared.showAlert failed', e); }
     }
-    
-    // Set content
-    titleEl.textContent = title;
-    messageEl.style.whiteSpace = 'pre-wrap'; // Preserve line breaks
-    messageEl.textContent = message;
-    
-    // Add "Don't remind me" checkbox if requested
-    let dontRemindCheckbox = null;
-    if (showDontRemindCheckbox) {
-        const checkboxHTML = `
-            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="dont_remind_checkbox" style="cursor: pointer;">
-                    <span style="font-size: 14px; color: var(--muted);">Don't show this again</span>
-                </label>
-            </div>
-        `;
-        messageEl.innerHTML = message.replace(/\n/g, '<br>') + checkboxHTML;
-        dontRemindCheckbox = modal.querySelector('#dont_remind_checkbox');
-    }
-    
-    // Style confirm button
-    confirmBtn.textContent = 'OK';
-    confirmBtn.className = isDangerous ? 
-        'modal-button modal-button-danger' : 
-        'modal-button modal-button-primary';
-    
-    // Hide cancel button for alert style
-    if (cancelBtn) cancelBtn.style.display = 'none';
-    
-    // Show modal
-    modal.style.display = 'flex';
-    
-    // Handle dismiss
-    const onDismiss = () => {
-        // Save preference if checkbox is checked
-        if (dontRemindCheckbox && dontRemindCheckbox.checked) {
-            localStorage.setItem('hideConfigWarning', 'true');
-        }
-        cleanup();
-    };
-    
-    // Cleanup function
-    const cleanup = () => {
-        modal.style.display = 'none';
-        if (cancelBtn) cancelBtn.style.display = ''; // Restore for future confirms
-        messageEl.style.whiteSpace = ''; // Reset style
-        messageEl.innerHTML = ''; // Clear HTML
-        confirmBtn.textContent = 'Confirm'; // Reset text
-        confirmBtn.removeEventListener('click', onDismiss);
-        if (closeX) closeX.removeEventListener('click', onDismiss);
-        modal.removeEventListener('click', onBackdropClick);
-    };
-    
-    // Backdrop click closes modal
-    const onBackdropClick = (e) => {
-        if (e.target === modal) {
-            onDismiss();
-        }
-    };
-    
-    // Attach event listeners
-    confirmBtn.addEventListener('click', onDismiss);
-    if (closeX) closeX.addEventListener('click', onDismiss);
-    modal.addEventListener('click', onBackdropClick);
+    try { alert(message); } catch (e) { /* noop */ }
 }
 
 // ====== Server Status ======
@@ -1179,6 +1034,9 @@ function renderDevices(devices) {
                 <button onclick="openDeviceUI('${device.serial}')" ${!device.ip || !device.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
                     Open Web UI
                 </button>
+                <button onclick="openDeviceMetrics('${device.serial}')" ${!device.serial ? 'disabled title="No serial"' : ''}>
+                    View Metrics
+                </button>
             </div>
         </div>
         `;
@@ -1211,6 +1069,17 @@ function openDeviceUI(serialNumber) {
     // Open device's web UI through WebSocket proxy in a new window
     const proxyUrl = `/api/v1/proxy/device/${encodeURIComponent(serialNumber)}/`;
     window.open(proxyUrl, `device-ui-${encodeURIComponent(serialNumber)}`, 'width=1200,height=800');
+}
+
+// Open the shared metrics modal for a device
+function openDeviceMetrics(serial) {
+    if (!serial) return;
+    if (typeof window.showMetricsModal === 'function') {
+        window.showMetricsModal({ serial });
+    } else {
+        // Fallback: navigate to devices list or show a toast
+        showToast('Metrics UI not available', 'error');
+    }
 }
 
 // ====== Settings Management ======
@@ -1271,6 +1140,45 @@ async function loadLogs() {
         if (logEl) {
             logEl.textContent = 'Failed to load logs: ' + error.message;
         }
+    }
+}
+
+// ====== Metrics ======
+async function loadMetrics() {
+    try {
+        const resp = await fetch('/api/metrics');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+
+        const statsEl = document.getElementById('metrics_stats');
+        const contentEl = document.getElementById('metrics_content');
+
+        if (statsEl) {
+            statsEl.innerHTML = `
+                <div><strong>Agents:</strong> ${data.agents_count}</div>
+                <div><strong>Devices:</strong> ${data.devices_count}</div>
+                <div><strong>Devices with recent metrics (24h):</strong> ${data.devices_with_metrics_24h}</div>
+            `;
+        }
+
+        if (contentEl) {
+            // Simple rendering: list latest metrics timestamps for sampled devices
+            if (data.recent && Array.isArray(data.recent) && data.recent.length > 0) {
+                let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+                data.recent.forEach(r => {
+                    const t = r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A';
+                    html += `<div style="padding:8px;background:rgba(0,0,0,0.03);border-radius:6px;"><strong>${r.serial}</strong> — ${t} — pages: ${r.page_count || 'n/a'}</div>`;
+                });
+                html += '</div>';
+                contentEl.innerHTML = html;
+            } else {
+                contentEl.innerHTML = '<div style="color:var(--muted);padding:12px">No recent metrics available.</div>';
+            }
+        }
+    } catch (err) {
+        console.error('Failed to load metrics:', err);
+        const contentEl = document.getElementById('metrics_content');
+        if (contentEl) contentEl.innerHTML = '<div style="color:var(--error);">Failed to load metrics</div>';
     }
 }
 

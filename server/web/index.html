@@ -46,12 +46,14 @@
             <div class="mobile-nav" id="mobile_nav">
                 <button class="tab active" data-target="agents">Agents</button>
                 <button class="tab" data-target="devices">Devices</button>
+                <button class="tab" data-target="metrics">Metrics</button>
                 <button class="tab" data-target="settings">Settings</button>
                 <button class="tab" data-target="logs">Logs</button>
             </div>
             <!-- Desktop tabs -->
             <button class="tab active" data-target="agents">Agents</button>
             <button class="tab" data-target="devices">Devices</button>
+            <button class="tab" data-target="metrics">Metrics</button>
             <button class="tab" data-target="settings">Settings</button>
             <button class="tab" data-target="logs">Logs</button>
         </div>
@@ -79,6 +81,13 @@
 
             <div id="devices_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
             <div class="device-cards-container" id="devices_cards"></div>
+        </div>
+
+        <!-- Metrics Tab -->
+        <div style="margin-top:12px;" data-tab="metrics" class="hidden">
+            <h3>Metrics</h3>
+            <div id="metrics_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
+            <div id="metrics_content" style="font-size:13px;color:var(--muted)">Loading metrics...</div>
         </div>
 
         <!-- Settings Tab -->

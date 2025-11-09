@@ -5,124 +5,20 @@ let globalSettings = {
     }
 };
 
-// Toast notification system
+// Toast notification system (delegates to shared implementation)
 function showToast(message, type = 'success', duration = 3000) {
-    const container = document.getElementById('toast_container');
-    if (!container) return;
-    
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    
-    const icons = {
-        success: '✓',
-        error: '✗',
-        info: 'ℹ'
-    };
-    
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type] || icons.info}</span>
-        <span class="toast-message">${message}</span>
-    `;
-    
-    container.appendChild(toast);
-    
-    // Auto-remove after duration
-    setTimeout(() => {
-        toast.classList.add('toast-hiding');
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.parentNode.removeChild(toast);
-            }
-        }, 300); // Match animation duration
-    }, duration);
+    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
+        try { return window.showToast(message, type, duration); } catch (e) { console.warn('shared.showToast failed', e); }
+    }
+    try { alert(message); } catch (e) { /* noop */ }
 }
 
-// Confirmation modal system (replaces browser confirm dialogs)
+// Confirmation modal system (delegates to shared implementation)
 function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById('confirm_modal');
-        const titleEl = document.getElementById('confirm_modal_title');
-        const messageEl = document.getElementById('confirm_modal_message');
-        const confirmBtn = document.getElementById('confirm_modal_confirm');
-        const cancelBtn = document.getElementById('confirm_modal_cancel');
-        const closeX = document.getElementById('confirm_modal_close_x');
-        
-        if (!modal || !titleEl || !messageEl || !confirmBtn || !cancelBtn) {
-            // Fallback to browser confirm if modal not available
-            resolve(confirm(message));
-            return;
-        }
-        
-        // Set content
-        titleEl.textContent = title;
-        messageEl.textContent = message;
-        
-        // Style confirm button based on danger level
-        confirmBtn.className = isDangerous ? 
-            'modal-button modal-button-danger' : 
-            'modal-button modal-button-primary';
-        
-        // Ensure modal appears above any currently-opened modal by computing highest z-index
-        try {
-            let maxZ = 0;
-            // Scan visible elements for numeric z-index values
-            document.querySelectorAll('body *').forEach(el => {
-                try {
-                    const s = window.getComputedStyle(el);
-                    if (!s) return;
-                    const z = s.zIndex;
-                    if (z && z !== 'auto') {
-                        const zi = parseInt(z, 10);
-                        if (!isNaN(zi) && zi > maxZ) maxZ = zi;
-                    }
-                } catch (e) {
-                    // ignore
-                }
-            });
-            // Set modal z-index to one above the highest found (or fallback to 30001)
-            modal.style.zIndex = (maxZ > 0 ? (maxZ + 1) : 30001);
-        } catch (e) {
-            // ignore any errors scanning DOM
-            modal.style.zIndex = 30001;
-        }
-
-        // Show modal
-        modal.style.display = 'flex';
-        
-        // Handle confirm
-        const onConfirm = () => {
-            cleanup();
-            resolve(true);
-        };
-        
-        // Handle cancel
-        const onCancel = () => {
-            cleanup();
-            resolve(false);
-        };
-        
-        // Cleanup function
-        const cleanup = () => {
-            modal.style.display = 'none';
-            confirmBtn.removeEventListener('click', onConfirm);
-            cancelBtn.removeEventListener('click', onCancel);
-            if (closeX) closeX.removeEventListener('click', onCancel);
-            modal.removeEventListener('click', onBackdropClick);
-        };
-        
-        // Backdrop click closes modal
-        const onBackdropClick = (e) => {
-            if (e.target === modal) {
-                onCancel();
-            }
-        };
-        
-        // Attach event listeners
-        confirmBtn.addEventListener('click', onConfirm);
-        cancelBtn.addEventListener('click', onCancel);
-        if (closeX) closeX.addEventListener('click', onCancel);
-        modal.addEventListener('click', onBackdropClick);
-    });
+    if (typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
+        try { return window.showConfirm(message, title, isDangerous); } catch (e) { console.warn('shared.showConfirm failed', e); }
+    }
+    return Promise.resolve(confirm(message));
 }
 
 // Check for database rotation warning on page load

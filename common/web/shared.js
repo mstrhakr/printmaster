@@ -391,3 +391,130 @@ window.formatRelativeTime = formatRelativeTime;
 window.formatNumber = formatNumber;
 window.formatBytes = formatBytes;
 window.debounce = debounce;
+
+// ============================================================================
+// SHARED METRICS MODAL
+// ============================================================================
+/**
+ * Show a shared metrics modal.
+ * Options:
+ *  - serial: device serial (optional)
+ *  - onFetch: async function({serial, from, to}) -> { data: [...] }
+ */
+window.showMetricsModal = async function (opts = {}) {
+    opts = opts || {};
+    const serial = opts.serial || null;
+    const onFetch = opts.onFetch || (async ({serial, from, to}) => {
+        // default fetch uses server API if available
+        const qs = [];
+        if (serial) qs.push('serial=' + encodeURIComponent(serial));
+        if (from) qs.push('from=' + encodeURIComponent(new Date(from).toISOString()));
+        if (to) qs.push('to=' + encodeURIComponent(new Date(to).toISOString()));
+        const url = '/api/devices/metrics/history' + (qs.length ? ('?' + qs.join('&')) : '');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to fetch metrics');
+        return res.json();
+    });
+
+    // Create modal container if missing
+    let modal = document.getElementById('metrics_modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'metrics_modal';
+        modal.className = 'modal';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width:900px;">
+                <div class="modal-header">
+                    <span class="modal-title" id="metrics_modal_title">Metrics</span>
+                    <span class="modal-close" id="metrics_modal_close_x">&times;</span>
+                </div>
+                <div class="modal-body" id="metrics_modal_body" style="max-height:60vh;overflow:auto;padding:16px;">
+                    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+                        <input type="text" id="metrics_datetime_range" placeholder="Select date range..." readonly style="width:300px;padding:8px;border-radius:4px;background:var(--panel);" />
+                        <button id="metrics_refresh_btn">Refresh</button>
+                    </div>
+                    <div id="metrics_modal_content" style="font-size:13px;color:var(--muted)">Loading...</div>
+                </div>
+                <div class="modal-footer">
+                    <button class="modal-button modal-button-secondary" id="metrics_modal_close">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // close handlers
+        modal.querySelector('#metrics_modal_close_x').addEventListener('click', () => modal.style.display = 'none');
+        modal.querySelector('#metrics_modal_close').addEventListener('click', () => modal.style.display = 'none');
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+    }
+
+    const titleEl = document.getElementById('metrics_modal_title');
+    const contentEl = document.getElementById('metrics_modal_content');
+    const rangeInput = document.getElementById('metrics_datetime_range');
+    const refreshBtn = document.getElementById('metrics_refresh_btn');
+
+    titleEl.textContent = serial ? `Metrics: ${serial}` : 'Metrics';
+    contentEl.innerHTML = '<div style="color:var(--muted);">Loading metrics...</div>';
+
+    // Initialize flatpickr on range input if available
+    try {
+        if (typeof flatpickr === 'function') {
+            // If already initialized, destroy first (safety)
+            if (rangeInput._flatpickr) rangeInput._flatpickr.destroy();
+            flatpickr(rangeInput, {
+                mode: 'range',
+                enableTime: true,
+                dateFormat: 'Y-m-d H:i',
+                defaultDate: [new Date(Date.now() - 7 * 24 * 3600 * 1000), new Date()],
+            });
+        }
+    } catch (e) {
+        console.warn('flatpickr init failed in shared metrics modal', e);
+    }
+
+    async function doLoad() {
+        contentEl.innerHTML = '<div style="color:var(--muted);">Loading metrics...</div>';
+        let from = null, to = null;
+        try {
+            const val = rangeInput.value || '';
+            if (val.includes(' to ')) {
+                const parts = val.split(' to ');
+                from = new Date(parts[0]);
+                to = new Date(parts[1]);
+            } else if (val) {
+                from = new Date(val);
+                to = new Date();
+            }
+        } catch (e) { /* ignore parse errors */ }
+
+        try {
+            const data = await onFetch({ serial, from, to });
+            // If API returned array directly, use it
+            let items = data;
+            if (data && data.history) items = data.history;
+            if (!items || items.length === 0) {
+                contentEl.innerHTML = '<div style="color:var(--muted);">No metrics available for selected range.</div>';
+                return;
+            }
+
+            // Render simple list
+            let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+            items.forEach(it => {
+                const t = it.timestamp ? new Date(it.timestamp).toLocaleString() : 'N/A';
+                html += `<div style="padding:8px;background:rgba(0,0,0,0.03);border-radius:6px;"><strong>${it.serial || it.Serial || ''}</strong> — ${t} — pages: ${it.page_count || it.pageCount || 'n/a'}</div>`;
+            });
+            html += '</div>';
+            contentEl.innerHTML = html;
+        } catch (err) {
+            console.error('Metrics fetch failed', err);
+            contentEl.innerHTML = `<div style="color:var(--error);">Failed to load metrics: ${err.message || err}</div>`;
+        }
+    }
+
+    refreshBtn.addEventListener('click', doLoad);
+
+    // show modal and trigger initial load
+    modal.style.display = 'flex';
+    setTimeout(doLoad, 50);
+};
