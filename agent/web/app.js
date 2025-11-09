@@ -3322,7 +3322,14 @@ function loadUnknowns() {
 setInterval(updateMetrics, 2000);
 
 // Connect to SSE for real-time updates (replaces polling)
-const eventSource = new EventSource('/events');
+// If this page is being served through the central server proxy, the server
+// injects a meta tag `X-PrintMaster-Proxied`. In that case we must connect
+// to the server-side SSE endpoint under `/api/events`. Otherwise use the
+// agent-local `/events` endpoint.
+const __isProxied = !!document.querySelector('meta[http-equiv="X-PrintMaster-Proxied"]');
+const __ssePath = __isProxied ? '/api/events' : '/events';
+console.log('[SSE] connecting to', __ssePath, 'proxied=', __isProxied);
+const eventSource = new EventSource(__ssePath);
 
 eventSource.addEventListener('connected', (e) => {
     console.log('SSE connected:', e.data);
