@@ -410,18 +410,21 @@ async function loadServerStatus() {
     try {
         const response = await fetch('/api/version');
         if (!response.ok) {
-            document.getElementById('server_status').innerHTML = 
-                '<span style="color:var(--error);">● Error</span>';
+            const el = document.getElementById('server_status');
+            if (el) el.innerHTML = '<span style="color:var(--error);">● Error</span>';
+            else console.warn('server_status element not found in DOM');
             return;
         }
         
         const data = await response.json();
-        document.getElementById('server_status').innerHTML = 
-            `<span style="color:var(--success);">● Online</span> v${data.version}`;
+        const el = document.getElementById('server_status');
+        if (el) el.innerHTML = `<span style="color:var(--success);">● Online</span> v${data.version}`;
+        else console.warn('server_status element not found in DOM');
     } catch (error) {
         console.error('Failed to load server status:', error);
-        document.getElementById('server_status').innerHTML = 
-            '<span style="color:var(--error);">● Error loading status</span>';
+        const errEl = document.getElementById('server_status');
+        if (errEl) errEl.innerHTML = '<span style="color:var(--error);">● Error loading status</span>';
+        else console.warn('server_status element not found in DOM while handling error');
     }
 }
 
@@ -438,18 +441,27 @@ async function loadAgents() {
         renderAgents(agents);
     } catch (error) {
         console.error('Failed to load agents:', error);
-        document.getElementById('agents_list').innerHTML = 
-            '<div style="color:var(--error);">Failed to load agents: ' + error.message + '</div>';
+        const listEl = document.getElementById('agents_list');
+        if (listEl) {
+            listEl.innerHTML = '<div style="color:var(--error);">Failed to load agents: ' + error.message + '</div>';
+        } else {
+            console.warn('agents_list element not found in DOM while handling loadAgents error');
+        }
     }
 }
 
 function renderAgents(agents) {
     const container = document.getElementById('agents_list');
     const statsContainer = document.getElementById('agents_stats');
-    
+
+    if (!container) {
+        console.warn('renderAgents: agents_list element not found - aborting render');
+        return;
+    }
+
     if (!agents || agents.length === 0) {
         container.innerHTML = '<div style="color:var(--muted);">No agents connected yet</div>';
-        statsContainer.innerHTML = '<div style="color:var(--muted);">Total Agents: 0</div>';
+        if (statsContainer) statsContainer.innerHTML = '<div style="color:var(--muted);">Total Agents: 0</div>';
         return;
     }
     
