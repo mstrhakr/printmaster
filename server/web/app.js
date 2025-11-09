@@ -18,15 +18,72 @@ document.addEventListener('DOMContentLoaded', function () {
     loadAgents();
     
     // Set up periodic refresh for server status only
-    setInterval(loadServerStatus, 30000); // Every 30 seconds
-    
-    // Connect to SSE for real-time updates
+    // Keep the interval ID so we can cancel polling when WebSocket is active
+    window._serverStatusInterval = setInterval(loadServerStatus, 30000); // Every 30 seconds
+
+    // Try WebSocket first for low-latency liveness; fallback to SSE if WS not available
+    connectWS();
+    // Also keep SSE as a fallback
     connectSSE();
 });
+
+// ====== WebSocket Connection (UI liveness channel) ======
+function connectWS() {
+    try {
+        const protocol = (location.protocol === 'https:') ? 'wss' : 'ws';
+        const wsURL = protocol + '://' + location.host + '/api/ws/ui';
+        const socket = new WebSocket(wsURL);
+
+        socket.addEventListener('open', () => {
+            console.log('UI WebSocket connected, disabling /api/version polling');
+            if (window._serverStatusInterval) {
+                clearInterval(window._serverStatusInterval);
+                window._serverStatusInterval = null;
+            }
+        });
+
+        socket.addEventListener('message', (ev) => {
+            try {
+                const msg = JSON.parse(ev.data);
+                // Handle version message specially
+                if (msg.type === 'version') {
+                    // Optionally update version badge in UI
+                    if (msg.data && msg.data.version) {
+                        const verEl = document.getElementById('server_version');
+                        if (verEl) verEl.textContent = msg.data.version;
+                    }
+                }
+                // Additional messages may be forwarded to existing handlers in future
+            } catch (e) {
+                console.warn('Failed to parse WS message', e);
+            }
+        });
+
+        socket.addEventListener('close', (e) => {
+            console.warn('UI WebSocket closed, falling back to polling and SSE', e);
+            // Restart polling if not already running
+            if (!window._serverStatusInterval) {
+                window._serverStatusInterval = setInterval(loadServerStatus, 30000);
+            }
+            // Optionally try to reconnect after a delay
+            setTimeout(connectWS, 5000);
+        });
+
+        socket.addEventListener('error', (e) => {
+            console.error('UI WebSocket error', e);
+            // Let close handler restart fallback
+        });
+    } catch (e) {
+        console.warn('WebSocket not available, continuing with SSE/polling', e);
+    }
+}
 
 // ====== SSE Connection ======
 function connectSSE() {
     const eventSource = new EventSource('/api/events');
+    eventSource.onopen = (e) => {
+        console.log('SSE onopen, readyState=', eventSource.readyState);
+    };
     
     eventSource.addEventListener('connected', (e) => {
         console.log('SSE connected:', e.data);
@@ -95,7 +152,12 @@ function connectSSE() {
     });
     
     eventSource.onerror = (e) => {
-        console.error('SSE connection error:', e);
+        // EventSource provides automatic reconnects, but log useful state
+        try {
+            console.error('SSE connection error:', e, 'readyState=', eventSource.readyState);
+        } catch (ex) {
+            console.error('SSE connection error and failed to read readyState', ex);
+        }
         // EventSource will automatically try to reconnect
     };
 }
@@ -1062,25 +1124,36 @@ async function loadDevices() {
         renderDevices(devices);
     } catch (error) {
         console.error('Failed to load devices:', error);
-        document.getElementById('devices_cards').innerHTML = 
-            '<div style="color:var(--error);">Failed to load devices</div>';
+        const cardsEl = document.getElementById('devices_cards');
+        if (cardsEl) {
+            cardsEl.innerHTML = '<div style="color:var(--error);">Failed to load devices</div>';
+        } else {
+            console.warn('loadDevices: devices_cards element not found in DOM while handling error');
+        }
     }
 }
 
 function renderDevices(devices) {
     const container = document.getElementById('devices_cards');
     const statsContainer = document.getElementById('devices_stats');
-    
-    if (!devices || devices.length === 0) {
-        container.innerHTML = '<div style="color:var(--muted);">No devices found</div>';
-        statsContainer.innerHTML = '<div style="color:var(--muted);">Total Devices: 0</div>';
+
+    if (!container) {
+        console.warn('renderDevices: devices_cards element not found - aborting render');
         return;
     }
-    
+
+    if (!devices || devices.length === 0) {
+        container.innerHTML = '<div style="color:var(--muted);">No devices found</div>';
+        if (statsContainer) statsContainer.innerHTML = '<div style="color:var(--muted);">Total Devices: 0</div>';
+        return;
+    }
+
     // Update stats
-    statsContainer.innerHTML = `
+    if (statsContainer) {
+        statsContainer.innerHTML = `
         <div><strong>Total Devices:</strong> ${devices.length}</div>
     `;
+    }
     
     // Render device cards (simplified for now) with data-serial for targeted updates
     function renderDeviceCard(device) {
@@ -1129,20 +1202,22 @@ function copyToClipboard(text) {
 // ====== Proxy Functions ======
 function openAgentUI(agentId) {
     // Open agent's web UI through WebSocket proxy in a new window
-    const proxyUrl = `/api/v1/proxy/agent/${agentId}/`;
-    window.open(proxyUrl, `agent-ui-${agentId}`, 'width=1200,height=800');
+    // Ensure agentId is URL-encoded to avoid embedding spaces or unsafe chars
+    const proxyUrl = `/api/v1/proxy/agent/${encodeURIComponent(agentId)}/`;
+    window.open(proxyUrl, `agent-ui-${encodeURIComponent(agentId)}`, 'width=1200,height=800');
 }
 
 function openDeviceUI(serialNumber) {
     // Open device's web UI through WebSocket proxy in a new window
-    const proxyUrl = `/api/v1/proxy/device/${serialNumber}/`;
-    window.open(proxyUrl, `device-ui-${serialNumber}`, 'width=1200,height=800');
+    const proxyUrl = `/api/v1/proxy/device/${encodeURIComponent(serialNumber)}/`;
+    window.open(proxyUrl, `device-ui-${encodeURIComponent(serialNumber)}`, 'width=1200,height=800');
 }
 
 // ====== Settings Management ======
 async function loadSettings() {
     try {
-        const response = await fetch('/api/settings');
+        // There's no complex settings endpoint yet; reuse config status as a safe probe
+        const response = await fetch('/api/config/status');
         if (!response.ok) {
             showToast('Failed to load settings', 'error');
             return;
@@ -1161,7 +1236,7 @@ async function saveSettings() {
     try {
         // TODO: Collect settings from form
         const settings = {};
-        
+        // Post to /api/settings if available; server provides a minimal handler
         const response = await fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1192,21 +1267,36 @@ async function loadLogs() {
         renderLogs(logs);
     } catch (error) {
         console.error('Failed to load logs:', error);
-        document.getElementById('logs_content').innerHTML = 
-            '<div style="color:var(--error);">Failed to load logs</div>';
+        const logEl = document.getElementById('log');
+        if (logEl) {
+            logEl.textContent = 'Failed to load logs: ' + error.message;
+        }
     }
 }
 
 function renderLogs(logs) {
-    const container = document.getElementById('logs_content');
-    
-    if (!logs || logs.length === 0) {
-        container.innerHTML = '<div style="color:var(--muted);">No logs available</div>';
+    const container = document.getElementById('log');
+    if (!container) {
+        console.warn('renderLogs: log element not found');
         return;
     }
-    
-    // TODO: Implement log rendering
-    container.innerHTML = '<div style="color:var(--muted);">Logs feature coming soon</div>';
+
+    if (!logs || (Array.isArray(logs) && logs.length === 0)) {
+        container.textContent = 'No logs available';
+        return;
+    }
+
+    // If server returned an object like { logs: [...] }, normalize
+    let lines = logs;
+    if (logs && logs.logs && Array.isArray(logs.logs)) lines = logs.logs;
+
+    if (Array.isArray(lines)) {
+        container.textContent = lines.join('\n');
+    } else if (typeof logs === 'string') {
+        container.textContent = logs;
+    } else {
+        container.textContent = JSON.stringify(logs, null, 2);
+    }
 }
 
 // ====== Modal Handlers ======
