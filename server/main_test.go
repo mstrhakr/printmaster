@@ -768,3 +768,102 @@ func TestAgentsListEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentsListConnectionType(t *testing.T) {
+	// Not parallel due to global wsConnections map
+	server, store := setupTestServer(t)
+	ctx := context.Background()
+
+	// Agent with active WS connection
+	wsAgent := &storage.Agent{
+		AgentID:      "ws-agent",
+		Hostname:     "ws-host",
+		RegisteredAt: time.Now(),
+		LastSeen:     time.Now(),
+		Status:       "active",
+		Token:        "t-ws",
+	}
+	// Agent with recent HTTP heartbeat
+	httpAgent := &storage.Agent{
+		AgentID:      "http-agent",
+		Hostname:     "http-host",
+		RegisteredAt: time.Now(),
+		LastSeen:     time.Now().Add(-30 * time.Second),
+		Status:       "active",
+		Token:        "t-http",
+	}
+	// Agent offline
+	offAgent := &storage.Agent{
+		AgentID:      "off-agent",
+		Hostname:     "off-host",
+		RegisteredAt: time.Now(),
+		LastSeen:     time.Now().Add(-10 * time.Minute),
+		Status:       "offline",
+		Token:        "t-off",
+	}
+
+	if err := store.RegisterAgent(ctx, wsAgent); err != nil {
+		t.Fatalf("failed to register ws agent: %v", err)
+	}
+	if err := store.RegisterAgent(ctx, httpAgent); err != nil {
+		t.Fatalf("failed to register http agent: %v", err)
+	}
+	if err := store.RegisterAgent(ctx, offAgent); err != nil {
+		t.Fatalf("failed to register off agent: %v", err)
+	}
+
+	// Simulate ws connection by inserting key into wsConnections map
+	wsConnectionsLock.Lock()
+	wsConnections["ws-agent"] = nil // presence matters, value may be nil in tests
+	wsConnectionsLock.Unlock()
+
+	resp, err := http.Get(server.URL + "/api/v1/agents/list")
+	if err != nil {
+		t.Fatalf("Failed to fetch agents list: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	var list []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	// Build lookup by agent_id
+	byID := map[string]map[string]interface{}{}
+	for _, obj := range list {
+		if id, ok := obj["agent_id"].(string); ok {
+			byID[id] = obj
+		}
+	}
+
+	// ws-agent should be 'ws'
+	if obj, ok := byID["ws-agent"]; ok {
+		if ct, _ := obj["connection_type"].(string); ct != "ws" {
+			t.Errorf("ws-agent connection_type expected 'ws', got '%s'", ct)
+		}
+	} else {
+		t.Errorf("ws-agent missing from list response")
+	}
+
+	// http-agent should be 'http'
+	if obj, ok := byID["http-agent"]; ok {
+		if ct, _ := obj["connection_type"].(string); ct != "http" {
+			t.Errorf("http-agent connection_type expected 'http', got '%s'", ct)
+		}
+	} else {
+		t.Errorf("http-agent missing from list response")
+	}
+
+	// off-agent should be 'none'
+	if obj, ok := byID["off-agent"]; ok {
+		if ct, _ := obj["connection_type"].(string); ct != "none" {
+			t.Errorf("off-agent connection_type expected 'none', got '%s'", ct)
+		}
+	} else {
+		t.Errorf("off-agent missing from list response")
+	}
+}

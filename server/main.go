@@ -154,6 +154,14 @@ var (
 	sseHub             *SSEHub          // SSE hub for real-time UI updates
 )
 
+// Ensure SSE hub exists by default so handlers can broadcast without nil checks.
+func init() {
+	// If tests or other packages haven't initialized the hub yet, create it now.
+	if sseHub == nil {
+		sseHub = NewSSEHub()
+	}
+}
+
 func main() {
 	// Command line flags
 	configPath := flag.String("config", "config.toml", "Configuration file path")
@@ -316,8 +324,10 @@ func runServer(ctx context.Context) {
 
 	serverLogger.Info("Database initialized successfully")
 
-	// Initialize SSE hub for real-time UI updates
-	sseHub = NewSSEHub()
+	// Initialize SSE hub for real-time UI updates if not already created (tests may have pre-initialized)
+	if sseHub == nil {
+		sseHub = NewSSEHub()
+	}
 	serverLogger.Info("SSE hub initialized")
 
 	// Initialize authentication rate limiter if enabled
@@ -1280,20 +1290,18 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Broadcast agent_registered event to UI via SSE
-	if sseHub != nil {
-		sseHub.Broadcast(SSEEvent{
-			Type: "agent_registered",
-			Data: map[string]interface{}{
-				"agent_id": req.AgentID,
-				"name":     agentName,
-				"hostname": req.Hostname,
-				"ip":       req.IP,
-				"version":  req.AgentVersion,
-				"platform": req.Platform,
-				"status":   "active",
-			},
-		})
-	}
+	sseHub.Broadcast(SSEEvent{
+		Type: "agent_registered",
+		Data: map[string]interface{}{
+			"agent_id": req.AgentID,
+			"name":     agentName,
+			"hostname": req.Hostname,
+			"ip":       req.IP,
+			"version":  req.AgentVersion,
+			"platform": req.Platform,
+			"status":   "active",
+		},
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1340,15 +1348,13 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	logAuditEntry(ctx, agent.AgentID, "heartbeat", fmt.Sprintf("Status: %s", req.Status), clientIP)
 
 	// Broadcast agent_heartbeat event to UI via SSE
-	if sseHub != nil {
-		sseHub.Broadcast(SSEEvent{
-			Type: "agent_heartbeat",
-			Data: map[string]interface{}{
-				"agent_id": agent.AgentID,
-				"status":   req.Status,
-			},
-		})
-	}
+	sseHub.Broadcast(SSEEvent{
+		Type: "agent_heartbeat",
+		Data: map[string]interface{}{
+			"agent_id": agent.AgentID,
+			"status":   req.Status,
+		},
+	})
 
 	if serverLogger != nil {
 		serverLogger.Debug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
@@ -1377,13 +1383,30 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Remove sensitive token from response
+	// Build response objects with a derived connection_type field
+	type agentView struct {
+		*storage.Agent
+		ConnectionType string `json:"connection_type"`
+	}
+
+	var resp []agentView
+	// Determine connection type using live WS map and last_seen recency
+	const httpRecencyThreshold = 90 * time.Second
 	for _, agent := range agents {
 		agent.Token = "" // Don't expose tokens to UI
+
+		connType := "none"
+		if isAgentConnectedWS(agent.AgentID) {
+			connType = "ws"
+		} else if time.Since(agent.LastSeen) <= httpRecencyThreshold {
+			connType = "http"
+		}
+
+		resp = append(resp, agentView{Agent: agent, ConnectionType: connType})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(agents)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // Get agent details by ID - for UI display (no auth required for now)
@@ -1779,19 +1802,17 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		stored++
 
 		// Broadcast device_updated event to UI via SSE
-		if sseHub != nil {
-			sseHub.Broadcast(SSEEvent{
-				Type: "device_updated",
-				Data: map[string]interface{}{
-					"agent_id":     device.AgentID,
-					"serial":       device.Serial,
-					"ip":           device.IP,
-					"manufacturer": device.Manufacturer,
-					"model":        device.Model,
-					"hostname":     device.Hostname,
-				},
-			})
-		}
+		sseHub.Broadcast(SSEEvent{
+			Type: "device_updated",
+			Data: map[string]interface{}{
+				"agent_id":     device.AgentID,
+				"serial":       device.Serial,
+				"ip":           device.IP,
+				"manufacturer": device.Manufacturer,
+				"model":        device.Model,
+				"hostname":     device.Hostname,
+			},
+		})
 	}
 
 	// Get authenticated agent from context

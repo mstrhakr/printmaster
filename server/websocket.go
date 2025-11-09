@@ -238,15 +238,13 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 	}
 
 	// Broadcast agent_connected event to UI via SSE
-	if sseHub != nil {
-		sseHub.Broadcast(SSEEvent{
-			Type: "agent_connected",
-			Data: map[string]interface{}{
-				"agent_id": agent.AgentID,
-				"name":     agent.Name,
-			},
-		})
-	}
+	sseHub.Broadcast(SSEEvent{
+		Type: "agent_connected",
+		Data: map[string]interface{}{
+			"agent_id": agent.AgentID,
+			"name":     agent.Name,
+		},
+	})
 
 	// Handle connection cleanup on exit
 	defer func() {
@@ -258,14 +256,12 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			}
 
 			// Broadcast agent_disconnected event to UI via SSE
-			if sseHub != nil {
-				sseHub.Broadcast(SSEEvent{
-					Type: "agent_disconnected",
-					Data: map[string]interface{}{
-						"agent_id": agent.AgentID,
-					},
-				})
-			}
+			sseHub.Broadcast(SSEEvent{
+				Type: "agent_disconnected",
+				Data: map[string]interface{}{
+					"agent_id": agent.AgentID,
+				},
+			})
 		}
 		wsConnectionsLock.Unlock()
 		conn.Close()
