@@ -134,3 +134,5 @@ coverage/
 *.pem
 certs/
 
+agent/test_db/*
+server/test_db/*

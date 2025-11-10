@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"embed"
@@ -1883,10 +1885,40 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 			bodyBytes, err := base64.StdEncoding.DecodeString(bodyB64)
 			if err == nil {
 				// If this is HTML, inject minimal proxy metadata so the agent bundle
-				// can detect proxied mode and rewrite URLs itself.
+				// can detect proxied mode and rewrite URLs itself. Handle gzip-compressed
+				// responses from agents by decompressing, transforming, and recompressing.
 				contentType := w.Header().Get("Content-Type")
 				if strings.Contains(strings.ToLower(contentType), "text/html") {
-					bodyBytes = injectProxyMetaAndBase(bodyBytes, agentID, targetURL)
+					// Detect gzip by magic bytes
+					if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
+						// Decompress
+						gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
+						if gerr == nil {
+							decompressed, rerr := io.ReadAll(gr)
+							_ = gr.Close()
+							if rerr == nil {
+								// Inject into decompressed HTML
+								transformed := injectProxyMetaAndBase(decompressed, agentID, targetURL)
+								// Recompress
+								var buf bytes.Buffer
+								gw := gzip.NewWriter(&buf)
+								if _, werr := gw.Write(transformed); werr == nil {
+									_ = gw.Close()
+									bodyBytes = buf.Bytes()
+									// Ensure Content-Encoding remains gzip
+									w.Header().Set("Content-Encoding", "gzip")
+									w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bodyBytes)))
+								} else {
+									// If recompress fails, fall back to sending decompressed HTML and remove Content-Encoding
+									_ = gw.Close()
+									w.Header().Del("Content-Encoding")
+									bodyBytes = transformed
+								}
+							}
+						}
+					} else {
+						bodyBytes = injectProxyMetaAndBase(bodyBytes, agentID, targetURL)
+					}
 				}
 				w.Write(bodyBytes)
 			}
@@ -1904,17 +1936,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 // and rewrites absolute occurrences of the agent origin to the proxy base.
 func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byte {
 	bodyStr := string(body)
-	// Inject meta tag after <head> tag
-	headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
-	if headIdx == -1 {
-		return body
-	}
-	insertPos := headIdx + len("<head>")
 	proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
-	metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
-		`<base href="` + proxyBase + `">`
-
-	bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
 
 	// Replace absolute origin occurrences (http(s)://host:port) and protocol-relative //host:port
 	if u, err := url.Parse(targetURL); err == nil {
@@ -1923,6 +1945,32 @@ func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byt
 		protoRel := "//" + u.Host
 		bodyStr = strings.ReplaceAll(bodyStr, protoRel, proxyBase)
 	}
+
+	// Rewrite common root-absolute attributes so they route through the proxy.
+	// Do this before injecting our own <base> so we don't accidentally rewrite the
+	// base href we add (which would cause duplicated proxy prefixes).
+	bodyStr = strings.ReplaceAll(bodyStr, `src="/`, "src=\""+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `src='/`, "src='"+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `href="/`, "href=\""+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `href='/`, "href='"+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `action="/`, "action=\""+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `action='/`, "action='"+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `data-src="/`, "data-src=\""+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `data-src='/`, "data-src='"+proxyBase)
+	// Inline CSS url() patterns
+	bodyStr = strings.ReplaceAll(bodyStr, `url("/`, "url(\""+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, `url('/`, "url('"+proxyBase)
+
+	// Inject meta tag after <head> tag (do this last so injected base won't be rewritten above)
+	headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
+	if headIdx == -1 {
+		return []byte(bodyStr)
+	}
+	insertPos := headIdx + len("<head>")
+	metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
+		`<base href="` + proxyBase + `">`
+
+	bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
 
 	return []byte(bodyStr)
 }
