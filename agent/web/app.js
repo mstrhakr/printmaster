@@ -354,6 +354,61 @@ function showDiscoveringCard(data) {
     }, 30000);
 }
 
+// Render a discovered device card (used by updatePrinters)
+function renderDiscoveredCard(p, isSaved) {
+    const ip = p.ip || p.address || '';
+    const serial = p.serial || '';
+    const make = (p.make || p.manufacturer || '').toString();
+    const model = (p.model || '').toString();
+    const deviceKey = serial || ip || '';
+
+    const savedClass = isSaved ? ' saved' : '';
+
+    // Buttons: Save (if not saved) and Proxy (if serial available)
+    const saveBtn = isSaved ? '<button class="btn small" disabled>Saved</button>' : '<button class="btn primary small" onclick="saveDiscoveredDevice(\'' + ip + '\')">Save</button>';
+    const proxyBtn = serial ? '<button class="btn small" onclick="window.open(\'/proxy/' + encodeURIComponent(serial) + '/\', \_blank\')">Proxy</button>' : '';
+
+    let html = '';
+    html += '<div class="device-card' + savedClass + '" data-device-key="' + deviceKey + '" data-ip="' + ip + '" data-serial="' + serial + '" data-make="' + (make || '') + '" data-model="' + (model || '') + '">';
+    html += '<div class="printer-card-header">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+    html += '<div style="display:flex;flex-direction:column">';
+    html += '<strong>' + (make ? (make + ' ') : '') + (model || '') + '</strong>';
+    html += '<span style="color:var(--muted);font-size:12px">' + ip + '</span>';
+    html += '</div>'; // left
+    html += '<div style="display:flex;gap:8px">' + saveBtn + proxyBtn + '</div>';
+    html += '</div></div>';
+    html += '<div class="printer-card-body">';
+    if (serial) html += '<div><strong>Serial:</strong> <code>' + serial + '</code></div>';
+    html += '</div></div>';
+
+    return html;
+}
+
+// Safe renderer that prefers the shared implementation (from common) when available,
+// falls back to local `renderDiscoveredCard` if present, and otherwise returns a
+// minimal placeholder to avoid ReferenceError in older/partial bundles.
+function safeRenderDiscoveredCard(p, isSaved) {
+    try {
+        if (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderDiscoveredCard === 'function') {
+            return window.__pm_shared_cards.renderDiscoveredCard(p, isSaved);
+        }
+    } catch (e) {}
+
+    try {
+        if (typeof renderDiscoveredCard === 'function') return renderDiscoveredCard(p, isSaved);
+    } catch (e) {}
+
+    // Minimal fallback markup
+    try {
+        const ip = p.ip || p.address || '';
+        const model = (p.model || '').toString();
+        return '<div class="device-card"><div class="printer-card-body"><strong>' + (model || 'Printer') + '</strong><div style="color:var(--muted);font-size:12px">' + ip + '</div></div></div>';
+    } catch (e) {
+        return '<div class="device-card">Unknown device</div>';
+    }
+}
+
 function updatePrinters() {
     // Check if user wants to see known devices in discovered list
     // When checked: shows ALL recently discovered devices (including known/saved ones)
@@ -462,7 +517,16 @@ function updatePrinters() {
             let cardsHTML = '';
             discovered.forEach(p => {
                 const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
-                cardsHTML += renderDiscoveredCard(p, isSaved);
+                if (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderDiscoveredCard === 'function') {
+                    try {
+                        cardsHTML += window.__pm_shared_cards.renderDiscoveredCard(p, isSaved);
+                    } catch (e) {
+                        // fallback to safe renderer
+                        cardsHTML += safeRenderDiscoveredCard(p, isSaved);
+                    }
+                } else {
+                    cardsHTML += safeRenderDiscoveredCard(p, isSaved);
+                }
             });
             discoveredContainer.innerHTML = cardsHTML;
         }
@@ -2902,7 +2966,15 @@ eventSource.addEventListener('device_discovering', (e) => {
     const data = JSON.parse(e.data);
     console.log('Device discovering:', data);
     // Show progressive discovery card
-    showDiscoveringCard(data);
+    if (window.__pm_shared_cards && typeof window.__pm_shared_cards.showDiscoveringCard === 'function') {
+        try {
+            window.__pm_shared_cards.showDiscoveringCard(data);
+        } catch (err) {
+            showDiscoveringCard(data);
+        }
+    } else {
+        showDiscoveringCard(data);
+    }
 });
 
 eventSource.addEventListener('metrics_update', (e) => {

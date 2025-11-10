@@ -67,10 +67,24 @@ func DetectFunc(cfg DetectorConfig) func(ctx context.Context, job ScanJob, openP
 		// 5. Look for serial number in PDUs
 		hasSerial := false
 		for _, pdu := range result.PDUs {
-			// Check if this is a serial number OID
-			// Standard serial: 1.3.6.1.2.1.43.5.1.1.17.1
-			if len(pdu.Value.([]byte)) > 0 {
-				hasSerial = true
+			// Check if this PDU value contains a serial number. The PDU value
+			// may be different types ([]byte, string, nil), so use type-safe
+			// assertions to avoid runtime panics.
+			switch v := pdu.Value.(type) {
+			case []byte:
+				if len(v) > 0 {
+					hasSerial = true
+				}
+			case string:
+				if len(v) > 0 {
+					hasSerial = true
+				}
+			default:
+				// Unknown or nil type - ignore
+			}
+
+			if hasSerial {
+				// break out of the for-loop
 				break
 			}
 		}

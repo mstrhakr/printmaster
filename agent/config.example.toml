@@ -41,7 +41,7 @@ discovery_concurrency = 50
 
 [database]
   # SQLite database path (blank = use default location)
-  path = ""
+  path = "C:\temp\printmaster\agent\test_db\"
 
 [logging]
   # Log level: debug, info, warn, error

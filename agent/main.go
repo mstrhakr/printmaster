@@ -1162,7 +1162,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 		appLogger.Info("Using configured database path", "path", dbPath)
 	} else {
 		// Detect if running as service and use appropriate directory
-	dataDir, dirErr := config.GetDataDirectory("agent", isService)
+		dataDir, dirErr := config.GetDataDirectory("agent", isService)
 		if dirErr != nil {
 			appLogger.Warn("Could not get data directory, using in-memory storage", "error", dirErr)
 			dbPath = ":memory:"
@@ -2206,7 +2206,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 	var uploadWorker *UploadWorker
 	if agentConfig != nil && agentConfig.Server.Enabled {
 		// Get or generate stable agent ID
-	dataDir, err := config.GetDataDirectory("agent", isService)
+		dataDir, err := config.GetDataDirectory("agent", isService)
 		if err != nil {
 			appLogger.Error("Failed to get data directory", "error", err)
 			return
