@@ -98,6 +98,21 @@ function showToast(message, type = 'success', duration = 3000) {
  */
 function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
     return new Promise((resolve) => {
+        // Prevent re-entrancy / recursion: if a confirm modal is already open,
+        // avoid opening another one. This guards against accidental re-binding
+        // or nested calls that caused "too much recursion" in some pages.
+        if (window.__pm_confirm_open) {
+            // Fallback: use browser confirm as a safe synchronous fallback
+            try {
+                resolve(window.confirm(message));
+            } catch (e) {
+                resolve(false);
+            }
+            return;
+        }
+
+        window.__pm_confirm_open = true;
+
         const modal = document.getElementById('confirm_modal');
         const titleEl = document.getElementById('confirm_modal_title');
         const messageEl = document.getElementById('confirm_modal_message');
@@ -142,6 +157,8 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
             cancelBtn.removeEventListener('click', onCancel);
             if (closeX) closeX.removeEventListener('click', onCancel);
             modal.removeEventListener('click', onBackdropClick);
+            // Clear guard
+            window.__pm_confirm_open = false;
         };
         
         // Backdrop click closes modal
@@ -416,58 +433,82 @@ window.showMetricsModal = async function (opts = {}) {
         return res.json();
     });
 
-    // Create modal container if missing
-    let modal = document.getElementById('metrics_modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'metrics_modal';
-        modal.className = 'modal';
-        modal.style.display = 'none';
-        modal.innerHTML = `
-            <div class="modal-content" style="max-width:900px;">
-                <div class="modal-header">
-                    <span class="modal-title" id="metrics_modal_title">Metrics</span>
-                    <span class="modal-close" id="metrics_modal_close_x">&times;</span>
-                </div>
-                <div class="modal-body" id="metrics_modal_body" style="max-height:60vh;overflow:auto;padding:16px;">
-                    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
-                        <input type="text" id="metrics_datetime_range" placeholder="Select date range..." readonly style="width:300px;padding:8px;border-radius:4px;background:var(--panel);" />
-                        <button id="metrics_refresh_btn">Refresh</button>
+    // If the richer metrics UI is available (shared metrics bundle), prefer it
+    if (typeof window.loadDeviceMetrics === 'function' || (window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadDeviceMetrics === 'function')) {
+        // Create a modal container that the shared metrics loader understands
+        let modal = document.getElementById('metrics_modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'metrics_modal';
+            modal.className = 'modal';
+            modal.style.display = 'none';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:900px;">
+                    <div class="modal-header">
+                        <span class="modal-title" id="metrics_modal_title">Metrics</span>
+                        <span class="modal-close" id="metrics_modal_close_x">&times;</span>
                     </div>
-                    <div id="metrics_modal_content" style="font-size:13px;color:var(--muted)">Loading...</div>
+                    <div class="modal-body" id="metrics_modal_body" style="max-height:60vh;overflow:auto;padding:16px;">
+                        <div id="metrics_modal_content" style="font-size:13px;color:var(--muted)">Loading...</div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="modal-button modal-button-secondary" id="metrics_modal_close">Close</button>
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <button class="modal-button modal-button-secondary" id="metrics_modal_close">Close</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(modal);
+            `;
+            document.body.appendChild(modal);
 
-        // close handlers
-        modal.querySelector('#metrics_modal_close_x').addEventListener('click', () => modal.style.display = 'none');
-        modal.querySelector('#metrics_modal_close').addEventListener('click', () => modal.style.display = 'none');
-        modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+            // close handlers
+            modal.querySelector('#metrics_modal_close_x').addEventListener('click', () => modal.style.display = 'none');
+            modal.querySelector('#metrics_modal_close').addEventListener('click', () => modal.style.display = 'none');
+            modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+        }
+
+        const titleEl = document.getElementById('metrics_modal_title');
+        const contentEl = document.getElementById('metrics_modal_content');
+        titleEl.textContent = serial ? `Metrics: ${serial}` : 'Metrics';
+        contentEl.innerHTML = '<div style="color:var(--muted);">Loading metrics...</div>';
+
+        // Show modal then delegate rendering to the shared metrics loader
+        modal.style.display = 'flex';
+        try {
+            // Prefer the explicit exported shared implementation if present
+            const loader = (window.__pm_shared_metrics && window.__pm_shared_metrics.loadDeviceMetrics) ? window.__pm_shared_metrics.loadDeviceMetrics : window.loadDeviceMetrics;
+            // Call loader to render the full metrics UI into the modal content
+            // Use a short timeout so the modal becomes visible before heavy work
+            setTimeout(() => {
+                try { loader(serial, 'metrics_modal_content'); } catch (e) { console.warn('metrics loader failed', e); }
+            }, 60);
+        } catch (e) {
+            console.warn('Failed to invoke shared metrics loader', e);
+        }
+
+        return; // done
     }
-
-    const titleEl = document.getElementById('metrics_modal_title');
-    const contentEl = document.getElementById('metrics_modal_content');
-    const rangeInput = document.getElementById('metrics_datetime_range');
-    const refreshBtn = document.getElementById('metrics_refresh_btn');
-
-    titleEl.textContent = serial ? `Metrics: ${serial}` : 'Metrics';
-    contentEl.innerHTML = '<div style="color:var(--muted);">Loading metrics...</div>';
 
     // Initialize flatpickr on range input if available
     try {
         if (typeof flatpickr === 'function') {
             // If already initialized, destroy first (safety)
             if (rangeInput._flatpickr) rangeInput._flatpickr.destroy();
-            flatpickr(rangeInput, {
+            const fpInstance = flatpickr(rangeInput, {
                 mode: 'range',
                 enableTime: true,
                 dateFormat: 'Y-m-d H:i',
                 defaultDate: [new Date(Date.now() - 7 * 24 * 3600 * 1000), new Date()],
             });
+            // Expose a lightweight handle for callers that expect a global reference
+            window.metricsDataRange = window.metricsDataRange || { min: null, max: null, serial: serial, flatpickr: null };
+            try { window.metricsDataRange.flatpickr = fpInstance; } catch (e) { /* ignore */ }
+
+            // Honor preset option (e.g., '7day') by setting a sensible selection
+            if (opts && opts.preset === '7day') {
+                try {
+                    const maxTime = new Date();
+                    const start = new Date(maxTime.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    if (typeof fpInstance.setDate === 'function') fpInstance.setDate([start, maxTime], true);
+                } catch (e) { /* ignore preset failure */ }
+            }
         }
     } catch (e) {
         console.warn('flatpickr init failed in shared metrics modal', e);
