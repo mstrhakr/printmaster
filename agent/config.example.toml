@@ -19,13 +19,13 @@ discovery_concurrency = 50
 
 [server]
   # Enable server upload mode (set to true when using with PrintMaster Server)
-  enabled = false
+  enabled = true
   
   # PrintMaster Server URL (e.g., "http://printmaster.example.com:9090")
-  url = ""
+  url = "https://localhost:9443"
   
   # Unique agent identifier (auto-generated if blank)
-  agent_id = ""
+  agent_name = "Debug Test Agent"
   
   # Path to server CA certificate (optional, for self-signed certs)
   ca_path = ""

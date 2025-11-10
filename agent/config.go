@@ -148,8 +148,8 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 		}
 	}
 
-	// Apply common environment variable overrides
-	config.ApplyDatabaseEnvOverrides(&cfg.Database)
+	// Apply common environment variable overrides (component-specific prefixed env var supported)
+	config.ApplyDatabaseEnvOverrides(&cfg.Database, "AGENT")
 	config.ApplyLoggingEnvOverrides(&cfg.Logging)
 
 	return cfg, nil

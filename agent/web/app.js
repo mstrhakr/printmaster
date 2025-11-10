@@ -1,3 +1,147 @@
+// Agent-side proxy shim: when the page is proxied by the server this will
+// detect the injected proxy base and rewrite fetch / XHR / EventSource / WebSocket
+// calls so absolute-path requests reach the agent via the server proxy. This
+// is intentionally conservative and non-destructive (swallows errors).
+(function(){
+    try {
+        // Detect proxy meta or base injected by server proxy
+        var meta = (typeof document !== 'undefined') && document.querySelector && document.querySelector('meta[http-equiv="X-PrintMaster-Proxied"]');
+        var proxyBase = null;
+        if (meta) {
+            var baseEl = document.querySelector('base');
+            if (baseEl && baseEl.getAttribute) proxyBase = baseEl.getAttribute('href');
+        }
+        if (!proxyBase && typeof window !== 'undefined' && window.__pm_proxyBase) {
+            proxyBase = window.__pm_proxyBase;
+        }
+        if (!proxyBase) return; // not proxied
+
+        var prefixes = [
+            '/api/', '/devices', '/settings', '/logs', '/mib_walk', '/parse_debug',
+            '/unknown_manufacturers', '/database', '/scan_metrics', '/device', '/api/devices',
+            '/events', '/ws', '/devices/list', '/usage'
+        ];
+
+        function shouldRewrite(url) {
+            try {
+                if (typeof url !== 'string') return false;
+                var path = url;
+                if (path.indexOf('//') === 0) path = location.protocol + path;
+                if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) {
+                    try { var parsed = new URL(path); if (parsed.origin !== location.origin) return false; path = parsed.pathname + (parsed.search || ''); } catch(e) { return false; }
+                }
+                if (path.indexOf('/') !== 0) return false;
+                for (var i = 0; i < prefixes.length; i++) if (path.indexOf(prefixes[i]) === 0) return true;
+            } catch (e) {}
+            return false;
+        }
+
+        try { console.debug('[pm-agent-shim] active, base=', proxyBase); } catch(e){}
+
+        // FETCH override supporting Request/URL
+        var _fetch = window.fetch;
+        if (_fetch) {
+            window.fetch = function(input, init){
+                    try {
+                        var urlStr = null;
+                        if (input instanceof Request) urlStr = input.url;
+                        else if (input instanceof URL) urlStr = input.toString();
+                        else if (typeof input === 'string') urlStr = input;
+
+                        if (urlStr && shouldRewrite(urlStr)) {
+                            var orig = urlStr;
+                            var p = urlStr;
+                            if (p.indexOf('//') === 0) p = location.protocol + p;
+                            if (p.indexOf('http://') === 0 || p.indexOf('https://') === 0) {
+                                try { p = new URL(p).pathname + (new URL(p).search || ''); } catch(e) {}
+                            }
+                            var newUrl = proxyBase + (p.indexOf('/') === 0 ? p.substring(1) : p);
+                            try { console.debug('[pm-agent-shim] fetch rewrite', { original: orig, rewritten: newUrl }); } catch(e){}
+                            if (input instanceof Request) input = new Request(newUrl, input);
+                            else input = newUrl;
+                        }
+                    } catch (e) {}
+                    return _fetch.call(this, input, init);
+                };
+        }
+
+        // XHR
+        try {
+            var _open = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                try {
+                    var u = url;
+                    if (typeof u === 'string') {
+                        if (shouldRewrite(u)) {
+                            var orig = u;
+                            if (u.indexOf('http://') === 0 || u.indexOf('https://') === 0) {
+                                try { u = new URL(u).pathname + (new URL(u).search || ''); } catch(e) {}
+                            }
+                            var rewritten = proxyBase + (u.indexOf('/') === 0 ? u.substring(1) : u);
+                            try { console.debug('[pm-agent-shim] xhr.open rewrite', { method: method, original: orig, rewritten: rewritten }); } catch(e){}
+                            arguments[1] = rewritten;
+                        }
+                    }
+                } catch(e){}
+                return _open.apply(this, arguments);
+            };
+        } catch(e) {}
+
+        // EventSource (SSE)
+        if (window.EventSource) {
+            try {
+                var _ES = window.EventSource;
+                window.EventSource = function(url, opts){
+                    try {
+                        if (typeof url === 'string' && shouldRewrite(url)) {
+                            var orig = url;
+                            var tmp = url;
+                            if (tmp.indexOf('//') === 0) tmp = location.protocol + tmp;
+                            if (tmp.indexOf('http://') === 0 || tmp.indexOf('https://') === 0) {
+                                try { tmp = new URL(tmp).pathname + (new URL(tmp).search || ''); } catch(e) {}
+                            }
+                            var rewritten = proxyBase + (tmp.indexOf('/') === 0 ? tmp.substring(1) : tmp);
+                            try { console.debug('[pm-agent-shim] EventSource rewrite', { original: orig, rewritten: rewritten }); } catch(e){}
+                            url = rewritten;
+                        }
+                    } catch(e){}
+                    return new _ES(url, opts);
+                };
+                window.EventSource.prototype = _ES.prototype;
+            } catch(e){}
+        }
+
+        // WebSocket
+        if (window.WebSocket) {
+            try {
+                var _WS = window.WebSocket;
+                window.WebSocket = function(url, protocols){
+                    try {
+                        var tmp = url;
+                        if (typeof tmp === 'string') {
+                            if (tmp.indexOf('//') === 0) tmp = location.protocol + tmp;
+                            if (tmp.indexOf('http://') === 0 || tmp.indexOf('https://') === 0) {
+                                try { var parsed = new URL(tmp); if (parsed.origin === location.origin) tmp = parsed.pathname + (parsed.search || ''); } catch(e) {}
+                            }
+                            if (typeof tmp === 'string' && tmp.indexOf('/') === 0 && shouldRewrite(tmp)) {
+                                var orig = url;
+                                var scheme = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+                                var wsPath = proxyBase + tmp.substring(1);
+                                var rewritten = scheme + '//' + location.host + wsPath;
+                                try { console.debug('[pm-agent-shim] WebSocket rewrite', { original: orig, rewritten: rewritten }); } catch(e){}
+                                url = rewritten;
+                            }
+                        }
+                    } catch(e){}
+                    return new _WS(url, protocols);
+                };
+                window.WebSocket.prototype = _WS.prototype;
+            } catch(e){}
+        }
+
+    } catch(e) {}
+})();
+
 // Global settings state
 let globalSettings = {
     security: {
@@ -6,26 +150,37 @@ let globalSettings = {
 };
 
 // Toast notification system (delegates to shared implementation)
+// Save a reference to any shared implementation (loaded earlier via /static/shared.js)
+const __pm_shared_showToast = (typeof window !== 'undefined' && typeof window.showToast === 'function') ? window.showToast : null;
 function showToast(message, type = 'success', duration = 3000) {
-    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
-        try { return window.showToast(message, type, duration); } catch (e) { console.warn('shared.showToast failed', e); }
+    // If a shared implementation exists and it's not this function, delegate to it.
+    try {
+        if (typeof __pm_shared_showToast === 'function' && __pm_shared_showToast !== showToast) {
+            return __pm_shared_showToast(message, type, duration);
+        }
+    } catch (e) {
+        console.warn('shared.showToast failed', e);
     }
+
+    // Fallback to simple alert if no shared toast available
     try { alert(message); } catch (e) { /* noop */ }
 }
 
 // Confirmation modal system (delegates to shared implementation)
+// Save reference to shared confirm if present to avoid recursion
+const __pm_shared_showConfirm = (typeof window !== 'undefined' && typeof window.showConfirm === 'function') ? window.showConfirm : null;
 function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
     // Prefer shared implementation which may return a Promise<boolean>
-    if (typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
-        try {
-            const res = window.showConfirm(message, title, isDangerous);
-            // If the shared implementation returns a promise, return it. Otherwise wrap in a Promise.
+    try {
+        if (typeof __pm_shared_showConfirm === 'function' && __pm_shared_showConfirm !== showConfirm) {
+            const res = __pm_shared_showConfirm(message, title, isDangerous);
             if (res && typeof res.then === 'function') return res;
             return Promise.resolve(!!res);
-        } catch (e) {
-            console.warn('shared.showConfirm failed', e);
         }
+    } catch (e) {
+        console.warn('shared.showConfirm failed', e);
     }
+
     // Fallback to native confirm (synchronous) and return a Promise for compatibility
     try {
         return Promise.resolve(confirm(message));

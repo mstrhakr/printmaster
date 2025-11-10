@@ -41,7 +41,9 @@ func (p *program) run() {
 	}
 
 	// Call runInteractive with context for graceful shutdown
-	runInteractive(p.ctx)
+	// Service mode doesn't provide a config path, pass empty string so
+	// runInteractive will fall back to default config discovery.
+	runInteractive(p.ctx, "")
 
 	if p.svcLogger != nil {
 		p.svcLogger.Info("PrintMaster Agent service stopping")

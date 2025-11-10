@@ -608,7 +608,7 @@ func main() {
 	}
 
 	// Running interactively, start normally (no context means run forever)
-	runInteractive(context.Background())
+	runInteractive(context.Background(), *configPath)
 }
 
 // handleServiceCommand processes service install/uninstall/start/stop commands
@@ -1001,7 +1001,7 @@ func runAsService() {
 }
 
 // runInteractive starts the agent in foreground mode (normal operation)
-func runInteractive(ctx context.Context) {
+func runInteractive(ctx context.Context, configFlag string) {
 	// Initialize SSE hub for real-time UI updates
 	sseHub = NewSSEHub()
 
@@ -1079,8 +1079,29 @@ func runInteractive(ctx context.Context) {
 		}
 	}
 
+	// Resolve config path using shared helper which checks AGENT_CONFIG/AGENT_CONFIG_PATH,
+	// generic CONFIG/CONFIG_PATH, then the provided flag value.
 	configLoaded := false
+	resolved := config.ResolveConfigPath("AGENT", configFlag)
+	if resolved != "" {
+		if _, statErr := os.Stat(resolved); statErr == nil {
+			if cfg, err := LoadAgentConfig(resolved); err == nil {
+				agentConfig = cfg
+				appLogger.Info("Loaded configuration", "path", resolved)
+				configLoaded = true
+			} else {
+				appLogger.Warn("Config path set but failed to parse", "path", resolved, "error", err)
+			}
+		} else {
+			appLogger.Warn("Config path set but file not found", "path", resolved)
+		}
+	}
+
+	// If not loaded via env/flag, fall back to default search paths
 	for _, cfgPath := range configPaths {
+		if configLoaded {
+			break
+		}
 		if cfg, err := LoadAgentConfig(cfgPath); err == nil {
 			agentConfig = cfg
 			appLogger.Info("Loaded configuration", "path", cfgPath)
