@@ -119,6 +119,100 @@
     window.__pm_shared_cards.checkDatabaseRotationWarning = checkDatabaseRotationWarning;
     window.__pm_shared_cards.renderCapabilities = renderCapabilities;
 
+    // Render a discovered device card (shared implementation)
+    function renderDiscoveredCard(p, isSaved) {
+        const ip = p.ip || p.address || '';
+        const serial = p.serial || '';
+        const make = (p.make || p.manufacturer || '').toString();
+        const model = (p.model || '').toString();
+        const deviceKey = serial || ip || '';
+
+        const savedClass = isSaved ? ' saved' : '';
+
+        const saveBtn = isSaved ? '<button class="btn small" disabled>Saved</button>' : '<button class="btn primary small" onclick="saveDiscoveredDevice(\'' + ip + '\')">Save</button>';
+        const proxyBtn = serial ? '<button class="btn small" onclick="window.open(\'/proxy/' + encodeURIComponent(serial) + '/\', \_blank\')">Proxy</button>' : '';
+
+        let html = '';
+        html += '<div class="device-card' + savedClass + '" data-device-key="' + deviceKey + '" data-ip="' + ip + '" data-serial="' + serial + '" data-make="' + (make || '') + '" data-model="' + (model || '') + '">';
+        html += '<div class="printer-card-header">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center">';
+        html += '<div style="display:flex;flex-direction:column">';
+        html += '<strong>' + (make ? (make + ' ') : '') + (model || '') + '</strong>';
+        html += '<span style="color:var(--muted);font-size:12px">' + ip + '</span>';
+        html += '</div>'; // left
+        html += '<div style="display:flex;gap:8px">' + saveBtn + proxyBtn + '</div>';
+        html += '</div></div>';
+        html += '<div class="printer-card-body">';
+        if (serial) html += '<div><strong>Serial:</strong> <code>' + serial + '</code></div>';
+        html += '</div></div>';
+
+        return html;
+    }
+
+    // Show a progressive discovery card while information is being gathered
+    function showDiscoveringCard(data) {
+        try {
+            const discoveredContainer = document.getElementById('discovered_devices_cards');
+            if (!discoveredContainer) return;
+
+            const ip = data.ip || 'Unknown IP';
+            const serial = data.serial || '';
+            const method = data.method || '';
+            const status = data.status || 'discovering';
+
+            const cardId = 'discovering-' + ip.replace(/\./g, '-');
+            let card = document.getElementById(cardId);
+
+            if (!card) {
+                card = document.createElement('div');
+                card.id = cardId;
+                card.className = 'printer-card discovering';
+                card.style.opacity = '0.7';
+                card.style.border = '2px dashed var(--accent)';
+                discoveredContainer.insertBefore(card, discoveredContainer.firstChild);
+            }
+
+            let cardHtml = '<div class="printer-card-header" style="border-bottom:1px solid var(--border)">';
+            cardHtml += '<div style="display:flex;justify-content:space-between;align-items:center">';
+            cardHtml += '<div style="display:flex;align-items:center;gap:8px">';
+            cardHtml += '<span class="spinner" style="display:inline-block"></span>';
+            cardHtml += '<span style="color:var(--accent);font-weight:500">Discovering...</span>';
+            cardHtml += '</div>';
+            cardHtml += '<span style="color:var(--muted);font-size:12px">' + method + '</span>';
+            cardHtml += '</div></div>';
+
+            cardHtml += '<div class="printer-card-body">';
+            cardHtml += '<div style="margin-bottom:8px"><strong>IP:</strong> <code>' + ip + '</code></div>';
+
+            if (serial) {
+                cardHtml += '<div style="margin-bottom:8px"><strong>Serial:</strong> <code>' + serial + '</code></div>';
+                if (status === 'gathering_details') {
+                    cardHtml += '<div style="color:var(--muted);font-size:12px">🔍 Gathering manufacturer, model, and details...</div>';
+                }
+            } else {
+                cardHtml += '<div style="color:var(--muted);font-size:12px">🔍 Getting serial number...</div>';
+            }
+
+            cardHtml += '</div>';
+            card.innerHTML = cardHtml;
+
+            setTimeout(() => {
+                const existingCard = document.getElementById(cardId);
+                if (existingCard) existingCard.remove();
+            }, 30000);
+        } catch (e) {
+            console.warn('shared.showDiscoveringCard failed', e);
+        }
+    }
+
+    // Export shared discovered-card functions
+    window.__pm_shared_cards.renderDiscoveredCard = renderDiscoveredCard;
+    window.__pm_shared_cards.showDiscoveringCard = showDiscoveringCard;
+
+    // Backwards-compatible globals if consumers expect them
+    if (typeof window.renderDiscoveredCard !== 'function') window.renderDiscoveredCard = renderDiscoveredCard;
+    if (typeof window.showDiscoveringCard !== 'function') window.showDiscoveringCard = showDiscoveringCard;
+
     // Backwards-compatible globals if consumers expect them
     if (typeof window.renderSavedCard !== 'function') window.renderSavedCard = renderSavedCard;
     if (typeof window.checkDatabaseRotationWarning !== 'function') window.checkDatabaseRotationWarning = checkDatabaseRotationWarning;

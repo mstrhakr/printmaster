@@ -2,6 +2,7 @@ package ws
 
 import (
 	"crypto/tls"
+	"errors"
 	"net/http"
 	"time"
 
@@ -37,12 +38,18 @@ func UpgradeHTTP(w http.ResponseWriter, r *http.Request) (*Conn, error) {
 
 // ReadMessage reads a text message and returns the raw bytes.
 func (cw *Conn) ReadMessage() ([]byte, error) {
+	if cw == nil || cw.c == nil {
+		return nil, errors.New("websocket: connection is closed")
+	}
 	_, msg, err := cw.c.ReadMessage()
 	return msg, err
 }
 
 // WriteMessage writes a ws Message as JSON with a write deadline.
 func (cw *Conn) WriteMessage(msg *Message, timeout time.Duration) error {
+	if cw == nil || cw.c == nil {
+		return errors.New("websocket: connection is closed")
+	}
 	if timeout > 0 {
 		cw.c.SetWriteDeadline(time.Now().Add(timeout))
 	}
@@ -51,6 +58,9 @@ func (cw *Conn) WriteMessage(msg *Message, timeout time.Duration) error {
 
 // WriteRaw writes raw bytes as a text message.
 func (cw *Conn) WriteRaw(b []byte, timeout time.Duration) error {
+	if cw == nil || cw.c == nil {
+		return errors.New("websocket: connection is closed")
+	}
 	if timeout > 0 {
 		cw.c.SetWriteDeadline(time.Now().Add(timeout))
 	}
@@ -59,11 +69,17 @@ func (cw *Conn) WriteRaw(b []byte, timeout time.Duration) error {
 
 // SetWriteDeadline sets write deadline on underlying conn.
 func (cw *Conn) SetWriteDeadline(t time.Time) error {
+	if cw == nil || cw.c == nil {
+		return errors.New("websocket: connection is closed")
+	}
 	return cw.c.SetWriteDeadline(t)
 }
 
 // WritePing sends a ping control message.
 func (cw *Conn) WritePing(timeout time.Duration) error {
+	if cw == nil || cw.c == nil {
+		return errors.New("websocket: connection is closed")
+	}
 	if timeout > 0 {
 		cw.c.SetWriteDeadline(time.Now().Add(timeout))
 	}
@@ -72,16 +88,25 @@ func (cw *Conn) WritePing(timeout time.Duration) error {
 
 // Close closes the underlying websocket connection.
 func (cw *Conn) Close() error {
+	if cw == nil || cw.c == nil {
+		return nil
+	}
 	return cw.c.Close()
 }
 
 // SetReadDeadline sets read deadline on underlying conn.
 func (cw *Conn) SetReadDeadline(t time.Time) error {
+	if cw == nil || cw.c == nil {
+		return errors.New("websocket: connection is closed")
+	}
 	return cw.c.SetReadDeadline(t)
 }
 
 // SetPongHandler sets the pong handler.
 func (cw *Conn) SetPongHandler(h func(string) error) {
+	if cw == nil || cw.c == nil {
+		return
+	}
 	cw.c.SetPongHandler(h)
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -166,6 +167,30 @@ func LoadTOML(configPath string, config interface{}) error {
 	}
 
 	if _, err := toml.DecodeFile(configPath, config); err != nil {
+		// If the TOML decoder failed due to invalid escape sequences (common when
+		// Windows paths are placed in double-quoted TOML strings like
+		// path = "C:\\path\to\db"), attempt a targeted fallback: read the
+		// file and convert path assignments that contain backslashes into
+		// single-quoted literal strings (TOML single quotes are literal and do
+		// not process escape sequences). This keeps the change minimal and
+		// localized to path assignments.
+		if strings.Contains(err.Error(), "invalid escape") || strings.Contains(err.Error(), "invalid escape in string") {
+			data, rerr := os.ReadFile(configPath)
+			if rerr != nil {
+				return fmt.Errorf("failed to parse config file: %w", err)
+			}
+			content := string(data)
+
+			// Replace lines like: path = "C:\..."  -> path = 'C:\...'
+			re := regexp.MustCompile(`(?m)^\s*path\s*=\s*"([^"\\]*\\[^\"]*)"`)
+			transformed := re.ReplaceAllString(content, "path = '$1'")
+
+			// Try decoding the transformed content
+			if _, derr := toml.Decode(transformed, config); derr == nil {
+				return nil
+			}
+			// Fall through to return original error if retry failed
+		}
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
