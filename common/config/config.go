@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -184,10 +185,74 @@ type LoggingConfig struct {
 }
 
 // ApplyEnvOverrides applies common environment variable overrides
-func ApplyDatabaseEnvOverrides(cfg *DatabaseConfig) {
+// ApplyDatabaseEnvOverrides applies database path overrides from environment.
+// It supports a component-specific override via <PREFIX>_DB_PATH (e.g. SERVER_DB_PATH,
+// AGENT_DB_PATH). If that is not set, it falls back to the generic DB_PATH.
+func ApplyDatabaseEnvOverrides(cfg *DatabaseConfig, prefix string) {
+	// Check component-specific env var first
+	if prefix != "" {
+		key := strings.ToUpper(prefix) + "_DB_PATH"
+		if val := os.Getenv(key); val != "" {
+			cfg.Path = val
+			return
+		}
+	}
+
+	// Fallback to generic DB_PATH
 	if val := os.Getenv("DB_PATH"); val != "" {
 		cfg.Path = val
 	}
+}
+
+// ResolveConfigPath returns a configuration file path by checking environment
+// variables with an optional component prefix, then falling back to the
+// provided flagValue. Order of precedence:
+// 1. <PREFIX>_CONFIG
+// 2. <PREFIX>_CONFIG_PATH
+// 3. CONFIG
+// 4. CONFIG_PATH
+// 5. flagValue (if non-empty)
+// Returns empty string if none set.
+func ResolveConfigPath(prefix string, flagValue string) string {
+	// 1/2: component-specific
+	if prefix != "" {
+		key := strings.ToUpper(prefix) + "_CONFIG"
+		if val := os.Getenv(key); val != "" {
+			return val
+		}
+		key2 := strings.ToUpper(prefix) + "_CONFIG_PATH"
+		if val := os.Getenv(key2); val != "" {
+			return val
+		}
+	}
+
+	// 3/4: generic
+	if val := os.Getenv("CONFIG"); val != "" {
+		return val
+	}
+	if val := os.Getenv("CONFIG_PATH"); val != "" {
+		return val
+	}
+
+	// 5: CLI flag
+	if flagValue != "" {
+		return flagValue
+	}
+
+	return ""
+}
+
+// GetEnvPrefixed returns the value of an environment variable by checking
+// the prefixed form first (<PREFIX>_<KEY>) and then falling back to the
+// unprefixed KEY. Keys are upper-cased when combined with the prefix.
+func GetEnvPrefixed(prefix, key string) string {
+	if prefix != "" {
+		full := strings.ToUpper(prefix) + "_" + strings.ToUpper(key)
+		if val := os.Getenv(full); val != "" {
+			return val
+		}
+	}
+	return os.Getenv(strings.ToUpper(key))
 }
 
 func ApplyLoggingEnvOverrides(cfg *LoggingConfig) {

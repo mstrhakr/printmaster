@@ -185,3 +185,84 @@ func TestLoadTOML(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveConfigPath_PrefixEnv(t *testing.T) {
+	t.Parallel()
+	os.Setenv("AGENT_CONFIG", "C:\\tmp\\agent_config.toml")
+	defer os.Unsetenv("AGENT_CONFIG")
+
+	got := ResolveConfigPath("AGENT", "")
+	if got != "C:\\tmp\\agent_config.toml" {
+		t.Fatalf("expected AGENT_CONFIG to be returned, got %q", got)
+	}
+}
+
+func TestResolveConfigPath_PrefixEnvPath(t *testing.T) {
+	t.Parallel()
+	os.Setenv("SERVER_CONFIG_PATH", "/etc/printmaster/server.toml")
+	defer os.Unsetenv("SERVER_CONFIG_PATH")
+
+	got := ResolveConfigPath("SERVER", "")
+	if got != "/etc/printmaster/server.toml" {
+		t.Fatalf("expected SERVER_CONFIG_PATH to be returned, got %q", got)
+	}
+}
+
+func TestResolveConfigPath_FlagFallback(t *testing.T) {
+	t.Parallel()
+	// Ensure env vars are not set
+	os.Unsetenv("AGENT_CONFIG")
+	os.Unsetenv("AGENT_CONFIG_PATH")
+	os.Unsetenv("CONFIG")
+	os.Unsetenv("CONFIG_PATH")
+
+	flagVal := filepath.Join("/tmp", "fromflag.toml")
+	got := ResolveConfigPath("AGENT", flagVal)
+	if got != flagVal {
+		t.Fatalf("expected flag value to be returned, got %q", got)
+	}
+}
+
+func TestGetEnvPrefixed_Fallback(t *testing.T) {
+	t.Parallel()
+	os.Setenv("DB_PATH", "/var/lib/printmaster/db.sqlite")
+	defer os.Unsetenv("DB_PATH")
+
+	// No prefix set - should return generic
+	if got := GetEnvPrefixed("", "DB_PATH"); got != "/var/lib/printmaster/db.sqlite" {
+		t.Fatalf("expected generic DB_PATH, got %q", got)
+	}
+
+	// With prefix set
+	os.Setenv("SERVER_DB_PATH", "/srv/printmaster/server.db")
+	defer os.Unsetenv("SERVER_DB_PATH")
+	if got := GetEnvPrefixed("SERVER", "DB_PATH"); got != "/srv/printmaster/server.db" {
+		t.Fatalf("expected SERVER_DB_PATH to be returned, got %q", got)
+	}
+}
+
+func TestApplyDatabaseEnvOverrides_PrefixAndFallback(t *testing.T) {
+	t.Parallel()
+	// Prepare config
+	cfg := &DatabaseConfig{Path: ""}
+
+	// Set AGENT_DB_PATH
+	os.Setenv("AGENT_DB_PATH", "/data/agent/agent.db")
+	defer os.Unsetenv("AGENT_DB_PATH")
+
+	ApplyDatabaseEnvOverrides(cfg, "AGENT")
+	if cfg.Path != "/data/agent/agent.db" {
+		t.Fatalf("expected AGENT_DB_PATH to be used, got %q", cfg.Path)
+	}
+
+	// Clear and test fallback to DB_PATH
+	cfg.Path = ""
+	os.Unsetenv("AGENT_DB_PATH")
+	os.Setenv("DB_PATH", "/data/all/db.sqlite")
+	defer os.Unsetenv("DB_PATH")
+
+	ApplyDatabaseEnvOverrides(cfg, "AGENT")
+	if cfg.Path != "/data/all/db.sqlite" {
+		t.Fatalf("expected DB_PATH fallback to be used, got %q", cfg.Path)
+	}
+}
