@@ -114,7 +114,7 @@ func (ws *WSClient) Stop() error {
 			InfoCtx("Closed WebSocket connection object")
 		}
 		ws.conn = nil
-        
+
 	}
 
 	ws.connected = false

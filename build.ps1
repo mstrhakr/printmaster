@@ -159,34 +159,44 @@ function Invoke-Linters {
     Push-Location $componentDir
     
     try {
-        # Run go vet
+        # Run go vet (capture output so we can log it in full)
         Write-BuildLog "Running go vet..." "INFO"
-        & go vet ./...
-        if ($LASTEXITCODE -ne 0) {
+        $vetOutput = & go vet ./... 2>&1
+        $vetExit = $LASTEXITCODE
+        if ($vetOutput) {
+            # Write each line of vet output into the build log (INFO level)
+            $vetOutput | ForEach-Object { Write-BuildLog $_ "INFO" }
+        }
+        if ($vetExit -ne 0) {
             $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
-            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} $Component failed go vet checks"
+            Write-BuildLog "$Component failed go vet checks (see above output)" "ERROR"
             Add-Content -Path $script:LogFile -Value "[$timestamp] [ERROR] FAIL: $Component failed go vet checks"
             return $false
         }
         # Colorize PASS
         $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
-        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}PASS:${ColorReset} $Component passed go vet checks"
+        Write-BuildLog "$Component passed go vet checks" "INFO"
         Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] PASS: $Component passed go vet checks"
-        
-        # Run staticcheck
+
+        # Run staticcheck (capture output so we can log it in full)
         Write-BuildLog "Running staticcheck..." "INFO"
-        & staticcheck ./...
-        if ($LASTEXITCODE -ne 0) {
+        $scOutput = & staticcheck ./... 2>&1
+        $scExit = $LASTEXITCODE
+        if ($scOutput) {
+            # Write each line of staticcheck output into the build log (INFO level)
+            $scOutput | ForEach-Object { Write-BuildLog $_ "INFO" }
+        }
+        if ($scExit -ne 0) {
             $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
-            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} $Component failed staticcheck"
+            Write-BuildLog "$Component failed staticcheck (see above output)" "ERROR"
             Add-Content -Path $script:LogFile -Value "[$timestamp] [ERROR] FAIL: $Component failed staticcheck"
             return $false
         }
         # Colorize PASS
         $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
-        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}PASS:${ColorReset} $Component passed staticcheck"
+        Write-BuildLog "$Component passed staticcheck" "INFO"
         Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] PASS: $Component passed staticcheck"
-        
+
         return $true
     }
     finally {
