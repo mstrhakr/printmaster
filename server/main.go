@@ -24,7 +24,6 @@ import (
 	sharedweb "printmaster/common/web"
 	wscommon "printmaster/common/ws"
 	"printmaster/server/storage"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -1799,85 +1798,34 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 					headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
 					if headIdx != -1 {
 						insertPos := headIdx + 6 // len("<head>")
-						// Remove any existing Content-Security-Policy meta tags in the agent HTML
-						// so the proxied page can either load inline-injected assets or its own assets
-						// when necessary. Use a case-insensitive regexp to strip meta tags like:
-						// <meta http-equiv="Content-Security-Policy" content="...">
-						cspRe := regexp.MustCompile(`(?i)<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*>`)
-						bodyStr = cspRe.ReplaceAllString(bodyStr, "")
+						// Inject minimal proxy meta tags and a <base> element so relative URLs resolve through the proxy
+						proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
+						metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
+							`<base href="` + proxyBase + `">`
 
-						// Also strip any meta X-Frame-Options if present
-						xfoRe := regexp.MustCompile(`(?i)<meta\s+http-equiv=["']X-Frame-Options["'][^>]*>`)
-						bodyStr = xfoRe.ReplaceAllString(bodyStr, "")
-
-						// Remove external flatpickr CSS/JS tags and ensure the page uses the
-						// server's shared assets (`/static/shared.css` and `/static/shared.js`).
-						// The shared.js loader will try to load flatpickr from CDN as needed.
-						flatCssRe := regexp.MustCompile(`(?i)<link[^>]+href=["'][^"']*flatpickr[^"']*\.css["'][^>]*>`)
-						bodyStr = flatCssRe.ReplaceAllString(bodyStr, "")
-
-						flatScriptRe := regexp.MustCompile(`(?i)<script[^>]+src=["'][^"']*flatpickr[^"']*\.js["'][^>]*>\s*</script\s*>`)
-						bodyStr = flatScriptRe.ReplaceAllString(bodyStr, "")
-
-						// Insert shared.css and shared.js if not already present
-						if !strings.Contains(strings.ToLower(bodyStr), "/static/shared.css") {
-							bodyStr = bodyStr[:insertPos] + `<link rel="stylesheet" href="/static/shared.css">` + bodyStr[insertPos:]
-							insertPos += len(`<link rel="stylesheet" href="/static/shared.css">`)
-						}
-						if !strings.Contains(strings.ToLower(bodyStr), "/static/shared.js") {
-							bodyStr = bodyStr[:insertPos] + `<script src="/static/shared.js"></script>` + bodyStr[insertPos:]
-						}
-						// Ensure metrics.js (shared metrics UI) is loaded as well so proxied pages
-						// that call into the shared metrics API have the implementation available.
-						if !strings.Contains(strings.ToLower(bodyStr), "/static/metrics.js") {
-							bodyStr = bodyStr[:insertPos] + `<script src="/static/metrics.js"></script>` + bodyStr[insertPos:]
-						}
-						// Ensure cards.js (shared card helpers) is loaded so proxied pages can call
-						// renderSavedCard() and checkDatabaseRotationWarning().
-						if !strings.Contains(strings.ToLower(bodyStr), "/static/cards.js") {
-							bodyStr = bodyStr[:insertPos] + `<script src="/static/cards.js"></script>` + bodyStr[insertPos:]
-						}
-
-												// Inject proxy meta tags and a <base> element so relative URLs resolve through the proxy
-												proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
-												metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
-														`<base href="` + proxyBase + `">`
-												bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
-
-												// Inject a small shim that rewrites absolute API calls ("/api/...")
-												// to route through the server proxy endpoint for this agent. This
-												// avoids modifying the agent's JS and keeps absolute paths working
-												// when the page is served via the central server.
-												proxyScript := `
+						// Inject a small best-effort shim that rewrites absolute /api/ calls
+						proxyScript := `
 <script>
-	(function(){
-		try {
-			var __pm_proxyBase = '` + proxyBase + `';
-			// Patch fetch to rewrite absolute /api/ URLs to the proxy
-			var _fetch = window.fetch;
-			window.fetch = function(input, init){
-				try{
-					if (typeof input === 'string' && input.indexOf('/api/') === 0) {
-						input = __pm_proxyBase + input.substring(1);
-					}
-				} catch(e) { /* ignore */ }
-				return _fetch.call(this, input, init);
-			};
-			// Patch XMLHttpRequest.open similarly
-			var _open = XMLHttpRequest.prototype.open;
-			XMLHttpRequest.prototype.open = function(method, url){
-				try{
-					if (typeof url === 'string' && url.indexOf('/api/') === 0) {
-						url = __pm_proxyBase + url.substring(1);
-					}
-				} catch(e) { }
-				return _open.apply(this, arguments);
-			};
-		} catch(e) { /* best-effort only */ }
-	})();
+  (function(){
+	try {
+	  var __pm_proxyBase = '` + proxyBase + `';
+	  var _fetch = window.fetch;
+	  window.fetch = function(input, init){
+		try{ if (typeof input === 'string' && input.indexOf('/api/') === 0) { input = __pm_proxyBase + input.substring(1); } } catch(e){}
+		return _fetch.call(this, input, init);
+	  };
+	  var _open = XMLHttpRequest.prototype.open;
+	  XMLHttpRequest.prototype.open = function(method, url){
+		try{ if (typeof url === 'string' && url.indexOf('/api/') === 0) { url = __pm_proxyBase + url.substring(1); } } catch(e){}
+		return _open.apply(this, arguments);
+	  };
+	} catch(e) { }
+  })();
 </script>
 `
-												bodyStr = bodyStr[:insertPos] + proxyScript + bodyStr[insertPos:]
+
+						// Insert meta and proxy shim at head
+						bodyStr = bodyStr[:insertPos] + metaTag + proxyScript + bodyStr[insertPos:]
 
 						// Also rewrite any absolute URLs that point to the agent's local host (e.g. http://localhost:8080)
 						// so they reference the proxy path instead. Parse targetURL to find the origin portion.
