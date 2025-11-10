@@ -314,6 +314,39 @@ func runServer(ctx context.Context, configFlag string) {
 		usingDefaultConfig = false
 	}
 
+	// Always apply environment overrides for database path (supports SERVER_DB_PATH and DB_PATH)
+	// even when using default configuration (no config file present).
+	config.ApplyDatabaseEnvOverrides(&cfg.Database, "SERVER")
+	if cfg.Database.Path != "" {
+		// If the env var points to a directory, append the default filename
+		// so users can set either a directory or a full file path.
+		dbPath := cfg.Database.Path
+		// Normalize and detect directory-like values
+		if strings.HasSuffix(dbPath, string(os.PathSeparator)) || strings.HasSuffix(dbPath, "/") {
+			dbPath = filepath.Join(dbPath, "server.db")
+		} else {
+			if fi, err := os.Stat(dbPath); err == nil && fi.IsDir() {
+				dbPath = filepath.Join(dbPath, "server.db")
+			}
+		}
+
+		// Ensure parent directory exists
+		parent := filepath.Dir(dbPath)
+		if err := os.MkdirAll(parent, 0755); err != nil {
+			log.Printf("WARNING: could not create DB parent directory %s: %v; falling back to default", parent, err)
+		} else {
+			// Try to open or create the DB file to ensure we have write access
+			f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0644)
+			if err != nil {
+				log.Printf("WARNING: cannot write to DB path %s: %v; falling back to default", dbPath, err)
+			} else {
+				f.Close()
+				cfg.Database.Path = dbPath
+				log.Printf("Database path overridden by environment: %s", cfg.Database.Path)
+			}
+		}
+	}
+
 	log.Printf("PrintMaster Server %s (protocol v%s)", Version, ProtocolVersion)
 	log.Printf("Build: %s, Commit: %s, Type: %s", BuildTime, GitCommit, BuildType)
 	log.Printf("Go: %s, OS: %s, Arch: %s", runtime.Version(), runtime.GOOS, runtime.GOARCH)

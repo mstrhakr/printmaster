@@ -1115,6 +1115,36 @@ func runInteractive(ctx context.Context, configFlag string) {
 		agentConfig = DefaultAgentConfig()
 	}
 
+	// Always apply environment overrides for database path (supports AGENT_DB_PATH and DB_PATH)
+	// even when using default configuration (no config file present).
+	config.ApplyDatabaseEnvOverrides(&agentConfig.Database, "AGENT")
+	if agentConfig.Database.Path != "" {
+		// If env var points to a directory, append default filename (devices.db)
+		dbPath := agentConfig.Database.Path
+		if strings.HasSuffix(dbPath, string(os.PathSeparator)) || strings.HasSuffix(dbPath, "/") {
+			dbPath = filepath.Join(dbPath, "devices.db")
+		} else {
+			if fi, err := os.Stat(dbPath); err == nil && fi.IsDir() {
+				dbPath = filepath.Join(dbPath, "devices.db")
+			}
+		}
+
+		parent := filepath.Dir(dbPath)
+		if err := os.MkdirAll(parent, 0755); err != nil {
+			appLogger.Warn("Could not create DB parent directory, falling back", "parent", parent, "error", err)
+		} else {
+			// Probe write access
+			f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0644)
+			if err != nil {
+				appLogger.Warn("Cannot write to DB path, falling back", "path", dbPath, "error", err)
+			} else {
+				f.Close()
+				agentConfig.Database.Path = dbPath
+				appLogger.Info("Database path overridden by environment", "path", agentConfig.Database.Path)
+			}
+		}
+	}
+
 	// Apply logging level from config
 	if level := logger.LevelFromString(agentConfig.Logging.Level); level >= 0 {
 		appLogger.SetLevel(level)
