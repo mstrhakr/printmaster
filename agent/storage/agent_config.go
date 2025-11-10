@@ -18,6 +18,8 @@ type AgentConfigStore interface {
 	GetRangesList() ([]string, error)
 	// SetConfigValue stores any JSON-serializable config value
 	SetConfigValue(key string, value interface{}) error
+	// DeleteConfigValue removes a stored config value by key
+	DeleteConfigValue(key string) error
 	// GetConfigValue retrieves any JSON-serializable config value
 	GetConfigValue(key string, dest interface{}) error
 	// Close closes the database connection
@@ -170,5 +172,17 @@ func (s *SQLiteAgentConfig) GetConfigValue(key string, dest interface{}) error {
 		return fmt.Errorf("failed to unmarshal config value: %w", err)
 	}
 
+	return nil
+}
+
+// DeleteConfigValue removes a key from the config store
+func (s *SQLiteAgentConfig) DeleteConfigValue(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`DELETE FROM agent_config WHERE key = ?`, key)
+	if err != nil {
+		return fmt.Errorf("failed to delete config value: %w", err)
+	}
 	return nil
 }

@@ -3778,7 +3778,7 @@ function loadTraceTags() {
         return;
     }
 
-    fetch('/dev_settings/trace_tags').then(async r => {
+    fetch('/settings/trace_tags').then(async r => {
         if (!r.ok) {
             console.error('Failed to load trace tags:', r.status, r.statusText);
             container.innerHTML = '<span style="color:var(--muted);font-size:12px">Failed to load tags (status ' + r.status + ')</span>';
@@ -3898,7 +3898,7 @@ function saveTraceTags() {
 
     console.log('Saving trace tags:', tagsMap);
 
-    fetch('/dev_settings/trace_tags', {
+    fetch('/settings/trace_tags', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags: tagsMap })
@@ -4021,7 +4021,8 @@ function saveDevSettings() {
         discover_concurrency: parseInt(document.getElementById('dev_discover_concurrency').value) || 50,
         asset_id_regex: document.getElementById('dev_asset_id_regex').value || ''
     };
-    fetch('/dev_settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    // POST developer settings as part of the unified /settings endpoint
+    fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ developer: body }) })
         .then(async r => { 
             if (!r.ok) { 
                 const t = await r.text(); 

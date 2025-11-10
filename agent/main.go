@@ -1188,6 +1188,51 @@ func runInteractive(ctx context.Context, configFlag string) {
 	defer agentConfigStore.Close()
 	appLogger.Info("Agent config database initialized", "path", agentDBPath)
 
+	// Migration: consolidate legacy dev_settings / developer_settings into unified "settings" key
+	// This is idempotent and creates a timestamped backup of legacy data before deleting it.
+	func() {
+		if agentConfigStore == nil {
+			return
+		}
+		var settings map[string]interface{}
+		_ = agentConfigStore.GetConfigValue("settings", &settings)
+		if settings == nil {
+			settings = map[string]interface{}{}
+		}
+
+		// If developer is already present, nothing to do
+		if _, ok := settings["developer"]; ok {
+			return
+		}
+
+		// Try legacy keys
+		var legacy map[string]interface{}
+		if err := agentConfigStore.GetConfigValue("dev_settings", &legacy); err == nil && legacy != nil {
+			// backup legacy data under a timestamped key in case of accidental data loss
+			bkKey := "backup.dev_settings." + time.Now().Format(time.RFC3339)
+			_ = agentConfigStore.SetConfigValue(bkKey, legacy)
+			settings["developer"] = legacy
+			if err := agentConfigStore.SetConfigValue("settings", settings); err == nil {
+				_ = agentConfigStore.DeleteConfigValue("dev_settings")
+				appLogger.Info("Migrated legacy dev_settings into settings.developer", "backup_key", bkKey)
+			}
+			return
+		}
+
+		// Also check developer_settings key if present
+		legacy = nil
+		if err := agentConfigStore.GetConfigValue("developer_settings", &legacy); err == nil && legacy != nil {
+			bkKey := "backup.developer_settings." + time.Now().Format(time.RFC3339)
+			_ = agentConfigStore.SetConfigValue(bkKey, legacy)
+			settings["developer"] = legacy
+			if err := agentConfigStore.SetConfigValue("settings", settings); err == nil {
+				_ = agentConfigStore.DeleteConfigValue("developer_settings")
+				appLogger.Info("Migrated legacy developer_settings into settings.developer", "backup_key", bkKey)
+			}
+			return
+		}
+	}()
+
 	// Clean up old database backups (keep 10 most recent)
 	if err := storage.CleanupOldBackups(dbPath, 10); err != nil {
 		appLogger.Warn("Failed to cleanup old database backups", "error", err)
@@ -4377,8 +4422,8 @@ window.top.location.href = '/proxy/%s/';
 
 	// vendor add handler moved to mib_suggestions_api.go to centralize candidate APIs
 
-	// Trace tags endpoint for granular trace logging control
-	http.HandleFunc("/dev_settings/trace_tags", func(w http.ResponseWriter, r *http.Request) {
+	// Expose trace tags under /settings/trace_tags (moved from legacy /dev_settings)
+	http.HandleFunc("/settings/trace_tags", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			tags := appLogger.GetTraceTags()
 			w.Header().Set("Content-Type", "application/json")
@@ -4453,7 +4498,7 @@ window.top.location.href = '/proxy/%s/';
 				}
 			}
 
-			// Compose developer
+			// Compose developer (migrated into unified "settings" key under settings.developer)
 			developer := map[string]interface{}{
 				"asset_id_regex":       "",
 				"snmp_community":       "",
@@ -4464,10 +4509,14 @@ window.top.location.href = '/proxy/%s/';
 				"discover_concurrency": 50,
 			}
 			{
-				var stored map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("dev_settings", &stored)
-				for k, v := range stored {
-					developer[k] = v
+				var settings map[string]interface{}
+				_ = agentConfigStore.GetConfigValue("settings", &settings)
+				if settings != nil {
+					if dev, ok := settings["developer"].(map[string]interface{}); ok {
+						for k, v := range dev {
+							developer[k] = v
+						}
+					}
 				}
 			}
 
@@ -4521,7 +4570,14 @@ window.top.location.href = '/proxy/%s/';
 			if req.Reset {
 				// Reset both to defaults
 				_ = agentConfigStore.SetConfigValue("discovery_settings", map[string]interface{}{})
-				_ = agentConfigStore.SetConfigValue("dev_settings", map[string]interface{}{})
+				// Reset developer section inside unified settings
+				var settings map[string]interface{}
+				_ = agentConfigStore.GetConfigValue("settings", &settings)
+				if settings == nil {
+					settings = map[string]interface{}{}
+				}
+				settings["developer"] = map[string]interface{}{}
+				_ = agentConfigStore.SetConfigValue("settings", settings)
 				_ = agentConfigStore.SetConfigValue("security_settings", map[string]interface{}{})
 				// Stop background features
 				stopAutoDiscover()
@@ -4577,9 +4633,15 @@ window.top.location.href = '/proxy/%s/';
 				applyDiscoveryEffects(req.Discovery)
 			}
 
-			// Save developer settings
+			// Save developer settings into unified settings.developer
 			if req.Developer != nil {
-				if err := agentConfigStore.SetConfigValue("dev_settings", req.Developer); err != nil {
+				var settings map[string]interface{}
+				_ = agentConfigStore.GetConfigValue("settings", &settings)
+				if settings == nil {
+					settings = map[string]interface{}{}
+				}
+				settings["developer"] = req.Developer
+				if err := agentConfigStore.SetConfigValue("settings", settings); err != nil {
 					http.Error(w, "failed to save developer settings: "+err.Error(), http.StatusInternalServerError)
 					return
 				}
