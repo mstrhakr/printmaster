@@ -334,11 +334,14 @@ func runServer(ctx context.Context, configFlag string) {
 		parent := filepath.Dir(dbPath)
 		if err := os.MkdirAll(parent, 0755); err != nil {
 			log.Printf("WARNING: could not create DB parent directory %s: %v; falling back to default", parent, err)
+			// clear to allow fallback logic to run
+			cfg.Database.Path = ""
 		} else {
 			// Try to open or create the DB file to ensure we have write access
 			f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0644)
 			if err != nil {
 				log.Printf("WARNING: cannot write to DB path %s: %v; falling back to default", dbPath, err)
+				cfg.Database.Path = ""
 			} else {
 				f.Close()
 				cfg.Database.Path = dbPath

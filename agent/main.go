@@ -1132,11 +1132,13 @@ func runInteractive(ctx context.Context, configFlag string) {
 		parent := filepath.Dir(dbPath)
 		if err := os.MkdirAll(parent, 0755); err != nil {
 			appLogger.Warn("Could not create DB parent directory, falling back", "parent", parent, "error", err)
+			agentConfig.Database.Path = ""
 		} else {
 			// Probe write access
 			f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0644)
 			if err != nil {
 				appLogger.Warn("Cannot write to DB path, falling back", "path", dbPath, "error", err)
+				agentConfig.Database.Path = ""
 			} else {
 				f.Close()
 				agentConfig.Database.Path = dbPath
@@ -1160,7 +1162,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 		appLogger.Info("Using configured database path", "path", dbPath)
 	} else {
 		// Detect if running as service and use appropriate directory
-		dataDir, dirErr := config.GetDataDirectory("agent", true)
+	dataDir, dirErr := config.GetDataDirectory("agent", isService)
 		if dirErr != nil {
 			appLogger.Warn("Could not get data directory, using in-memory storage", "error", dirErr)
 			dbPath = ":memory:"
@@ -2204,7 +2206,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 	var uploadWorker *UploadWorker
 	if agentConfig != nil && agentConfig.Server.Enabled {
 		// Get or generate stable agent ID
-		dataDir, err := config.GetDataDirectory("agent", true)
+	dataDir, err := config.GetDataDirectory("agent", isService)
 		if err != nil {
 			appLogger.Error("Failed to get data directory", "error", err)
 			return
