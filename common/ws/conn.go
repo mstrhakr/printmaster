@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -13,6 +14,9 @@ import (
 // used by server and agent code.
 type Conn struct {
 	c *websocket.Conn
+	// writeMu serializes all writes to the underlying websocket.Conn.
+	// Gorilla websocket Conn panics on concurrent writes; protect against that here.
+	writeMu sync.Mutex
 }
 
 // Dial connects to the given WebSocket URL and returns a wrapped Conn and HTTP response.
@@ -50,6 +54,10 @@ func (cw *Conn) WriteMessage(msg *Message, timeout time.Duration) error {
 	if cw == nil || cw.c == nil {
 		return errors.New("websocket: connection is closed")
 	}
+	// Serialize write operations to avoid gorilla websocket concurrent write panics.
+	cw.writeMu.Lock()
+	defer cw.writeMu.Unlock()
+
 	if timeout > 0 {
 		cw.c.SetWriteDeadline(time.Now().Add(timeout))
 	}
@@ -61,6 +69,10 @@ func (cw *Conn) WriteRaw(b []byte, timeout time.Duration) error {
 	if cw == nil || cw.c == nil {
 		return errors.New("websocket: connection is closed")
 	}
+	// Serialize write operations to avoid gorilla websocket concurrent write panics.
+	cw.writeMu.Lock()
+	defer cw.writeMu.Unlock()
+
 	if timeout > 0 {
 		cw.c.SetWriteDeadline(time.Now().Add(timeout))
 	}
@@ -80,6 +92,10 @@ func (cw *Conn) WritePing(timeout time.Duration) error {
 	if cw == nil || cw.c == nil {
 		return errors.New("websocket: connection is closed")
 	}
+	// Serialize write operations to avoid gorilla websocket concurrent write panics.
+	cw.writeMu.Lock()
+	defer cw.writeMu.Unlock()
+
 	if timeout > 0 {
 		cw.c.SetWriteDeadline(time.Now().Add(timeout))
 	}
