@@ -150,20 +150,12 @@ let globalSettings = {
 };
 
 // Toast notification system (delegates to shared implementation)
-// Save a reference to any shared implementation (loaded earlier via /static/shared.js)
-const __pm_shared_showToast = (typeof window !== 'undefined' && typeof window.showToast === 'function') ? window.showToast : null;
+// Prefer the shared implementation from `/static/shared.js` when available.
 function showToast(message, type = 'success', duration = 3000) {
-    // If a shared implementation exists and it's not this function, delegate to it.
-    try {
-        if (typeof __pm_shared_showToast === 'function' && __pm_shared_showToast !== showToast) {
-            return __pm_shared_showToast(message, type, duration);
-        }
-    } catch (e) {
-        console.warn('shared.showToast failed', e);
-    }
-
-    // Fallback to simple alert if no shared toast available
-    try { alert(message); } catch (e) { /* noop */ }
+    // Delegate directly to the embedded shared implementation. The shared
+    // `showToast` is expected to be present (embedded via common/shared.js).
+    // If it's missing, let the exception surface so embedding issues are detected.
+    return window.showToast(message, type, duration);
 }
 
 // Confirmation modal system (delegates to shared implementation)
