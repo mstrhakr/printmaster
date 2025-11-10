@@ -1,45 +1,45 @@
 package main
 
 import (
-    "bytes"
-    "io"
-    "net/http/httptest"
-    "testing"
+	"bytes"
+	"io"
+	"net/http/httptest"
+	"testing"
 )
 
 // Smoke test the /static handler to ensure shared bundles are served and
 // include expected markers. This verifies our embed wiring (MetricsJS/CardsJS)
 // and that we set a conservative cache header for these assets.
 func TestHandleStatic_SharedBundles(t *testing.T) {
-    cases := []struct{
-        path string
-        marker []byte
-    }{
-        {"/static/metrics.js", []byte("loadDeviceMetrics")},
-        {"/static/cards.js", []byte("renderSavedCard")},
-    }
+	cases := []struct {
+		path   string
+		marker []byte
+	}{
+		{"/static/metrics.js", []byte("loadDeviceMetrics")},
+		{"/static/cards.js", []byte("renderSavedCard")},
+	}
 
-    for _, c := range cases {
-        req := httptest.NewRequest("GET", c.path, nil)
-        w := httptest.NewRecorder()
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", c.path, nil)
+		w := httptest.NewRecorder()
 
-        // call the handler directly
-        handleStatic(w, req)
+		// call the handler directly
+		handleStatic(w, req)
 
-        res := w.Result()
-        body, _ := io.ReadAll(res.Body)
+		res := w.Result()
+		body, _ := io.ReadAll(res.Body)
 
-        if res.StatusCode != 200 {
-            t.Fatalf("expected 200 for %s, got %d", c.path, res.StatusCode)
-        }
+		if res.StatusCode != 200 {
+			t.Fatalf("expected 200 for %s, got %d", c.path, res.StatusCode)
+		}
 
-        if !bytes.Contains(body, c.marker) {
-            t.Fatalf("%s did not contain expected marker %q", c.path, string(c.marker))
-        }
+		if !bytes.Contains(body, c.marker) {
+			t.Fatalf("%s did not contain expected marker %q", c.path, string(c.marker))
+		}
 
-        cc := res.Header.Get("Cache-Control")
-        if cc == "" {
-            t.Fatalf("expected Cache-Control header for %s, got none", c.path)
-        }
-    }
+		cc := res.Header.Get("Cache-Control")
+		if cc == "" {
+			t.Fatalf("expected Cache-Control header for %s, got none", c.path)
+		}
+	}
 }
