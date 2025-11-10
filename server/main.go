@@ -1838,11 +1838,46 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 							bodyStr = bodyStr[:insertPos] + `<script src="/static/cards.js"></script>` + bodyStr[insertPos:]
 						}
 
-						// Inject proxy meta tags and a <base> element so relative URLs resolve through the proxy
-						proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
-						metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
-							`<base href="` + proxyBase + `">`
-						bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
+												// Inject proxy meta tags and a <base> element so relative URLs resolve through the proxy
+												proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
+												metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
+														`<base href="` + proxyBase + `">`
+												bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
+
+												// Inject a small shim that rewrites absolute API calls ("/api/...")
+												// to route through the server proxy endpoint for this agent. This
+												// avoids modifying the agent's JS and keeps absolute paths working
+												// when the page is served via the central server.
+												proxyScript := `
+<script>
+	(function(){
+		try {
+			var __pm_proxyBase = '` + proxyBase + `';
+			// Patch fetch to rewrite absolute /api/ URLs to the proxy
+			var _fetch = window.fetch;
+			window.fetch = function(input, init){
+				try{
+					if (typeof input === 'string' && input.indexOf('/api/') === 0) {
+						input = __pm_proxyBase + input.substring(1);
+					}
+				} catch(e) { /* ignore */ }
+				return _fetch.call(this, input, init);
+			};
+			// Patch XMLHttpRequest.open similarly
+			var _open = XMLHttpRequest.prototype.open;
+			XMLHttpRequest.prototype.open = function(method, url){
+				try{
+					if (typeof url === 'string' && url.indexOf('/api/') === 0) {
+						url = __pm_proxyBase + url.substring(1);
+					}
+				} catch(e) { }
+				return _open.apply(this, arguments);
+			};
+		} catch(e) { /* best-effort only */ }
+	})();
+</script>
+`
+												bodyStr = bodyStr[:insertPos] + proxyScript + bodyStr[insertPos:]
 
 						// Also rewrite any absolute URLs that point to the agent's local host (e.g. http://localhost:8080)
 						// so they reference the proxy path instead. Parse targetURL to find the origin portion.
