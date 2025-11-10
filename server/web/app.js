@@ -457,25 +457,34 @@ function renderAgentCard(agent) {
                 <div class="device-card-row">
                     <span class="device-card-label">Status</span>
                     <span class="device-card-value agent-status-value" style="color:${statusColor}">
-                        ${agent.connection_type ? (function(){
+                        ● ${agent.status || 'unknown'}
+                    </span>
+                </div>
+
+                <div class="device-card-row">
+                    <span class="device-card-label">WebSockets</span>
+                    <span class="device-card-value">
+                        ${ (function(){
                             let label = '';
                             let title = '';
-                            let cls = agent.connection_type;
+                            let cls = 'none';
                             if (agent.connection_type === 'ws') {
-                                label = 'WEBSOCKETS: Live';
+                                label = 'Live';
                                 title = 'WebSocket (live)';
                                 cls = 'ws';
                             } else if (agent.connection_type === 'http') {
-                                label = 'WEBSOCKETS: HTTP(s) Fallback';
+                                label = 'HTTP(s) Fallback';
                                 title = 'HTTP(s) recent fallback';
                                 cls = 'http';
                             } else {
-                                label = 'WEBSOCKETS: Disconnected';
+                                label = 'Disconnected';
                                 title = 'Disconnected';
                                 cls = 'none';
                             }
-                            return `<span class="conn-badge ${cls}" title="${title}" aria-label="${label}">${label}</span> `;
-                        })() : ''}● ${agent.status || 'unknown'}
+                            // Include optional websocket subsystem version if provided
+                            const ver = agent.ws_version ? ` <span class="ws-version">v${agent.ws_version}</span>` : '';
+                            return `<span class="conn-badge ${cls}" title="${title}" aria-label="WEBSOCKETS: ${label}">WEBSOCKETS: ${label}</span>${ver}`;
+                        })() }
                     </span>
                 </div>
                 

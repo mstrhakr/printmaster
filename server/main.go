@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"mime"
+	"path"
 	"printmaster/common/config"
 	"printmaster/common/logger"
 	commonutil "printmaster/common/util"
@@ -1870,6 +1872,47 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		// Agent UI can check for this header and disable device proxy buttons
 		w.Header().Set("X-PrintMaster-Proxied", "true")
 		w.Header().Set("X-PrintMaster-Agent-ID", agentID)
+
+		// Ensure Content-Type is sensible for static assets. Some agent-side
+		// servers may omit or return a generic "text/plain" Content-Type which
+		// combined with X-Content-Type-Options: nosniff (set by server) will
+		// cause browsers to block CSS/JS. If Content-Type looks generic or is
+		// missing, try to infer from the target URL extension or sniff the body
+		// bytes (below) and override the header so browsers accept the response.
+		contentType := w.Header().Get("Content-Type")
+		if contentType == "" || strings.HasPrefix(strings.ToLower(contentType), "text/plain") {
+			// Try extension-based lookup
+			if u, err := url.Parse(targetURL); err == nil {
+				ext := strings.ToLower(path.Ext(u.Path))
+				if ext != "" {
+					if mt := mime.TypeByExtension(ext); mt != "" {
+						w.Header().Set("Content-Type", mt)
+						contentType = mt
+					} else {
+						// Fallback common mappings when mime.TypeByExtension fails
+						switch ext {
+						case ".js":
+							w.Header().Set("Content-Type", "application/javascript")
+							contentType = "application/javascript"
+						case ".css":
+							w.Header().Set("Content-Type", "text/css")
+							contentType = "text/css"
+						case ".json":
+							w.Header().Set("Content-Type", "application/json")
+							contentType = "application/json"
+						case ".wasm":
+							w.Header().Set("Content-Type", "application/wasm")
+							contentType = "application/wasm"
+						case ".svg":
+							w.Header().Set("Content-Type", "image/svg+xml")
+							contentType = "image/svg+xml"
+						default:
+							// leave as-is
+						}
+					}
+				}
+			}
+		}
 
 		// Remove server-level security headers that would block proxied agent content
 		// The agent side already strips or rewrites CSP/X-Frame headers; remove them here
