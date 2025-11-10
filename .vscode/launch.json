@@ -79,7 +79,7 @@
       "program": "${workspaceFolder}\\server",
       "cwd": "${workspaceFolder}\\server",
       "env": {},
-      "args": ["-port", "8080"],
+      "args": ["-port", "9090"],
       "buildFlags": "",
       "output": "${workspaceFolder}\\server\\__debug_bin.exe",
       "showLog": true,
@@ -150,7 +150,7 @@
       "name": "Debug: Agent + Server Together",
       "configurations": [
         "Debug: Server (Default Port)",
-        "Debug: Agent (Port 9090)"
+        "Debug: Agent (Default Port)"
       ],
       "stopAll": true
     }
