@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	wscommon "printmaster/common/ws"
+
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{

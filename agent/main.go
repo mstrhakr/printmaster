@@ -2283,6 +2283,16 @@ func runInteractive(ctx context.Context) {
 			w.Write([]byte(sharedweb.SharedJS))
 			return
 		}
+		if fileName == "metrics.js" {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Write([]byte(sharedweb.MetricsJS))
+			return
+		}
+		if fileName == "cards.js" {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Write([]byte(sharedweb.CardsJS))
+			return
+		}
 
 		// Serve other files from embedded filesystem
 		filePath := "web/" + fileName
