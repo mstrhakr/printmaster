@@ -135,8 +135,8 @@ func LoadConfig(configPath string) (*Config, error) {
 		cfg.TLS.LetsEncrypt.AcceptTOS = val == "true" || val == "1"
 	}
 
-	// Apply common environment variable overrides
-	config.ApplyDatabaseEnvOverrides(&cfg.Database)
+	// Apply common environment variable overrides (component-specific prefixed env var supported)
+	config.ApplyDatabaseEnvOverrides(&cfg.Database, "SERVER")
 	config.ApplyLoggingEnvOverrides(&cfg.Logging)
 
 	return cfg, nil

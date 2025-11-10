@@ -32,7 +32,7 @@
 
 [tls]
   # TLS mode: "disabled", "self-signed", "letsencrypt", "custom"
-  mode = "disabled"
+  mode = "self-signed"
   
   # Domain name for certificate
   domain = "localhost"

@@ -44,7 +44,9 @@ func (p *program) run() {
 	}
 
 	// Call runServer with context for graceful shutdown
-	runServer(p.ctx)
+	// The service runner doesn't provide a config path, pass empty string
+	// so runServer will fall back to default config discovery.
+	runServer(p.ctx, "")
 
 	if p.svcLogger != nil {
 		p.svcLogger.Info("PrintMaster Server service stopping")

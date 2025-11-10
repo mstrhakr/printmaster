@@ -295,19 +295,32 @@ function initTabs() {
 }
 
 // ====== Toast Notification System (delegates to shared implementation)
+// Capture any shared implementation at load time to avoid recursive calls
+const __pm_shared_showToast = (typeof window !== 'undefined' && typeof window.showToast === 'function') ? window.showToast : null;
 function showToast(message, type = 'success', duration = 3000) {
-    if (typeof window !== 'undefined' && typeof window.showToast === 'function') {
-        try { return window.showToast(message, type, duration); } catch (e) { console.warn('shared.showToast failed', e); }
+    try {
+        if (typeof __pm_shared_showToast === 'function' && __pm_shared_showToast !== showToast) {
+            return __pm_shared_showToast(message, type, duration);
+        }
+    } catch (e) {
+        console.warn('shared.showToast failed', e);
     }
     // Fallback: minimal toast using alert (very conservative)
     try { alert(message); } catch (e) { /* noop */ }
 }
 
 // ====== Confirmation Modal System ======
-// ====== Confirmation Modal System (delegates to shared implementation)
+// Capture shared confirm if present to avoid recursion
+const __pm_shared_showConfirm = (typeof window !== 'undefined' && typeof window.showConfirm === 'function') ? window.showConfirm : null;
 function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
-    if (typeof window !== 'undefined' && typeof window.showConfirm === 'function') {
-        try { return window.showConfirm(message, title, isDangerous); } catch (e) { console.warn('shared.showConfirm failed', e); }
+    try {
+        if (typeof __pm_shared_showConfirm === 'function' && __pm_shared_showConfirm !== showConfirm) {
+            const res = __pm_shared_showConfirm(message, title, isDangerous);
+            if (res && typeof res.then === 'function') return res;
+            return Promise.resolve(!!res);
+        }
+    } catch (e) {
+        console.warn('shared.showConfirm failed', e);
     }
     // Fallback to native confirm wrapped in a Promise
     return Promise.resolve(confirm(message));

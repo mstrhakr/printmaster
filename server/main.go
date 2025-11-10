@@ -227,18 +227,39 @@ func main() {
 	}
 
 	// Running interactively
-	runServer(context.Background())
+	runServer(context.Background(), *configPath)
 }
 
 // runServer starts the server with the given context
-func runServer(ctx context.Context) {
+func runServer(ctx context.Context, configFlag string) {
 	// Load configuration from multiple locations
 	// Priority when running as service: ProgramData/server > ProgramData (legacy)
 	// Priority when interactive: executable directory > current directory
 	var cfg *Config
+	var configLoaded bool
 
 	isService := !service.Interactive()
 	var configPaths []string
+
+	// Resolve config path using shared helper (checks SERVER_CONFIG/SERVER_CONFIG_PATH,
+	// generic CONFIG/CONFIG_PATH, then the provided flag value)
+	resolved := config.ResolveConfigPath("SERVER", configFlag)
+	if resolved != "" {
+		if _, statErr := os.Stat(resolved); statErr == nil {
+			if loadedCfg, err := LoadConfig(resolved); err == nil {
+				cfg = loadedCfg
+				loadedConfigPath = resolved
+				configLoaded = true
+				log.Printf("Loaded configuration from: %s", resolved)
+			} else {
+				errMsg := fmt.Sprintf("Config file exists but failed to load: %s - Error: %v", resolved, err)
+				configLoadErrors = append(configLoadErrors, errMsg)
+				log.Printf("WARNING: %s", errMsg)
+			}
+		} else {
+			log.Printf("Config path set but file not found: %s", resolved)
+		}
+	}
 
 	if isService {
 		// Running as service - check ProgramData locations only
@@ -258,7 +279,7 @@ func runServer(ctx context.Context) {
 		}
 	}
 
-	configLoaded := false
+	configLoaded = false
 	for _, configPath := range configPaths {
 		if _, statErr := os.Stat(configPath); statErr == nil {
 			// Config file exists, try to load it
@@ -299,7 +320,42 @@ func runServer(ctx context.Context) {
 
 	// Initialize logger
 	if cfg.Database.Path == "" {
-		cfg.Database.Path = storage.GetDefaultDBPath()
+		// Use platform default, but on Windows if we're running interactively
+		// prefer the user AppData location when ProgramData is not writable
+		defaultPath := storage.GetDefaultDBPath()
+		cfg.Database.Path = defaultPath
+		if runtime.GOOS == "windows" && !isService {
+			// If defaultPath looks like ProgramData and we can't create the parent dir,
+			// fall back to the interactive data directory (AppData).
+			pd := os.Getenv("PROGRAMDATA")
+			if pd == "" {
+				pd = "C:\\ProgramData"
+			}
+			if strings.HasPrefix(strings.ToLower(defaultPath), strings.ToLower(pd)) {
+				parent := filepath.Dir(defaultPath)
+				if err := os.MkdirAll(parent, 0755); err != nil {
+					// Can't create ProgramData path — fall back to per-user data dir
+					if serverLogger != nil {
+						serverLogger.Info("Falling back to user data directory because ProgramData is not writable", "programdata", pd, "error", err)
+					} else {
+						log.Printf("Falling back to user data directory because ProgramData is not writable: %v", err)
+					}
+					if userDir, derr := config.GetDataDirectory("server", false); derr == nil {
+						// Ensure directory exists
+						if err := os.MkdirAll(userDir, 0755); err == nil {
+							cfg.Database.Path = filepath.Join(userDir, "server.db")
+						} else {
+							// If we still can't create, keep default and hope for the best
+							if serverLogger != nil {
+								serverLogger.Warn("Failed to create user data directory, using default DB path", "userDir", userDir, "error", err)
+							} else {
+								log.Printf("Failed to create user data directory %s: %v", userDir, err)
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Determine log directory based on whether we're running as a service
@@ -1790,55 +1846,11 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		if bodyB64, ok := resp.Data["body"].(string); ok {
 			bodyBytes, err := base64.StdEncoding.DecodeString(bodyB64)
 			if err == nil {
-				// If this is HTML, inject a meta tag so JavaScript can detect proxy state
+				// If this is HTML, inject minimal proxy metadata so the agent bundle
+				// can detect proxied mode and rewrite URLs itself.
 				contentType := w.Header().Get("Content-Type")
 				if strings.Contains(strings.ToLower(contentType), "text/html") {
-					bodyStr := string(bodyBytes)
-					// Inject meta tag after <head> tag
-					headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
-					if headIdx != -1 {
-						insertPos := headIdx + 6 // len("<head>")
-						// Inject minimal proxy meta tags and a <base> element so relative URLs resolve through the proxy
-						proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
-						metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
-							`<base href="` + proxyBase + `">`
-
-						// Inject a small best-effort shim that rewrites absolute /api/ calls
-						proxyScript := `
-<script>
-  (function(){
-	try {
-	  var __pm_proxyBase = '` + proxyBase + `';
-	  var _fetch = window.fetch;
-	  window.fetch = function(input, init){
-		try{ if (typeof input === 'string' && input.indexOf('/api/') === 0) { input = __pm_proxyBase + input.substring(1); } } catch(e){}
-		return _fetch.call(this, input, init);
-	  };
-	  var _open = XMLHttpRequest.prototype.open;
-	  XMLHttpRequest.prototype.open = function(method, url){
-		try{ if (typeof url === 'string' && url.indexOf('/api/') === 0) { url = __pm_proxyBase + url.substring(1); } } catch(e){}
-		return _open.apply(this, arguments);
-	  };
-	} catch(e) { }
-  })();
-</script>
-`
-
-						// Insert meta and proxy shim at head
-						bodyStr = bodyStr[:insertPos] + metaTag + proxyScript + bodyStr[insertPos:]
-
-						// Also rewrite any absolute URLs that point to the agent's local host (e.g. http://localhost:8080)
-						// so they reference the proxy path instead. Parse targetURL to find the origin portion.
-						if u, err := url.Parse(targetURL); err == nil {
-							origin := u.Scheme + "://" + u.Host
-							// Replace occurrences of origin (http://host:port) with proxyBase
-							bodyStr = strings.ReplaceAll(bodyStr, origin, proxyBase)
-							// Also replace protocol-relative occurrences like //host:port
-							protoRel := "//" + u.Host
-							bodyStr = strings.ReplaceAll(bodyStr, protoRel, proxyBase)
-						}
-						bodyBytes = []byte(bodyStr)
-					}
+					bodyBytes = injectProxyMetaAndBase(bodyBytes, agentID, targetURL)
 				}
 				w.Write(bodyBytes)
 			}
@@ -1850,6 +1862,33 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 			serverLogger.Warn("Proxy request timeout", "agent_id", agentID, "url", targetURL)
 		}
 	}
+}
+
+// injectProxyMetaAndBase inserts proxy meta tags and a <base> element into HTML
+// and rewrites absolute occurrences of the agent origin to the proxy base.
+func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byte {
+	bodyStr := string(body)
+	// Inject meta tag after <head> tag
+	headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
+	if headIdx == -1 {
+		return body
+	}
+	insertPos := headIdx + len("<head>")
+	proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
+	metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
+		`<base href="` + proxyBase + `">`
+
+	bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
+
+	// Replace absolute origin occurrences (http(s)://host:port) and protocol-relative //host:port
+	if u, err := url.Parse(targetURL); err == nil {
+		origin := u.Scheme + "://" + u.Host
+		bodyStr = strings.ReplaceAll(bodyStr, origin, proxyBase)
+		protoRel := "//" + u.Host
+		bodyStr = strings.ReplaceAll(bodyStr, protoRel, proxyBase)
+	}
+
+	return []byte(bodyStr)
 }
 
 // Devices batch upload - agent sends discovered devices
