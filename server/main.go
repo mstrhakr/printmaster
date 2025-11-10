@@ -1827,6 +1827,16 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 						if !strings.Contains(strings.ToLower(bodyStr), "/static/shared.js") {
 							bodyStr = bodyStr[:insertPos] + `<script src="/static/shared.js"></script>` + bodyStr[insertPos:]
 						}
+						// Ensure metrics.js (shared metrics UI) is loaded as well so proxied pages
+						// that call into the shared metrics API have the implementation available.
+						if !strings.Contains(strings.ToLower(bodyStr), "/static/metrics.js") {
+							bodyStr = bodyStr[:insertPos] + `<script src="/static/metrics.js"></script>` + bodyStr[insertPos:]
+						}
+						// Ensure cards.js (shared card helpers) is loaded so proxied pages can call
+						// renderSavedCard() and checkDatabaseRotationWarning().
+						if !strings.Contains(strings.ToLower(bodyStr), "/static/cards.js") {
+							bodyStr = bodyStr[:insertPos] + `<script src="/static/cards.js"></script>` + bodyStr[insertPos:]
+						}
 
 						// Inject proxy meta tags and a <base> element so relative URLs resolve through the proxy
 						proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
@@ -2054,10 +2064,10 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{
-		"agents_count":            len(agents),
-		"devices_count":           len(devices),
+		"agents_count":             len(agents),
+		"devices_count":            len(devices),
 		"devices_with_metrics_24h": devicesWithRecent,
-		"recent":                  recent,
+		"recent":                   recent,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2187,6 +2197,18 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 		w.Write([]byte(sharedweb.SharedJS))
+		return
+	}
+	if fileName == "metrics.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.MetricsJS))
+		return
+	}
+	if fileName == "cards.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.CardsJS))
 		return
 	}
 	// Serve vendored flatpickr assets from common/web if requested

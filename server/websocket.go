@@ -16,15 +16,7 @@ import (
 )
 
 var (
-	// WebSocket upgrader with default settings
-	upgrader = websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			// Allow all origins for now (TODO: restrict in production)
-			return true
-		},
-	}
+	// Per-connection map and locks
 	wsConnections     = make(map[string]*wscommon.Conn)
 	wsConnectionsLock sync.RWMutex
 
