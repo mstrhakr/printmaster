@@ -536,3 +536,15 @@ input[type="checkbox"]:disabled {
     left: 10px;
   }
 }
+
+/* Metrics table responsive adjustments for small screens */
+@media (max-width: 600px) {
+  .metrics-table-container { overflow-x: visible !important; }
+  .metrics-table { width: 100% !important; min-width: 0 !important; font-size: 13px !important; }
+  .metrics-table thead { display: none; }
+  .metrics-table tbody tr { display: block; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 8px; padding-bottom: 6px; }
+  .metrics-table tbody tr td { display: flex; justify-content: space-between; padding: 6px 8px; box-sizing: border-box; }
+  .metrics-table tbody tr td:first-child { color: var(--muted); font-weight: 600; flex: 1 1 auto; }
+  .metrics-table tbody tr td:last-child { text-align: right; white-space: nowrap; margin-left: 12px; }
+  .metrics-table-container .metrics-table { border: 0; }
+}
