@@ -7,6 +7,153 @@ function showPrinterDetailsData(p, source, parseDebug) {
     }
 }
 
+// Update the discovered and saved printers UI by querying the backend and
+// rendering cards using the shared card renderers in `common/web/cards.js`.
+function updatePrinters() {
+    try {
+        const showKnownDevices = document.getElementById('show_saved_in_discovered')?.checked || false;
+
+        // Map slider index to minute values (0 = all time)
+        const timeFilterValues = [1,2,5,10,15,30,60,120,180,360,720,1440,4320,0];
+        const slider = document.getElementById('time_slider');
+        const index = slider ? parseInt(slider.value) : (timeFilterValues.length - 1);
+        const timeMinutes = timeFilterValues[index] || 0;
+
+        let discoveredEndpoint = '/devices/discovered?include_known=' + showKnownDevices;
+        if (timeMinutes > 0) discoveredEndpoint += '&minutes=' + timeMinutes;
+
+        Promise.all([
+            fetch(discoveredEndpoint).then(r => r.ok ? r.json() : []),
+            fetch('/devices/list').then(r => r.ok ? r.json() : [])
+        ]).then(([discovered, saved]) => {
+            window.discoveredPrinters = discovered || [];
+
+            const discoveredContainer = document.getElementById('discovered_devices_cards');
+            if (!discoveredContainer) return;
+
+            const savedSerials = new Set();
+            const savedIPs = new Set();
+            if (Array.isArray(saved)) {
+                saved.forEach(item => {
+                    const p = item.printer_info || {};
+                    const serial = item.serial || '';
+                    const ip = p.ip || '';
+                    if (serial) savedSerials.add(serial);
+                    if (ip) savedIPs.add(ip);
+                });
+            }
+
+            // Autosave/display controls
+            const autosaveEnabled = document.getElementById('autosave_checkbox')?.checked || false;
+            const showDiscoveredAnyway = document.getElementById('show_discovered_devices_anyway')?.checked || false;
+            const discoveredSection = document.getElementById('discovered_section');
+            if (discoveredSection) {
+                const shouldShowDiscovered = !autosaveEnabled || (autosaveEnabled && showDiscoveredAnyway);
+                discoveredSection.style.display = shouldShowDiscovered ? 'block' : 'none';
+            }
+
+            // Render discovered
+            if (!Array.isArray(discovered) || discovered.length === 0) {
+                discoveredContainer.innerHTML = '<div style="color:var(--muted);padding:12px">No discovered printers</div>';
+                const statsEl = document.getElementById('discovered_stats'); if (statsEl) statsEl.innerHTML = '';
+            } else {
+                let lowTonerCount = 0;
+                discovered.forEach(p => {
+                    const toners = p.toner_levels || {};
+                    for (const c in toners) { if (toners[c] < 20) { lowTonerCount++; break; } }
+                });
+                const statsHtml = '<span style="color:var(--text)"><strong>Total:</strong> ' + discovered.length + '</span>' +
+                    '<span style="color:#b58900"><strong>Low Toner:</strong> ' + lowTonerCount + '</span>';
+                const statsEl = document.getElementById('discovered_stats'); if (statsEl) statsEl.innerHTML = statsHtml;
+
+                let cardsHTML = '';
+                discovered.forEach(p => {
+                    const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
+                    try { cardsHTML += (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderDiscoveredCard === 'function') ? window.__pm_shared_cards.renderDiscoveredCard(p, isSaved) : '' } catch(e){}
+                });
+                discoveredContainer.innerHTML = cardsHTML;
+            }
+
+            // Autosave new discovered devices if enabled
+            if (autosaveEnabled && Array.isArray(discovered) && discovered.length > 0) {
+                if (!window.autosavedIPs) window.autosavedIPs = new Set();
+                discovered.forEach(p => {
+                    const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
+                    if (p.ip && !isSaved && !window.autosavedIPs.has(p.ip)) {
+                        window.autosavedIPs.add(p.ip);
+                        saveDiscoveredDevice(p.ip, true).catch(() => { window.autosavedIPs.delete(p.ip); });
+                    }
+                });
+            }
+
+        }).catch(e => { console.error('updatePrinters discovered error', e); });
+
+        // Render saved devices
+        fetch('/devices/list').then(r => r.ok ? r.json() : []).then(saved => {
+            const savedContainer = document.getElementById('saved_devices_cards');
+            if (!savedContainer) return;
+
+            if (!Array.isArray(saved) || saved.length === 0) {
+                savedContainer.innerHTML = '<div style="color:var(--muted);padding:12px">No saved devices</div>';
+                const statsEl = document.getElementById('saved_stats'); if (statsEl) statsEl.innerHTML = '';
+            } else {
+                let lowTonerCount = 0;
+                saved.forEach(item => {
+                    const p = item.printer_info || {};
+                    const toners = p.toner_levels || {};
+                    for (const c in toners) { if (toners[c] < 20) { lowTonerCount++; break; } }
+                });
+                const statsHtml = '<span style="color:var(--text)"><strong>Total:</strong> ' + saved.length + '</span>' +
+                    '<span style="color:#b58900"><strong>Low Toner:</strong> ' + lowTonerCount + '</span>';
+                const statsEl = document.getElementById('saved_stats'); if (statsEl) statsEl.innerHTML = statsHtml;
+
+                const existingCards = Array.from(savedContainer.querySelectorAll('.saved-device-card'));
+                const existingKeys = new Set(existingCards.map(c => c.dataset.deviceKey));
+                const isInitialLoad = existingCards.length === 0;
+
+                if (isInitialLoad) {
+                    let cardsHTML = '';
+                    saved.forEach(item => { try { cardsHTML += (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : '' } catch(e){} });
+                    savedContainer.innerHTML = cardsHTML;
+                    saved.forEach(item => { if (item.serial && window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadUsageGraph === 'function') { window.__pm_shared_metrics.loadUsageGraph(item.serial); } });
+                } else {
+                    saved.forEach(item => {
+                        const deviceKey = item.serial || (item.printer_info && item.printer_info.ip) || '';
+                        if (!deviceKey) return;
+                        if (!existingKeys.has(deviceKey)) {
+                            const tempDiv = document.createElement('div');
+                            try { tempDiv.innerHTML = (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : ''; } catch(e) { tempDiv.innerHTML = ''; }
+                            const newCard = tempDiv.firstElementChild;
+                            if (newCard) savedContainer.appendChild(newCard);
+                            requestAnimationFrame(() => { if (newCard) newCard.classList.add('card-entering'); });
+                            if (item.serial && window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadUsageGraph === 'function') window.__pm_shared_metrics.loadUsageGraph(item.serial);
+                        }
+                    });
+
+                    const savedKeys = new Set(saved.map(item => item.serial || (item.printer_info && item.printer_info.ip) || ''));
+                    existingCards.forEach(card => {
+                        const key = card.dataset.deviceKey;
+                        if (key && !savedKeys.has(key)) { card.classList.add('removing'); setTimeout(() => card.remove(), 400); }
+                    });
+                }
+            }
+        }).catch(e => { console.error('updatePrinters saved error', e); });
+
+    } catch (e) {
+        console.error('updatePrinters failed', e);
+    }
+}
+
+// Toggle database backend credential fields based on selection
+// Delegate database field visibility toggling to the shared implementation
+// provided by `common/web/shared.js`.
+function toggleDatabaseFields() {
+    if (window.__pm_shared && typeof window.__pm_shared.toggleDatabaseFields === 'function') {
+        try { return window.__pm_shared.toggleDatabaseFields(); } catch (e) { console.warn('shared toggleDatabaseFields failed', e); }
+    }
+    // Fallback: no-op
+}
+
 // Clear entire database (backup and reset)
 async function clearDatabase() {
     const confirmed = await window.__pm_shared.showConfirm(
@@ -2626,7 +2773,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const dbBackendType = document.getElementById('db_backend_type');
     if (dbBackendType) {
-        dbBackendType.addEventListener('change', toggleDatabaseFields);
+    dbBackendType.addEventListener('change', function () { if (window.__pm_shared && typeof window.__pm_shared.toggleDatabaseFields === 'function') { try { window.__pm_shared.toggleDatabaseFields(); } catch(e){console.warn('shared toggleDatabaseFields failed', e);} } else { toggleDatabaseFields(); } });
     }
 
     // Attach tab button listeners

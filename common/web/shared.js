@@ -396,6 +396,45 @@ function formatRelativeTime(dateString) {
 }
 
 // ============================================================================
+// Database backend field toggles (shared)
+// Moved here so Agent and Server UIs reuse the same behavior without
+// duplicating the logic in each bundle.
+function toggleDatabaseFields() {
+    const selector = document.getElementById('db_backend_type');
+    if (!selector) return;
+
+    const selectedBackend = selector.value;
+
+    // Hide all backend field groups
+    const allFieldGroups = [
+        'db_sqlite_fields',
+        'db_postgresql_fields',
+        'db_mysql_fields',
+        'db_mssql_fields',
+        'db_mongodb_fields'
+    ];
+    allFieldGroups.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    // Show the selected backend's fields
+    const targetId = 'db_' + selectedBackend + '_fields';
+    const targetEl = document.getElementById(targetId);
+    if (targetEl) targetEl.style.display = 'flex';
+
+    // Show/hide clear database section (SQLite only)
+    const clearSection = document.getElementById('clear_db_section');
+    if (clearSection) {
+        clearSection.style.display = (selectedBackend === 'sqlite') ? 'block' : 'none';
+    }
+}
+
+// Export to namespaced shared API
+window.__pm_shared = window.__pm_shared || {};
+window.__pm_shared.toggleDatabaseFields = toggleDatabaseFields;
+
+// ============================================================================
 // NUMBER FORMATTING
 // ============================================================================
 

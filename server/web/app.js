@@ -1078,6 +1078,8 @@ async function loadSettings() {
         const settings = await response.json();
         console.log('Settings loaded:', settings);
         // TODO: Populate settings form
+
+        // Show printer details modal by delegating to the shared renderer.
     } catch (error) {
         console.error('Failed to load settings:', error);
     try { window.__pm_shared.showToast('Failed to load settings', 'error'); } catch (e) { console.warn('toast failed', e); }
