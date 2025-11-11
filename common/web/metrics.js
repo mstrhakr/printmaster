@@ -447,7 +447,7 @@ async function refreshMetricsChart(serial) {
                     const tier = btn.getAttribute('data-tier') || '';
                     if (!id) return;
 
-                    const confirmed = await showConfirm('Delete this metrics row? This action cannot be undone.', 'Confirm Delete', true);
+                    const confirmed = await window.__pm_shared.showConfirm('Delete this metrics row? This action cannot be undone.', 'Confirm Delete', true);
                     if (!confirmed) return;
 
                     try {
@@ -460,10 +460,10 @@ async function refreshMetricsChart(serial) {
                             refreshMetricsChart(serial);
                         } else {
                             const txt = await resp.text();
-                            await showConfirm('Failed to delete metric: ' + txt, 'Delete Failed', false);
+                            try { window.__pm_shared.showAlert('Failed to delete metric: ' + txt, 'Delete Failed', true, false); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
                         }
                     } catch (err) {
-                        await showConfirm('Error deleting metric: ' + err, 'Delete Failed', false);
+                        try { window.__pm_shared.showAlert('Error deleting metric: ' + err, 'Delete Failed', true, false); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
                     } finally {
                         btn.disabled = false;
                     }
@@ -844,3 +844,4 @@ window.initializeCustomDatetimePicker = window.initializeCustomDatetimePicker ||
 window.setMetricsQuickRange = window.setMetricsQuickRange || setMetricsQuickRange;
 window.refreshMetricsChart = window.refreshMetricsChart || refreshMetricsChart;
 window.loadUsageGraph = window.loadUsageGraph || loadUsageGraph;
+

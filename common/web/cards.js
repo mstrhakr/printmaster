@@ -82,17 +82,7 @@
 
     // Preserve any existing global renderCapabilities if present, otherwise
     // provide a safe implementation that delegates to the fallback renderer.
-    var __pm_existing_renderCapabilities = (typeof window !== 'undefined' && typeof window.renderCapabilities === 'function') ? window.renderCapabilities : null;
-
     function renderCapabilities(device) {
-        if (__pm_existing_renderCapabilities) {
-            try {
-                return __pm_existing_renderCapabilities(device);
-            } catch (e) {
-                // If the existing implementation throws, fall back to our safe renderer
-                return renderCapabilitiesFallback(device);
-            }
-        }
         return renderCapabilitiesFallback(device);
     }
 
@@ -103,7 +93,7 @@
             const data = await res.json();
             if (data && data.rotated) {
                 const message = `The database was rotated due to a migration failure on ${data.rotated_at || 'recently'}.\n\nA fresh database has been created and the old database has been backed up to:\n${data.backup_path || 'unknown location'}\n\nAll discovered devices and historical metrics data from the previous database are not available in the current session. If you need to recover data, you can manually restore the backup file.\n\nClick OK to acknowledge this warning.`;
-                const confirmed = (typeof showConfirm === 'function') ? await showConfirm(message, 'Database Rotation Notice') : window.confirm(message);
+                const confirmed = await window.__pm_shared.showConfirm(message, 'Database Rotation Notice');
                 if (confirmed) {
                     await fetch('/database/rotation_warning', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ack: true }) });
                 }
@@ -209,13 +199,10 @@
     window.__pm_shared_cards.renderDiscoveredCard = renderDiscoveredCard;
     window.__pm_shared_cards.showDiscoveringCard = showDiscoveringCard;
 
-    // Backwards-compatible globals if consumers expect them
-    if (typeof window.renderDiscoveredCard !== 'function') window.renderDiscoveredCard = renderDiscoveredCard;
-    if (typeof window.showDiscoveringCard !== 'function') window.showDiscoveringCard = showDiscoveringCard;
-
-    // Backwards-compatible globals if consumers expect them
-    if (typeof window.renderSavedCard !== 'function') window.renderSavedCard = renderSavedCard;
-    if (typeof window.checkDatabaseRotationWarning !== 'function') window.checkDatabaseRotationWarning = checkDatabaseRotationWarning;
-    if (typeof window.renderCapabilities !== 'function') window.renderCapabilities = renderCapabilities;
+    // Note: backwards-compatible global exports removed. Consumers should use
+    // the namespaced `window.__pm_shared_cards` API (renderSavedCard,
+    // renderDiscoveredCard, showDiscoveringCard, checkDatabaseRotationWarning,
+    // renderCapabilities).
 
 })();
+
