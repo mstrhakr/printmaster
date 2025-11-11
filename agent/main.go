@@ -2437,6 +2437,13 @@ func runInteractive(ctx context.Context, configFlag string) {
 		fmt.Fprintf(w, "event: connected\ndata: {\"message\":\"Connected to event stream\"}\n\n")
 		flusher.Flush()
 
+		// Send periodic keepalive comments to prevent idle timeouts in proxies
+		// and intermediaries that may close connections when no data flows.
+		// The comment format ": <text>\n\n" is ignored by EventSource but keeps the TCP/TLS
+		// session active. Use a 20s interval which is commonly safe.
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+
 		// Stream events to client
 		for {
 			select {
@@ -2451,6 +2458,12 @@ func runInteractive(ctx context.Context, configFlag string) {
 				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, string(data))
 				flusher.Flush()
 
+			case <-ticker.C:
+				// Keepalive comment for EventSource; ignored by client but prevents
+				// idle connection timeouts in proxies and network middleboxes.
+				// Format: comment line starting with ':' followed by a blank line.
+				_, _ = fmt.Fprintf(w, ": keepalive\n\n")
+				flusher.Flush()
 			case <-r.Context().Done():
 				// Client disconnected
 				return
