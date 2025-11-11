@@ -2955,7 +2955,14 @@ eventSource.onerror = (e) => {
 // Load auto-discover checkbox state on page load (from unified settings)
 fetch('/settings').then(r => r.json()).then(all => {
     const disc = all.discovery || {};
-    document.getElementById('auto_discover_checkbox').checked = disc.auto_discover_enabled === true;
+    // Apply discovery-related toggles immediately so UI reflects server state on first paint
+    const autoDiscoverEl = document.getElementById('auto_discover_checkbox');
+    if (autoDiscoverEl) autoDiscoverEl.checked = disc.auto_discover_enabled === true;
+    const autosaveEl = document.getElementById('autosave_checkbox');
+    if (autosaveEl) autosaveEl.checked = disc.autosave_discovered_devices === true;
+    // Ensure 'Show Discovered Devices Anyway' container visibility follows autosave setting
+    const showDiscoveredAnywayContainer = document.getElementById('show_discovered_devices_anyway_container');
+    if (showDiscoveredAnywayContainer) showDiscoveredAnywayContainer.style.display = (disc.autosave_discovered_devices === true) ? 'flex' : 'none';
 }).catch(e => {
     console.error('Failed to load auto discover state:', e);
 });
