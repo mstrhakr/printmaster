@@ -1,4 +1,0 @@
-/* Minimal flatpickr CSS fallback - keeps inputs readable when full library not available */
-.flatpickr-calendar { display: none; }
-.flatpickr-time { display: none; }
-.flatpickr-input { cursor: pointer; }

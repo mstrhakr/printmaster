@@ -27,7 +27,7 @@ var MetricsJS string
 //go:embed cards.js
 var CardsJS string
 
-// Flatpickr vendor assets were previously embedded here. The project now
+// Flatpickr vendor assets are no longer embedded in the binary. The project
 // prefers loading flatpickr from a CDN (see agent/web/index.html and
-// server/web/index.html). If you need to vendor the files again, place them
-// under common/web/vendor/flatpickr/ and re-enable the embed directive.
+// server/web/index.html). If you need to vendor the files again, update the
+// build/embed strategy accordingly.

@@ -2360,16 +2360,10 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharedweb.CardsJS))
 		return
 	}
-	// Redirect requests for flatpickr vendor assets to the CDN.
-	// Local vendoring was removed; prefer the CDN for simplicity.
-	if fileName == "vendor/flatpickr/flatpickr.min.css" {
-		http.Redirect(w, r, "https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css", http.StatusFound)
-		return
-	}
-	if fileName == "vendor/flatpickr/flatpickr.min.js" {
-		http.Redirect(w, r, "https://cdn.jsdelivr.net/npm/flatpickr", http.StatusFound)
-		return
-	}
+	// flatpickr vendor files are no longer served from the binary; the UI
+	// loads flatpickr directly from the CDN (see agent/web/index.html and
+	// server/web/index.html). Requests for local vendor paths will result
+	// in a normal 404 from the embedded file system.
 
 	// Serve other files from embedded FS
 	filePath := "web/" + fileName
