@@ -542,7 +542,7 @@ function updatePrinters() {
                 // Initial load - render all cards at once without animation
                 let cardsHTML = '';
                 saved.forEach(item => {
-                    cardsHTML += (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : renderSavedCard(item);
+                    cardsHTML += window.__pm_shared_cards.renderSavedCard(item);
                 });
                 savedContainer.innerHTML = cardsHTML;
                 
@@ -561,7 +561,7 @@ function updatePrinters() {
                     if (!existingKeys.has(deviceKey)) {
                         // New device - add with animation at the end
                         const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : renderSavedCard(item);
+                        tempDiv.innerHTML = window.__pm_shared_cards.renderSavedCard(item);
                         const newCard = tempDiv.firstElementChild;
                         savedContainer.appendChild(newCard);
                         
@@ -3095,8 +3095,8 @@ document.addEventListener('DOMContentLoaded', function () {
         console.log('Agent UI is being accessed through server proxy - disabling nested proxy features');
     }
 
-    // Check for database rotation warning on first page load
-    checkDatabaseRotationWarning();
+    // Check for database rotation warning on first page load (provided by shared cards)
+    window.__pm_shared_cards.checkDatabaseRotationWarning();
 
     // Initialize advanced settings visibility
     const advancedVisible = localStorage.getItem('settingsAdvancedVisible') === 'true';
