@@ -542,7 +542,7 @@ function updatePrinters() {
                 // Initial load - render all cards at once without animation
                 let cardsHTML = '';
                 saved.forEach(item => {
-                    cardsHTML += renderSavedCard(item);
+                    cardsHTML += (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : renderSavedCard(item);
                 });
                 savedContainer.innerHTML = cardsHTML;
                 
@@ -561,7 +561,7 @@ function updatePrinters() {
                     if (!existingKeys.has(deviceKey)) {
                         // New device - add with animation at the end
                         const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = renderSavedCard(item);
+                        tempDiv.innerHTML = (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : renderSavedCard(item);
                         const newCard = tempDiv.firstElementChild;
                         savedContainer.appendChild(newCard);
                         
