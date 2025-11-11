@@ -30,6 +30,15 @@
                 if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) {
                     try { var parsed = new URL(path); if (parsed.origin !== location.origin) return false; path = parsed.pathname + (parsed.search || ''); } catch(e) { return false; }
                 }
+                // Do not rewrite requests that are intended for the server-level
+                // SSE endpoint. When the agent UI is proxied, the bundle may
+                // still want to reach the server's /api/events stream (not the
+                // agent's /events). Rewriting /api/events into the proxy base
+                // causes the server to forward it to the agent (which doesn't
+                // expose /api/events) and results in a 404. Treat /api/events
+                // as server-hosted and do NOT rewrite it.
+                if (path === '/api/events' || path.indexOf('/api/events?') === 0) return false;
+
                 if (path.indexOf('/') !== 0) return false;
                 for (var i = 0; i < prefixes.length; i++) if (path.indexOf(prefixes[i]) === 0) return true;
             } catch (e) {}
