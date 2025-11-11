@@ -180,7 +180,7 @@ function checkConfigStatus() {
                 });
                 message += '\nThe server is running with default settings. Please check your config.toml file.';
                 
-                try { window.__pm_shared.showAlert(message, '⚠️ Configuration Error', true, true); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
+                window.__pm_shared.showAlert(message, '⚠️ Configuration Error', true, true);
             } else if (data.using_defaults) {
                 // No config file found - show informational modal
                 let message = 'No configuration file was found in any of these locations:\n\n';
@@ -189,12 +189,48 @@ function checkConfigStatus() {
                 });
                 message += '\nThe server is running with default settings.';
                 
-                try { window.__pm_shared.showAlert(message, 'ℹ️ Using Default Configuration', false, true); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
+                window.__pm_shared.showAlert(message, 'ℹ️ Using Default Configuration', false, true);
             }
         })
         .catch(err => {
             console.error('Failed to check config status:', err);
         });
+}
+
+// Metrics modal (delegate to shared implementation)
+function showDeviceMetricsModal(serial, preset) {
+    if (!serial) return;
+    if (typeof window !== 'undefined' && typeof window.showMetricsModal === 'function') {
+        try {
+            window.showMetricsModal({ serial, preset });
+            return;
+        } catch (e) {
+            console.warn('shared.showMetricsModal failed', e);
+        }
+    }
+    // Fallback: minimal alert
+    window.__pm_shared.showAlert('Metrics UI not available for ' + serial, 'Metrics', false, false);
+}
+
+// Toggle the visibility of the metrics time selector for a given container.
+// targetId: optional id of the container that holds the metrics UI (e.g. 'metrics_modal_body' or 'metrics_content').
+function toggleMetricsTimeSelector(targetId) {
+    try {
+        let container = null;
+        if (targetId) container = document.getElementById(targetId);
+        // Fallbacks: modal body or generic metrics content
+        if (!container) container = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content') || document.body;
+
+        const selector = container.querySelector('#metrics_time_selector');
+        const btn = container.querySelector('#metrics_toggle_time_btn');
+        if (!selector || !btn) return;
+
+        const nowHidden = selector.classList.toggle('hidden');
+        btn.textContent = nowHidden ? 'Show time selector' : 'Hide time selector';
+        btn.setAttribute('aria-expanded', (!nowHidden).toString());
+    } catch (e) {
+        console.warn('toggleMetricsTimeSelector failed', e);
+    }
 }
 
 // ====== Theme Toggle ======
@@ -665,7 +701,7 @@ async function viewAgentDetails(agentId) {
         console.error('Failed to load agent details:', error);
         const body = document.getElementById('agent_details_body');
         body.innerHTML = `<div style="color:var(--error);text-align:center;padding:20px;">Failed to load agent details: ${error.message}</div>`;
-    try { window.__pm_shared.showToast('Failed to load agent details', 'error'); } catch (e) { console.warn('toast failed', e); }
+        window.__pm_shared.showToast('Failed to load agent details', 'error');
     }
 }
 
@@ -930,7 +966,7 @@ async function deleteAgent(agentId, displayName) {
         const result = await response.json();
         console.log('Delete successful:', result);
         
-    try { window.__pm_shared.showToast(`Agent "${displayName}" deleted successfully`, 'success'); } catch (e) { console.warn('toast failed', e); }
+    window.__pm_shared.showToast(`Agent "${displayName}" deleted successfully`, 'success');
         
         // Remove agent card with animation
         const card = document.querySelector(`[data-agent-id="${agentId}"]`);
@@ -946,7 +982,7 @@ async function deleteAgent(agentId, displayName) {
         }
     } catch (error) {
         console.error('Failed to delete agent:', error);
-    try { window.__pm_shared.showToast(`Failed to delete agent: ${error.message}`, 'error'); } catch (e) { console.warn('toast failed', e); }
+        window.__pm_shared.showToast(`Failed to delete agent: ${error.message}`, 'error');
     }
 }
 
@@ -1020,6 +1056,9 @@ function renderDevices(devices) {
                 <button onclick="openDeviceMetrics('${device.serial}')" ${!device.serial ? 'disabled title="No serial"' : ''}>
                     View Metrics
                 </button>
+                <button onclick="showPrinterDetails('${device.ip||''}','saved')" ${!device.ip ? 'disabled title="No IP"' : ''}>
+                    Details
+                </button>
             </div>
         </div>
         `;
@@ -1028,15 +1067,44 @@ function renderDevices(devices) {
     container.innerHTML = devices.map(device => renderDeviceCard(device)).join('');
 }
 
+// Show printer details modal by finding the device in the server device list
+async function showPrinterDetails(ip, source) {
+    if (!ip) return;
+    source = source || 'saved';
+    try {
+        const res = await fetch('/api/v1/devices/list');
+        if (!res.ok) throw new Error('Failed to fetch devices');
+        const devices = await res.json();
+        if (!Array.isArray(devices)) throw new Error('Invalid device list');
+
+        // Try to find by ip or serial
+        let found = devices.find(d => (d.ip && d.ip === ip) || (d.serial && d.serial === ip) || (d.printer_info && (d.printer_info.ip === ip || d.printer_info.serial === ip)));
+        if (!found && devices.length === 1 && devices[0].ip === ip) found = devices[0];
+
+        if (!found) {
+            window.__pm_shared.showToast('Device not found', 'error');
+            return;
+        }
+
+        // Normalize shape: server devices might embed printer_info under different keys
+        const deviceObj = found.printer_info ? Object.assign({}, found.printer_info, { serial: found.serial || (found.printer_info && found.printer_info.serial) }) : found;
+
+        window.__pm_shared_cards.showPrinterDetailsData(deviceObj, source, null);
+    } catch (err) {
+        console.error('showPrinterDetails failed', err);
+        window.__pm_shared.showToast('Failed to load device details', 'error');
+    }
+}
+
 // ====== Utility Functions ======
 function copyToClipboard(text) {
     if (!text) return;
     
     navigator.clipboard.writeText(text).then(() => {
-    try { window.__pm_shared.showToast('Copied to clipboard', 'success', 1500); } catch (e) { console.warn('toast failed', e); }
+        window.__pm_shared.showToast('Copied to clipboard', 'success', 1500);
     }).catch(err => {
         console.error('Failed to copy:', err);
-    try { window.__pm_shared.showToast('Failed to copy to clipboard', 'error'); } catch (e) { console.warn('toast failed', e); }
+        window.__pm_shared.showToast('Failed to copy to clipboard', 'error');
     });
 }
 
@@ -1061,7 +1129,7 @@ function openDeviceMetrics(serial) {
         window.showMetricsModal({ serial });
     } else {
         // Fallback: navigate to devices list or show a toast
-    try { window.__pm_shared.showToast('Metrics UI not available', 'error'); } catch (e) { console.warn('toast failed', e); }
+        window.__pm_shared.showToast('Metrics UI not available', 'error');
     }
 }
 
@@ -1071,7 +1139,7 @@ async function loadSettings() {
         // There's no complex settings endpoint yet; reuse config status as a safe probe
         const response = await fetch('/api/config/status');
         if (!response.ok) {
-            try { window.__pm_shared.showToast('Failed to load settings', 'error'); } catch (e) { console.warn('toast failed', e); }
+            window.__pm_shared.showToast('Failed to load settings', 'error');
             return;
         }
         
@@ -1082,7 +1150,7 @@ async function loadSettings() {
         // Show printer details modal by delegating to the shared renderer.
     } catch (error) {
         console.error('Failed to load settings:', error);
-    try { window.__pm_shared.showToast('Failed to load settings', 'error'); } catch (e) { console.warn('toast failed', e); }
+        window.__pm_shared.showToast('Failed to load settings', 'error');
     }
 }
 
@@ -1098,14 +1166,14 @@ async function saveSettings() {
         });
         
         if (!response.ok) {
-            try { window.__pm_shared.showToast('Failed to save settings', 'error'); } catch (e) { console.warn('toast failed', e); }
+            window.__pm_shared.showToast('Failed to save settings', 'error');
             return;
         }
-        
-    try { window.__pm_shared.showToast('Settings saved successfully', 'success'); } catch (e) { console.warn('toast failed', e); }
+
+        window.__pm_shared.showToast('Settings saved successfully', 'success');
     } catch (error) {
         console.error('Failed to save settings:', error);
-    try { window.__pm_shared.showToast('Failed to save settings', 'error'); } catch (e) { console.warn('toast failed', e); }
+    window.__pm_shared.showToast('Failed to save settings', 'error');
     }
 }
 
@@ -1213,4 +1281,64 @@ window.addEventListener('click', (event) => {
         confirmModal.style.display = 'none';
     }
 });
+
+// Toggle visibility of advanced settings controls
+function toggleAdvancedSettings() {
+    try {
+        const enabled = document.getElementById('settings_advanced_toggle')?.checked || false;
+        // Elements marked as advanced-setting should be shown/hidden
+        document.querySelectorAll('.advanced-setting').forEach(el => {
+            if (enabled) {
+                el.style.display = '';
+            } else {
+                el.style.display = 'none';
+            }
+        });
+
+        // Textareas or other advanced inputs may use a dedicated class
+        document.querySelectorAll('.advanced-setting-textarea').forEach(el => {
+            if (enabled) el.style.display = '';
+            else el.style.display = 'none';
+        });
+
+        // Persist preference
+        try { localStorage.setItem('settings_advanced', enabled ? 'true' : 'false'); } catch (e) {}
+    } catch (e) {
+        console.error('toggleAdvancedSettings failed', e);
+        throw e;
+    }
+}
+
+// Update the compact time filter display label from slider index
+function updateTimeFilter(index) {
+    const labels = ['1m','2m','5m','10m','15m','30m','1h','2h','3h','6h','12h','1d','3d','All Time'];
+    let idx = parseInt(index, 10);
+    if (isNaN(idx) || idx < 0) idx = labels.length - 1;
+    if (idx >= labels.length) idx = labels.length - 1;
+    const el = document.getElementById('time_filter_value');
+    if (el) el.textContent = labels[idx];
+}
+
+// Wire up printer details modal close buttons and backdrop
+(function wirePrinterModal() {
+    const detailsOverlay = document.getElementById('printer_details_overlay');
+    const modalCloseBtn = document.querySelector('#printer_details_actions button');
+    const printerDetailsCloseX = document.getElementById('printer_details_close_x');
+
+    function closePrinterDetailsModal() {
+        if (detailsOverlay) {
+            detailsOverlay.style.display = 'none';
+            document.body.style.overflow = '';
+            try { delete detailsOverlay.dataset.currentPrinterIp; } catch (e) {}
+        }
+    }
+
+    if (modalCloseBtn) modalCloseBtn.addEventListener('click', closePrinterDetailsModal);
+    if (printerDetailsCloseX) printerDetailsCloseX.addEventListener('click', closePrinterDetailsModal);
+    if (detailsOverlay) {
+        detailsOverlay.addEventListener('click', function (e) {
+            if (e.target === detailsOverlay) closePrinterDetailsModal();
+        });
+    }
+})();
 

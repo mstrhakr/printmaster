@@ -1206,6 +1206,36 @@ func setupRoutes() {
 	// Minimal settings & logs endpoints for the UI (placeholders)
 	http.HandleFunc("/api/settings", handleSettings)
 	http.HandleFunc("/api/logs", handleLogs)
+
+	// Provide a lightweight proxy/compat endpoint for web UI credentials so the
+	// server UI doesn't 404 when the shared cards call /device/webui-credentials.
+	// If the server does not have credentials for the device, respond with
+	// exists:false — agent UIs will use their own endpoint.
+	http.HandleFunc("/device/webui-credentials", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			// Query param: serial
+			serial := r.URL.Query().Get("serial")
+			if serial == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"error":"serial required"}`))
+				return
+			}
+			// Server does not centrally store per-device webui creds yet; return exists:false
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"exists": false}`))
+			return
+		case http.MethodPost:
+			// For now, accept and acknowledge but do not persist
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"success": false, "message": "server cannot store credentials"}`))
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	})
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -2360,10 +2390,26 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharedweb.CardsJS))
 		return
 	}
-	// flatpickr vendor files are no longer served from the binary; the UI
-	// loads flatpickr directly from the CDN (see agent/web/index.html and
-	// server/web/index.html). Requests for local vendor paths will result
-	// in a normal 404 from the embedded file system.
+	// Serve vendored flatpickr files from the embedded common/web package so
+	// they are served with correct MIME types and avoid CDN/CSP issues.
+	if fileName == "flatpickr/flatpickr.min.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.FlatpickrJS))
+		return
+	}
+	if fileName == "flatpickr/flatpickr.min.css" {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.FlatpickrCSS))
+		return
+	}
+	if fileName == "flatpickr/LICENSE.md" {
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.FlatpickrLicense))
+		return
+	}
 
 	// Serve other files from embedded FS
 	filePath := "web/" + fileName
