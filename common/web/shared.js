@@ -1,24 +1,40 @@
 // PrintMaster Shared JavaScript - Common utilities for Agent and Server UIs
 
+// Ensure a minimal namespaced API exists immediately so other bundles can
+// call into `window.__pm_shared` without guards. We intentionally provide
+// no-op fallbacks here; the full implementations are exported later in this
+// file. This lets callers "just call" window.__pm_shared.showToast(...) and
+// avoid repetitive guards or try/catch wrappers.
+window.__pm_shared = window.__pm_shared || {};
+
 // Load shared vendor assets (flatpickr) from server-hosted copy if available,
 // otherwise fall back to CDN. This centralizes the import so agent and server
 // UIs get the same vendor script without duplicating <script> tags in each
 // HTML file.
 // Load flatpickr from the CDN (simpler, reliable). If you prefer vendoring,
 // reintroduce local files and update the server embed accordingly.
-(function loadFlatpickrFromCdn() {
-    const cdnCss = 'https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css';
-    const cdnJs = 'https://cdn.jsdelivr.net/npm/flatpickr';
+(function loadFlatpickrFromStatic() {
+    // Prefer a locally hosted copy of flatpickr under /static/flatpickr/
+    // This avoids Content-Security-Policy violations when pages forbid loading
+    // remote resources. If the static files are missing, we silently skip
+    // loading the vendor (flatpickr is optional for the basic UI).
+    try {
+        const cssPath = '/static/flatpickr/flatpickr.min.css';
+        const jsPath = '/static/flatpickr/flatpickr.min.js';
 
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = cdnCss;
-    document.head.appendChild(link);
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = cssPath;
+        document.head.appendChild(link);
 
-    const script = document.createElement('script');
-    script.src = cdnJs;
-    script.defer = true;
-    document.head.appendChild(script);
+        const script = document.createElement('script');
+        script.src = jsPath;
+        script.defer = true;
+        document.head.appendChild(script);
+    } catch (e) {
+        // If injection fails for any reason, don't break the page.
+        console.warn('flatpickr static injection failed', e);
+    }
 })();
 
 // ============================================================================
@@ -50,7 +66,7 @@ function showToast(message, type = 'success', duration = 3000) {
     `;
     
     container.appendChild(toast);
-    
+
     // Auto-remove after duration
     setTimeout(() => {
         toast.classList.add('toast-hiding');
@@ -99,7 +115,7 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
         
         if (!modal || !titleEl || !messageEl || !confirmBtn || !cancelBtn) {
             // Fallback to browser confirm if modal not available
-            resolve(confirm(message));
+            try { resolve(window.confirm(message)); } catch (e) { resolve(false); }
             return;
         }
         
@@ -544,8 +560,8 @@ window.showMetricsModal = async function (opts = {}) {
         return res.json();
     });
 
-    // If the richer metrics UI is available (shared metrics bundle), prefer it
-    if (typeof window.loadDeviceMetrics === 'function' || (window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadDeviceMetrics === 'function')) {
+    // Use the shared metrics bundle loader directly (fail-fast if not present)
+    if (window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadDeviceMetrics === 'function') {
         // Create a modal container that the shared metrics loader understands
         let modal = document.getElementById('metrics_modal');
         if (!modal) {

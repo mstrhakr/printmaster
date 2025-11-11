@@ -460,10 +460,10 @@ async function refreshMetricsChart(serial) {
                             refreshMetricsChart(serial);
                         } else {
                             const txt = await resp.text();
-                            try { window.__pm_shared.showAlert('Failed to delete metric: ' + txt, 'Delete Failed', true, false); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
+                            window.__pm_shared.showAlert('Failed to delete metric: ' + txt, 'Delete Failed', true, false);
                         }
                     } catch (err) {
-                        try { window.__pm_shared.showAlert('Error deleting metric: ' + err, 'Delete Failed', true, false); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
+                        window.__pm_shared.showAlert('Error deleting metric: ' + err, 'Delete Failed', true, false);
                     } finally {
                         btn.disabled = false;
                     }

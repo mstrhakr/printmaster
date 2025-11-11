@@ -1,4 +1,3 @@
-// Package web provides shared web assets for PrintMaster UIs
 // Package web provides shared web assets for PrintMaster UIs.
 package web
 
@@ -29,7 +28,17 @@ var MetricsJS string
 //go:embed cards.js
 var CardsJS string
 
-// Flatpickr vendor assets are no longer embedded in the binary. The project
-// prefers loading flatpickr from a CDN (see agent/web/index.html and
-// server/web/index.html). If you need to vendor the files again, update the
-// build/embed strategy accordingly.
+// For CSP and offline scenarios we now vendor flatpickr under static/flatpickr
+// and embed the files into the binary so they are served with correct MIME
+// types. These variables expose the embedded assets which are served as
+// /static/flatpickr/flatpickr.min.js, /static/flatpickr/flatpickr.min.css,
+// and /static/flatpickr/LICENSE.md respectively.
+//
+//go:embed flatpickr/flatpickr.min.js
+var FlatpickrJS string
+
+//go:embed flatpickr/flatpickr.min.css
+var FlatpickrCSS string
+
+//go:embed flatpickr/LICENSE.md
+var FlatpickrLicense string

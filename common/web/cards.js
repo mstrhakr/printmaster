@@ -138,10 +138,10 @@
         // Helper renderers
         function renderInfoCard(title, content) {
             if (!content) return '';
-            return '<div class="panel">' +
-                '<h4 style="margin-top:0;color:var(--highlight)'> + title + '</h4>' +
-                content +
-                '</div>';
+                return '<div class="panel">' +
+                    '<h4 style="margin-top:0;color:var(--highlight)">' + title + '</h4>' +
+                    content +
+                    '</div>';
         }
 
         function renderRow(label, value) {
@@ -150,6 +150,27 @@
                 '<div style="color:var(--muted);white-space:nowrap">' + label + ':</div>' +
                 '<div style="word-break:break-word">' + value + '</div>' +
                 '</div>';
+        }
+
+        // Editable row helper (mirrors agent UI behaviour)
+        const isLocked = (field) => Array.isArray(p.locked_fields) && p.locked_fields.some(f => (f.field || f.Field || '').toLowerCase() === field);
+        function renderEditableRow(label, field, value, opts = { type: 'text', readonly: false, placeholder: '' }) {
+            const locked = isLocked(field);
+            const inputId = 'field_' + field;
+            const safeVal = (value === undefined || value === null) ? '' : value;
+            const isReadonly = opts.readonly || locked;
+            const disabledStyle = locked ? 'background:var(--panel);color:var(--text);border-color:var(--border);cursor:not-allowed;opacity:0.8;' : '';
+
+            let row = '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;padding:4px 0" data-field-row="' + field + '">';
+            row += '<div style="color:var(--muted)">' + label + ':</div>';
+            if (opts.type === 'textarea') {
+                row += '<textarea id="' + inputId + '" ' + (isReadonly ? 'readonly' : '') + ' ' + (locked ? 'disabled' : '') + ' placeholder="' + (opts.placeholder || '') + '" style="min-height:56px;' + disabledStyle + '">' + safeVal + '</textarea>';
+            } else {
+                row += '<input id="' + inputId + '" type="' + opts.type + '" ' + (isReadonly ? 'readonly' : '') + ' ' + (locked ? 'disabled' : '') + ' value="' + safeVal + '" placeholder="' + (opts.placeholder || '') + '" style="' + disabledStyle + '">';
+            }
+            row += '<button class="lock-btn' + (locked ? ' locked' : '') + '" data-field="' + field + '" title="' + (locked ? 'Unlock field' : 'Lock field') + '"' + (opts.readonly ? ' style="visibility:hidden"' : '') + '></button>';
+            row += '</div>';
+            return row;
         }
 
         // Build HTML (kept intentionally similar to agent implementation)
@@ -167,15 +188,32 @@
             if (capabilitiesHTML) html += renderInfoCard('Capabilities', capabilitiesHTML);
         } catch (e) {}
 
-        // Device Info
+        // Device Info (editable rows with lock buttons)
         let deviceInfo = '<div style="display:flex;flex-direction:column;gap:6px">';
-        deviceInfo += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;padding:4px 0">' +
-            '<div style="color:var(--muted)">Manufacturer:</div><div>' + (p.manufacturer || '') + '</div></div>';
-        deviceInfo += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;padding:4px 0">' +
-            '<div style="color:var(--muted)">Model:</div><div>' + (p.model || '') + '</div></div>';
-        deviceInfo += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;padding:4px 0">' +
-            '<div style="color:var(--muted)">Serial:</div><div>' + (p.serial || '') + '</div></div>';
+        deviceInfo += renderEditableRow('Manufacturer', 'manufacturer', p.manufacturer);
+        deviceInfo += renderEditableRow('Model', 'model', p.model);
+        deviceInfo += renderEditableRow('Serial', 'serial', p.serial, { type: 'text', readonly: true });
+        deviceInfo += renderEditableRow('Firmware', 'firmware', p.firmware);
+        deviceInfo += renderEditableRow('Asset Number', 'asset_number', p.asset_number);
+        deviceInfo += renderEditableRow('Location', 'location', p.location);
+        deviceInfo += renderEditableRow('Description', 'description', p.description, { type: 'textarea' });
+        // Web UI with proxy buttons
+        const webUIVal = p.web_ui_url || p.webui || '';
+        const webUILocked = isLocked('web_ui_url');
+        let webUiRow = '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center" data-field-row="web_ui_url">';
+        webUiRow += '<div style="color:var(--muted)">Web UI:</div>';
+        webUiRow += '<div style="display:flex;gap:4px;align-items:center">';
+        webUiRow += '<input id="field_web_ui_url" type="text" value="' + webUIVal + '" ' + (webUILocked ? 'disabled' : '') + ' style="flex:1;' + (webUILocked ? 'background:var(--panel);opacity:0.8;' : '') + '">';
+        if (webUIVal) {
+            webUiRow += '<button style="font-size:11px;padding:2px 6px" onclick="window.open(\'' + webUIVal + '\', \'_blank\')">Direct</button>';
+            webUiRow += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" onclick="window.open(\'/proxy/' + (p.serial || '') + '\', \'_blank\')">Proxy</button>';
+        }
+        webUiRow += '</div>';
+        webUiRow += '<button class="lock-btn' + (webUILocked ? ' locked' : '') + '" data-field="web_ui_url" title="' + (webUILocked ? 'Unlock field' : 'Lock field') + '"></button>';
+        webUiRow += '</div>';
+        deviceInfo += webUiRow;
         if (p.last_seen) deviceInfo += '<div style="color:var(--muted);font-size:12px;margin-top:6px">Last Seen: ' + new Date(p.last_seen).toLocaleString() + '</div>';
+        if (p.first_seen) deviceInfo += '<div style="color:var(--muted);font-size:12px">First Seen: ' + new Date(p.first_seen).toLocaleString() + '</div>';
         deviceInfo += '</div>';
         html += renderInfoCard('Device Info', deviceInfo);
 
@@ -189,12 +227,14 @@
             html += renderInfoCard('Metrics', metricsHtml);
         }
 
-        // Network Info (simple representation)
-        let networkInfo = '<div style="display:flex;flex-direction:column;gap:6px">';
-        networkInfo += renderRow('IP Address', p.ip || p.IP || '');
-        networkInfo += renderRow('MAC Address', p.mac || p.mac_address || '');
-        networkInfo += '</div>';
-        html += renderInfoCard('Network', networkInfo);
+    // Network Info (editable)
+    let networkInfo = '<div style="display:flex;flex-direction:column;gap:6px">';
+    networkInfo += renderEditableRow('IP Address', 'ip', p.ip || p.IP || '');
+    networkInfo += renderEditableRow('MAC Address', 'mac_address', p.mac || p.mac_address || '');
+    networkInfo += renderEditableRow('Hostname', 'hostname', p.hostname);
+    networkInfo += renderEditableRow('Subnet Mask', 'subnet_mask', p.subnet_mask);
+    networkInfo += '</div>';
+    html += renderInfoCard('Network', networkInfo);
 
         // Consumables (if present)
         const tonerLevels = p.toner_levels || p.toners || p.toner || {};
