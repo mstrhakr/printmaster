@@ -12,8 +12,12 @@
         if (!device) return '';
         const caps = [];
         try {
-            const hasColor = device.color_impressions || device.color_pages || false;
-            const hasBlack = device.page_count || device.mono_impressions || false;
+            // Normalize source of metric-like fields: some callers will pass full
+            // device objects, others pass raw_data or metrics snapshots. Prefer
+            // raw_data/metrics when available.
+            const raw = device.raw_data || device.metrics || device.latest || device.latest_metrics || device.metrics_latest || device;
+            const hasColor = raw.color_impressions || raw.color_pages || device.color_impressions || device.color_pages || false;
+            const hasBlack = raw.page_count || raw.mono_impressions || device.page_count || device.mono_impressions || false;
             if (hasColor) caps.push('<span class="capability-badge">Color</span>');
             if (hasBlack && !hasColor) caps.push('<span class="capability-badge">Mono</span>');
             if (device.fax) caps.push('<span class="capability-badge">Fax</span>');

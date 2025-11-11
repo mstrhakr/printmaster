@@ -1512,6 +1512,16 @@ function showPrinterDetailsData(p, source, parseDebug) {
     deviceInfo += '</div>';
     html += renderInfoCard('Device Info', deviceInfo);
 
+    // Metrics card for saved devices (compact summary + quick-open buttons)
+    if (source === 'saved' && p.serial) {
+        const metricsHtml = '<div id="printer_metrics_summary" style="margin-top:8px"></div>' +
+            '<div style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
+            '<button class="primary" onclick="showDeviceMetricsModal(\'' + p.serial + '\')">Open Metrics</button>' +
+            '<button style="font-size:12px;padding:6px" onclick="showDeviceMetricsModal(\'' + p.serial + '\', \'7day\')">Open Last 7 Days</button>' +
+            '</div>';
+        html += renderInfoCard('Metrics', metricsHtml);
+    }
+
     // Network Info Card
     let networkInfo = '<div style="display:flex;flex-direction:column;gap:6px">';
     networkInfo += renderEditableRow('IP Address', 'ip', p.ip);
@@ -1619,13 +1629,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
         html += renderInfoCard('Additional Info', additionalContent);
     }
 
-    // Metrics History Section (only for saved devices)
-    if (source === 'saved' && p.serial) {
-        // Replace inline metrics with a button that opens the global metrics modal
-        const btnHtml = '<div style="display:flex;gap:8px;align-items:center"><button class="primary" onclick="showDeviceMetricsModal(\'' + p.serial + '\')">Open Metrics</button>' +
-            '<button style="font-size:12px;padding:6px" onclick="showDeviceMetricsModal(\'' + p.serial + '\', \'' + '7day' + '\')">Open Last 7 Days</button></div>';
-        html += renderInfoCard('Metrics', btnHtml);
-    }
+    // Metrics History Section moved into Device Info card for saved devices
 
     // Unified Consumables section - combines toner levels, waste toner, maintenance boxes, etc.
     function renderConsumable(name, value, isLevel) {
@@ -1763,6 +1767,83 @@ function showPrinterDetailsData(p, source, parseDebug) {
     html += '</div>';
 
     bodyEl.innerHTML = html;
+
+    // Populate small metrics summary into Device Info (if present)
+    (async function populatePrinterMetricsSummary() {
+        try {
+            if (source !== 'saved' || !p || !p.serial) return;
+            const summaryEl = document.getElementById('printer_metrics_summary');
+            if (!summaryEl) return;
+            summaryEl.textContent = 'Loading metrics summary...';
+
+            const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(p.serial) + '&period=7day';
+            const res = await fetch(url);
+            if (!res.ok) { summaryEl.innerHTML = '<div style="color:var(--muted)">No metrics data available</div>'; return; }
+            const history = await res.json();
+            if (!history || history.length === 0) { summaryEl.innerHTML = '<div style="color:var(--muted)">No metrics data available</div>'; return; }
+
+            const latest = history[history.length - 1];
+            const oldest = history[0];
+            const durationMs = new Date(latest.timestamp).getTime() - new Date(oldest.timestamp).getTime();
+            const durationDays = Math.max(1, durationMs / (24 * 60 * 60 * 1000));
+
+            let statsHtml = '<table style="width:100%;border-collapse:collapse;margin-bottom:6px;font-size:12px">';
+            statsHtml += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06)">';
+            statsHtml += '<th style="text-align:left;padding:6px 8px;color:var(--highlight);font-weight:600">Metric</th>';
+            statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Lifetime Total</th>';
+            statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Period Diff</th>';
+            statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Avg/Day</th>';
+            statsHtml += '</tr></thead><tbody>';
+
+            const lifetimePages = latest.page_count || 0;
+            const periodPages = lifetimePages - (oldest.page_count || 0);
+            const avgPages = (periodPages / durationDays).toFixed(1);
+            statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
+            statsHtml += '<td style="padding:6px 8px;color:var(--text)">Total Pages</td>';
+            statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--text);font-weight:600">' + lifetimePages.toLocaleString() + '</td>';
+            statsHtml += '<td style="padding:6px 8px;text-align:right;color:#268bd2;font-weight:600">' + periodPages.toLocaleString() + '</td>';
+            statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)">' + avgPages + '</td>';
+            statsHtml += '</tr>';
+
+            if (latest.mono_pages !== undefined || latest.mono_impressions !== undefined) {
+                const lifetimeMono = latest.mono_pages || latest.mono_impressions || 0;
+                const periodMono = lifetimeMono - (oldest.mono_pages || oldest.mono_impressions || 0);
+                const avgMono = (periodMono / durationDays).toFixed(1);
+                statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
+                statsHtml += '<td style="padding:6px 8px;color:var(--text)">Mono Pages</td>';
+                statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--text);font-weight:600">' + (lifetimeMono.toLocaleString ? lifetimeMono.toLocaleString() : lifetimeMono) + '</td>';
+                statsHtml += '<td style="padding:6px 8px;text-align:right;color:#268bd2;font-weight:600">' + (periodMono.toLocaleString ? periodMono.toLocaleString() : periodMono) + '</td>';
+                statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)">' + avgMono + '</td>';
+                statsHtml += '</tr>';
+            }
+
+            // Toner levels - show current levels if present
+            if (latest.toner_levels && Object.keys(latest.toner_levels).length > 0) {
+                for (const [color, level] of Object.entries(latest.toner_levels)) {
+                    const levelNum = typeof level === 'number' ? level : parseInt(level) || 0;
+                    const levelColor = levelNum < 20 ? '#d32f2f' : (levelNum < 50 ? '#f57c00' : '#388e3c');
+                    statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
+                    statsHtml += '<td style="padding:6px 8px;color:var(--text)">' + color + '</td>';
+                    statsHtml += '<td style="padding:6px 8px;text-align:right;color:' + levelColor + ';font-weight:600">' + levelNum + '%</td>';
+                    // Render a visual progress bar for the current toner level in the
+                    // toner color. Keep the percentage in the Lifetime Total column
+                    // (as above) and render the bar across the remaining two columns.
+                    statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)" colspan="2">';
+                    statsHtml += '<div style="width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.03);padding:6px;border-radius:6px;">';
+                    statsHtml += '<div role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + levelNum + '" title="' + levelNum + '%" ' +
+                        'style="height:12px;border-radius:6px;width:' + levelNum + '%;background:' + levelColor + ';box-shadow:inset 0 -2px 4px rgba(0,0,0,0.3)"></div>';
+                    statsHtml += '</div>';
+                    statsHtml += '</td>';
+                    statsHtml += '</tr>';
+                }
+            }
+
+            statsHtml += '</tbody></table>';
+            summaryEl.innerHTML = statsHtml;
+        } catch (err) {
+            try { const summaryEl = document.getElementById('printer_metrics_summary'); if (summaryEl) summaryEl.innerHTML = '<div style="color:var(--muted)">Metrics unavailable</div>'; } catch(_){}
+        }
+    })();
 
     // Apply masonry layout to modal grid after a short delay for rendering
     setTimeout(() => {
