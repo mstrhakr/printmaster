@@ -149,37 +149,7 @@ let globalSettings = {
     }
 };
 
-// Toast notification system (delegates to shared implementation)
-// Prefer the shared implementation from `/static/shared.js` when available.
-function showToast(message, type = 'success', duration = 3000) {
-    // Delegate directly to the embedded shared implementation. The shared
-    // `showToast` is expected to be present (embedded via common/shared.js).
-    // If it's missing, let the exception surface so embedding issues are detected.
-    return window.showToast(message, type, duration);
-}
-
-// Confirmation modal system (delegates to shared implementation)
-// Save reference to shared confirm if present to avoid recursion
-const __pm_shared_showConfirm = (typeof window !== 'undefined' && typeof window.showConfirm === 'function') ? window.showConfirm : null;
-function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
-    // Prefer shared implementation which may return a Promise<boolean>
-    try {
-        if (typeof __pm_shared_showConfirm === 'function' && __pm_shared_showConfirm !== showConfirm) {
-            const res = __pm_shared_showConfirm(message, title, isDangerous);
-            if (res && typeof res.then === 'function') return res;
-            return Promise.resolve(!!res);
-        }
-    } catch (e) {
-        console.warn('shared.showConfirm failed', e);
-    }
-
-    // Fallback to native confirm (synchronous) and return a Promise for compatibility
-    try {
-        return Promise.resolve(confirm(message));
-    } catch (e) {
-        return Promise.resolve(false);
-    }
-}
+// Wrapper functions removed: call sites should use window.__pm_shared.showToast / showConfirm / showAlert directly.
 
 // Time filter values: slider position to minutes mapping
 const timeFilterValues = [1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 4320, 0]; // 0 = all time
@@ -625,7 +595,7 @@ function updatePrinters() {
 async function saveDiscoveredDevice(ip, skipConfirm, forceWalk) {
     if (!ip) return Promise.reject('No IP provided');
     if (!skipConfirm) {
-        const confirmed = await showConfirm(`Save discovered device ${ip} into saved devices?`, 'Save Device');
+        const confirmed = await window.__pm_shared.showConfirm(`Save discovered device ${ip} into saved devices?`, 'Save Device');
         if (!confirmed) return Promise.reject('Cancelled');
     }
 
@@ -725,13 +695,13 @@ async function saveAllDiscovered(silent) {
 
         console.log('Save All complete: ' + count + ' devices saved');
         if (!silent && count > 0) {
-            showToast(`Successfully saved ${count} device${count !== 1 ? 's' : ''}`, 'success');
+            try { window.__pm_shared.showToast(`Successfully saved ${count} device${count !== 1 ? 's' : ''}`, 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
         }
 
         updatePrinters();
     } catch (e) {
         console.error('Save All failed:', e);
-        if (!silent) showToast('Save All failed: ' + e.message, 'error');
+    if (!silent) { try { window.__pm_shared.showToast('Save All failed: ' + e.message, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} } }
     }
 }
 
@@ -741,11 +711,11 @@ async function clearDiscovered() {
         const r = await fetch('/devices/clear_discovered', { method: 'POST' });
         if (!r.ok) throw new Error('Clear failed');
         if (window.autosavedIPs) window.autosavedIPs.clear();
-        updatePrinters();
-        showToast('Discovered devices cleared', 'success');
+    updatePrinters();
+    try { window.__pm_shared.showToast('Discovered devices cleared', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
     } catch (e) {
-        console.error('Clear failed:', e);
-        showToast('Clear failed: ' + e.message, 'error');
+    console.error('Clear failed:', e);
+    try { window.__pm_shared.showToast('Clear failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
@@ -783,7 +753,7 @@ function toggleDatabaseFields() {
 
 // Clear entire database (backup and reset)
 async function clearDatabase() {
-    const confirmed = await showConfirm(
+    const confirmed = await window.__pm_shared.showConfirm(
         'This will backup the current database and start fresh. All saved devices, metrics, and history will be moved to a backup file. Continue?',
         'Clear Database',
         true
@@ -795,12 +765,12 @@ async function clearDatabase() {
         if (!r.ok) throw new Error('Database clear failed');
         const result = await r.json();
         if (result.reload) {
-            showToast('Database backed up and reset successfully. Reloading...', 'success');
+            try { window.__pm_shared.showToast('Database backed up and reset successfully. Reloading...', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
             setTimeout(() => window.location.reload(), 1500);
         }
     } catch (e) {
         console.error('Database clear failed:', e);
-        showToast('Database clear failed: ' + e.message, 'error');
+    try { window.__pm_shared.showToast('Database clear failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
@@ -816,14 +786,14 @@ async function showSavedDeviceDetails(serial) {
         // normalizes both formats, so we can pass the device directly
         showPrinterDetailsData(device, 'saved');
     } catch (e) {
-        showToast('Failed to load device: ' + e.message, 'error');
+        try { window.__pm_shared.showToast('Failed to load device: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
 // Delete saved device
 async function deleteSavedDevice(serial) {
     if (!serial) return;
-    const confirmed = await showConfirm(
+    const confirmed = await window.__pm_shared.showConfirm(
         'Delete this device? This will remove it from the database but it may be re-discovered if still on the network.',
         'Delete Device',
         true
@@ -833,11 +803,11 @@ async function deleteSavedDevice(serial) {
     try {
         const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: serial }) });
         if (!r.ok) throw new Error('Delete failed');
-        showToast('Device deleted successfully', 'success');
+    try { window.__pm_shared.showToast('Device deleted successfully', 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
         updatePrinters();
     } catch (e) {
-        console.error('Delete failed:', e);
-        showToast('Delete failed: ' + e.message, 'error');
+    console.error('Delete failed:', e);
+    try { window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
@@ -846,7 +816,7 @@ async function editField(serial, fieldName, currentValue, element) {
     if (!serial || !fieldName) return;
 
     const displayName = fieldName === 'asset_number' ? 'Asset Number' : 'Location';
-    const newValue = prompt('Enter new ' + displayName + ':', currentValue || '');
+    const newValue = await window.__pm_shared.showPrompt('Enter new ' + displayName + ':', currentValue || '');
 
     if (newValue === null) return; // User cancelled
 
@@ -865,11 +835,11 @@ async function editField(serial, fieldName, currentValue, element) {
         // Update the display
         element.textContent = newValue;
         element.onclick = function () { editField(serial, fieldName, newValue, element); };
-        showToast(`${displayName} updated successfully`, 'success');
+    try { window.__pm_shared.showToast(`${displayName} updated successfully`, 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
 
     } catch (e) {
         console.error('Update failed:', e);
-        showToast('Update failed: ' + e.message, 'error');
+    try { window.__pm_shared.showToast('Update failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
@@ -882,12 +852,12 @@ async function deleteAllSavedDevices() {
         const saved = await r.json();
 
         if (!Array.isArray(saved) || saved.length === 0) {
-            showToast('No saved devices to delete', 'info');
+            try { window.__pm_shared.showToast('No saved devices to delete', 'info'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
             return;
         }
 
         // Confirm deletion
-        const confirmed = await showConfirm(
+        const confirmed = await window.__pm_shared.showConfirm(
             `Delete all ${saved.length} saved device(s)? This cannot be undone.`,
             'Delete All Devices',
             true
@@ -917,14 +887,14 @@ async function deleteAllSavedDevices() {
         updatePrinters();
         console.log('Delete complete: ' + deleted + ' deleted, ' + failed + ' failed');
         if (deleted > 0) {
-            showToast(`Deleted ${deleted} device${deleted !== 1 ? 's' : ''} successfully`, 'success');
+            try { window.__pm_shared.showToast(`Deleted ${deleted} device${deleted !== 1 ? 's' : ''} successfully`, 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
         }
         if (failed > 0) {
-            showToast(`Failed to delete ${failed} device${failed !== 1 ? 's' : ''}`, 'error');
+            try { window.__pm_shared.showToast(`Failed to delete ${failed} device${failed !== 1 ? 's' : ''}`, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
         }
     } catch (e) {
-        console.error('Delete all failed:', e);
-        showToast('Delete all failed: ' + e.message, 'error');
+    console.error('Delete all failed:', e);
+    try { window.__pm_shared.showToast('Delete all failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
@@ -997,13 +967,13 @@ async function copyLogs() {
         await copyToClipboard(text, null, 'All logs copied to clipboard');
     } catch (e) {
         console.error('Copy logs failed:', e);
-        showToast('Failed to copy logs: ' + e.message, 'error');
+        try { window.__pm_shared.showToast('Failed to copy logs: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
 async function clearLogs() {
     try {
-        const confirmed = await showConfirm(
+        const confirmed = await window.__pm_shared.showConfirm(
             'Clear logs? This will rotate the current log file and start fresh.',
             'Clear Logs'
         );
@@ -1012,7 +982,7 @@ async function clearLogs() {
         const resp = await fetch('/logs/clear', { method: 'POST' });
         if (!resp.ok) {
             const text = await resp.text();
-            showToast('Clear logs failed: ' + text, 'error');
+            try { window.__pm_shared.showToast('Clear logs failed: ' + text, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
             return;
         }
         
@@ -1023,10 +993,10 @@ async function clearLogs() {
             logEl.innerHTML = '<span style="color:#586e75">(logs cleared - waiting for new entries)</span>';
         }
         
-        showToast('Logs cleared and rotated', 'success');
+        try { window.__pm_shared.showToast('Logs cleared and rotated', 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     } catch (e) {
         console.error('Clear logs failed:', e);
-        showToast('Failed to clear logs: ' + e.message, 'error');
+        try { window.__pm_shared.showToast('Failed to clear logs: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
@@ -1035,7 +1005,7 @@ async function downloadLogs() {
         const resp = await fetch('/logs/archive');
         if (!resp.ok) {
             const t = await resp.text();
-            showToast('Download failed: ' + t, 'error');
+            try { window.__pm_shared.showToast('Download failed: ' + t, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
             return;
         }
         const blob = await resp.blob();
@@ -1047,10 +1017,10 @@ async function downloadLogs() {
         const a = document.createElement('a');
         a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
-        showToast('Log archive downloaded', 'success');
+        try { window.__pm_shared.showToast('Log archive downloaded', 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     } catch (e) {
         console.error('Download failed:', e);
-        showToast('Failed to download logs: ' + e.message, 'error');
+        try { window.__pm_shared.showToast('Failed to download logs: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     }
 }
 
@@ -1091,7 +1061,7 @@ function loadSavedRanges() {
             const cnt = estimateRangeCount(txt);
             const MAX_ADDRS = 10000;
             if (cnt > MAX_ADDRS) {
-                showToast(`Saved ranges expand to ${cnt} addresses which exceeds the allowed maximum of ${MAX_ADDRS}. Manual IP scanning may be disabled. Reduce ranges or enable passive discovery.`, 'error', 8000);
+                try { window.__pm_shared.showToast(`Saved ranges expand to ${cnt} addresses which exceeds the allowed maximum of ${MAX_ADDRS}. Manual IP scanning may be disabled. Reduce ranges or enable passive discovery.`, 'error', 8000); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
             }
         } catch (e) {
             // Non-fatal - ignore parse failures here
@@ -1106,7 +1076,7 @@ function saveRanges() {
         const cnt = estimateRangeCount(txt);
         const MAX_ADDRS = 10000; // keep consistent with server-side policy
         if (cnt > MAX_ADDRS) {
-            showToast(`Cannot save ranges: expansion would produce ${cnt} addresses (over max ${MAX_ADDRS})`, 'error', 6000);
+            try { window.__pm_shared.showToast(`Cannot save ranges: expansion would produce ${cnt} addresses (over max ${MAX_ADDRS})`, 'error', 6000); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
             return;
         }
     } catch (e) {
@@ -1114,15 +1084,15 @@ function saveRanges() {
     }
     fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ discovery: { ranges_text: txt } }) })
         .then(async r => {
-            if (!r.ok) { 
+                if (!r.ok) { 
                 let t = await r.text(); 
-                showToast('Save failed: ' + t, 'error'); 
+                try { window.__pm_shared.showToast('Save failed: ' + t, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
                 return; 
             }
-            showToast('Ranges saved', 'success');
+            try { window.__pm_shared.showToast('Ranges saved', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
         })
         .catch(e => {
-            showToast('Save failed: ' + e.message, 'error');
+            try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
         })
 }
 
@@ -1259,7 +1229,7 @@ function updateSubnetDisplay() {
                         // ignore
                     }
 
-                    showToast(`Detected subnet ${subnet} expands to ${cnt} addresses (over ${MAX_ADDRS}). Subnet scanning has been disabled to avoid excessive scans. It has been turned off and cannot be re-enabled until you update ranges or enable manually. Use manual ranges or passive discovery.`, 'error', 10000);
+                    try { window.__pm_shared.showToast(`Detected subnet ${subnet} expands to ${cnt} addresses (over ${MAX_ADDRS}). Subnet scanning has been disabled to avoid excessive scans. It has been turned off and cannot be re-enabled until you update ranges or enable manually. Use manual ranges or passive discovery.`, 'error', 10000); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
                 } else {
                     if (scanEl) {
                         // ensure it's enabled (but don't override user's saved value)
@@ -1358,9 +1328,9 @@ function toggleIPScanningUI() {
 function runMibWalk() {
     // Simplified single-IP manual walk: only IP, community and version are required.
     const ipEl = document.getElementById('mib_ip');
-    if (!ipEl) { showToast('Manual walk UI missing', 'error'); return; }
+    if (!ipEl) { try { window.__pm_shared.showToast('Manual walk UI missing', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} } return; }
     const ip = ipEl.value.trim();
-    if (!ip) { showToast('Enter target IP', 'error'); return; }
+    if (!ip) { try { window.__pm_shared.showToast('Enter target IP', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} } return; }
     const community = (document.getElementById('mib_community') || {}).value ? document.getElementById('mib_community').value.trim() : '';
     const version = (document.getElementById('mib_version') || {}).value || 'v2c';
     const body = { ip: ip, community: community, version: version, max_entries: 2000 };
@@ -1914,15 +1884,15 @@ function showPrinterDetailsData(p, source, parseDebug) {
             deleteBtn.textContent = 'Deleting...';
             try {
                 const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: p.Serial }) });
-                if (!r.ok) {
+                    if (!r.ok) {
                     deleteBtn.disabled = false;
                     deleteBtn.textContent = 'Delete Device';
                     console.error('Delete failed');
-                    showToast('Delete failed', 'error');
+                    try { window.__pm_shared.showToast('Delete failed', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
                     return;
                 }
                 deleteBtn.textContent = 'Deleted ✓';
-                showToast('Device deleted successfully', 'success');
+                try { window.__pm_shared.showToast('Device deleted successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
 
                 // Animate card removal before closing modal
                 const cardToRemove = document.querySelector('.saved-device-card[data-serial="' + p.Serial + '"]');
@@ -1942,7 +1912,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                 }
             } catch (e) {
                 console.error('Delete failed:', e);
-                showToast('Delete failed: ' + e.message, 'error');
+                try { window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
             }
         };
         actionsEl.appendChild(deleteBtn);
@@ -2014,7 +1984,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                 }, 100);
             } catch (e) {
                 console.error('Save failed:', e);
-                showToast('Save failed: ' + e.message, 'error');
+                try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
                 saveBtn.disabled = false;
                 saveBtn.textContent = 'Save Device';
                 if (statusLine.parentNode) {
@@ -2577,7 +2547,7 @@ window.refreshMetricsChart = async function (serial) {
                     if (!id) return;
 
                     // Use project's nicer modal confirm if available
-                    const confirmed = await showConfirm('Delete this metrics row? This action cannot be undone.', 'Confirm Delete', true);
+                    const confirmed = await window.__pm_shared.showConfirm('Delete this metrics row? This action cannot be undone.', 'Confirm Delete', true);
                     if (!confirmed) return;
 
                     try {
@@ -2586,15 +2556,15 @@ window.refreshMetricsChart = async function (serial) {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ id: Number(id), tier: tier })
                         });
-                        if (resp.status === 204) {
+                            if (resp.status === 204) {
                             // Refresh chart after deletion
                             refreshMetricsChart(serial);
                         } else {
                             const txt = await resp.text();
-                            await showConfirm('Failed to delete metric: ' + txt, 'Delete Failed', false);
+                                await window.__pm_shared.showConfirm('Failed to delete metric: ' + txt, 'Delete Failed', false);
                         }
                     } catch (err) {
-                        await showConfirm('Error deleting metric: ' + err, 'Delete Failed', false);
+                        await window.__pm_shared.showConfirm('Error deleting metric: ' + err, 'Delete Failed', false);
                     } finally {
                         btn.disabled = false;
                     }
@@ -3390,19 +3360,18 @@ document.addEventListener('DOMContentLoaded', function () {
     const regenerateCertsBtn = document.getElementById('regenerate_certs_btn');
     if (regenerateCertsBtn) {
         regenerateCertsBtn.addEventListener('click', async function () {
-            if (!confirm('Regenerate TLS certificates? This will create new self-signed certificates. You will need to restart the agent for changes to take effect.')) {
-                return;
-            }
+            const _confirmed = await window.__pm_shared.showConfirm('Regenerate TLS certificates? This will create new self-signed certificates. You will need to restart the agent for changes to take effect.', 'Regenerate Certificates', true);
+            if (!_confirmed) return;
             try {
                 const response = await fetch('/api/regenerate-certs', { method: 'POST' });
                 const result = await response.json();
-                if (response.ok) {
-                    alert(result.message + '\n\nCert: ' + result.cert + '\nKey: ' + result.key);
+                    if (response.ok) {
+                    try { window.__pm_shared.showAlert(result.message + '\n\nCert: ' + result.cert + '\nKey: ' + result.key, 'Certificates generated', false, false); } catch(e) { try { console.warn('alert failed', e); } catch(_){} }
                 } else {
-                    alert('Failed to regenerate certificates: ' + (result.error || response.statusText));
+                    try { window.__pm_shared.showAlert('Failed to regenerate certificates: ' + (result.error || response.statusText), 'Regenerate Certificates', true, false); } catch(e) { try { console.warn('alert failed', e); } catch(_){} }
                 }
             } catch (err) {
-                alert('Error regenerating certificates: ' + err.message);
+                try { window.__pm_shared.showAlert('Error regenerating certificates: ' + err.message, 'Regenerate Certificates', true, false); } catch(e) { try { console.warn('alert failed', e); } catch(_){} }
             }
         });
     }
@@ -3904,13 +3873,13 @@ function saveTraceTags() {
         body: JSON.stringify({ tags: tagsMap })
     }).then(async r => {
         if (!r.ok) {
-            showToast('Failed to save trace tags', 'error');
+            try { window.__pm_shared.showToast('Failed to save trace tags', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
             return;
         }
-        showToast('Trace tags saved successfully', 'success');
+        try { window.__pm_shared.showToast('Trace tags saved successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
     }).catch(e => {
         console.error('saveTraceTags failed', e);
-        showToast('Failed to save trace tags', 'error');
+        try { window.__pm_shared.showToast('Failed to save trace tags', 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
     });
 }
 
@@ -3934,8 +3903,8 @@ function refreshMibWalks() {
                 delBtn.disabled = true;
                 delBtn.textContent = 'Deleting...';
                 const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: item.serial }) });
-                if (!r.ok) { delBtn.disabled = false; delBtn.textContent = 'Delete'; showToast('Delete failed', 'error'); return; }
-                showToast('Device deleted successfully', 'success');
+                if (!r.ok) { delBtn.disabled = false; delBtn.textContent = 'Delete'; try { window.__pm_shared.showToast('Delete failed', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} } return; }
+                try { window.__pm_shared.showToast('Device deleted successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
                 refreshMibWalks();
             };
             actionsTd.appendChild(viewBtn); actionsTd.appendChild(delBtn);
@@ -3965,10 +3934,11 @@ function viewDevice(serial) {
                     const resp = await fetch('/devices/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial }) });
                     if (!resp.ok) {
                         const txt = await resp.text();
-                        showToast('Refresh failed: ' + txt, 'error'); return;
+                        try { window.__pm_shared.showToast('Refresh failed: ' + txt, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                        return;
                     }
-                    showToast('Refresh queued for ' + serial, 'success');
-                } catch (e) { showToast('Refresh failed: ' + e.message, 'error'); }
+                    try { window.__pm_shared.showToast('Refresh queued for ' + serial, 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                } catch (e) { try { window.__pm_shared.showToast('Refresh failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} } }
                 finally { btn.disabled = false; btn.textContent = old; }
             };
             meta.appendChild(document.createTextNode(' ')); meta.appendChild(btn);
@@ -4027,12 +3997,12 @@ function saveDevSettings() {
             if (!r.ok) { 
                 const t = await r.text(); 
                 console.error('Save failed:', t); 
-                showToast('Save failed: ' + t, 'error'); 
+                try { window.__pm_shared.showToast('Save failed: ' + t, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
                 return; 
             } 
-            showToast('Settings saved successfully', 'success');
+            try { window.__pm_shared.showToast('Settings saved successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
         })
-        .catch(e => { console.error('Save failed:', e); showToast('Save failed: ' + e.message, 'error'); });
+        .catch(e => { console.error('Save failed:', e); try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} } });
 }
 
 // Toggle auto-save mode
@@ -4292,12 +4262,12 @@ async function saveAllSettings(btn) {
             throw new Error('Failed to save settings: ' + t);
         }
 
-        console.log('All settings saved successfully');
+    console.log('All settings saved successfully');
         if (btn) {
             btn.textContent = '✓ Applied';
             setTimeout(() => { btn.textContent = 'Apply'; btn.disabled = false; }, 1500);
         }
-        showToast('Settings saved successfully', 'success');
+        try { window.__pm_shared.showToast('Settings saved successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
         return Promise.resolve();
     } catch (e) {
         console.error('Save failed:', e);
@@ -4305,7 +4275,7 @@ async function saveAllSettings(btn) {
             // Autosave failed silently in background, just log it
             console.warn('Autosave failed:', e.message);
         } else {
-            showToast('Save failed: ' + e.message, 'error');
+            try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
             btn.textContent = 'Apply';
             btn.disabled = false;
         }
@@ -4314,7 +4284,7 @@ async function saveAllSettings(btn) {
 }
 
 async function resetSettings() {
-    const confirmed = await showConfirm(
+    const confirmed = await window.__pm_shared.showConfirm(
         'Reset all settings to defaults?\n\nThis will restore default settings unless they are manually configured in config.json.',
         'Reset Settings',
         true
@@ -4326,13 +4296,13 @@ async function resetSettings() {
             if (!r.ok) {
                 const t = await r.text();
                 console.error('Reset failed:', t);
-                showToast('Reset failed: ' + t, 'error');
+                try { window.__pm_shared.showToast('Reset failed: ' + t, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
                 return;
             }
             loadSettings();
-            showToast('Settings reset successfully', 'success');
+            try { window.__pm_shared.showToast('Settings reset successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
         })
-        .catch(e => { console.error('Reset failed:', e); showToast('Reset failed: ' + e.message, 'error'); });
+        .catch(e => { console.error('Reset failed:', e); try { window.__pm_shared.showToast('Reset failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} } });
 }
 
 // Clipboard copy functionality (duplicate removed - see function at top of file)
@@ -4386,7 +4356,7 @@ function showDeviceMetricsModal(serial, preset) {
         }
     }
     // Fallback: minimal alert
-    try { alert('Metrics UI not available for ' + serial); } catch (e) { /* noop */ }
+    try { window.__pm_shared.showAlert('Metrics UI not available for ' + serial, 'Metrics', false, false); } catch (e) { /* noop */ }
 }
 
 function closeDeviceMetricsModal() {
@@ -4440,3 +4410,4 @@ if (autoSave) {
     document.getElementById('settings_autosave').checked = true;
     toggleAutoSave();
 }
+
