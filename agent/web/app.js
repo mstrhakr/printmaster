@@ -2945,7 +2945,11 @@ eventSource.addEventListener('metrics_update', (e) => {
 });
 
 eventSource.onerror = (e) => {
-    console.error('SSE connection error, will auto-reconnect');
+    try {
+        console.error('[SSE] connection error, will auto-reconnect', { error: e, readyState: eventSource.readyState, path: __ssePath, timestamp: new Date().toISOString() });
+    } catch (err) {
+        try { console.error('SSE connection error (failed to log details)'); } catch(_){}
+    }
 };
 
 // Load auto-discover checkbox state on page load (from unified settings)
