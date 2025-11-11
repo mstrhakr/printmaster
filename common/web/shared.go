@@ -2,8 +2,6 @@
 // Package web provides shared web assets for PrintMaster UIs.
 package web
 
-import "embed"
-
 // SharedCSS contains the common stylesheet used by both agent and server UIs.
 // This is embedded at compile time from shared.css and served as /static/shared.css
 //
@@ -29,9 +27,7 @@ var MetricsJS string
 //go:embed cards.js
 var CardsJS string
 
-// Flatpickr vendor assets (optional). Place real flatpickr files at
-// common/web/vendor/flatpickr/flatpickr.min.js and flatpickr.min.css and they'll
-// be embedded here and served by the server as /static/vendor/flatpickr/...
-//
-//go:embed vendor/flatpickr/*
-var VendorFiles embed.FS
+// Flatpickr vendor assets were previously embedded here. The project now
+// prefers loading flatpickr from a CDN (see agent/web/index.html and
+// server/web/index.html). If you need to vendor the files again, place them
+// under common/web/vendor/flatpickr/ and re-enable the embed directive.
