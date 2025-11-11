@@ -270,14 +270,20 @@ function showAlert(message, title = 'Notice', isDangerous = false, showDontRemin
  * Copy text to clipboard with user feedback
  * @param {string} text - Text to copy
  */
-function copyToClipboard(text) {
-    if (!text) return;
-    
+function copyToClipboard(text, callback, successMessage) {
+    // callback (optional) will be called with a boolean success flag
+    if (!text) {
+        if (typeof callback === 'function') callback(false);
+        return;
+    }
+
     navigator.clipboard.writeText(text).then(() => {
-        showToast('Copied to clipboard', 'success', 1500);
+        try { showToast(successMessage || 'Copied to clipboard', 'success', 1500); } catch (e) {}
+        if (typeof callback === 'function') callback(true);
     }).catch(err => {
         console.error('Failed to copy:', err);
-        showToast('Failed to copy to clipboard', 'error');
+        try { showToast('Failed to copy to clipboard', 'error'); } catch (e) {}
+        if (typeof callback === 'function') callback(false);
     });
 }
 
@@ -310,6 +316,74 @@ function formatDateTime(dateString) {
         console.error('Date formatting error:', err);
         return dateString;
     }
+}
+
+/**
+ * Show a prompt modal dialog and return the entered value or null if cancelled.
+ * @param {string} message - Message to display
+ * @param {string} defaultValue - Default input value
+ * @param {string} title - Modal title
+ * @returns {Promise<string|null>}
+ */
+function showPrompt(message, defaultValue = '', title = 'Input') {
+    return new Promise((resolve) => {
+        // Create modal dynamically if missing
+        let modal = document.getElementById('prompt_modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'prompt_modal';
+            modal.className = 'modal-overlay';
+            modal.style.display = 'none';
+            modal.innerHTML = `
+                <div class="modal-content" style="max-width:480px;">
+                    <div class="modal-header">
+                        <h3 class="modal-title" id="prompt_modal_title">${title}</h3>
+                        <button class="modal-close-x" id="prompt_modal_close_x" title="Close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p id="prompt_modal_message">${message}</p>
+                        <input id="prompt_modal_input" class="modal-input" style="width:100%;padding:8px;margin-top:8px;" />
+                    </div>
+                    <div class="modal-footer">
+                        <button class="modal-button modal-button-secondary" id="prompt_modal_cancel">Cancel</button>
+                        <button class="modal-button modal-button-primary" id="prompt_modal_ok">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            // Close handlers
+            modal.querySelector('#prompt_modal_close_x').addEventListener('click', () => { modal.style.display = 'none'; resolve(null); });
+            modal.querySelector('#prompt_modal_cancel').addEventListener('click', () => { modal.style.display = 'none'; resolve(null); });
+            modal.addEventListener('click', (e) => { if (e.target === modal) { modal.style.display = 'none'; resolve(null); } });
+        }
+
+        const titleEl = document.getElementById('prompt_modal_title');
+        const messageEl = document.getElementById('prompt_modal_message');
+        const inputEl = document.getElementById('prompt_modal_input');
+        const okBtn = document.getElementById('prompt_modal_ok');
+
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        inputEl.value = defaultValue || '';
+
+        // OK handler
+        const onOk = () => {
+            const val = inputEl.value;
+            cleanup();
+            resolve(val);
+        };
+
+        function cleanup() {
+            try { okBtn.removeEventListener('click', onOk); } catch (e) {}
+        }
+
+        okBtn.addEventListener('click', onOk);
+
+        // Show modal and focus input
+        modal.style.display = 'flex';
+        setTimeout(() => { try { inputEl.focus(); inputEl.select(); } catch (e) {} }, 10);
+    });
 }
 
 /**
@@ -398,16 +472,37 @@ function debounce(func, wait) {
     };
 }
 
-// Export to global scope for backward compatibility
-window.showToast = showToast;
-window.showConfirm = showConfirm;
-window.showAlert = showAlert;
-window.copyToClipboard = copyToClipboard;
-window.formatDateTime = formatDateTime;
-window.formatRelativeTime = formatRelativeTime;
-window.formatNumber = formatNumber;
-window.formatBytes = formatBytes;
-window.debounce = debounce;
+// Export shared helpers under a single namespaced object to avoid global
+// symbol collisions when agent and server bundles are loaded together (proxied).
+// Consumers should prefer `window.__pm_shared.<fn>` instead of global functions.
+(function exportSharedNamespace() {
+    try {
+        if (typeof window === 'undefined') return;
+        window.__pm_shared = window.__pm_shared || {};
+        // Export commonly used helpers
+        window.__pm_shared.showToast = window.__pm_shared.showToast || showToast;
+        window.__pm_shared.showConfirm = window.__pm_shared.showConfirm || showConfirm;
+        window.__pm_shared.showAlert = window.__pm_shared.showAlert || showAlert;
+        window.__pm_shared.copyToClipboard = window.__pm_shared.copyToClipboard || copyToClipboard;
+        window.__pm_shared.formatDateTime = window.__pm_shared.formatDateTime || formatDateTime;
+        window.__pm_shared.formatRelativeTime = window.__pm_shared.formatRelativeTime || formatRelativeTime;
+        window.__pm_shared.formatNumber = window.__pm_shared.formatNumber || formatNumber;
+        window.__pm_shared.formatBytes = window.__pm_shared.formatBytes || formatBytes;
+        window.__pm_shared.debounce = window.__pm_shared.debounce || debounce;
+    window.__pm_shared.showPrompt = window.__pm_shared.showPrompt || showPrompt;
+        // Note: we intentionally do NOT overwrite global `window.showToast` etc.
+        // This avoids clobbering other bundles and makes callers opt-in to the
+        // shared namespace for safer cross-bundle interaction.
+    } catch (e) {
+        // Non-fatal: best-effort namespacing
+        try { console.warn('Failed to export __pm_shared namespace', e); } catch (e2) {}
+    }
+})();
+
+// Backwards-compatible global exports removed. Consumers should use the
+// namespaced `window.__pm_shared` API (e.g. window.__pm_shared.showToast)
+// to avoid global symbol collisions when agent and server bundles are
+// loaded together via proxy.
 
 // ============================================================================
 // SHARED METRICS MODAL
@@ -559,3 +654,4 @@ window.showMetricsModal = async function (opts = {}) {
     modal.style.display = 'flex';
     setTimeout(doLoad, 50);
 };
+
