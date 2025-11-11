@@ -2,6 +2,8 @@
 // Package web provides shared web assets for PrintMaster UIs.
 package web
 
+import _ "embed"
+
 // SharedCSS contains the common stylesheet used by both agent and server UIs.
 // This is embedded at compile time from shared.css and served as /static/shared.css
 //
