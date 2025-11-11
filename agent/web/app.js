@@ -69,7 +69,7 @@ function updatePrinters() {
                 let cardsHTML = '';
                 discovered.forEach(p => {
                     const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
-                    try { cardsHTML += (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderDiscoveredCard === 'function') ? window.__pm_shared_cards.renderDiscoveredCard(p, isSaved) : '' } catch(e){}
+                    cardsHTML += window.__pm_shared_cards.renderDiscoveredCard(p, isSaved);
                 });
                 discoveredContainer.innerHTML = cardsHTML;
             }
@@ -111,22 +111,22 @@ function updatePrinters() {
                 const existingKeys = new Set(existingCards.map(c => c.dataset.deviceKey));
                 const isInitialLoad = existingCards.length === 0;
 
-                if (isInitialLoad) {
+                    if (isInitialLoad) {
                     let cardsHTML = '';
-                    saved.forEach(item => { try { cardsHTML += (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : '' } catch(e){} });
+                    saved.forEach(item => { cardsHTML += window.__pm_shared_cards.renderSavedCard(item); });
                     savedContainer.innerHTML = cardsHTML;
-                    saved.forEach(item => { if (item.serial && window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadUsageGraph === 'function') { window.__pm_shared_metrics.loadUsageGraph(item.serial); } });
+                    saved.forEach(item => { if (item.serial) window.__pm_shared_metrics.loadUsageGraph(item.serial); });
                 } else {
                     saved.forEach(item => {
                         const deviceKey = item.serial || (item.printer_info && item.printer_info.ip) || '';
                         if (!deviceKey) return;
                         if (!existingKeys.has(deviceKey)) {
                             const tempDiv = document.createElement('div');
-                            try { tempDiv.innerHTML = (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard === 'function') ? window.__pm_shared_cards.renderSavedCard(item) : ''; } catch(e) { tempDiv.innerHTML = ''; }
+                            tempDiv.innerHTML = window.__pm_shared_cards.renderSavedCard(item);
                             const newCard = tempDiv.firstElementChild;
                             if (newCard) savedContainer.appendChild(newCard);
                             requestAnimationFrame(() => { if (newCard) newCard.classList.add('card-entering'); });
-                            if (item.serial && window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadUsageGraph === 'function') window.__pm_shared_metrics.loadUsageGraph(item.serial);
+                            if (item.serial) window.__pm_shared_metrics.loadUsageGraph(item.serial);
                         }
                     });
 
@@ -144,15 +144,9 @@ function updatePrinters() {
     }
 }
 
-// Toggle database backend credential fields based on selection
-// Delegate database field visibility toggling to the shared implementation
-// provided by `common/web/shared.js`.
-function toggleDatabaseFields() {
-    if (window.__pm_shared && typeof window.__pm_shared.toggleDatabaseFields === 'function') {
-        try { return window.__pm_shared.toggleDatabaseFields(); } catch (e) { console.warn('shared toggleDatabaseFields failed', e); }
-    }
-    // Fallback: no-op
-}
+// Database backend field toggles are provided by the shared bundle
+// (common/web/shared.js) and exported as window.__pm_shared.toggleDatabaseFields.
+// We intentionally do not keep a local copy here to avoid duplication.
 
 // Clear entire database (backup and reset)
 async function clearDatabase() {
@@ -168,12 +162,12 @@ async function clearDatabase() {
         if (!r.ok) throw new Error('Database clear failed');
         const result = await r.json();
         if (result.reload) {
-            try { window.__pm_shared.showToast('Database backed up and reset successfully. Reloading...', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+            window.__pm_shared.showToast('Database backed up and reset successfully. Reloading...', 'success');
             setTimeout(() => window.location.reload(), 1500);
         }
     } catch (e) {
         console.error('Database clear failed:', e);
-    try { window.__pm_shared.showToast('Database clear failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Database clear failed: ' + e.message, 'error');
     }
 }
 
@@ -185,11 +179,11 @@ async function showSavedDeviceDetails(serial) {
         if (!r.ok) throw new Error('Device not found');
         const device = await r.json();
 
-    // Device from database has lowercase field names; use shared modal renderer
-    // which normalizes both formats and is provided by common/web/cards.js
-    window.__pm_shared_cards.showPrinterDetailsData(device, 'saved');
+        // Device from database has lowercase field names; use shared modal renderer
+        // which normalizes both formats and is provided by common/web/cards.js
+        window.__pm_shared_cards.showPrinterDetailsData(device, 'saved');
     } catch (e) {
-        try { window.__pm_shared.showToast('Failed to load device: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Failed to load device: ' + e.message, 'error');
     }
 }
 
@@ -206,11 +200,11 @@ async function deleteSavedDevice(serial) {
     try {
         const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: serial }) });
         if (!r.ok) throw new Error('Delete failed');
-    try { window.__pm_shared.showToast('Device deleted successfully', 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Device deleted successfully', 'success');
         updatePrinters();
     } catch (e) {
     console.error('Delete failed:', e);
-    try { window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+    window.__pm_shared.showToast('Delete failed: ' + e.message, 'error');
     }
 }
 
@@ -238,11 +232,11 @@ async function editField(serial, fieldName, currentValue, element) {
         // Update the display
         element.textContent = newValue;
         element.onclick = function () { editField(serial, fieldName, newValue, element); };
-    try { window.__pm_shared.showToast(`${displayName} updated successfully`, 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast(`${displayName} updated successfully`, 'success');
 
     } catch (e) {
         console.error('Update failed:', e);
-    try { window.__pm_shared.showToast('Update failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Update failed: ' + e.message, 'error');
     }
 }
 
@@ -255,7 +249,7 @@ async function deleteAllSavedDevices() {
         const saved = await r.json();
 
         if (!Array.isArray(saved) || saved.length === 0) {
-            try { window.__pm_shared.showToast('No saved devices to delete', 'info'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+            window.__pm_shared.showToast('No saved devices to delete', 'info');
             return;
         }
 
@@ -290,14 +284,14 @@ async function deleteAllSavedDevices() {
         updatePrinters();
         console.log('Delete complete: ' + deleted + ' deleted, ' + failed + ' failed');
         if (deleted > 0) {
-            try { window.__pm_shared.showToast(`Deleted ${deleted} device${deleted !== 1 ? 's' : ''} successfully`, 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+            window.__pm_shared.showToast(`Deleted ${deleted} device${deleted !== 1 ? 's' : ''} successfully`, 'success');
         }
         if (failed > 0) {
-            try { window.__pm_shared.showToast(`Failed to delete ${failed} device${failed !== 1 ? 's' : ''}`, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+            window.__pm_shared.showToast(`Failed to delete ${failed} device${failed !== 1 ? 's' : ''}`, 'error');
         }
     } catch (e) {
     console.error('Delete all failed:', e);
-    try { window.__pm_shared.showToast('Delete all failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+    window.__pm_shared.showToast('Delete all failed: ' + e.message, 'error');
     }
 }
 
@@ -370,7 +364,7 @@ async function copyLogs() {
         await copyToClipboard(text, null, 'All logs copied to clipboard');
     } catch (e) {
         console.error('Copy logs failed:', e);
-        try { window.__pm_shared.showToast('Failed to copy logs: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Failed to copy logs: ' + e.message, 'error');
     }
 }
 
@@ -385,7 +379,7 @@ async function clearLogs() {
         const resp = await fetch('/logs/clear', { method: 'POST' });
         if (!resp.ok) {
             const text = await resp.text();
-            try { window.__pm_shared.showToast('Clear logs failed: ' + text, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+            window.__pm_shared.showToast('Clear logs failed: ' + text, 'error');
             return;
         }
         
@@ -396,10 +390,10 @@ async function clearLogs() {
             logEl.innerHTML = '<span style="color:#586e75">(logs cleared - waiting for new entries)</span>';
         }
         
-        try { window.__pm_shared.showToast('Logs cleared and rotated', 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+    window.__pm_shared.showToast('Logs cleared and rotated', 'success');
     } catch (e) {
         console.error('Clear logs failed:', e);
-        try { window.__pm_shared.showToast('Failed to clear logs: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Failed to clear logs: ' + e.message, 'error');
     }
 }
 
@@ -408,7 +402,7 @@ async function downloadLogs() {
         const resp = await fetch('/logs/archive');
         if (!resp.ok) {
             const t = await resp.text();
-            try { window.__pm_shared.showToast('Download failed: ' + t, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+            window.__pm_shared.showToast('Download failed: ' + t, 'error');
             return;
         }
         const blob = await resp.blob();
@@ -420,10 +414,10 @@ async function downloadLogs() {
         const a = document.createElement('a');
         a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
         URL.revokeObjectURL(url);
-        try { window.__pm_shared.showToast('Log archive downloaded', 'success'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+    window.__pm_shared.showToast('Log archive downloaded', 'success');
     } catch (e) {
         console.error('Download failed:', e);
-        try { window.__pm_shared.showToast('Failed to download logs: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Failed to download logs: ' + e.message, 'error');
     }
 }
 
@@ -464,7 +458,7 @@ function loadSavedRanges() {
             const cnt = estimateRangeCount(txt);
             const MAX_ADDRS = 10000;
             if (cnt > MAX_ADDRS) {
-                try { window.__pm_shared.showToast(`Saved ranges expand to ${cnt} addresses which exceeds the allowed maximum of ${MAX_ADDRS}. Manual IP scanning may be disabled. Reduce ranges or enable passive discovery.`, 'error', 8000); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                window.__pm_shared.showToast(`Saved ranges expand to ${cnt} addresses which exceeds the allowed maximum of ${MAX_ADDRS}. Manual IP scanning may be disabled. Reduce ranges or enable passive discovery.`, 'error', 8000);
             }
         } catch (e) {
             // Non-fatal - ignore parse failures here
@@ -479,7 +473,7 @@ function saveRanges() {
         const cnt = estimateRangeCount(txt);
         const MAX_ADDRS = 10000; // keep consistent with server-side policy
         if (cnt > MAX_ADDRS) {
-            try { window.__pm_shared.showToast(`Cannot save ranges: expansion would produce ${cnt} addresses (over max ${MAX_ADDRS})`, 'error', 6000); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+            window.__pm_shared.showToast(`Cannot save ranges: expansion would produce ${cnt} addresses (over max ${MAX_ADDRS})`, 'error', 6000);
             return;
         }
     } catch (e) {
@@ -489,13 +483,13 @@ function saveRanges() {
         .then(async r => {
                 if (!r.ok) { 
                 let t = await r.text(); 
-                try { window.__pm_shared.showToast('Save failed: ' + t, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                window.__pm_shared.showToast('Save failed: ' + t, 'error');
                 return; 
             }
-            try { window.__pm_shared.showToast('Ranges saved', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+            window.__pm_shared.showToast('Ranges saved', 'success');
         })
         .catch(e => {
-            try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+            window.__pm_shared.showToast('Save failed: ' + e.message, 'error');
         })
 }
 
@@ -742,9 +736,9 @@ function toggleIPScanningUI() {
 function runMibWalk() {
     // Simplified single-IP manual walk: only IP, community and version are required.
     const ipEl = document.getElementById('mib_ip');
-    if (!ipEl) { try { window.__pm_shared.showToast('Manual walk UI missing', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} } return; }
+    if (!ipEl) { window.__pm_shared.showToast('Manual walk UI missing', 'error'); return; }
     const ip = ipEl.value.trim();
-    if (!ip) { try { window.__pm_shared.showToast('Enter target IP', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} } return; }
+    if (!ip) { window.__pm_shared.showToast('Enter target IP', 'error'); return; }
     const community = (document.getElementById('mib_community') || {}).value ? document.getElementById('mib_community').value.trim() : '';
     const version = (document.getElementById('mib_version') || {}).value || 'v2c';
     const body = { ip: ip, community: community, version: version, max_entries: 2000 };
@@ -1385,11 +1379,11 @@ function showPrinterDetailsData(p, source, parseDebug) {
                     deleteBtn.disabled = false;
                     deleteBtn.textContent = 'Delete Device';
                     console.error('Delete failed');
-                    try { window.__pm_shared.showToast('Delete failed', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                    window.__pm_shared.showToast('Delete failed', 'error');
                     return;
                 }
                 deleteBtn.textContent = 'Deleted ✓';
-                try { window.__pm_shared.showToast('Device deleted successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                window.__pm_shared.showToast('Device deleted successfully', 'success');
 
                 // Animate card removal before closing modal
                 const cardToRemove = document.querySelector('.saved-device-card[data-serial="' + p.Serial + '"]');
@@ -1409,7 +1403,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                 }
             } catch (e) {
                 console.error('Delete failed:', e);
-                try { window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+                window.__pm_shared.showToast('Delete failed: ' + e.message, 'error');
             }
         };
         actionsEl.appendChild(deleteBtn);
@@ -1481,7 +1475,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                 }, 100);
             } catch (e) {
                 console.error('Save failed:', e);
-                try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+                window.__pm_shared.showToast('Save failed: ' + e.message, 'error');
                 saveBtn.disabled = false;
                 saveBtn.textContent = 'Save Device';
                 if (statusLine.parentNode) {
@@ -2424,16 +2418,8 @@ eventSource.addEventListener('device_updated', (e) => {
 eventSource.addEventListener('device_discovering', (e) => {
     const data = JSON.parse(e.data);
     console.log('Device discovering:', data);
-    // Show progressive discovery card
-    if (window.__pm_shared_cards && typeof window.__pm_shared_cards.showDiscoveringCard === 'function') {
-        try {
-            window.__pm_shared_cards.showDiscoveringCard(data);
-        } catch (err) {
-            showDiscoveringCard(data);
-        }
-    } else {
-        showDiscoveringCard(data);
-    }
+    // Show progressive discovery card (fail-fast if shared renderer unavailable)
+    window.__pm_shared_cards.showDiscoveringCard(data);
 });
 
 eventSource.addEventListener('metrics_update', (e) => {
@@ -2593,7 +2579,7 @@ let isProxiedFromServer = false;
 
 document.addEventListener('DOMContentLoaded', function () {
     loadThemePreference();
-    toggleDatabaseFields(); // Initialize database field visibility
+    window.__pm_shared.toggleDatabaseFields();
 
     // Check if we're being accessed through the server's proxy
     // The server adds a special meta tag when proxying
@@ -2773,7 +2759,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const dbBackendType = document.getElementById('db_backend_type');
     if (dbBackendType) {
-    dbBackendType.addEventListener('change', function () { if (window.__pm_shared && typeof window.__pm_shared.toggleDatabaseFields === 'function') { try { window.__pm_shared.toggleDatabaseFields(); } catch(e){console.warn('shared toggleDatabaseFields failed', e);} } else { toggleDatabaseFields(); } });
+    dbBackendType.addEventListener('change', function () { window.__pm_shared.toggleDatabaseFields(); });
     }
 
     // Attach tab button listeners
@@ -2874,12 +2860,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 const response = await fetch('/api/regenerate-certs', { method: 'POST' });
                 const result = await response.json();
                     if (response.ok) {
-                    try { window.__pm_shared.showAlert(result.message + '\n\nCert: ' + result.cert + '\nKey: ' + result.key, 'Certificates generated', false, false); } catch(e) { try { console.warn('alert failed', e); } catch(_){} }
+                    window.__pm_shared.showAlert(result.message + '\n\nCert: ' + result.cert + '\nKey: ' + result.key, 'Certificates generated', false, false);
                 } else {
-                    try { window.__pm_shared.showAlert('Failed to regenerate certificates: ' + (result.error || response.statusText), 'Regenerate Certificates', true, false); } catch(e) { try { console.warn('alert failed', e); } catch(_){} }
+                    window.__pm_shared.showAlert('Failed to regenerate certificates: ' + (result.error || response.statusText), 'Regenerate Certificates', true, false);
                 }
             } catch (err) {
-                try { window.__pm_shared.showAlert('Error regenerating certificates: ' + err.message, 'Regenerate Certificates', true, false); } catch(e) { try { console.warn('alert failed', e); } catch(_){} }
+                window.__pm_shared.showAlert('Error regenerating certificates: ' + err.message, 'Regenerate Certificates', true, false);
             }
         });
     }
@@ -3399,13 +3385,13 @@ function saveTraceTags() {
         body: JSON.stringify({ tags: tagsMap })
     }).then(async r => {
         if (!r.ok) {
-            try { window.__pm_shared.showToast('Failed to save trace tags', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+            window.__pm_shared.showToast('Failed to save trace tags', 'error');
             return;
         }
-        try { window.__pm_shared.showToast('Trace tags saved successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+        window.__pm_shared.showToast('Trace tags saved successfully', 'success');
     }).catch(e => {
         console.error('saveTraceTags failed', e);
-        try { window.__pm_shared.showToast('Failed to save trace tags', 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+        window.__pm_shared.showToast('Failed to save trace tags', 'error');
     });
 }
 
@@ -3429,8 +3415,8 @@ function refreshMibWalks() {
                 delBtn.disabled = true;
                 delBtn.textContent = 'Deleting...';
                 const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: item.serial }) });
-                if (!r.ok) { delBtn.disabled = false; delBtn.textContent = 'Delete'; try { window.__pm_shared.showToast('Delete failed', 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} } return; }
-                try { window.__pm_shared.showToast('Device deleted successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                if (!r.ok) { delBtn.disabled = false; delBtn.textContent = 'Delete'; window.__pm_shared.showToast('Delete failed', 'error'); return; }
+                window.__pm_shared.showToast('Device deleted successfully', 'success');
                 refreshMibWalks();
             };
             actionsTd.appendChild(viewBtn); actionsTd.appendChild(delBtn);
@@ -3460,11 +3446,11 @@ function viewDevice(serial) {
                     const resp = await fetch('/devices/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial }) });
                     if (!resp.ok) {
                         const txt = await resp.text();
-                        try { window.__pm_shared.showToast('Refresh failed: ' + txt, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                        window.__pm_shared.showToast('Refresh failed: ' + txt, 'error');
                         return;
                     }
-                    try { window.__pm_shared.showToast('Refresh queued for ' + serial, 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
-                } catch (e) { try { window.__pm_shared.showToast('Refresh failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} } }
+                    window.__pm_shared.showToast('Refresh queued for ' + serial, 'success');
+                } catch (e) { window.__pm_shared.showToast('Refresh failed: ' + e.message, 'error'); }
                 finally { btn.disabled = false; btn.textContent = old; }
             };
             meta.appendChild(document.createTextNode(' ')); meta.appendChild(btn);
@@ -3523,12 +3509,12 @@ function saveDevSettings() {
             if (!r.ok) { 
                 const t = await r.text(); 
                 console.error('Save failed:', t); 
-                try { window.__pm_shared.showToast('Save failed: ' + t, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                window.__pm_shared.showToast('Save failed: ' + t, 'error');
                 return; 
             } 
-            try { window.__pm_shared.showToast('Settings saved successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+            window.__pm_shared.showToast('Settings saved successfully', 'success');
         })
-        .catch(e => { console.error('Save failed:', e); try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} } });
+        .catch(e => { console.error('Save failed:', e); window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); });
 }
 
 // Toggle auto-save mode
@@ -3557,6 +3543,43 @@ function toggleAutoSave() {
         // Remove onchange handlers
         removeAutoSaveHandlers();
     }
+}
+
+// Toggle visibility of advanced settings controls
+function toggleAdvancedSettings() {
+    try {
+        const enabled = document.getElementById('settings_advanced_toggle')?.checked || false;
+        // Elements marked as advanced-setting should be shown/hidden
+        document.querySelectorAll('.advanced-setting').forEach(el => {
+            if (enabled) {
+                el.style.display = '';
+            } else {
+                el.style.display = 'none';
+            }
+        });
+
+        // Textareas or other advanced inputs may use a dedicated class
+        document.querySelectorAll('.advanced-setting-textarea').forEach(el => {
+            if (enabled) el.style.display = '';
+            else el.style.display = 'none';
+        });
+
+        // Persist preference
+        try { localStorage.setItem('settings_advanced', enabled ? 'true' : 'false'); } catch (e) {}
+    } catch (e) {
+        console.error('toggleAdvancedSettings failed', e);
+        throw e;
+    }
+}
+
+// Update the compact time filter display label from slider index
+function updateTimeFilter(index) {
+    const labels = ['1m','2m','5m','10m','15m','30m','1h','2h','3h','6h','12h','1d','3d','All Time'];
+    let idx = parseInt(index, 10);
+    if (isNaN(idx) || idx < 0) idx = labels.length - 1;
+    if (idx >= labels.length) idx = labels.length - 1;
+    const el = document.getElementById('time_filter_value');
+    if (el) el.textContent = labels[idx];
 }
 
 function showAutosaveFeedback() {
@@ -3793,15 +3816,15 @@ async function saveAllSettings(btn) {
             btn.textContent = '✓ Applied';
             setTimeout(() => { btn.textContent = 'Apply'; btn.disabled = false; }, 1500);
         }
-        try { window.__pm_shared.showToast('Settings saved successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+    window.__pm_shared.showToast('Settings saved successfully', 'success');
         return Promise.resolve();
     } catch (e) {
         console.error('Save failed:', e);
         if (!btn) {
             // Autosave failed silently in background, just log it
             console.warn('Autosave failed:', e.message);
-        } else {
-            try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} }
+            } else {
+            window.__pm_shared.showToast('Save failed: ' + e.message, 'error');
             btn.textContent = 'Apply';
             btn.disabled = false;
         }
@@ -3822,13 +3845,13 @@ async function resetSettings() {
             if (!r.ok) {
                 const t = await r.text();
                 console.error('Reset failed:', t);
-                try { window.__pm_shared.showToast('Reset failed: ' + t, 'error'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                window.__pm_shared.showToast('Reset failed: ' + t, 'error');
                 return;
             }
             loadSettings();
-            try { window.__pm_shared.showToast('Settings reset successfully', 'success'); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+            window.__pm_shared.showToast('Settings reset successfully', 'success');
         })
-        .catch(e => { console.error('Reset failed:', e); try { window.__pm_shared.showToast('Reset failed: ' + e.message, 'error'); } catch (e2) { try { console.warn('toast failed', e2); } catch(_){} } });
+        .catch(e => { console.error('Reset failed:', e); window.__pm_shared.showToast('Reset failed: ' + e.message, 'error'); });
 }
 
 // Clipboard copy functionality (duplicate removed - see function at top of file)
@@ -3882,7 +3905,7 @@ function showDeviceMetricsModal(serial, preset) {
         }
     }
     // Fallback: minimal alert
-    try { window.__pm_shared.showAlert('Metrics UI not available for ' + serial, 'Metrics', false, false); } catch (e) { /* noop */ }
+    window.__pm_shared.showAlert('Metrics UI not available for ' + serial, 'Metrics', false, false);
 }
 
 function closeDeviceMetricsModal() {
