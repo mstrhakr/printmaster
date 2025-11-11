@@ -1472,14 +1472,9 @@ function showPrinterDetailsData(p, source, parseDebug) {
     };
 
     // Capabilities Card
-    let capabilitiesHTML = '';
-    try {
-        if (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderCapabilities === 'function') {
-            capabilitiesHTML = window.__pm_shared_cards.renderCapabilities(p);
-        } else if (typeof renderCapabilities === 'function') {
-            capabilitiesHTML = renderCapabilities(p);
-        }
-    } catch (e) { capabilitiesHTML = ''; }
+    // Use the canonical shared implementation. The shared loader is injected
+    // synchronously, so callers can reference the namespaced API directly.
+    const capabilitiesHTML = window.__pm_shared_cards.renderCapabilities(p);
     if (capabilitiesHTML) {
         html += renderInfoCard('Capabilities', capabilitiesHTML);
     }
