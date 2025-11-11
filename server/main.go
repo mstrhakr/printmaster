@@ -2360,25 +2360,14 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharedweb.CardsJS))
 		return
 	}
-	// Serve vendored flatpickr assets from common/web if requested
+	// Redirect requests for flatpickr vendor assets to the CDN.
+	// Local vendoring was removed; prefer the CDN for simplicity.
 	if fileName == "vendor/flatpickr/flatpickr.min.css" {
-		w.Header().Set("Content-Type", "text/css; charset=utf-8")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		if b, err := sharedweb.VendorFiles.ReadFile("vendor/flatpickr/flatpickr.min.css"); err == nil {
-			w.Write(b)
-		} else {
-			http.Error(w, "Not found", http.StatusNotFound)
-		}
+		http.Redirect(w, r, "https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css", http.StatusFound)
 		return
 	}
 	if fileName == "vendor/flatpickr/flatpickr.min.js" {
-		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		if b, err := sharedweb.VendorFiles.ReadFile("vendor/flatpickr/flatpickr.min.js"); err == nil {
-			w.Write(b)
-		} else {
-			http.Error(w, "Not found", http.StatusNotFound)
-		}
+		http.Redirect(w, r, "https://cdn.jsdelivr.net/npm/flatpickr", http.StatusFound)
 		return
 	}
 
