@@ -3668,8 +3668,26 @@ function loadSettings() {
         document.getElementById('passive_discovery_enabled').checked = passiveEnabled;
 
         // Update UI state based on loaded settings
+    // Ensure ranges toggle and IP scanning UI reflect server settings. Some browsers
+    // or racey initialization can cause the checkbox state to be overwritten by
+    // other startup handlers; apply the desired state and re-run the UI toggles
+    // immediately and once again after a short delay to be robust.
+    const desiredManualRanges = disc.manual_ranges !== false;
+    const manualRangesEl = document.getElementById('manual_ranges_enabled');
+    if (manualRangesEl) {
+        manualRangesEl.checked = desiredManualRanges;
+    }
     toggleRangesDropdown();
     toggleIPScanningUI();
+    // Re-apply after a tick in case other init code overwrote the checkbox
+    setTimeout(() => {
+        const el = document.getElementById('manual_ranges_enabled');
+        if (el) {
+            el.checked = desiredManualRanges;
+        }
+        toggleRangesDropdown();
+        toggleIPScanningUI();
+    }, 60);
         updateSubnetDisplay();
         document.getElementById('discover_now_btn').style.display = (disc.auto_discover_enabled === true) ? 'none' : 'inline-block';
 
