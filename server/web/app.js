@@ -180,7 +180,7 @@ function checkConfigStatus() {
                 });
                 message += '\nThe server is running with default settings. Please check your config.toml file.';
                 
-                showAlert(message, '⚠️ Configuration Error', true, true);
+                try { window.__pm_shared.showAlert(message, '⚠️ Configuration Error', true, true); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
             } else if (data.using_defaults) {
                 // No config file found - show informational modal
                 let message = 'No configuration file was found in any of these locations:\n\n';
@@ -189,7 +189,7 @@ function checkConfigStatus() {
                 });
                 message += '\nThe server is running with default settings.';
                 
-                showAlert(message, 'ℹ️ Using Default Configuration', false, true);
+                try { window.__pm_shared.showAlert(message, 'ℹ️ Using Default Configuration', false, true); } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
             }
         })
         .catch(err => {
@@ -294,46 +294,7 @@ function initTabs() {
     }
 }
 
-// ====== Toast Notification System (delegates to shared implementation)
-// Capture any shared implementation at load time to avoid recursive calls
-const __pm_shared_showToast = (typeof window !== 'undefined' && typeof window.showToast === 'function') ? window.showToast : null;
-function showToast(message, type = 'success', duration = 3000) {
-    try {
-        if (typeof __pm_shared_showToast === 'function' && __pm_shared_showToast !== showToast) {
-            return __pm_shared_showToast(message, type, duration);
-        }
-    } catch (e) {
-        console.warn('shared.showToast failed', e);
-    }
-    // Fallback: minimal toast using alert (very conservative)
-    try { alert(message); } catch (e) { /* noop */ }
-}
-
-// ====== Confirmation Modal System ======
-// Capture shared confirm if present to avoid recursion
-const __pm_shared_showConfirm = (typeof window !== 'undefined' && typeof window.showConfirm === 'function') ? window.showConfirm : null;
-function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
-    try {
-        if (typeof __pm_shared_showConfirm === 'function' && __pm_shared_showConfirm !== showConfirm) {
-            const res = __pm_shared_showConfirm(message, title, isDangerous);
-            if (res && typeof res.then === 'function') return res;
-            return Promise.resolve(!!res);
-        }
-    } catch (e) {
-        console.warn('shared.showConfirm failed', e);
-    }
-    // Fallback to native confirm wrapped in a Promise
-    return Promise.resolve(confirm(message));
-}
-
-// Alert-style modal (no cancel button, just OK to dismiss)
-// Alert-style modal (delegates to shared implementation)
-function showAlert(message, title = 'Notice', isDangerous = false, showDontRemindCheckbox = false) {
-    if (typeof window !== 'undefined' && typeof window.showAlert === 'function') {
-        try { return window.showAlert(message, title, isDangerous, showDontRemindCheckbox); } catch (e) { console.warn('shared.showAlert failed', e); }
-    }
-    try { alert(message); } catch (e) { /* noop */ }
-}
+// Wrapper functions removed: call sites should use window.__pm_shared.showToast / showConfirm / showAlert directly.
 
 // ====== Server Status ======
 async function loadServerStatus() {
@@ -704,7 +665,7 @@ async function viewAgentDetails(agentId) {
         console.error('Failed to load agent details:', error);
         const body = document.getElementById('agent_details_body');
         body.innerHTML = `<div style="color:var(--error);text-align:center;padding:20px;">Failed to load agent details: ${error.message}</div>`;
-        showToast('Failed to load agent details', 'error');
+    try { window.__pm_shared.showToast('Failed to load agent details', 'error'); } catch (e) { console.warn('toast failed', e); }
     }
 }
 
@@ -940,10 +901,10 @@ function renderAgentDetailsModal(agent) {
 async function deleteAgent(agentId, displayName) {
     console.log('deleteAgent called:', agentId, displayName);
     
-    const confirmed = await showConfirm(
+    const confirmed = await window.__pm_shared.showConfirm(
         `Are you sure you want to delete agent "${displayName}"?\n\nThis will permanently remove the agent and all its associated devices and metrics. This action cannot be undone.`,
         'Delete Agent',
-        true // isDangerous
+        true
     );
     
     console.log('User confirmed:', confirmed);
@@ -969,7 +930,7 @@ async function deleteAgent(agentId, displayName) {
         const result = await response.json();
         console.log('Delete successful:', result);
         
-        showToast(`Agent "${displayName}" deleted successfully`, 'success');
+    try { window.__pm_shared.showToast(`Agent "${displayName}" deleted successfully`, 'success'); } catch (e) { console.warn('toast failed', e); }
         
         // Remove agent card with animation
         const card = document.querySelector(`[data-agent-id="${agentId}"]`);
@@ -985,7 +946,7 @@ async function deleteAgent(agentId, displayName) {
         }
     } catch (error) {
         console.error('Failed to delete agent:', error);
-        showToast(`Failed to delete agent: ${error.message}`, 'error');
+    try { window.__pm_shared.showToast(`Failed to delete agent: ${error.message}`, 'error'); } catch (e) { console.warn('toast failed', e); }
     }
 }
 
@@ -1072,10 +1033,10 @@ function copyToClipboard(text) {
     if (!text) return;
     
     navigator.clipboard.writeText(text).then(() => {
-        showToast('Copied to clipboard', 'success', 1500);
+    try { window.__pm_shared.showToast('Copied to clipboard', 'success', 1500); } catch (e) { console.warn('toast failed', e); }
     }).catch(err => {
         console.error('Failed to copy:', err);
-        showToast('Failed to copy to clipboard', 'error');
+    try { window.__pm_shared.showToast('Failed to copy to clipboard', 'error'); } catch (e) { console.warn('toast failed', e); }
     });
 }
 
@@ -1100,7 +1061,7 @@ function openDeviceMetrics(serial) {
         window.showMetricsModal({ serial });
     } else {
         // Fallback: navigate to devices list or show a toast
-        showToast('Metrics UI not available', 'error');
+    try { window.__pm_shared.showToast('Metrics UI not available', 'error'); } catch (e) { console.warn('toast failed', e); }
     }
 }
 
@@ -1110,7 +1071,7 @@ async function loadSettings() {
         // There's no complex settings endpoint yet; reuse config status as a safe probe
         const response = await fetch('/api/config/status');
         if (!response.ok) {
-            showToast('Failed to load settings', 'error');
+            try { window.__pm_shared.showToast('Failed to load settings', 'error'); } catch (e) { console.warn('toast failed', e); }
             return;
         }
         
@@ -1119,7 +1080,7 @@ async function loadSettings() {
         // TODO: Populate settings form
     } catch (error) {
         console.error('Failed to load settings:', error);
-        showToast('Failed to load settings', 'error');
+    try { window.__pm_shared.showToast('Failed to load settings', 'error'); } catch (e) { console.warn('toast failed', e); }
     }
 }
 
@@ -1135,14 +1096,14 @@ async function saveSettings() {
         });
         
         if (!response.ok) {
-            showToast('Failed to save settings', 'error');
+            try { window.__pm_shared.showToast('Failed to save settings', 'error'); } catch (e) { console.warn('toast failed', e); }
             return;
         }
         
-        showToast('Settings saved successfully', 'success');
+    try { window.__pm_shared.showToast('Settings saved successfully', 'success'); } catch (e) { console.warn('toast failed', e); }
     } catch (error) {
         console.error('Failed to save settings:', error);
-        showToast('Failed to save settings', 'error');
+    try { window.__pm_shared.showToast('Failed to save settings', 'error'); } catch (e) { console.warn('toast failed', e); }
     }
 }
 
@@ -1250,3 +1211,4 @@ window.addEventListener('click', (event) => {
         confirmModal.style.display = 'none';
     }
 });
+
