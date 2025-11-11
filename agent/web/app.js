@@ -1238,7 +1238,18 @@ function updateSubnetDisplay() {
                         // ignore
                     }
 
-                    try { window.__pm_shared.showToast(`Detected subnet ${subnet} expands to ${cnt} addresses (over ${MAX_ADDRS}). Subnet scanning has been disabled to avoid excessive scans. It has been turned off and cannot be re-enabled until you update ranges or enable manually. Use manual ranges or passive discovery.`, 'error', 10000); } catch (e) { try { console.warn('toast failed', e); } catch(_){} }
+                    try {
+                        // If user previously chose "Don't show this again" skip alert
+                        if (!localStorage.getItem('hideConfigWarning')) {
+                            // showAlert(message, title, isDangerous, showDontRemindCheckbox)
+                            window.__pm_shared.showAlert(
+                                `Detected subnet ${subnet} expands to ${cnt} addresses (over ${MAX_ADDRS}). Subnet scanning has been disabled to avoid excessive scans. It has been turned off and cannot be re-enabled until you update ranges or enable manually. Use manual ranges or passive discovery.`,
+                                'Subnet scanning disabled',
+                                true,
+                                true
+                            );
+                        }
+                    } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
                 } else {
                     if (scanEl) {
                         // ensure it's enabled (but don't override user's saved value)
