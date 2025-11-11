@@ -1472,7 +1472,14 @@ function showPrinterDetailsData(p, source, parseDebug) {
     };
 
     // Capabilities Card
-    const capabilitiesHTML = renderCapabilities(p);
+    let capabilitiesHTML = '';
+    try {
+        if (window.__pm_shared_cards && typeof window.__pm_shared_cards.renderCapabilities === 'function') {
+            capabilitiesHTML = window.__pm_shared_cards.renderCapabilities(p);
+        } else if (typeof renderCapabilities === 'function') {
+            capabilitiesHTML = renderCapabilities(p);
+        }
+    } catch (e) { capabilitiesHTML = ''; }
     if (capabilitiesHTML) {
         html += renderInfoCard('Capabilities', capabilitiesHTML);
     }
