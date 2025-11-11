@@ -228,7 +228,7 @@
         html += '<span id="refresh_status" style="color:var(--muted);align-self:center"></span>';
         html += '</div>';
 
-        try { bodyEl.innerHTML = html; } catch (e) { console.warn('rendering shared modal failed', e); }
+    bodyEl.innerHTML = html;
 
         // Populate compact metrics (if any)
         (async function populatePrinterMetricsSummaryLocal() {
@@ -443,17 +443,17 @@
                     deleteBtn.textContent = 'Deleting...';
                     try {
                         const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: p.serial || p.Serial }) });
-                        if (!r.ok) { deleteBtn.disabled = false; deleteBtn.textContent = 'Delete Device'; try { window.__pm_shared.showToast('Delete failed', 'error'); } catch(_){}; return; }
+                        if (!r.ok) { deleteBtn.disabled = false; deleteBtn.textContent = 'Delete Device'; window.__pm_shared.showToast('Delete failed', 'error'); return; }
                         deleteBtn.textContent = 'Deleted ✓';
-                        try { window.__pm_shared.showToast('Device deleted successfully', 'success'); } catch(_){}
+                        window.__pm_shared.showToast('Device deleted successfully', 'success');
                         const cardToRemove = document.querySelector('.saved-device-card[data-serial="' + (p.serial || p.Serial) + '"]');
                         if (cardToRemove) {
                             cardToRemove.classList.add('removing');
-                            setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; if (typeof updatePrinters === 'function') updatePrinters(); }, 400);
+                            setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; updatePrinters(); }, 400);
                         } else {
-                            overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; if (typeof updatePrinters === 'function') updatePrinters();
+                            overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; updatePrinters();
                         }
-                    } catch (e) { console.error('Delete failed:', e); try { window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); } catch(_){} }
+                    } catch (e) { console.error('Delete failed:', e); window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); }
                 };
                 actionsEl.appendChild(deleteBtn);
             } else {
@@ -474,12 +474,12 @@
                                 const body = { ip: p.IP || p.ip, max_entries: 5000 };
                                 const r = await fetch('/mib_walk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
                                 clearInterval(dotInterval);
-                                if (r.ok) { const j = await r.json(); if (typeof updatePrinters === 'function') updatePrinters(); }
+                                if (r.ok) { const j = await r.json(); updatePrinters(); }
                                 statusLine.textContent = '✓ Details updated'; statusLine.style.color = '#859900';
                                 setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; }, 1200);
                             } catch (e) { console.warn('Background refresh failed:', e); statusLine.textContent = '⚠ Refresh incomplete (device saved)'; statusLine.style.color = '#b58900'; setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; }, 1500); }
                         }, 100);
-                    } catch (e) { console.error('Save failed:', e); try { window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); } catch(_){}; saveBtn.disabled = false; saveBtn.textContent = 'Save Device'; if (statusLine.parentNode) statusLine.remove(); }
+                    } catch (e) { console.error('Save failed:', e); window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); saveBtn.disabled = false; saveBtn.textContent = 'Save Device'; if (statusLine.parentNode) statusLine.remove(); }
                 };
                 actionsEl.appendChild(saveBtn);
             }
