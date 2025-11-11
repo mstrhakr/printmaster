@@ -1203,6 +1203,13 @@ func setupRoutes() {
 	// UI metrics summary endpoint (simple aggregated view for the UI)
 	http.HandleFunc("/api/metrics", handleMetricsSummary)
 
+	// Serve device metrics history from server DB. If the server has historical
+	// metrics stored (uploaded by agents) this endpoint will return them. The
+	// endpoint supports the same query parameters as the agent: `serial` plus
+	// either `since` (RFC3339) or `period` (day|week|month|year). Default period
+	// is `week` when nothing is supplied.
+	http.HandleFunc("/api/devices/metrics/history", handleMetricsHistory)
+
 	// Minimal settings & logs endpoints for the UI (placeholders)
 	http.HandleFunc("/api/settings", handleSettings)
 	http.HandleFunc("/api/logs", handleLogs)
@@ -2251,6 +2258,66 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleMetricsHistory returns metrics history for a device from server store.
+// Query params: serial (required) and either since (RFC3339) or period (day|week|month|year)
+func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	serial := r.URL.Query().Get("serial")
+	if serial == "" {
+		http.Error(w, "serial parameter required", http.StatusBadRequest)
+		return
+	}
+
+	// Determine since time
+	var since time.Time
+	now := time.Now()
+
+	sinceStr := r.URL.Query().Get("since")
+	if sinceStr != "" {
+		var err error
+		since, err = time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			http.Error(w, "invalid since parameter (use RFC3339)", http.StatusBadRequest)
+			return
+		}
+	} else {
+		// period-based
+		period := r.URL.Query().Get("period")
+		if period == "" {
+			period = "week"
+		}
+		switch period {
+		case "day":
+			since = now.Add(-24 * time.Hour)
+		case "week":
+			since = now.Add(-7 * 24 * time.Hour)
+		case "month":
+			since = now.Add(-30 * 24 * time.Hour)
+		case "year":
+			since = now.Add(-365 * 24 * time.Hour)
+		default:
+			since = now.Add(-7 * 24 * time.Hour)
+		}
+	}
+
+	ctx := context.Background()
+	history, err := serverStore.GetMetricsHistory(ctx, serial, since)
+	if err != nil {
+		if serverLogger != nil {
+			serverLogger.Error("Failed to get metrics history", "serial", serial, "error", err)
+		}
+		http.Error(w, "failed to get metrics history", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(history)
 }
 
 // Metrics batch upload - agent sends device metrics
