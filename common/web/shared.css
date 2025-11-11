@@ -548,3 +548,203 @@ input[type="checkbox"]:disabled {
   .metrics-table tbody tr td:last-child { text-align: right; white-space: nowrap; margin-left: 12px; }
   .metrics-table-container .metrics-table { border: 0; }
 }
+
+/* ============================================================================
+   Saved Device Card & Consumable Styles (shared)
+   Moved here so both Agent and Server can reuse the same visuals for
+   saved-device cards, consumable bars and the compact metrics summary.
+   ============================================================================ */
+
+.saved-device-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px;
+  max-width: 80%;
+  margin: 0 auto;
+}
+
+.saved-device-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), 
+              box-shadow 0.3s ease, 
+              border-color 0.3s ease, 
+              opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              margin 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  opacity: 1;
+}
+
+.saved-device-card:hover {
+  box-shadow: var(--shadow-lg);
+  border-color: var(--highlight);
+}
+
+.saved-device-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.saved-device-card-main {
+  flex: 1;
+  min-width: 250px;
+}
+
+.saved-device-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--highlight);
+  margin: 0 0 6px 0;
+}
+
+.capabilities-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px 0;
+}
+
+.capability-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+.capability-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--highlight);
+}
+
+.saved-device-card-subtitle {
+  font-size: 14px;
+  color: var(--muted);
+  margin: 0 0 4px 0;
+}
+
+.saved-device-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.saved-device-card-inner-panel {
+  background: rgba(0, 43, 54, 0.3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.saved-device-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.saved-device-card-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.saved-device-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 4px 0;
+  gap: 12px;
+}
+
+.saved-device-card-label {
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.saved-device-card-value {
+  color: var(--text);
+  font-family: monospace;
+  font-size: 12px;
+  text-align: right;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Consumable levels (toner, drum, etc) */
+.consumable-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.consumable-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.consumable-icon {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.consumable-bar {
+  flex: 1;
+  height: 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--border);
+}
+
+.consumable-bar-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.consumable-label {
+  min-width: 80px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
