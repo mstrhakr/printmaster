@@ -15,24 +15,27 @@ jobs:
         run: |
           set -e
           echo "Searching for legacy guard patterns..."
-          # Patterns we consider forbidden in JS files
+          # Patterns we consider forbidden in JS files (legacy guard scaffolding)
           patterns=(
             "window.__pm_shared && typeof window.__pm_shared.showToast"
             "window.__pm_shared && typeof window.__pm_shared.showConfirm"
             "window.__pm_shared && typeof window.__pm_shared.showAlert"
             "window.__pm_shared && typeof window.__pm_shared.showPrompt"
+            "window.__pm_shared_cards && typeof window.__pm_shared_cards.renderSavedCard"
+            "window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadDeviceMetrics"
           )
 
           found=0
           for p in "${patterns[@]}"; do
-            if grep -R --line-number -n --exclude-dir=node_modules -e "$p" .; then
+            # Use plain grep for literal substrings to avoid unintended regexp pitfalls
+            if grep -R --line-number --exclude-dir=node_modules -e "$p" .; then
               echo "\nERROR: Found guarded usage pattern: $p"
               found=1
             fi
           done
 
           if [ "$found" -eq 1 ]; then
-            echo "\nRemove legacy guard scaffolding and call window.__pm_shared.* directly (wrap in try/catch only if necessary)."
+            echo "\nRemove legacy guard scaffolding and call window.__pm_shared.* / window.__pm_shared_cards.* / window.__pm_shared_metrics.* directly (wrap in try/catch only if necessary)."
             exit 1
           fi
 
@@ -47,16 +50,27 @@ jobs:
                 echo "ERROR: $f does not contain the synchronous bootstrap snippet 'window.__pm_shared = window.__pm_shared || {}'."
                 missing=1
               fi
-              # Also ensure shared.js appears before app.js
-              shared_line=$(grep -n "shared.js" -n "$f" || true)
-              app_line=$(grep -n "app.js" -n "$f" || true)
-              if [ -n "$shared_line" ] && [ -n "$app_line" ]; then
-                shared_num=$(echo "$shared_line" | head -n1 | cut -d: -f1)
+              # Also ensure shared.js, cards.js and metrics.js appear before app.js
+              app_line=$(grep -n "app.js" "$f" || true)
+              if [ -z "$app_line" ]; then
+                echo "ERROR: app.js not found in $f (expected script that calls shared APIs)."
+                missing=1
+              else
                 app_num=$(echo "$app_line" | head -n1 | cut -d: -f1)
-                if [ "$shared_num" -ge "$app_num" ]; then
-                  echo "ERROR: In $f the shared script does not appear before the app script. Ensure shared.js is included first."
-                  missing=1
-                fi
+
+                for script in shared.js cards.js metrics.js; do
+                  script_line=$(grep -n "$script" "$f" || true)
+                  if [ -z "$script_line" ]; then
+                    echo "ERROR: $f does not include required script $script. Include /static/$script before app.js."
+                    missing=1
+                  else
+                    script_num=$(echo "$script_line" | head -n1 | cut -d: -f1)
+                    if [ "$script_num" -ge "$app_num" ]; then
+                      echo "ERROR: In $f the script $script does not appear before app.js. Ensure /static/$script is included in the head before app.js."
+                      missing=1
+                    fi
+                  fi
+                done
               fi
             else
               echo "Note: $f not present in repo — skipping"
