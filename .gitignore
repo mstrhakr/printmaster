@@ -152,3 +152,4 @@ coverage/
 
 # Optional local npm artifact
 .npm/
+test-results/.last-run.json
