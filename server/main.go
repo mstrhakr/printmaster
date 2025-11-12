@@ -2000,6 +2000,41 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 						bodyBytes = injectProxyMetaAndBase(bodyBytes, agentID, targetURL)
 					}
 				}
+
+				// For JavaScript (and similar) responses, rewrite common absolute
+				// fetch/XHR occurrences so they route through the proxy. Also handle
+				// gzip-compressed JS responses by decompressing/recompressing.
+				ctLower := strings.ToLower(contentType)
+				if strings.Contains(ctLower, "javascript") || strings.Contains(ctLower, "application/json") {
+					// Detect gzip by magic bytes
+					if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
+						gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
+						if gerr == nil {
+							decompressed, rerr := io.ReadAll(gr)
+							_ = gr.Close()
+							if rerr == nil {
+								transformed := rewriteProxyJS(decompressed, agentID, targetURL)
+								// Recompress
+								var buf bytes.Buffer
+								gw := gzip.NewWriter(&buf)
+								if _, werr := gw.Write(transformed); werr == nil {
+									_ = gw.Close()
+									bodyBytes = buf.Bytes()
+									w.Header().Set("Content-Encoding", "gzip")
+									w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bodyBytes)))
+								} else {
+									_ = gw.Close()
+									w.Header().Del("Content-Encoding")
+									bodyBytes = transformed
+								}
+							}
+						}
+					} else {
+						// Non-gzip JS: transform in-place
+						bodyBytes = rewriteProxyJS(bodyBytes, agentID, targetURL)
+					}
+				}
+
 				w.Write(bodyBytes)
 			}
 		}
@@ -2061,12 +2096,60 @@ func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byt
 		return []byte(bodyStr)
 	}
 	insertPos := headIdx + len("<head>")
+	// Small runtime shim injected into proxied HTML to rewrite root-absolute
+	// fetch/XHR requests at runtime. This is more robust than string-only
+	// rewrites because scripts can construct URLs dynamically (e.g. using
+	// window.location.origin). The shim prepends the proxy base for any URL
+	// that starts with '/'. Keep this small and defensive.
+	script := `<script>(function(){try{var _pb="` + proxyBase + `";var _f=window.fetch;window.fetch=function(input,init){try{var u=typeof input==='string'?input:input&&input.url; if(typeof u==='string' && u.charAt(0)==='/'){ if(typeof input==='string') input=_pb+u.slice(1); else input=new Request(_pb+u.slice(1),input); }}catch(e){} return _f.apply(this,arguments)};var _open=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url){try{if(typeof url==='string'&&url.charAt(0)==='/'){url=_pb+url.slice(1);} }catch(e){} return _open.apply(this,arguments);} }catch(e){} })();</script>`
+
+	// Inject meta tags and <base>. Note: globalSettings initialization is
+	// provided via shared client script (common/web/shared.js) to keep
+	// client-side globals centralized.
 	metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
-		`<base href="` + proxyBase + `">`
+		`<base href="` + proxyBase + `">` + script
 
 	bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
 
 	return []byte(bodyStr)
+}
+
+// rewriteProxyJS performs simple string-based rewrites on JavaScript/JSON
+// payloads to convert absolute paths (e.g., fetch('/scan_metrics')) to the
+// proxy-based path. This is a pragmatic approach and not a full JS parser.
+func rewriteProxyJS(body []byte, agentID string, targetURL string) []byte {
+	s := string(body)
+	proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
+
+	// Replace absolute origin occurrences
+	if u, err := url.Parse(targetURL); err == nil {
+		origin := u.Scheme + "://" + u.Host
+		s = strings.ReplaceAll(s, origin, proxyBase)
+		protoRel := "//" + u.Host
+		s = strings.ReplaceAll(s, protoRel, proxyBase)
+	}
+
+	// JS fetch() common patterns
+	s = strings.ReplaceAll(s, "fetch('/", "fetch('"+proxyBase)
+	s = strings.ReplaceAll(s, "fetch(\"/", "fetch(\""+proxyBase)
+	s = strings.ReplaceAll(s, "fetch( '/", "fetch( '"+proxyBase)
+	s = strings.ReplaceAll(s, "fetch( \"/", "fetch( \""+proxyBase)
+
+	// XHR / open patterns
+	s = strings.ReplaceAll(s, "XMLHttpRequest.open('GET','/", "XMLHttpRequest.open('GET','"+proxyBase)
+	s = strings.ReplaceAll(s, "XMLHttpRequest.open(\"GET\",\"/", "XMLHttpRequest.open(\"GET\",\""+proxyBase)
+	s = strings.ReplaceAll(s, "open('GET','/", "open('GET','"+proxyBase)
+	s = strings.ReplaceAll(s, "open(\"GET\",\"/", "open(\"GET\",\""+proxyBase)
+
+	// Common API endpoints — rewrite simple literal occurrences
+	s = strings.ReplaceAll(s, "'/settings'", "'"+proxyBase+"settings'")
+	s = strings.ReplaceAll(s, "\"/settings\"", "\""+proxyBase+"settings\"")
+	s = strings.ReplaceAll(s, "'/devices/list'", "'"+proxyBase+"devices/list'")
+	s = strings.ReplaceAll(s, "\"/devices/list\"", "\""+proxyBase+"devices/list\"")
+	s = strings.ReplaceAll(s, "'/scan_metrics'", "'"+proxyBase+"scan_metrics'")
+	s = strings.ReplaceAll(s, "\"/scan_metrics\"", "\""+proxyBase+"scan_metrics\"")
+
+	return []byte(s)
 }
 
 // Devices batch upload - agent sends discovered devices
