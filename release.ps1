@@ -207,7 +207,9 @@ function Save-CommitAndTag {
         }
         git commit -m $agentCommitMsg 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git commit failed for agent VERSION" }
-        Write-Status "Committed: $agentCommitMsg" "INFO"
+        # Capture the commit SHA so we can tag this specific commit later
+        $agentCommitSHA = (git rev-parse --verify HEAD).Trim()
+        Write-Status "Committed: $agentCommitMsg (sha: $agentCommitSHA)" "INFO"
 
         # Commit server VERSION separately
         git add server/VERSION 2>&1 | Out-Null
@@ -216,9 +218,11 @@ function Save-CommitAndTag {
         } else {
             $serverCommitMsg = "chore: Release server v$serverVer"
         }
-        git commit -m $serverCommitMsg 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "Git commit failed for server VERSION" }
-        Write-Status "Committed: $serverCommitMsg" "INFO"
+    git commit -m $serverCommitMsg 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Git commit failed for server VERSION" }
+    # Capture the commit SHA so we can tag this specific commit
+    $serverCommitSHA = (git rev-parse --verify HEAD).Trim()
+    Write-Status "Committed: $serverCommitMsg (sha: $serverCommitSHA)" "INFO"
 
     } elseif ($Component -eq 'server') {
         git add server/VERSION 2>&1 | Out-Null
@@ -248,24 +252,24 @@ function Save-CommitAndTag {
         $agentVer = (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
         $serverVer = (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
         
-        # Tag agent
-        $gitOutput = git tag -a "agent-v$agentVer" -m "Agent Release v$agentVer" 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for agent" }
-        Write-Status "Tagged as agent-v$agentVer" "INFO"
-        
-        # Tag server
-        $gitOutput = git tag -a "server-v$serverVer" -m "Server Release v$serverVer" 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
-        Write-Status "Tagged as server-v$serverVer" "INFO"
+    # Tag agent (point tag at the agent commit SHA)
+    $null = git tag -a "agent-v$agentVer" $agentCommitSHA -m "Agent Release v$agentVer" 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Git tag failed for agent" }
+    Write-Status "Tagged as agent-v$agentVer -> $agentCommitSHA" "INFO"
+
+    # Tag server (point tag at the server commit SHA)
+    $null = git tag -a "server-v$serverVer" $serverCommitSHA -m "Server Release v$serverVer" 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
+    Write-Status "Tagged as server-v$serverVer -> $serverCommitSHA" "INFO"
         
         }
     elseif ($Component -eq 'server') {
-        $gitOutput = git tag -a "server-v$Version" -m "Server Release v$Version" 2>&1
+        $null = git tag -a "server-v$Version" -m "Server Release v$Version" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
         Write-Status "Tagged as server-v$Version" "INFO"
     }
     else {
-        $gitOutput = git tag -a "agent-v$Version" -m "Agent Release v$Version" 2>&1
+        $null = git tag -a "agent-v$Version" -m "Agent Release v$Version" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
         Write-Status "Tagged as agent-v$Version" "INFO"
     }
@@ -285,13 +289,13 @@ function Push-Release {
     }
     
     # Push commits
-    $gitOutput = git push 2>&1
+    $null = git push 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Git push failed"
     }
     
     # Push tags
-    $gitOutput = git push --tags 2>&1
+    $null = git push --tags 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Git push tags failed"
     }
@@ -483,8 +487,8 @@ docker run -d \
 "@
     
     # Create release with gh CLI
-    try {
-        $ghOutput = gh release create $Tag `
+        try {
+        $null = gh release create $Tag `
             --title $Title `
             --notes $releaseNotes `
             --latest 2>&1
