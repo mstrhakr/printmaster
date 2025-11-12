@@ -77,6 +77,23 @@ window.__pm_shared = window.__pm_shared || {};
     s.log = s.log || function(...args) { window.__pm_shared.log('[SHARED]', ...args); };
 })();
 
+// Ensure a minimal globalSettings object exists for legacy UI code that may
+// reference `globalSettings` without awaiting shared initializers. Also expose
+// an async initializer so callers can explicitly await any future async
+// population logic. Centralizing this in `shared.js` keeps global bootstrapping
+// consistent across agent and server UIs.
+try {
+    window.globalSettings = window.globalSettings || {};
+    window.__pm_shared.initGlobalSettings = window.__pm_shared.initGlobalSettings || (async function() {
+        // Placeholder for potential future asynchronous loading; currently
+        // ensures the object exists and resolves immediately.
+        window.globalSettings = window.globalSettings || {};
+        return window.globalSettings;
+    });
+} catch (e) {
+    // Defensive: if window is not available for some reason, don't throw.
+}
+
 // Load shared vendor assets (flatpickr) from server-hosted copy if available,
 // otherwise fall back to CDN. This centralizes the import so agent and server
 // UIs get the same vendor script without duplicating <script> tags in each
@@ -461,66 +478,26 @@ function showPrompt(message, defaultValue = '', title = 'Input') {
 }
 
 /**
- * Save a discovered device by serial or IP.
- * If an IP is provided, attempt to find a matching device record to extract the serial.
- * @param {string} ipOrSerial - Serial or IP address of the discovered device
- * @param {boolean} autosave - Whether this is an autosave (affects UI behavior)
- * @param {boolean} updateUI - Whether to refresh the printers UI after saving
- * @returns {Promise<void>}
+ * Agent-only saveDiscoveredDevice delegate.
+ * The full implementation now lives in the agent bundle. This thin wrapper
+ * delegates to the agent-provided implementation when available. This keeps
+ * `common/web/shared.js` lightweight while preserving backwards compatibility
+ * for callers that still invoke `window.__pm_shared.saveDiscoveredDevice`.
  */
 async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = true) {
-    if (!ipOrSerial) return;
-
-    // Heuristic: treat as IP if contains a dot or colon
-    const looksLikeIP = ipOrSerial.indexOf('.') !== -1 || ipOrSerial.indexOf(':') !== -1;
-    let serial = ipOrSerial;
-
-    if (looksLikeIP) {
-        try {
-            const list = await fetch('/devices/list').then(r => r.ok ? r.json() : []);
-            for (const item of list) {
-                const info = item.printer_info || item;
-                const ip = (info.ip || info.IP || '').toString();
-                if (ip && ip === ipOrSerial && item.serial) { serial = item.serial; break; }
-            }
-        } catch (e) {
-            window.__pm_shared.warn('Failed to resolve IP to serial for saveDiscoveredDevice', e);
-        }
-    }
-
-    // If the input looked like an IP but we couldn't resolve to a serial, bail out
-    if (looksLikeIP && serial === ipOrSerial) {
-        window.__pm_shared.warn('saveDiscoveredDevice: could not resolve IP to serial, skipping save for', ipOrSerial);
-        return;
-    }
-
-    if (!serial) {
-        // Nothing to save
-        return;
-    }
-
     try {
-        const resp = await fetch('/devices/save', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ serial: serial })
-        });
-        if (!resp.ok) {
-            let txt = '';
-            try { txt = await resp.text(); } catch (e) { txt = resp.statusText || 'unknown'; }
-            throw new Error('Failed to save device: ' + txt + ' (status ' + resp.status + ')');
+        if (typeof window.__agent_saveDiscoveredDevice === 'function') {
+            return await window.__agent_saveDiscoveredDevice(ipOrSerial, autosave, updateUI);
         }
-        if (!autosave) showToast('Device saved', 'success', 1500);
-        if (updateUI && typeof updatePrinters === 'function') {
-            try { updatePrinters(); } catch (e) { /* best-effort */ }
-        }
-    } catch (err) {
-        window.__pm_shared.error('saveDiscoveredDevice failed', err);
-        if (!autosave) showToast('Failed to save device: ' + err.message, 'error');
-        throw err;
+        window.__pm_shared.warn('saveDiscoveredDevice called but agent implementation missing');
+        return Promise.reject(new Error('agent saveDiscoveredDevice not available'));
+    } catch (e) {
+        window.__pm_shared.error('saveDiscoveredDevice wrapper failed', e);
+        throw e;
     }
 }
 
-// Expose helper globally for legacy callers
+// Expose a delegating shim so legacy callers continue to work.
 window.saveDiscoveredDevice = window.saveDiscoveredDevice || saveDiscoveredDevice;
 window.__pm_shared.saveDiscoveredDevice = window.__pm_shared.saveDiscoveredDevice || saveDiscoveredDevice;
 
@@ -599,6 +576,13 @@ function showDeviceMetricsModal(serial, preset) {
     try {
         // If the shared metrics modal exists, reuse it
     if (typeof window.__pm_shared_metrics?.loadDeviceMetrics === 'function') {
+            // If a dedicated modal creator is available, prefer it — it will
+            // create the modal DOM if needed and handle rendering. This keeps
+            // the shared logic robust across different UI entrypoints.
+            if (typeof window.showMetricsModal === 'function') {
+                try { window.showMetricsModal({ serial, preset }); return; } catch (e) { /* fallthrough */ }
+            }
+
             // If modal elements exist in DOM, show modal and render
             const modalBody = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
             if (modalBody) {
@@ -704,6 +688,47 @@ function toggleDatabaseFields() {
 // Export to namespaced shared API
 window.__pm_shared = window.__pm_shared || {};
 window.__pm_shared.toggleDatabaseFields = toggleDatabaseFields;
+
+// Ensure a safe delegator for autosave UI toggle exists. Some bundles
+// (older or compiled server bundles) call `toggleAutosaveUI()` while the
+// authoritative implementation lives in the agent bundle as `toggleAutoSave()`.
+// Provide a delegator that prefers the agent implementation and falls back
+// to a minimal, safe UI update to avoid ReferenceError exceptions.
+function toggleAutosaveUI() {
+    try {
+        // Prefer the (newer) agent implementation if available
+        if (typeof toggleAutoSave === 'function') {
+            return toggleAutoSave();
+        }
+        if (window.__pm_shared && typeof window.__pm_shared.toggleAutoSave === 'function') {
+            return window.__pm_shared.toggleAutoSave();
+        }
+
+        // Minimal safe fallback: update visible controls and localStorage
+        const settingsCheckbox = document.getElementById('settings_autosave');
+        const buttonsDiv = document.getElementById('settings_buttons');
+        const advancedLabel = document.getElementById('advanced_toggle_label');
+        if (!settingsCheckbox) return;
+
+        const enabled = settingsCheckbox.checked;
+        if (enabled) {
+            if (buttonsDiv) buttonsDiv.style.display = 'none';
+            if (advancedLabel) advancedLabel.style.marginLeft = 'auto';
+            localStorage.setItem('settings_autosave', 'true');
+            // No-op for handlers: agent bundle will attach real handlers when loaded
+        } else {
+            if (buttonsDiv) buttonsDiv.style.display = 'flex';
+            if (advancedLabel) advancedLabel.style.marginLeft = '12px';
+            localStorage.setItem('settings_autosave', 'false');
+        }
+    } catch (e) {
+        try { window.__pm_shared.warn('toggleAutosaveUI fallback failed', e); } catch (e2) {}
+    }
+}
+
+// Export aliases so callers don't get ReferenceError
+window.toggleAutosaveUI = window.toggleAutosaveUI || toggleAutosaveUI;
+window.__pm_shared.toggleAutosaveUI = window.__pm_shared.toggleAutosaveUI || toggleAutosaveUI;
 
 // Convenience wrappers for agent/device UI actions so callers can call the
 // namespaced API directly without fallbacks. These implement minimal
