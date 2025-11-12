@@ -1969,6 +1969,11 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 				// responses from agents by decompressing, transforming, and recompressing.
 				contentType := w.Header().Get("Content-Type")
 				if strings.Contains(strings.ToLower(contentType), "text/html") {
+					// Determine proxy base from the incoming request path so injected
+					// <base> and runtime rewrites point to the same proxied prefix
+					// (e.g. /api/v1/proxy/agent/{id}/ or /api/v1/proxy/device/{serial}/).
+					proxyBase := computeProxyBaseFromRequest(r)
+
 					// Detect gzip by magic bytes
 					if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
 						// Decompress
@@ -1978,7 +1983,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 							_ = gr.Close()
 							if rerr == nil {
 								// Inject into decompressed HTML
-								transformed := injectProxyMetaAndBase(decompressed, agentID, targetURL)
+								transformed := injectProxyMetaAndBase(decompressed, proxyBase, agentID, targetURL)
 								// Recompress
 								var buf bytes.Buffer
 								gw := gzip.NewWriter(&buf)
@@ -1997,7 +2002,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 							}
 						}
 					} else {
-						bodyBytes = injectProxyMetaAndBase(bodyBytes, agentID, targetURL)
+						bodyBytes = injectProxyMetaAndBase(bodyBytes, proxyBase, agentID, targetURL)
 					}
 				}
 
@@ -2006,6 +2011,8 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 				// gzip-compressed JS responses by decompressing/recompressing.
 				ctLower := strings.ToLower(contentType)
 				if strings.Contains(ctLower, "javascript") || strings.Contains(ctLower, "application/json") {
+					// Compute proxy base so JS rewrites use the same prefix the client used
+					proxyBase := computeProxyBaseFromRequest(r)
 					// Detect gzip by magic bytes
 					if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
 						gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
@@ -2013,7 +2020,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 							decompressed, rerr := io.ReadAll(gr)
 							_ = gr.Close()
 							if rerr == nil {
-								transformed := rewriteProxyJS(decompressed, agentID, targetURL)
+								transformed := rewriteProxyJS(decompressed, proxyBase, targetURL)
 								// Recompress
 								var buf bytes.Buffer
 								gw := gzip.NewWriter(&buf)
@@ -2031,7 +2038,8 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 						}
 					} else {
 						// Non-gzip JS: transform in-place
-						bodyBytes = rewriteProxyJS(bodyBytes, agentID, targetURL)
+						proxyBase := computeProxyBaseFromRequest(r)
+						bodyBytes = rewriteProxyJS(bodyBytes, proxyBase, targetURL)
 					}
 				}
 
@@ -2049,9 +2057,8 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 
 // injectProxyMetaAndBase inserts proxy meta tags and a <base> element into HTML
 // and rewrites absolute occurrences of the agent origin to the proxy base.
-func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byte {
+func injectProxyMetaAndBase(body []byte, proxyBase string, agentID string, targetURL string) []byte {
 	bodyStr := string(body)
-	proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
 
 	// Replace absolute origin occurrences (http(s)://host:port) and protocol-relative //host:port
 	if u, err := url.Parse(targetURL); err == nil {
@@ -2119,12 +2126,37 @@ func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byt
 	return []byte(bodyStr)
 }
 
+// computeProxyBaseFromRequest derives the proxy base prefix used by the
+// incoming request (e.g. /api/v1/proxy/agent/{id}/ or /api/v1/proxy/device/{serial}/)
+// so injected <base> and runtime rewrites point to the same proxied prefix.
+func computeProxyBaseFromRequest(r *http.Request) string {
+	path := r.URL.Path
+	prefix := "/api/v1/proxy/"
+	idx := strings.Index(path, prefix)
+	if idx == -1 {
+		// fallback to root
+		if strings.HasSuffix(path, "/") {
+			return path
+		}
+		return path + "/"
+	}
+	rest := path[idx+len(prefix):]
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) >= 2 {
+		return prefix + parts[0] + "/" + parts[1] + "/"
+	}
+	// Fallback: ensure trailing slash
+	if !strings.HasSuffix(path, "/") {
+		return path + "/"
+	}
+	return path
+}
+
 // rewriteProxyJS performs simple string-based rewrites on JavaScript/JSON
 // payloads to convert absolute paths (e.g., fetch('/scan_metrics')) to the
 // proxy-based path. This is a pragmatic approach and not a full JS parser.
-func rewriteProxyJS(body []byte, agentID string, targetURL string) []byte {
+func rewriteProxyJS(body []byte, proxyBase string, targetURL string) []byte {
 	s := string(body)
-	proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
 
 	// Replace absolute origin occurrences
 	if u, err := url.Parse(targetURL); err == nil {
