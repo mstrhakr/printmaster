@@ -1,3 +1,86 @@
+// Agent-specific helper: save a discovered device (moved out of shared bundle)
+async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = true) {
+    if (!ipOrSerial) return;
+    const looksLikeIP = ipOrSerial.indexOf('.') !== -1 || ipOrSerial.indexOf(':') !== -1;
+    let serial = ipOrSerial;
+
+    if (looksLikeIP) {
+        try {
+            let list = [];
+            try {
+                const resp = await fetch('/devices/list');
+                if (resp.ok) list = await resp.json();
+            } catch (e) {}
+
+            if ((!list || list.length === 0) && document && typeof document.querySelector === 'function') {
+                try {
+                    const meta = document.querySelector('meta[http-equiv="X-PrintMaster-Agent-ID"]');
+                    const agentId = meta && meta.content;
+                    if (agentId) {
+                        const proxyPath = '/api/v1/proxy/agent/' + encodeURIComponent(agentId) + '/devices/list';
+                        const resp2 = await fetch(proxyPath);
+                        if (resp2.ok) list = await resp2.json();
+                    }
+                } catch (e) {}
+            }
+
+            // Search saved devices list first
+            for (const item of (list || [])) {
+                const info = item.printer_info || item;
+                const ip = (info.ip || info.IP || '').toString();
+                if (ip && ip === ipOrSerial && item.serial) { serial = item.serial; break; }
+            }
+
+            // If not found, try discovered devices (they may include serials after a deep scan)
+            if (!serial || serial === ipOrSerial) {
+                try {
+                    let discovered = [];
+                    try {
+                        const dresp = await fetch('/devices/discovered?include_known=true');
+                        if (dresp.ok) discovered = await dresp.json();
+                    } catch (e) {}
+
+                    for (const item of (discovered || [])) {
+                        const info = item.printer_info || item;
+                        const ip = (info.ip || info.IP || '').toString();
+                        if (ip && ip === ipOrSerial && item.serial) { serial = item.serial; break; }
+                    }
+                } catch (e) { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('Failed to resolve IP from discovered list', e); }
+            }
+        } catch (e) { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('Failed to resolve IP to serial for saveDiscoveredDevice', e); }
+    }
+
+    if (looksLikeIP && serial === ipOrSerial) {
+        window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('saveDiscoveredDevice: could not resolve IP to serial, skipping save for', ipOrSerial);
+        return;
+    }
+
+    if (!serial) return;
+
+    try {
+        const resp = await fetch('/devices/save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serial: serial })
+        });
+        if (!resp.ok) {
+            let txt = '';
+            try { txt = await resp.text(); } catch (e) { txt = resp.statusText || 'unknown'; }
+            throw new Error('Failed to save device: ' + txt + ' (status ' + resp.status + ')');
+        }
+        if (!autosave) window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Device saved', 'success', 1500);
+        if (updateUI && typeof updatePrinters === 'function') {
+            try { updatePrinters(); } catch (e) { /* best-effort */ }
+        }
+    } catch (err) {
+        window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('saveDiscoveredDevice failed', err);
+        if (!autosave) window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Failed to save device: ' + err.message, 'error');
+        throw err;
+    }
+}
+
+// Expose agent implementation so shared delegate can call into it when proxied
+try { window.__agent_saveDiscoveredDevice = window.__agent_saveDiscoveredDevice || saveDiscoveredDevice; } catch (e) {}
+
 function showPrinterDetailsData(p, source, parseDebug) {
     // Delegated to shared implementation in `common/web/cards.js`.
     try {
@@ -3765,8 +3848,18 @@ async function saveAllSettings(btn) {
             auto_discover_live_llmnr: document.getElementById('discovery_live_llmnr_enabled')?.checked ?? false,
 
             // Metrics Monitoring
-            metrics_rescan_enabled: document.getElementById('metrics_rescan_enabled')?.checked ?? false,
-            metrics_rescan_interval_minutes: parseInt(document.getElementById('metrics_rescan_interval')?.value ?? 60)
+                metrics_rescan_enabled: document.getElementById('metrics_rescan_enabled')?.checked ?? false,
+                // Validate and clamp interval to avoid sending NaN/null which the
+                // backend treats as missing and falls back to default (60). Ensure
+                // interval is an integer between 5 and 1440.
+                metrics_rescan_interval_minutes: (function(){
+                    const el = document.getElementById('metrics_rescan_interval');
+                    let iv = el ? parseInt(el.value, 10) : NaN;
+                    if (isNaN(iv)) iv = 60; // default
+                    if (iv < 5) iv = 5;
+                    if (iv > 1440) iv = 1440;
+                    return iv;
+                })()
         };
 
         // Include ranges text directly in unified save payload
@@ -3906,6 +3999,9 @@ function closeDeviceMetricsModal() {
     if (!modal) return;
     modal.style.display = 'none';
 }
+
+// Expose saveAllSettings for testability and external callers
+try { window.saveAllSettings = window.saveAllSettings || saveAllSettings; } catch (e) {}
 
 // Toggle the visibility of the metrics time selector for a given container.
 // targetId: optional id of the container that holds the metrics UI (e.g. 'metrics_modal_body' or 'metrics_content').
