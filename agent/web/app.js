@@ -81,7 +81,7 @@ function updatePrinters() {
                     const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
                     if (p.ip && !isSaved && !window.autosavedIPs.has(p.ip)) {
                         window.autosavedIPs.add(p.ip);
-                        saveDiscoveredDevice(p.ip, true).catch(() => { window.autosavedIPs.delete(p.ip); });
+                    window.__pm_shared.saveDiscoveredDevice(p.ip, true).catch(() => { window.autosavedIPs.delete(p.ip); });
                     }
                 });
             }
@@ -885,8 +885,8 @@ function showPrinterDetailsData(p, source, parseDebug) {
     deviceInfo += '<div style="display:flex;gap:4px;align-items:center">';
     deviceInfo += '<input id="field_web_ui_url" type="text" value="' + webUIVal + '" ' + (webUILocked ? 'disabled' : '') + ' style="flex:1;' + webUIDisabledStyle + '">';
     if (webUIVal) {
-        deviceInfo += '<button style="font-size:11px;padding:2px 6px" onclick="window.open(\'' + webUIVal + '\', \'_blank\')">Direct</button>';
-        deviceInfo += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" onclick="window.open(\'/proxy/' + (p.serial || '') + '\', \'_blank\')">Proxy</button>';
+        deviceInfo += '<button style="font-size:11px;padding:2px 6px" data-action="open-direct" data-webui-url="' + webUIVal + '">Direct</button>';
+        deviceInfo += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" data-action="open-proxy" data-serial="' + (p.serial || '') + '">Proxy</button>';
     }
     deviceInfo += '</div>';
     deviceInfo += '<button class="lock-btn' + (webUILocked ? ' locked' : '') + '" data-field="web_ui_url" title="' + (webUILocked ? 'Unlock field' : 'Lock field') + '"></button>';
@@ -904,8 +904,8 @@ function showPrinterDetailsData(p, source, parseDebug) {
     if (source === 'saved' && p.serial) {
         const metricsHtml = '<div id="printer_metrics_summary" style="margin-top:8px"></div>' +
             '<div style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
-            '<button class="primary" onclick="showDeviceMetricsModal(\'' + p.serial + '\')">Open Metrics</button>' +
-            '<button style="font-size:12px;padding:6px" onclick="showDeviceMetricsModal(\'' + p.serial + '\', \'7day\')">Open Last 7 Days</button>' +
+            '<button class="primary" data-action="metrics" data-serial="' + p.serial + '">Open Metrics</button>' +
+            '<button style="font-size:12px;padding:6px" data-action="metrics" data-serial="' + p.serial + '" data-preset="7day">Open Last 7 Days</button>' +
             '</div>';
         html += renderInfoCard('Metrics', metricsHtml);
     }
@@ -1422,7 +1422,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
 
             try {
                 // Fast save first (instant response, no confirmation popup)
-                await saveDiscoveredDevice(p.IP, true, false);
+                await window.__pm_shared.saveDiscoveredDevice(p.IP, true, false);
                 saveBtn.textContent = 'Saved ✓';
                 actionsEl.appendChild(statusLine);
 
@@ -1602,7 +1602,7 @@ async function loadDeviceMetrics(serial, targetId) {
     // Toggle to show/hide the datetime selector (hidden by default)
     const toggleTarget = targetId || '';
     html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">';
-    html += '<button id="metrics_toggle_time_btn" onclick="toggleMetricsTimeSelector(\'' + toggleTarget + '\')" aria-expanded="false" style="padding:6px 10px;font-size:13px">Show time selector</button>';
+    html += '<button id="metrics_toggle_time_btn" data-action="toggle-time" data-target="' + toggleTarget + '" aria-expanded="false" style="padding:6px 10px;font-size:13px">Show time selector</button>';
     html += '</div>';
 
     // Datetime range picker - hidden by default
@@ -1613,11 +1613,11 @@ async function loadDeviceMetrics(serial, targetId) {
     html += '<div style="margin-bottom:16px">';
     html += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Quick Select:</div>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
-    html += '<button id="preset_day" onclick="setMetricsQuickRange(\'day\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last 24 Hours</button>';
-    html += '<button id="preset_week" onclick="setMetricsQuickRange(\'week\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last 7 Days</button>';
-    html += '<button id="preset_month" onclick="setMetricsQuickRange(\'month\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last 30 Days</button>';
-    html += '<button id="preset_year" onclick="setMetricsQuickRange(\'year\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last Year</button>';
-    html += '<button id="preset_all" onclick="setMetricsQuickRange(\'all\', \'' + serial + '\')" style="padding:6px 12px;font-size:13px;min-height:32px">All Time</button>';
+    html += '<button id="preset_day" data-action="preset" data-preset="day" data-serial="' + serial + '" style="padding:6px 12px;font-size:13px;min-height:32px">Last 24 Hours</button>';
+    html += '<button id="preset_week" data-action="preset" data-preset="week" data-serial="' + serial + '" style="padding:6px 12px;font-size:13px;min-height:32px">Last 7 Days</button>';
+    html += '<button id="preset_month" data-action="preset" data-preset="month" data-serial="' + serial + '" style="padding:6px 12px;font-size:13px;min-height:32px">Last 30 Days</button>';
+    html += '<button id="preset_year" data-action="preset" data-preset="year" data-serial="' + serial + '" style="padding:6px 12px;font-size:13px;min-height:32px">Last Year</button>';
+    html += '<button id="preset_all" data-action="preset" data-preset="all" data-serial="' + serial + '" style="padding:6px 12px;font-size:13px;min-height:32px">All Time</button>';
     html += '</div>'; // close metrics_custom_range
     html += '</div>'; // close metrics_time_selector
     html += '</div>';
@@ -1634,7 +1634,7 @@ async function loadDeviceMetrics(serial, targetId) {
     html += '</div>';
 
     // Apply button
-    html += '<button onclick="refreshMetricsChart(\'' + serial + '\')" style="width:100%;padding:10px;font-size:14px;min-height:40px;font-weight:600;background:#268bd2;color:#fff">Update Chart</button>';
+    html += '<button data-action="refresh" data-serial="' + serial + '" style="width:100%;padding:10px;font-size:14px;min-height:40px;font-weight:600;background:#268bd2;color:#fff">Update Chart</button>';
     html += '</div>';
 
     // Stats summary
@@ -3854,14 +3854,7 @@ async function resetSettings() {
         .catch(e => { console.error('Reset failed:', e); window.__pm_shared.showToast('Reset failed: ' + e.message, 'error'); });
 }
 
-// Clipboard copy functionality (duplicate removed - see function at top of file)
-
-function makeClipboardIcon() {
-    return '<svg class="clipboard-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-        '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>' +
-        '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>' +
-        '</svg>';
-}
+// Clipboard icon is provided by shared helpers (window.__pm_shared.makeClipboardIcon)
 
 // WebUI Modal functions
 let currentWebUIURL = '';
