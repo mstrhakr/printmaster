@@ -2391,6 +2391,23 @@ func runInteractive(ctx context.Context, configFlag string) {
 			w.Write([]byte(sharedweb.CardsJS))
 			return
 		}
+		// Serve vendored flatpickr files from the embedded common/web package so
+		// they are served with correct MIME types and avoid CDN/CSP issues.
+		if fileName == "flatpickr/flatpickr.min.js" {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Write([]byte(sharedweb.FlatpickrJS))
+			return
+		}
+		if fileName == "flatpickr/flatpickr.min.css" {
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+			w.Write([]byte(sharedweb.FlatpickrCSS))
+			return
+		}
+		if fileName == "flatpickr/LICENSE.md" {
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.Write([]byte(sharedweb.FlatpickrLicense))
+			return
+		}
 
 		// Serve other files from embedded filesystem
 		filePath := "web/" + fileName
