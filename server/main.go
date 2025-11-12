@@ -2041,6 +2041,20 @@ func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byt
 	bodyStr = strings.ReplaceAll(bodyStr, `url("/`, "url(\""+proxyBase)
 	bodyStr = strings.ReplaceAll(bodyStr, `url('/`, "url('"+proxyBase)
 
+	// Rewrite common JavaScript absolute calls so they route through the proxy.
+	// This covers fetch('/...') and common XHR/open patterns which are not
+	// affected by a <base> element and must be rewritten manually.
+	bodyStr = strings.ReplaceAll(bodyStr, "fetch('/", "fetch('"+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, "fetch(\"/", "fetch(\""+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, "fetch( '/", "fetch( '"+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, "fetch( \"/", "fetch( \""+proxyBase)
+
+	// XMLHttpRequest / open() variants (common patterns)
+	bodyStr = strings.ReplaceAll(bodyStr, "XMLHttpRequest.open('GET','/", "XMLHttpRequest.open('GET','"+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, "XMLHttpRequest.open(\"GET\",\"/", "XMLHttpRequest.open(\"GET\",\""+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, "open('GET','/", "open('GET','"+proxyBase)
+	bodyStr = strings.ReplaceAll(bodyStr, "open(\"GET\",\"/", "open(\"GET\",\""+proxyBase)
+
 	// Inject meta tag after <head> tag (do this last so injected base won't be rewritten above)
 	headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
 	if headIdx == -1 {
