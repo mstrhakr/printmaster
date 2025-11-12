@@ -59,7 +59,7 @@
             '<div class="saved-device-card-section-title">Consumables</div><div class="consumable-container">' + consumablesHTML + '</div></div>' : '';
 
         const capabilitiesHTML = (typeof renderCapabilities === 'function') ? renderCapabilities(device) : renderCapabilitiesFallback(device);
-        const clipIcon = (typeof makeClipboardIcon === 'function') ? makeClipboardIcon() : makeClipboardIconFallback();
+    const clipIcon = (window.__pm_shared && typeof window.__pm_shared.makeClipboardIcon === 'function') ? window.__pm_shared.makeClipboardIcon() : makeClipboardIconFallback();
 
         const ipVal = device.ip || 'N/A';
         const macVal = device.mac || '';
@@ -69,17 +69,17 @@
             `<div class="saved-device-card-header"><div class="saved-device-card-main">` +
             `<h5 class="saved-device-card-title">${device.manufacturer||'Unknown'} ${device.model||''}</h5>` +
             `${capabilitiesHTML}` +
-            `<p class="saved-device-card-subtitle copyable" onclick="copyToClipboard('${serial}', this.querySelector('.clipboard-icon'))">Serial: ${serial}${clipIcon}</p>` +
-            `<p class="saved-device-card-subtitle"><span class="copyable" onclick="copyToClipboard('${ipVal}', this.querySelector('.clipboard-icon'))" style="display:inline-flex;align-items:center;gap:4px;">IP: ${ipVal}${clipIcon}</span>` + (macVal?`<span class="copyable" onclick="copyToClipboard('${macVal}', this.querySelector('.clipboard-icon'))" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;"> • MAC: ${macVal}${clipIcon}</span>`:'') + `</p>` +
+            `<p class="saved-device-card-subtitle copyable" data-copy="${serial}">Serial: ${serial}${clipIcon}</p>` +
+            `<p class="saved-device-card-subtitle"><span class="copyable" data-copy="${ipVal}" style="display:inline-flex;align-items:center;gap:4px;">IP: ${ipVal}${clipIcon}</span>` + (macVal?`<span class="copyable" data-copy="${macVal}" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;"> • MAC: ${macVal}${clipIcon}</span>`:'') + `</p>` +
             `</div><div style="display:flex;gap:8px;flex-wrap:wrap;">` +
-            ((item && item.web_ui_url) ? `<button class="primary" style="font-size:12px" onclick="showWebUIModal('${item.web_ui_url}', '${serial}')">WebUI</button>` : '') +
-            `<button onclick="showPrinterDetails('${device.ip||''}','saved')">Details</button>` +
-            `<button class="delete" onclick="deleteSavedDevice('${serial}')">Delete</button>` +
+            ((item && item.web_ui_url) ? `<button class="primary" style="font-size:12px" data-action="webui" data-webui-url="${item.web_ui_url}" data-serial="${serial}">WebUI</button>` : '') +
+            `<button data-action="details" data-ip="${device.ip||''}" data-source="saved">Details</button>` +
+            `<button class="delete" data-action="delete" data-serial="${serial}">Delete</button>` +
             `</div></div>` +
             `<div class="saved-device-card-grid"><div class="saved-device-card-inner-panel">` +
             `<div class="saved-device-card-section"><div class="saved-device-card-section-title">Device Info</div>` +
-            `<div class="saved-device-card-row"><span class="saved-device-card-label">Asset #</span><span class="saved-device-card-value editable-field" onclick="editField('${serial}','asset_number','${item&&item.asset_number?item.asset_number:''}',this)">${item&&item.asset_number?item.asset_number:'(click to add)'}</span></div>` +
-            `<div class="saved-device-card-row"><span class="saved-device-card-label">Location</span><span class="saved-device-card-value editable-field" onclick="editField('${serial}','location','${item&&item.location?item.location:''}',this)">${item&&item.location?item.location:'(click to add)'}</span></div>` +
+            `<div class="saved-device-card-row"><span class="saved-device-card-label">Asset #</span><span class="saved-device-card-value editable-field" data-action="edit" data-serial="${serial}" data-field="asset_number" data-current="${item&&item.asset_number?item.asset_number:''}">${item&&item.asset_number?item.asset_number:'(click to add)'}</span></div>` +
+            `<div class="saved-device-card-row"><span class="saved-device-card-label">Location</span><span class="saved-device-card-value editable-field" data-action="edit" data-serial="${serial}" data-field="location" data-current="${item&&item.location?item.location:''}">${item&&item.location?item.location:'(click to add)'}</span></div>` +
             `<div class="saved-device-card-row"><span class="saved-device-card-label">Total Pages</span><span class="saved-device-card-value">${(lifeCount||0).toLocaleString()}</span></div>` +
             `</div>${consumablesSection}</div>${usageGraphHTML}</div></div>`;
     }
@@ -112,6 +112,151 @@
     window.__pm_shared_cards.renderSavedCard = renderSavedCard;
     window.__pm_shared_cards.checkDatabaseRotationWarning = checkDatabaseRotationWarning;
     window.__pm_shared_cards.renderCapabilities = renderCapabilities;
+
+    // Attach delegated click handler for copyable elements that use data-copy.
+    // Await shared.ready so shared utilities (copyToClipboard, showToast) are
+    // available and logging is consistent.
+    document.addEventListener('click', async (ev) => {
+        try {
+            await (window.__pm_shared && window.__pm_shared.ready);
+        } catch (e) {
+            // If ready promise rejected or missing, continue to avoid blocking UI
+        }
+        try {
+            const el = ev.target.closest && ev.target.closest('.copyable');
+            if (!el) return;
+            const val = el.getAttribute('data-copy');
+            if (!val) return;
+            try {
+                window.__pm_shared.copyToClipboard(val, null, 'Copied to clipboard');
+            } catch (err) {
+                // fallback
+                try { navigator.clipboard.writeText(val); window.__pm_shared.showToast && window.__pm_shared.showToast('Copied to clipboard', 'success'); } catch (e) {}
+            }
+        } catch (e) {
+            try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('copyable handler error', e); } catch (er) {}
+        }
+    });
+
+    // Delegated handler for action buttons in rendered cards. We await
+    // the shared.ready promise to guarantee the shared API and logger are
+    // available before calling into window.__pm_shared.
+    document.addEventListener('click', async (ev) => {
+        try {
+            await (window.__pm_shared && window.__pm_shared.ready);
+        } catch (e) {}
+        try {
+            const btn = ev.target.closest && ev.target.closest('[data-action]');
+            if (!btn) return;
+            const action = btn.getAttribute('data-action');
+            try { window.__pm_shared && window.__pm_shared.trace && window.__pm_shared.trace('card action', action, btn.dataset); } catch (er) {}
+
+            if (action === 'save' || btn.classList.contains('save-device-btn')) {
+                // Old markup migration: support both data-action="save" and .save-device-btn
+                const ip = btn.getAttribute('data-ip') || btn.getAttribute('data-device-ip');
+                if (!ip) return;
+                btn.disabled = true;
+                try {
+                    await window.__pm_shared.saveDiscoveredDevice(ip, false, true);
+                    btn.textContent = 'Saved ✓';
+                } catch (e) {
+                    console.error('Save failed:', e);
+                    btn.disabled = false;
+                    btn.textContent = 'Save';
+                    window.__pm_shared.showToast('Save failed: ' + (e && e.message ? e.message : e), 'error');
+                }
+                return;
+            }
+
+            if (action === 'webui') {
+                const url = btn.getAttribute('data-webui-url');
+                const serial = btn.getAttribute('data-serial');
+                window.__pm_shared.showWebUIModal(url, serial);
+                return;
+            }
+
+            if (action === 'open-direct') {
+                const url = btn.getAttribute('data-webui-url');
+                window.open(url, '_blank');
+                return;
+            }
+
+            if (action === 'open-proxy') {
+                const serial = btn.getAttribute('data-serial');
+                window.open('/proxy/' + encodeURIComponent(serial) + '/', '_blank');
+                return;
+            }
+
+            if (action === 'metrics') {
+                const serial = btn.getAttribute('data-serial');
+                const preset = btn.getAttribute('data-preset');
+                window.__pm_shared.showDeviceMetricsModal(serial, preset);
+                return;
+            }
+
+            // Server-specific actions (agents/devices list)
+            if (action === 'view-agent') {
+                const agentId = btn.getAttribute('data-agent-id');
+                window.__pm_shared.viewAgentDetails(agentId);
+                return;
+            }
+
+            if (action === 'open-agent') {
+                const agentId = btn.getAttribute('data-agent-id');
+                window.__pm_shared.openAgentUI(agentId);
+                return;
+            }
+
+            if (action === 'delete-agent') {
+                const agentId = btn.getAttribute('data-agent-id');
+                const agentName = btn.getAttribute('data-agent-name');
+                window.__pm_shared.deleteAgent(agentId, agentName);
+                return;
+            }
+
+            if (action === 'open-device') {
+                const serial = btn.getAttribute('data-serial');
+                window.__pm_shared.openDeviceUI(serial);
+                return;
+            }
+
+            if (action === 'view-metrics') {
+                const serial = btn.getAttribute('data-serial');
+                window.__pm_shared.openDeviceMetrics(serial);
+                return;
+            }
+
+            if (action === 'show-printer-details') {
+                const ip = btn.getAttribute('data-ip');
+                const source = btn.getAttribute('data-source') || 'discovered';
+                window.__pm_shared.showPrinterDetails(ip, source);
+                return;
+            }
+
+            if (action === 'details') {
+                const ip = btn.getAttribute('data-ip');
+                const source = btn.getAttribute('data-source') || 'discovered';
+                window.__pm_shared.showPrinterDetails(ip, source);
+                return;
+            }
+
+            if (action === 'delete') {
+                const serial = btn.getAttribute('data-serial');
+                window.__pm_shared.deleteSavedDevice(serial);
+                return;
+            }
+
+            if (action === 'edit') {
+                const serial = btn.getAttribute('data-serial');
+                const field = btn.getAttribute('data-field');
+                const current = btn.getAttribute('data-current');
+                window.__pm_shared.editField(serial, field, current, btn);
+                return;
+            }
+        } catch (e) {
+            console.error('card action handler error', e);
+        }
+    });
 
     // Shared modal renderer for printer details (moved from agent/web/app.js)
     // This builds the saved/discovered device modal and also provides a
@@ -205,8 +350,8 @@
         webUiRow += '<div style="display:flex;gap:4px;align-items:center">';
         webUiRow += '<input id="field_web_ui_url" type="text" value="' + webUIVal + '" ' + (webUILocked ? 'disabled' : '') + ' style="flex:1;' + (webUILocked ? 'background:var(--panel);opacity:0.8;' : '') + '">';
         if (webUIVal) {
-            webUiRow += '<button style="font-size:11px;padding:2px 6px" onclick="window.open(\'' + webUIVal + '\', \'_blank\')">Direct</button>';
-            webUiRow += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" onclick="window.open(\'/proxy/' + (p.serial || '') + '\', \'_blank\')">Proxy</button>';
+            webUiRow += '<button style="font-size:11px;padding:2px 6px" data-action="open-direct" data-webui-url="' + webUIVal + '">Direct</button>';
+            webUiRow += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" data-action="open-proxy" data-serial="' + (p.serial || '') + '">Proxy</button>';
         }
         webUiRow += '</div>';
         webUiRow += '<button class="lock-btn' + (webUILocked ? ' locked' : '') + '" data-field="web_ui_url" title="' + (webUILocked ? 'Unlock field' : 'Lock field') + '"></button>';
@@ -221,8 +366,8 @@
         if (source === 'saved' && p.serial) {
             const metricsHtml = '<div id="printer_metrics_summary" style="margin-top:8px"></div>' +
                 '<div style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
-                '<button class="primary" onclick="showDeviceMetricsModal(\'' + p.serial + '\')">Open Metrics</button>' +
-                '<button style="font-size:12px;padding:6px" onclick="showDeviceMetricsModal(\'' + p.serial + '\', \'7day\')">Open Last 7 Days</button>' +
+                '<button class="primary" data-action="metrics" data-serial="' + p.serial + '">Open Metrics</button>' +
+                '<button style="font-size:12px;padding:6px" data-action="metrics" data-serial="' + p.serial + '" data-preset="7day">Open Last 7 Days</button>' +
                 '</div>';
             html += renderInfoCard('Metrics', metricsHtml);
         }
@@ -504,7 +649,7 @@
                     saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
                     const statusLine = document.createElement('div'); statusLine.style.cssText = 'margin-top: 12px; font-size: 0.9em; color: #93a1a1; text-align: center;';
                     try {
-                        await saveDiscoveredDevice(p.IP || p.ip, true, false);
+                        await window.__pm_shared.saveDiscoveredDevice(p.IP || p.ip, true, false);
                         saveBtn.textContent = 'Saved ✓'; actionsEl.appendChild(statusLine);
                         const cardToRemove = document.querySelector('.device-card[data-ip="' + (p.IP || p.ip) + '"]'); if (cardToRemove) cardToRemove.classList.add('removing');
                         setTimeout(async () => {
@@ -584,8 +729,8 @@
 
         const savedClass = isSaved ? ' saved' : '';
 
-        const saveBtn = isSaved ? '<button class="btn small" disabled>Saved</button>' : '<button class="btn primary small" onclick="saveDiscoveredDevice(\'' + ip + '\')">Save</button>';
-        const proxyBtn = serial ? '<button class="btn small" onclick="window.open(\'/proxy/' + encodeURIComponent(serial) + '/\', \_blank\')">Proxy</button>' : '';
+    const saveBtn = isSaved ? '<button class="btn small" disabled>Saved</button>' : '<button class="btn primary small save-device-btn" data-ip="' + ip + '">Save</button>';
+    const proxyBtn = serial ? '<button class="btn small" data-action="open-proxy" data-serial="' + encodeURIComponent(serial) + '">Proxy</button>' : '';
 
         let html = '';
         html += '<div class="device-card' + savedClass + '" data-device-key="' + deviceKey + '" data-ip="' + ip + '" data-serial="' + serial + '" data-make="' + (make || '') + '" data-model="' + (model || '') + '">';
