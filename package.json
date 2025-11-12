@@ -1,0 +1,17 @@
+{
+  "name": "printmaster-web-tests",
+  "version": "0.0.0",
+  "private": true,
+  "devDependencies": {
+    "jest": "^29.0.0",
+    "jest-environment-jsdom": "^29.0.0",
+    "@playwright/test": "^1.41.0"
+  },
+  "jest": {
+    "testPathIgnorePatterns": ["<rootDir>/common/web/__tests__/playwright/"]
+  },
+  "scripts": {
+    "test:js": "jest --runInBand",
+    "test:playwright": "npx playwright test common/web/__tests__/playwright --config=playwright.config.js"
+  }
+}

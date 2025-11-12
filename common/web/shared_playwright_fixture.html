@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Shared Playwright Fixture</title>
+  <style>
+    .toast { display:block; }
+    .toast-message { font-size: 14px; }
+    .modal { display:none; position:fixed; inset:0; align-items:center; justify-content:center; }
+    .modal .modal-content { background:white; padding:12px; }
+  </style>
+</head>
+<body>
+  <!-- minimal DOM elements the shared code expects -->
+  <div id="toast_container"></div>
+
+  <div id="confirm_modal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <h3 id="confirm_modal_title"></h3>
+      <div id="confirm_modal_message"></div>
+      <button id="confirm_modal_confirm">Confirm</button>
+      <button id="confirm_modal_cancel">Cancel</button>
+      <button id="confirm_modal_close_x">X</button>
+    </div>
+  </div>
+
+  <!-- load the shared script directly from disk -->
+  <script src="./shared.js"></script>
+  <script>
+    // Expose a small helper to make confirm visible when showConfirm is called
+    (function() {
+      const modal = document.getElementById('confirm_modal');
+      const titleEl = document.getElementById('confirm_modal_title');
+      const msgEl = document.getElementById('confirm_modal_message');
+      const confirmBtn = document.getElementById('confirm_modal_confirm');
+      const cancelBtn = document.getElementById('confirm_modal_cancel');
+      const closeX = document.getElementById('confirm_modal_close_x');
+
+      // In the fixture we intercept the shared.showConfirm implementation
+      // by listening to modal display changes. The real showConfirm will set
+      // content and display the modal; here we ensure that clicking the confirm
+      // button resolves the dialog as expected.
+      // No extra wiring needed; the shared.showConfirm will use these elements.
+    })();
+  </script>
+</body>
+</html>
