@@ -473,7 +473,7 @@ jobs:
       run: |
         # Extract component and version from tag
         TAG_NAME="${GITHUB_REF#refs/tags/}"
-        
+
         if [[ "$TAG_NAME" == agent-v* ]]; then
           COMPONENT="agent"
           VERSION="${TAG_NAME#agent-v}"
@@ -486,17 +486,17 @@ jobs:
           echo "Unknown tag format: $TAG_NAME"
           exit 1
         fi
-        
+
         echo "component=$COMPONENT" >> $GITHUB_OUTPUT
         echo "version=$VERSION" >> $GITHUB_OUTPUT
-        
+
         # Generate changelog from commits
         if [ -z "$LAST_TAG" ]; then
           CHANGELOG="Initial release"
         else
           CHANGELOG=$(git log ${LAST_TAG}..${TAG_NAME} --pretty=format:"- %s (%h)" --no-merges | grep -v "^- chore: Release" || echo "- Bug fixes and improvements")
         fi
-        
+
         # Save to file (multi-line)
         {
           echo 'CHANGELOG<<EOF'
