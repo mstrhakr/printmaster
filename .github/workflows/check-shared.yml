@@ -28,7 +28,8 @@ jobs:
           found=0
           for p in "${patterns[@]}"; do
             # Use plain grep for literal substrings to avoid unintended regexp pitfalls
-            if grep -R --line-number --exclude-dir=node_modules -e "$p" .; then
+            # Exclude node_modules and the .github directory (workflow files) from the search
+            if grep -R --line-number --exclude-dir=node_modules --exclude-dir=.github -e "$p" .; then
               echo "\nERROR: Found guarded usage pattern: $p"
               found=1
             fi
