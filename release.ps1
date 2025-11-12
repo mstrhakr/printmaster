@@ -192,38 +192,55 @@ function Save-CommitAndTag {
         return
     }
     
-    # Add VERSION files
+    # Add/commit VERSION files
     if ($Component -eq 'both') {
-        $gitOutput = git add agent/VERSION server/VERSION 2>&1
+        # Read both new versions first
+        $agentVer = (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
+        $serverVer = (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
+
+        # Commit agent VERSION separately
+        git add agent/VERSION 2>&1 | Out-Null
         if ($Message) {
-            $commitMsg = "$Message - v$Version"
+            $agentCommitMsg = "$Message - agent v$agentVer"
         } else {
-            $commitMsg = "chore: Release v$Version (agent + server)"
+            $agentCommitMsg = "chore: Release agent v$agentVer"
         }
+        git commit -m $agentCommitMsg 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git commit failed for agent VERSION" }
+        Write-Status "Committed: $agentCommitMsg" "INFO"
+
+        # Commit server VERSION separately
+        git add server/VERSION 2>&1 | Out-Null
+        if ($Message) {
+            $serverCommitMsg = "$Message - server v$serverVer"
+        } else {
+            $serverCommitMsg = "chore: Release server v$serverVer"
+        }
+        git commit -m $serverCommitMsg 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git commit failed for server VERSION" }
+        Write-Status "Committed: $serverCommitMsg" "INFO"
+
     } elseif ($Component -eq 'server') {
-        $gitOutput = git add server/VERSION 2>&1
+        git add server/VERSION 2>&1 | Out-Null
         if ($Message) {
             $commitMsg = "$Message - server v$Version"
         } else {
             $commitMsg = "chore: Release server v$Version"
         }
+        git commit -m $commitMsg 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git commit failed" }
+        Write-Status "Committed: $commitMsg" "INFO"
     } else {
-        $gitOutput = git add agent/VERSION 2>&1
+        git add agent/VERSION 2>&1 | Out-Null
         if ($Message) {
-            $commitMsg = "$Message - v$Version"
+            $commitMsg = "$Message - agent v$Version"
         } else {
             $commitMsg = "chore: Release agent v$Version"
         }
+        git commit -m $commitMsg 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git commit failed" }
+        Write-Status "Committed: $commitMsg" "INFO"
     }
-    
-    # Commit
-    $gitOutput = git commit -m $commitMsg 2>&1
-    
-    if ($LASTEXITCODE -ne 0) {
-        throw "Git commit failed"
-    }
-    
-    Write-Status "Committed: $commitMsg" "INFO"
     
     # Tag - create separate tags for each component
     if ($Component -eq 'both') {
