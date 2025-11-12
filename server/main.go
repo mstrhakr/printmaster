@@ -2101,7 +2101,12 @@ func injectProxyMetaAndBase(body []byte, agentID string, targetURL string) []byt
 	// rewrites because scripts can construct URLs dynamically (e.g. using
 	// window.location.origin). The shim prepends the proxy base for any URL
 	// that starts with '/'. Keep this small and defensive.
-	script := `<script>(function(){try{var _pb="` + proxyBase + `";var _f=window.fetch;window.fetch=function(input,init){try{var u=typeof input==='string'?input:input&&input.url; if(typeof u==='string' && u.charAt(0)==='/'){ if(typeof input==='string') input=_pb+u.slice(1); else input=new Request(_pb+u.slice(1),input); }}catch(e){} return _f.apply(this,arguments)};var _open=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url){try{if(typeof url==='string'&&url.charAt(0)==='/'){url=_pb+url.slice(1);} }catch(e){} return _open.apply(this,arguments);} }catch(e){} })();</script>`
+	// Runtime shim: only rewrite root-absolute URLs that are NOT already
+	// prefixed with the proxy base. This avoids double-prefixing when the
+	// server rewrites script literals (which produce URLs that start with
+	// the proxy base) and the runtime shim then prepends the proxy base
+	// again.
+	script := `<script>(function(){try{var _pb="` + proxyBase + `";var _f=window.fetch;window.fetch=function(input,init){try{var u=typeof input==='string'?input:input&&input.url; if(typeof u==='string'){ if(!(u.indexOf(_pb)===0) && u.charAt(0)==='/'){ if(typeof input==='string') input=_pb+u.slice(1); else input=new Request(_pb+u.slice(1),input); } } }catch(e){} return _f.apply(this,arguments)};var _open=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url){try{ if(typeof url==='string'){ if(!(url.indexOf(_pb)===0) && url.charAt(0)==='/'){ url=_pb+url.slice(1); } } }catch(e){} return _open.apply(this,arguments);} }catch(e){} })();</script>`
 
 	// Inject meta tags and <base>. Note: globalSettings initialization is
 	// provided via shared client script (common/web/shared.js) to keep
