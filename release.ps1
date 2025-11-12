@@ -403,7 +403,8 @@ function New-GitHubRelease {
         [string]$Title,
         [string]$Component,
         [string]$Version,
-        [string]$ChangelogContent
+        [string]$ChangelogContent,
+        [string[]]$AssetPaths
     )
     
     Write-Status "Creating GitHub Release..." "STEP"
@@ -466,10 +467,14 @@ docker run -d \
     
     # Create release with gh CLI
     try {
-        $ghOutput = gh release create $Tag `
-            --title $Title `
-            --notes $releaseNotes `
-            --latest 2>&1
+        # Build gh release create command; include asset paths when provided
+        $ghArgs = @($Tag)
+        if ($AssetPaths -and $AssetPaths.Count -gt 0) {
+            foreach ($p in $AssetPaths) { $ghArgs += $p }
+        }
+        $ghArgs += @('--title', $Title, '--notes', $releaseNotes, '--latest')
+
+    $null = gh release create @ghArgs 2>&1
         
         if ($LASTEXITCODE -ne 0) {
             throw "GitHub release creation failed"
@@ -594,12 +599,31 @@ try {
         Write-Status "Creating GitHub Release..." "INFO"
         if ($Component -eq "both") {
             # Create releases for both components using pre-generated changelogs
-            New-GitHubRelease -Tag "agent-v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New -ChangelogContent $agentChangelog
-            New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New -ChangelogContent $serverChangelog
+            $agentBin = Join-Path $ProjectRoot ("agent\printmaster-agent-v{0}.exe" -f $agentVersion.New.Trim())
+            $serverBin = Join-Path $ProjectRoot ("server\printmaster-server-v{0}.exe" -f $serverVersion.New.Trim())
+
+            # Create individual releases with their respective assets
+            New-GitHubRelease -Tag "agent-v$($agentVersion.New)" -Title "Agent v$($agentVersion.New)" -Component "agent" -Version $agentVersion.New -ChangelogContent $agentChangelog -AssetPaths @($agentBin)
+            New-GitHubRelease -Tag "server-v$($serverVersion.New)" -Title "Server v$($serverVersion.New)" -Component "server" -Version $serverVersion.New -ChangelogContent $serverChangelog -AssetPaths @($serverBin)
+
+            # Create a combined release that references both binaries and shows both versions
+            $combinedTag = "printmaster-combined-agent-v$($agentVersion.New)-server-v$($serverVersion.New)"
+            $combinedTitle = "PrintMaster Combined Release: Agent v$($agentVersion.New) / Server v$($serverVersion.New)"
+            $combinedNotes = "Combined release containing Agent v$($agentVersion.New) and Server v$($serverVersion.New)`n`nAgent Changelog:`n$agentChangelog`n`nServer Changelog:`n$serverChangelog"
+
+            # Create combined git tag so GH release can be attached to it
+            if (-not $DryRun) {
+                git tag -a $combinedTag -m "Combined release: Agent v$($agentVersion.New) Server v$($serverVersion.New)" 2>&1
+            }
+
+            New-GitHubRelease -Tag $combinedTag -Title $combinedTitle -Component "combined" -Version "$($agentVersion.New)/$($serverVersion.New)" -ChangelogContent $combinedNotes -AssetPaths @($agentBin, $serverBin)
+
         } elseif ($Component -eq "agent") {
-            New-GitHubRelease -Tag "agent-v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion -ChangelogContent $changelog
+            $agentBin = Join-Path $ProjectRoot ("agent\printmaster-agent-v{0}.exe" -f $finalVersion.Trim())
+            New-GitHubRelease -Tag "agent-v$finalVersion" -Title "Agent v$finalVersion" -Component "agent" -Version $finalVersion -ChangelogContent $changelog -AssetPaths @($agentBin)
         } else {
-            New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion -ChangelogContent $changelog
+            $serverBin = Join-Path $ProjectRoot ("server\printmaster-server-v{0}.exe" -f $finalVersion.Trim())
+            New-GitHubRelease -Tag "server-v$finalVersion" -Title "Server v$finalVersion" -Component "server" -Version $finalVersion -ChangelogContent $changelog -AssetPaths @($serverBin)
         }
     } else {
         Write-Status "Skipping GitHub release creation - CI/CD will create it with all assets" "INFO"
