@@ -1,11 +1,44 @@
 // PrintMaster Shared JavaScript - Common utilities for Agent and Server UIs
 
 // Ensure a minimal namespaced API exists immediately so other bundles can
-// call into `window.__pm_shared` without guards. We intentionally provide
-// no-op fallbacks here; the full implementations are exported later in this
-// file. This lets callers "just call" window.__pm_shared.showToast(...) and
-// avoid repetitive guards or try/catch wrappers.
+// call into `window.__pm_shared` without guards. We provide a readiness
+// promise and a small SHARED logger here so other scripts can await and
+// consistently emit debug/trace messages while initialization completes.
 window.__pm_shared = window.__pm_shared || {};
+(function __pm_shared_bootstrap(){
+    const s = window.__pm_shared;
+    // readiness promise (resolves when shared initialization completes)
+    if (!s.ready) {
+        let resolveReady;
+        s.ready = new Promise((resolve) => { resolveReady = resolve; });
+        s.__resolveReady = resolveReady;
+    }
+
+    // lightweight SHARED logger (used by UI bundles for diagnostics)
+
+    // Safety: resolve ready after short timeout if not already resolved. This
+    // prevents callers awaiting forever in unusual environments where the
+    // vendor script events didn't fire. We keep timeout short (250ms) to allow
+    // normal onload to complete but avoid long delays.
+    setTimeout(() => {
+        try {
+            if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') {
+                window.__pm_shared.debug && window.__pm_shared.debug('Resolving shared.ready (safety timeout)');
+                window.__pm_shared.__resolveReady();
+                // remove resolver to prevent double-resolve
+                window.__pm_shared.__resolveReady = null;
+            }
+        } catch (e) { console.warn('shared ready safety resolve failed', e); }
+    }, 250);
+    // These forward to console with a consistent prefix. Consumers may
+    // override these with a fancier implementation if needed.
+    s.debug = s.debug || function(...args) { console.debug('[SHARED]', ...args); };
+    s.trace = s.trace || function(...args) { console.trace('[SHARED]', ...args); };
+    s.info = s.info || function(...args) { console.info('[SHARED]', ...args); };
+    s.warn = s.warn || function(...args) { console.warn('[SHARED]', ...args); };
+    s.error = s.error || function(...args) { console.error('[SHARED]', ...args); };
+    s.log = s.log || function(...args) { console.log('[SHARED]', ...args); };
+})();
 
 // Load shared vendor assets (flatpickr) from server-hosted copy if available,
 // otherwise fall back to CDN. This centralizes the import so agent and server
@@ -30,10 +63,20 @@ window.__pm_shared = window.__pm_shared || {};
         const script = document.createElement('script');
         script.src = jsPath;
         script.defer = true;
+        // Resolve readiness once the vendor script loads (or errors).
+        script.addEventListener('load', () => {
+            try { window.__pm_shared.debug && window.__pm_shared.debug('flatpickr loaded from static'); } catch (e) {}
+            if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') window.__pm_shared.__resolveReady();
+        });
+        script.addEventListener('error', (e) => {
+            try { window.__pm_shared.warn && window.__pm_shared.warn('flatpickr failed to load from static', e); } catch (er) {}
+            if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') window.__pm_shared.__resolveReady();
+        });
         document.head.appendChild(script);
     } catch (e) {
         // If injection fails for any reason, don't break the page.
         console.warn('flatpickr static injection failed', e);
+        if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') window.__pm_shared.__resolveReady();
     }
 })();
 
@@ -380,6 +423,180 @@ function showPrompt(message, defaultValue = '', title = 'Input') {
 }
 
 /**
+ * Save a discovered device by serial or IP.
+ * If an IP is provided, attempt to find a matching device record to extract the serial.
+ * @param {string} ipOrSerial - Serial or IP address of the discovered device
+ * @param {boolean} autosave - Whether this is an autosave (affects UI behavior)
+ * @param {boolean} updateUI - Whether to refresh the printers UI after saving
+ * @returns {Promise<void>}
+ */
+async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = true) {
+    if (!ipOrSerial) return;
+
+    // Heuristic: treat as IP if contains a dot or colon
+    const looksLikeIP = ipOrSerial.indexOf('.') !== -1 || ipOrSerial.indexOf(':') !== -1;
+    let serial = ipOrSerial;
+
+    if (looksLikeIP) {
+        try {
+            const list = await fetch('/devices/list').then(r => r.ok ? r.json() : []);
+            for (const item of list) {
+                const info = item.printer_info || item;
+                const ip = (info.ip || info.IP || '').toString();
+                if (ip && ip === ipOrSerial && item.serial) { serial = item.serial; break; }
+            }
+        } catch (e) {
+            console.warn('Failed to resolve IP to serial for saveDiscoveredDevice', e);
+        }
+    }
+
+    // If the input looked like an IP but we couldn't resolve to a serial, bail out
+    if (looksLikeIP && serial === ipOrSerial) {
+        console.warn('saveDiscoveredDevice: could not resolve IP to serial, skipping save for', ipOrSerial);
+        return;
+    }
+
+    if (!serial) {
+        // Nothing to save
+        return;
+    }
+
+    try {
+        const resp = await fetch('/devices/save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serial: serial })
+        });
+        if (!resp.ok) {
+            let txt = '';
+            try { txt = await resp.text(); } catch (e) { txt = resp.statusText || 'unknown'; }
+            throw new Error('Failed to save device: ' + txt + ' (status ' + resp.status + ')');
+        }
+        if (!autosave) showToast('Device saved', 'success', 1500);
+        if (updateUI && typeof updatePrinters === 'function') {
+            try { updatePrinters(); } catch (e) { /* best-effort */ }
+        }
+    } catch (err) {
+        console.error('saveDiscoveredDevice failed', err);
+        if (!autosave) showToast('Failed to save device: ' + err.message, 'error');
+        throw err;
+    }
+}
+
+// Expose helper globally for legacy callers
+window.saveDiscoveredDevice = window.saveDiscoveredDevice || saveDiscoveredDevice;
+window.__pm_shared.saveDiscoveredDevice = window.__pm_shared.saveDiscoveredDevice || saveDiscoveredDevice;
+
+// Lightweight helper shims to ensure shared code has minimal implementations
+function makeClipboardIcon() {
+    return '<svg class="clipboard-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+        '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>' +
+        '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>' +
+        '</svg>';
+}
+
+function showWebUIModal(webUIURL, serial) {
+    // Simple default: open in new tab if URL present
+    if (!webUIURL) return;
+    try { window.open(webUIURL, '_blank'); } catch (e) { console.warn('showWebUIModal fallback failed', e); }
+}
+
+function showPrinterDetails(ip, source) {
+    // Delegate to shared cards renderer if present
+    try {
+        if (window.__pm_shared_cards && typeof window.__pm_shared_cards.showPrinterDetailsData === 'function') {
+            // If only IP is available, try to resolve via /devices/list
+            if (ip && ip.indexOf('.') !== -1) {
+                fetch('/devices/list').then(r => r.ok ? r.json() : []).then(list => {
+                    const match = (list || []).find(it => (it.printer_info && (it.printer_info.ip === ip || it.printer_info.IP === ip)) || (it.ip === ip));
+                    if (match) window.__pm_shared_cards.showPrinterDetailsData(match.printer_info || match, source || 'discovered');
+                    else window.__pm_shared.showToast('Printer details not found for IP: ' + ip, 'error');
+                }).catch(() => { window.__pm_shared.showToast('Failed to fetch device list', 'error'); });
+            } else {
+                window.__pm_shared.showToast('Printer IP not provided', 'error');
+            }
+        } else {
+            window.__pm_shared.showToast('Printer details UI unavailable', 'error');
+        }
+    } catch (e) { console.warn('showPrinterDetails fallback failed', e); }
+}
+
+async function deleteSavedDevice(serial) {
+    if (!serial) return;
+    const confirmed = await window.__pm_shared.showConfirm('Delete this device? This will remove it from the database.', 'Delete Device', true);
+    if (!confirmed) return;
+    try {
+        const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial }) });
+        if (!r.ok) throw new Error(await r.text());
+        window.__pm_shared.showToast('Device deleted successfully', 'success');
+        if (typeof updatePrinters === 'function') try { updatePrinters(); } catch (e) {}
+    } catch (e) {
+        console.error('deleteSavedDevice failed', e);
+        window.__pm_shared.showToast('Failed to delete device', 'error');
+    }
+}
+
+async function editField(serial, fieldName, currentValue, element) {
+    if (!serial || !fieldName) return;
+    try {
+        const newValue = await window.__pm_shared.showPrompt('Enter new value for ' + fieldName + ':', currentValue || '');
+        if (newValue === null) return;
+        const r = await fetch('/devices/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial, [fieldName]: newValue }) });
+        if (!r.ok) throw new Error(await r.text());
+        window.__pm_shared.showToast('Field updated', 'success');
+        // Refresh UI element if provided
+        if (element && element.nodeType === 1) element.textContent = newValue;
+    } catch (e) {
+        console.error('editField failed', e);
+        window.__pm_shared.showToast('Failed to update field', 'error');
+    }
+}
+
+function applyMasonryLayout(targetGrid) {
+    // No-op safe fallback for layouts; consumers may implement real layout
+    return;
+}
+
+function showDeviceMetricsModal(serial, preset) {
+    if (!serial) return;
+    try {
+        // If the shared metrics modal exists, reuse it
+        if (window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadDeviceMetrics === 'function') {
+            // If modal elements exist in DOM, show modal and render
+            const modalBody = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
+            if (modalBody) {
+                // ensure the modal is visible in page (agent/server will style appropriately)
+                const modal = document.getElementById('printer_details_overlay') || document.getElementById('metrics_modal');
+                if (modal) try { modal.style.display = 'flex'; } catch (e) {}
+                window.__pm_shared_metrics.loadDeviceMetrics(serial, modalBody.id || 'metrics_content');
+            } else {
+                // Fallback: open metrics page/tab
+                window.location.hash = '#metrics';
+                setTimeout(() => { try { window.__pm_shared_metrics.loadDeviceMetrics(serial); } catch (e) {} }, 200);
+            }
+        } else {
+            window.__pm_shared.showToast('Metrics UI not available', 'error');
+        }
+    } catch (e) { console.warn('showDeviceMetricsModal failed', e); }
+}
+
+// Export shims to global namespace
+window.makeClipboardIcon = window.makeClipboardIcon || makeClipboardIcon;
+window.showWebUIModal = window.showWebUIModal || showWebUIModal;
+window.showPrinterDetails = window.showPrinterDetails || showPrinterDetails;
+window.deleteSavedDevice = window.deleteSavedDevice || deleteSavedDevice;
+window.editField = window.editField || editField;
+window.applyMasonryLayout = window.applyMasonryLayout || applyMasonryLayout;
+window.showDeviceMetricsModal = window.showDeviceMetricsModal || showDeviceMetricsModal;
+
+window.__pm_shared.makeClipboardIcon = window.__pm_shared.makeClipboardIcon || makeClipboardIcon;
+window.__pm_shared.showWebUIModal = window.__pm_shared.showWebUIModal || showWebUIModal;
+window.__pm_shared.showPrinterDetails = window.__pm_shared.showPrinterDetails || showPrinterDetails;
+window.__pm_shared.deleteSavedDevice = window.__pm_shared.deleteSavedDevice || deleteSavedDevice;
+window.__pm_shared.editField = window.__pm_shared.editField || editField;
+window.__pm_shared.applyMasonryLayout = window.__pm_shared.applyMasonryLayout || applyMasonryLayout;
+window.__pm_shared.showDeviceMetricsModal = window.__pm_shared.showDeviceMetricsModal || showDeviceMetricsModal;
+
+/**
  * Format a date string as relative time (e.g., "2 minutes ago")
  * @param {string} dateString - ISO date string
  * @returns {string} - Relative time string
@@ -449,6 +666,70 @@ function toggleDatabaseFields() {
 // Export to namespaced shared API
 window.__pm_shared = window.__pm_shared || {};
 window.__pm_shared.toggleDatabaseFields = toggleDatabaseFields;
+
+// Convenience wrappers for agent/device UI actions so callers can call the
+// namespaced API directly without fallbacks. These implement minimal
+// behaviors used by the UI (open remote UIs, show metrics modal, fetch
+// agent details, or delete an agent via API).
+window.__pm_shared.openAgentUI = function (agentId) {
+    if (!agentId) return;
+    try { window.open('/api/v1/proxy/agent/' + encodeURIComponent(agentId) + '/', '_blank'); } catch (e) { /* best-effort */ }
+};
+
+window.__pm_shared.openDeviceUI = function (serial) {
+    if (!serial) return;
+    try { window.open('/proxy/' + encodeURIComponent(serial) + '/', '_blank'); } catch (e) { /* best-effort */ }
+};
+
+window.__pm_shared.openDeviceMetrics = function (serial) {
+    if (!serial) return;
+    // Delegate to the shared metrics modal loader
+    try { window.__pm_shared.showDeviceMetricsModal(serial); } catch (e) { /* best-effort */ }
+};
+
+window.__pm_shared.viewAgentDetails = async function (agentId) {
+    if (!agentId) return;
+    // If the page has an agent modal, populate it, otherwise open agents tab
+    try {
+        const modal = document.getElementById('agent_details_modal');
+        const body = document.getElementById('agent_details_body');
+        const title = document.getElementById('agent_details_title');
+        if (modal && body && title) {
+            modal.style.display = 'flex';
+            title.textContent = 'Agent Details';
+            body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Loading agent details...</div>';
+            const res = await fetch('/api/v1/agents/' + encodeURIComponent(agentId));
+            if (!res.ok) { body.innerHTML = '<div style="color:var(--muted);padding:12px">Failed to load agent details</div>'; return; }
+            const agent = await res.json();
+            body.innerHTML = '<pre style="white-space:pre-wrap;word-break:break-word">' + JSON.stringify(agent, null, 2) + '</pre>';
+            return;
+        }
+        // Fallback: open agents tab
+        window.location.hash = '#agents';
+    } catch (e) {
+        try { console.error('viewAgentDetails failed', e); } catch (e2) {}
+    }
+};
+
+window.__pm_shared.deleteAgent = async function (agentId, agentName) {
+    if (!agentId) return;
+    // Confirm then delete via API
+    const ok = await window.__pm_shared.showConfirm('Delete agent ' + (agentName || agentId) + '?', 'Delete Agent', true);
+    if (!ok) return;
+    try {
+        const res = await fetch('/api/v1/agents/' + encodeURIComponent(agentId), { method: 'DELETE' });
+        if (!res.ok) {
+            const txt = await res.text().catch(() => res.statusText || 'error');
+            window.__pm_shared.showToast('Failed to delete agent: ' + txt, 'error');
+            return;
+        }
+        window.__pm_shared.showToast('Agent deleted', 'success');
+        // Trigger a refresh if function exists
+        if (typeof loadAgents === 'function') try { loadAgents(); } catch (e) {}
+    } catch (e) {
+        window.__pm_shared.showToast('Failed to delete agent', 'error');
+    }
+};
 
 // ============================================================================
 // NUMBER FORMATTING
