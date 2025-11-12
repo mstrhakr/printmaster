@@ -5,7 +5,7 @@
 // Load device metrics history and display in UI with interactive timeframe selector
 // If targetId is provided, render UI into that element. Otherwise render into default '#metrics_content'.
 async function loadDeviceMetrics(serial, targetId) {
-    console.log('[Metrics] (shared) loadDeviceMetrics called for serial:', serial);
+    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] (shared) loadDeviceMetrics called for serial:', serial); } catch (e) {}
     let contentEl = null;
     if (targetId) contentEl = document.getElementById(targetId);
     if (!contentEl) contentEl = document.getElementById('metrics_content');
@@ -13,7 +13,7 @@ async function loadDeviceMetrics(serial, targetId) {
         console.error('[Metrics] metrics_content element not found and no target available');
         return;
     }
-    console.log('[Metrics] Rendering metrics into element:', contentEl.id || contentEl.tagName);
+    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Rendering metrics into element:', contentEl.id || contentEl.tagName); } catch (e) {}
 
     // Create interactive metrics UI
     let html = '';
@@ -21,7 +21,7 @@ async function loadDeviceMetrics(serial, targetId) {
     // Toggle to show/hide the datetime selector (hidden by default)
     const toggleTarget = targetId || '';
     html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px">';
-    html += '<button id="metrics_toggle_time_btn" onclick="toggleMetricsTimeSelector(\'' + toggleTarget + '\')" aria-expanded="false" style="padding:6px 10px;font-size:13px">Show time selector</button>';
+    html += '<button id="metrics_toggle_time_btn" data-action="toggle-time" data-target="' + toggleTarget + '" aria-expanded="false" style="padding:6px 10px;font-size:13px">Show time selector</button>';
     html += '</div>';
 
     // Datetime range picker - hidden by default
@@ -32,11 +32,11 @@ async function loadDeviceMetrics(serial, targetId) {
     html += '<div style="margin-bottom:16px">';
     html += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Quick Select:</div>';
     html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
-    html += '<button id="preset_day" onclick="setMetricsQuickRange(\'day\', \'" + serial + "\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last 24 Hours</button>';
-    html += '<button id="preset_week" onclick="setMetricsQuickRange(\'week\', \'" + serial + "\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last 7 Days</button>';
-    html += '<button id="preset_month" onclick="setMetricsQuickRange(\'month\', \'" + serial + "\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last 30 Days</button>';
-    html += '<button id="preset_year" onclick="setMetricsQuickRange(\'year\', \'" + serial + "\')" style="padding:6px 12px;font-size:13px;min-height:32px">Last Year</button>';
-    html += '<button id="preset_all" onclick="setMetricsQuickRange(\'all\', \'" + serial + "\')" style="padding:6px 12px;font-size:13px;min-height:32px">All Time</button>';
+    html += "<button id=\"preset_day\" data-action=\"preset\" data-preset=\"day\" data-serial=\"" + serial + "\" style=\"padding:6px 12px;font-size:13px;min-height:32px\">Last 24 Hours</button>";
+    html += "<button id=\"preset_week\" data-action=\"preset\" data-preset=\"week\" data-serial=\"" + serial + "\" style=\"padding:6px 12px;font-size:13px;min-height:32px\">Last 7 Days</button>";
+    html += "<button id=\"preset_month\" data-action=\"preset\" data-preset=\"month\" data-serial=\"" + serial + "\" style=\"padding:6px 12px;font-size:13px;min-height:32px\">Last 30 Days</button>";
+    html += "<button id=\"preset_year\" data-action=\"preset\" data-preset=\"year\" data-serial=\"" + serial + "\" style=\"padding:6px 12px;font-size:13px;min-height:32px\">Last Year</button>";
+    html += "<button id=\"preset_all\" data-action=\"preset\" data-preset=\"all\" data-serial=\"" + serial + "\" style=\"padding:6px 12px;font-size:13px;min-height:32px\">All Time</button>";
     html += '</div>'; // close metrics_custom_range
     html += '</div>'; // close metrics_time_selector
     html += '</div>';
@@ -53,7 +53,7 @@ async function loadDeviceMetrics(serial, targetId) {
     html += '</div>';
 
     // Apply button
-    html += '<button onclick="refreshMetricsChart(\'' + serial + '\')" style="width:100%;padding:10px;font-size:14px;min-height:40px;font-weight:600;background:#268bd2;color:#fff">Update Chart</button>';
+    html += '<button data-action="refresh" data-serial="' + serial + '" style="width:100%;padding:10px;font-size:14px;min-height:40px;font-weight:600;background:#268bd2;color:#fff">Update Chart</button>';
     html += '</div>';
 
     // Stats summary
@@ -73,32 +73,32 @@ async function loadDeviceMetrics(serial, targetId) {
     try {
         // Small defer to allow DOM/layout to settle
         setTimeout(() => {
-            try { refreshMetricsChart(serial); } catch (e) { console.warn('[Metrics] auto refresh failed:', e); }
+            try { refreshMetricsChart(serial); } catch (e) { try { window.__pm_shared.warn && window.__pm_shared.warn('[Metrics] auto refresh failed:', e); } catch(_) {} }
         }, 50);
     } catch (e) {
-        console.warn('[Metrics] Failed to auto-refresh after init:', e);
+        try { window.__pm_shared.warn && window.__pm_shared.warn('[Metrics] Failed to auto-refresh after init:', e); } catch(_) {}
     }
 }
 
 // Initialize custom datetime picker with actual data bounds
 async function initializeCustomDatetimePicker(serial, contentElOverride) {
-    console.log('[Metrics] (shared) initializeCustomDatetimePicker called');
+    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] (shared) initializeCustomDatetimePicker called'); } catch (e) {}
     try {
         // Fetch all available metrics to determine data range
         const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&period=year';
-        console.log('[Metrics] Fetching:', url);
+    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Fetching:', url); } catch (e) {}
         const res = await fetch(url);
         if (!res.ok) {
-            console.error('[Metrics] API returned status:', res.status);
+            try { window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('[Metrics] API returned status:', res.status); } catch (e) {}
             return;
         }
 
         const history = await res.json();
-        console.log('[Metrics] Received', history?.length || 0, 'data points');
+    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Received', history?.length || 0, 'data points'); } catch (e) {}
         // Use provided content element or fall back to global
         const contentEl = contentElOverride || document.getElementById('metrics_content');
         if (!history || history.length === 0) {
-            console.warn('[Metrics] No history data available');
+            try { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('[Metrics] No history data available'); } catch (e) {}
             if (contentEl) {
                 const startEl = contentEl.querySelector('#metrics_data_range_start');
                 const endEl = contentEl.querySelector('#metrics_data_range_end');
@@ -141,11 +141,11 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
 
         // Check if flatpickr is available
         if (typeof flatpickr === 'undefined') {
-            console.error('[Metrics] flatpickr library not loaded');
+            try { window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('[Metrics] flatpickr library not loaded'); } catch (e) {}
             if (contentEl) contentEl.innerHTML = '<div style="color:#d33;padding:12px">Error: Date picker library not loaded. Please refresh the page.</div>';
             return;
         }
-        console.log('[Metrics] Initializing flatpickr with full range:', minTime, 'to', maxTime);
+        try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Initializing flatpickr with full range:', minTime, 'to', maxTime); } catch (e) {}
         // Initialize flatpickr with range mode
         const targetSelector = contentElOverride ? (contentElOverride.querySelector('#metrics_datetime_range')) : document.querySelector('#metrics_datetime_range');
         const fpInstance = flatpickr(targetSelector, {
@@ -158,14 +158,14 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
             defaultDate: [minTime, maxTime],
             time_24hr: true,
             onChange: function (selectedDates, dateStr, instance) {
-                console.log('[Metrics] Range changed:', selectedDates);
+                try { window.__pm_shared && window.__pm_shared.trace && window.__pm_shared.trace('[Metrics] Range changed:', selectedDates); } catch (e) {}
                 // Auto-refresh chart when range changes
                 if (selectedDates.length === 2) {
                     refreshMetricsChart(serial);
                 }
             },
             onReady: function (selectedDates, dateStr, instance) {
-                console.log('[Metrics] flatpickr ready, refreshing chart');
+                try { window.__pm_shared && window.__pm_shared.trace && window.__pm_shared.trace('[Metrics] flatpickr ready, refreshing chart'); } catch (e) {}
                 // Refresh chart with initial range
                 refreshMetricsChart(serial);
             }
@@ -178,7 +178,7 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
         updatePresetButtonStates(minTime, maxTime);
 
     } catch (e) {
-        console.error('[Metrics] Failed to initialize datetime picker:', e);
+        try { window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('[Metrics] Failed to initialize datetime picker:', e); } catch (err) {}
         const contentEl = document.getElementById('metrics_content');
         if (contentEl) {
             contentEl.innerHTML = '<div style="color:#d33;padding:12px">Error loading metrics: ' + e.message + '</div>';
@@ -210,6 +210,32 @@ function updatePresetButtonStates(minTime, maxTime) {
 
     // All Time button is always enabled (just shows all available data)
 }
+
+// Delegated handlers for metrics UI quick interactions (toggle, preset, refresh)
+document.addEventListener('click', async function (ev) {
+    try {
+        await (window.__pm_shared && window.__pm_shared.ready);
+        const btn = ev.target.closest && ev.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.getAttribute('data-action');
+        if (action === 'toggle-time') {
+            const target = btn.getAttribute('data-target') || '';
+            toggleMetricsTimeSelector && toggleMetricsTimeSelector(target);
+            return;
+        }
+        if (action === 'preset') {
+            const preset = btn.getAttribute('data-preset');
+            const serial = btn.getAttribute('data-serial');
+            setMetricsQuickRange && setMetricsQuickRange(preset, serial);
+            return;
+        }
+        if (action === 'refresh') {
+            const serial = btn.getAttribute('data-serial');
+            refreshMetricsChart && refreshMetricsChart(serial);
+            return;
+        }
+    } catch (e) { console.warn('[Metrics] delegated handler error', e); }
+});
 
 // Quick range preset button handler
 function setMetricsQuickRange(preset, serial) {
