@@ -29,6 +29,62 @@ if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 }
 
+function Invoke-JSUnitTests {
+    Write-BuildLog "Running JavaScript unit tests (jest)..." "INFO"
+
+    if ($env:PRINTMASTER_SKIP_JS_TESTS -eq '1') {
+        Write-BuildLog "Skipping JS unit tests because PRINTMASTER_SKIP_JS_TESTS=1" "WARN"
+        return $true
+    }
+
+    Push-Location $ProjectRoot
+    try {
+        $cmd = "npm run test:js"
+        Write-BuildLog "Executing: $cmd" "INFO"
+        $testOutput = & npm run test:js 2>&1
+        $testExit = $LASTEXITCODE
+        if ($testExit -ne 0) {
+            $testOutput | ForEach-Object { Write-BuildLog $_ "ERROR" }
+            Write-BuildLog "JS unit tests failed" "ERROR"
+            return $false
+        }
+        $testOutput | ForEach-Object { Write-BuildLog $_ "INFO" }
+        Write-BuildLog "JS unit tests passed" "INFO"
+        return $true
+    }
+    finally { Pop-Location }
+}
+
+function Invoke-PlaywrightTests {
+    Write-BuildLog "Running Playwright smoke tests..." "INFO"
+
+    if ($env:PRINTMASTER_SKIP_PLAYWRIGHT -eq '1') {
+        Write-BuildLog "Skipping Playwright tests because PRINTMASTER_SKIP_PLAYWRIGHT=1" "WARN"
+        return $true
+    }
+
+    Push-Location $ProjectRoot
+    try {
+        # Ensure playwright browsers are installed when running CI locally
+        Write-BuildLog "Ensuring Playwright browsers are installed (npx playwright install)" "INFO"
+        & npx playwright install > $null 2>&1
+
+        $cmd = "npm run test:playwright"
+        Write-BuildLog "Executing: $cmd" "INFO"
+        $testOutput = & npm run test:playwright 2>&1
+        $testExit = $LASTEXITCODE
+        if ($testExit -ne 0) {
+            $testOutput | ForEach-Object { Write-BuildLog $_ "ERROR" }
+            Write-BuildLog "Playwright smoke tests failed" "ERROR"
+            return $false
+        }
+        $testOutput | ForEach-Object { Write-BuildLog $_ "INFO" }
+        Write-BuildLog "Playwright smoke tests passed" "INFO"
+        return $true
+    }
+    finally { Pop-Location }
+}
+
 # ANSI color codes
 $ColorReset = "`e[0m"
 $ColorDim = "`e[2m"
@@ -332,6 +388,16 @@ function Build-Agent {
         
         # Set versioned log file
         Set-BuildLogFile -Component "agent" -Version $version -BuildNumber $buildNumber
+
+        # Run JavaScript tests (unit + playwright smoke) before compiling Go binary
+        if (-not (Invoke-JSUnitTests)) {
+            Write-BuildLog "Aborting agent build due to JS unit test failures" "ERROR"
+            return $false
+        }
+        if (-not (Invoke-PlaywrightTests)) {
+            Write-BuildLog "Aborting agent build due to Playwright smoke test failures" "ERROR"
+            return $false
+        }
         
         # Get build metadata
         $buildTime = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
@@ -506,6 +572,16 @@ function Build-Server {
         
         # Set versioned log file
         Set-BuildLogFile -Component "server" -Version $version -BuildNumber $buildNumber
+
+        # Run JavaScript tests (unit + playwright smoke) before compiling Go binary for server
+        if (-not (Invoke-JSUnitTests)) {
+            Write-BuildLog "Aborting server build due to JS unit test failures" "ERROR"
+            return $false
+        }
+        if (-not (Invoke-PlaywrightTests)) {
+            Write-BuildLog "Aborting server build due to Playwright smoke test failures" "ERROR"
+            return $false
+        }
         
         # Get build metadata
         $buildTime = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"

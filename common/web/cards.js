@@ -103,7 +103,7 @@
                 }
             }
         } catch (err) {
-            console.error('Failed to check rotation warning:', err);
+            window.__pm_shared.error('Failed to check rotation warning:', err);
         }
     }
 
@@ -160,7 +160,7 @@
                     await window.__pm_shared.saveDiscoveredDevice(ip, false, true);
                     btn.textContent = 'Saved ✓';
                 } catch (e) {
-                    console.error('Save failed:', e);
+                    window.__pm_shared.error('Save failed:', e);
                     btn.disabled = false;
                     btn.textContent = 'Save';
                     window.__pm_shared.showToast('Save failed: ' + (e && e.message ? e.message : e), 'error');
@@ -254,7 +254,7 @@
                 return;
             }
         } catch (e) {
-            console.error('card action handler error', e);
+            window.__pm_shared.error('card action handler error', e);
         }
     });
 
@@ -532,7 +532,7 @@
                     }
                 } catch (_) {}
             });
-        } catch (e) { console.warn('lock wiring failed', e); }
+        } catch (e) { window.__pm_shared.warn('lock wiring failed', e); }
 
         // Wire up refresh button
         try {
@@ -591,7 +591,7 @@
                     btn.disabled = false;
                 }
             });
-        } catch (e) { console.warn('refresh wiring failed', e); }
+        } catch (e) { window.__pm_shared.warn('refresh wiring failed', e); }
 
         // Wire up metrics collection button (saved devices only)
         try {
@@ -615,7 +615,7 @@
                     }
                 });
             }
-        } catch (e) { console.warn('collect metrics wiring failed', e); }
+        } catch (e) { window.__pm_shared.warn('collect metrics wiring failed', e); }
 
         // Action buttons (delete/save/close)
         try {
@@ -638,7 +638,7 @@
                         } else {
                             overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; updatePrinters();
                         }
-                    } catch (e) { console.error('Delete failed:', e); window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); }
+                    } catch (e) { window.__pm_shared.error('Delete failed:', e); window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); }
                 };
                 actionsEl.appendChild(deleteBtn);
             } else {
@@ -662,14 +662,14 @@
                                 if (r.ok) { const j = await r.json(); updatePrinters(); }
                                 statusLine.textContent = '✓ Details updated'; statusLine.style.color = '#859900';
                                 setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; }, 1200);
-                            } catch (e) { console.warn('Background refresh failed:', e); statusLine.textContent = '⚠ Refresh incomplete (device saved)'; statusLine.style.color = '#b58900'; setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; }, 1500); }
+                            } catch (e) { window.__pm_shared.warn('Background refresh failed:', e); statusLine.textContent = '⚠ Refresh incomplete (device saved)'; statusLine.style.color = '#b58900'; setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; }, 1500); }
                         }, 100);
-                    } catch (e) { console.error('Save failed:', e); window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); saveBtn.disabled = false; saveBtn.textContent = 'Save Device'; if (statusLine.parentNode) statusLine.remove(); }
+                    } catch (e) { window.__pm_shared.error('Save failed:', e); window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); saveBtn.disabled = false; saveBtn.textContent = 'Save Device'; if (statusLine.parentNode) statusLine.remove(); }
                 };
                 actionsEl.appendChild(saveBtn);
             }
             const closeBtn = document.createElement('button'); closeBtn.textContent = 'Close'; closeBtn.onclick = () => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; }; actionsEl.appendChild(closeBtn);
-        } catch (e) { console.warn('actions wiring failed', e); }
+        } catch (e) { window.__pm_shared.warn('actions wiring failed', e); }
 
         // Load existing Web UI credentials for this device and wire save button
         try {
@@ -713,7 +713,7 @@
                     } finally { const btn2 = document.getElementById('save_creds_btn'); if (btn2) btn2.disabled = false; }
                 });
             }
-        } catch (e) { console.warn('cred wiring failed', e); }
+        } catch (e) { window.__pm_shared.warn('cred wiring failed', e); }
     }
 
     // Export shared modal renderer
@@ -801,7 +801,7 @@
                 if (existingCard) existingCard.remove();
             }, 30000);
         } catch (e) {
-            console.warn('shared.showDiscoveringCard failed', e);
+            window.__pm_shared.warn('shared.showDiscoveringCard failed', e);
         }
     }
 

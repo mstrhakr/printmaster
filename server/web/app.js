@@ -2,7 +2,7 @@
 
 // ====== Initialization ======
 document.addEventListener('DOMContentLoaded', function () {
-    console.log('PrintMaster Server UI loaded');
+    window.__pm_shared.log('PrintMaster Server UI loaded');
     
     // Initialize theme toggle
     initThemeToggle();
@@ -35,7 +35,7 @@ function connectWS() {
         const socket = new WebSocket(wsURL);
 
         socket.addEventListener('open', () => {
-            console.log('UI WebSocket connected, disabling /api/version polling');
+            window.__pm_shared.log('UI WebSocket connected, disabling /api/version polling');
             if (window._serverStatusInterval) {
                 clearInterval(window._serverStatusInterval);
                 window._serverStatusInterval = null;
@@ -55,12 +55,12 @@ function connectWS() {
                 }
                 // Additional messages may be forwarded to existing handlers in future
             } catch (e) {
-                console.warn('Failed to parse WS message', e);
+                window.__pm_shared.warn('Failed to parse WS message', e);
             }
         });
 
         socket.addEventListener('close', (e) => {
-            console.warn('UI WebSocket closed, falling back to polling and SSE', e);
+            window.__pm_shared.warn('UI WebSocket closed, falling back to polling and SSE', e);
             // Restart polling if not already running
             if (!window._serverStatusInterval) {
                 window._serverStatusInterval = setInterval(loadServerStatus, 30000);
@@ -70,11 +70,11 @@ function connectWS() {
         });
 
         socket.addEventListener('error', (e) => {
-            console.error('UI WebSocket error', e);
+            window.__pm_shared.error('UI WebSocket error', e);
             // Let close handler restart fallback
         });
     } catch (e) {
-        console.warn('WebSocket not available, continuing with SSE/polling', e);
+        window.__pm_shared.warn('WebSocket not available, continuing with SSE/polling', e);
     }
 }
 
@@ -82,21 +82,21 @@ function connectWS() {
 function connectSSE() {
     const eventSource = new EventSource('/api/events');
     eventSource.onopen = (e) => {
-        console.log('SSE onopen, readyState=', eventSource.readyState);
+        window.__pm_shared.log('SSE onopen, readyState=', eventSource.readyState);
     };
     
     eventSource.addEventListener('connected', (e) => {
-        console.log('SSE connected:', e.data);
+        window.__pm_shared.log('SSE connected:', e.data);
     });
     
     eventSource.addEventListener('agent_registered', (e) => {
         try {
             const data = JSON.parse(e.data);
-            console.log('Agent registered (SSE):', data);
+            window.__pm_shared.log('Agent registered (SSE):', data);
             // Add card dynamically
             addAgentCard(data);
         } catch (err) {
-            console.warn('Failed to parse agent_registered event, falling back to full reload:', err);
+            window.__pm_shared.warn('Failed to parse agent_registered event, falling back to full reload:', err);
             loadAgents();
         }
     });
@@ -104,10 +104,10 @@ function connectSSE() {
     eventSource.addEventListener('agent_connected', (e) => {
         try {
             const data = JSON.parse(e.data);
-            console.log('Agent connected (SSE):', data);
+            window.__pm_shared.log('Agent connected (SSE):', data);
             updateAgentConnection(data.agent_id, 'ws');
         } catch (err) {
-            console.warn('Failed to parse agent_connected event, falling back to full reload:', err);
+            window.__pm_shared.warn('Failed to parse agent_connected event, falling back to full reload:', err);
             loadAgents();
         }
     });
@@ -115,10 +115,10 @@ function connectSSE() {
     eventSource.addEventListener('agent_disconnected', (e) => {
         try {
             const data = JSON.parse(e.data);
-            console.log('Agent disconnected (SSE):', data);
+            window.__pm_shared.log('Agent disconnected (SSE):', data);
             updateAgentConnection(data.agent_id, 'none');
         } catch (err) {
-            console.warn('Failed to parse agent_disconnected event, falling back to full reload:', err);
+            window.__pm_shared.warn('Failed to parse agent_disconnected event, falling back to full reload:', err);
             loadAgents();
         }
     });
@@ -129,21 +129,21 @@ function connectSSE() {
             // Update agent's status/last seen in-place
             updateAgentHeartbeat(data.agent_id, data.status);
         } catch (err) {
-            console.log('Agent heartbeat (raw):', e.data);
+            window.__pm_shared.log('Agent heartbeat (raw):', e.data);
         }
     });
     
     eventSource.addEventListener('device_updated', (e) => {
             try {
                 const data = JSON.parse(e.data);
-                console.log('Device updated (SSE):', data);
+                window.__pm_shared.log('Device updated (SSE):', data);
                 // If devices tab is visible, update in-place, otherwise ignore
                 const devicesTab = document.querySelector('[data-tab="devices"]');
                 if (devicesTab && !devicesTab.classList.contains('hidden')) {
                     addOrUpdateDeviceCard(data);
                 }
             } catch (err) {
-                console.warn('Failed to parse device_updated event, falling back to full reload:', err);
+                window.__pm_shared.warn('Failed to parse device_updated event, falling back to full reload:', err);
                 const devicesTab = document.querySelector('[data-tab="devices"]');
                 if (devicesTab && !devicesTab.classList.contains('hidden')) {
                     loadDevices();
@@ -154,9 +154,9 @@ function connectSSE() {
     eventSource.onerror = (e) => {
         // EventSource provides automatic reconnects, but log useful state
         try {
-            console.error('SSE connection error:', e, 'readyState=', eventSource.readyState);
+            window.__pm_shared.error('SSE connection error:', e, 'readyState=', eventSource.readyState);
         } catch (ex) {
-            console.error('SSE connection error and failed to read readyState', ex);
+            window.__pm_shared.error('SSE connection error and failed to read readyState', ex);
         }
         // EventSource will automatically try to reconnect
     };
@@ -193,7 +193,7 @@ function checkConfigStatus() {
             }
         })
         .catch(err => {
-            console.error('Failed to check config status:', err);
+            window.__pm_shared.error('Failed to check config status:', err);
         });
 }
 
@@ -205,7 +205,7 @@ function showDeviceMetricsModal(serial, preset) {
             window.showMetricsModal({ serial, preset });
             return;
         } catch (e) {
-            console.warn('shared.showMetricsModal failed', e);
+            window.__pm_shared.warn('shared.showMetricsModal failed', e);
         }
     }
     // Fallback: minimal alert
@@ -229,7 +229,7 @@ function toggleMetricsTimeSelector(targetId) {
         btn.textContent = nowHidden ? 'Show time selector' : 'Hide time selector';
         btn.setAttribute('aria-expanded', (!nowHidden).toString());
     } catch (e) {
-        console.warn('toggleMetricsTimeSelector failed', e);
+        window.__pm_shared.warn('toggleMetricsTimeSelector failed', e);
     }
 }
 
@@ -339,19 +339,19 @@ async function loadServerStatus() {
         if (!response.ok) {
             const el = document.getElementById('server_status');
             if (el) el.innerHTML = '<span style="color:var(--error);">● Error</span>';
-            else console.warn('server_status element not found in DOM');
+            else window.__pm_shared.warn('server_status element not found in DOM');
             return;
         }
         
         const data = await response.json();
         const el = document.getElementById('server_status');
         if (el) el.innerHTML = `<span style="color:var(--success);">● Online</span> v${data.version}`;
-        else console.warn('server_status element not found in DOM');
+        else window.__pm_shared.warn('server_status element not found in DOM');
     } catch (error) {
-        console.error('Failed to load server status:', error);
+        window.__pm_shared.error('Failed to load server status:', error);
         const errEl = document.getElementById('server_status');
         if (errEl) errEl.innerHTML = '<span style="color:var(--error);">● Error loading status</span>';
-        else console.warn('server_status element not found in DOM while handling error');
+        else window.__pm_shared.warn('server_status element not found in DOM while handling error');
     }
 }
 
@@ -367,12 +367,12 @@ async function loadAgents() {
         const agents = await response.json();
         renderAgents(agents);
     } catch (error) {
-        console.error('Failed to load agents:', error);
+        window.__pm_shared.error('Failed to load agents:', error);
         const listEl = document.getElementById('agents_list');
         if (listEl) {
             listEl.innerHTML = '<div style="color:var(--error);">Failed to load agents: ' + error.message + '</div>';
         } else {
-            console.warn('agents_list element not found in DOM while handling loadAgents error');
+            window.__pm_shared.warn('agents_list element not found in DOM while handling loadAgents error');
         }
     }
 }
@@ -382,7 +382,7 @@ function renderAgents(agents) {
     const statsContainer = document.getElementById('agents_stats');
 
     if (!container) {
-        console.warn('renderAgents: agents_list element not found - aborting render');
+        window.__pm_shared.warn('renderAgents: agents_list element not found - aborting render');
         return;
     }
 
@@ -698,7 +698,7 @@ async function viewAgentDetails(agentId) {
         const agent = await response.json();
         renderAgentDetailsModal(agent);
     } catch (error) {
-        console.error('Failed to load agent details:', error);
+        window.__pm_shared.error('Failed to load agent details:', error);
         const body = document.getElementById('agent_details_body');
         body.innerHTML = `<div style="color:var(--error);text-align:center;padding:20px;">Failed to load agent details: ${error.message}</div>`;
         window.__pm_shared.showToast('Failed to load agent details', 'error');
@@ -935,7 +935,7 @@ function renderAgentDetailsModal(agent) {
 
 // ====== Delete Agent ======
 async function deleteAgent(agentId, displayName) {
-    console.log('deleteAgent called:', agentId, displayName);
+    window.__pm_shared.log('deleteAgent called:', agentId, displayName);
     
     const confirmed = await window.__pm_shared.showConfirm(
         `Are you sure you want to delete agent "${displayName}"?\n\nThis will permanently remove the agent and all its associated devices and metrics. This action cannot be undone.`,
@@ -943,28 +943,28 @@ async function deleteAgent(agentId, displayName) {
         true
     );
     
-    console.log('User confirmed:', confirmed);
+    window.__pm_shared.log('User confirmed:', confirmed);
     
     if (!confirmed) {
         return;
     }
     
     try {
-        console.log('Sending DELETE request to:', `/api/v1/agents/${agentId}`);
+        window.__pm_shared.log('Sending DELETE request to:', `/api/v1/agents/${agentId}`);
         const response = await fetch(`/api/v1/agents/${agentId}`, {
             method: 'DELETE'
         });
         
-        console.log('Response status:', response.status, response.statusText);
+        window.__pm_shared.log('Response status:', response.status, response.statusText);
         
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('Delete failed:', errorText);
+            window.__pm_shared.error('Delete failed:', errorText);
             throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
         
         const result = await response.json();
-        console.log('Delete successful:', result);
+        window.__pm_shared.log('Delete successful:', result);
         
     window.__pm_shared.showToast(`Agent "${displayName}" deleted successfully`, 'success');
         
@@ -981,7 +981,7 @@ async function deleteAgent(agentId, displayName) {
             loadAgents();
         }
     } catch (error) {
-        console.error('Failed to delete agent:', error);
+        window.__pm_shared.error('Failed to delete agent:', error);
         window.__pm_shared.showToast(`Failed to delete agent: ${error.message}`, 'error');
     }
 }
@@ -997,12 +997,12 @@ async function loadDevices() {
         const devices = await response.json();
         renderDevices(devices);
     } catch (error) {
-        console.error('Failed to load devices:', error);
+        window.__pm_shared.error('Failed to load devices:', error);
         const cardsEl = document.getElementById('devices_cards');
         if (cardsEl) {
             cardsEl.innerHTML = '<div style="color:var(--error);">Failed to load devices</div>';
         } else {
-            console.warn('loadDevices: devices_cards element not found in DOM while handling error');
+            window.__pm_shared.warn('loadDevices: devices_cards element not found in DOM while handling error');
         }
     }
 }
@@ -1012,7 +1012,7 @@ function renderDevices(devices) {
     const statsContainer = document.getElementById('devices_stats');
 
     if (!container) {
-        console.warn('renderDevices: devices_cards element not found - aborting render');
+        window.__pm_shared.warn('renderDevices: devices_cards element not found - aborting render');
         return;
     }
 
@@ -1091,7 +1091,7 @@ async function showPrinterDetails(ip, source) {
 
         window.__pm_shared_cards.showPrinterDetailsData(deviceObj, source, null);
     } catch (err) {
-        console.error('showPrinterDetails failed', err);
+        window.__pm_shared.error('showPrinterDetails failed', err);
         window.__pm_shared.showToast('Failed to load device details', 'error');
     }
 }
@@ -1103,7 +1103,7 @@ function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
         window.__pm_shared.showToast('Copied to clipboard', 'success', 1500);
     }).catch(err => {
-        console.error('Failed to copy:', err);
+        window.__pm_shared.error('Failed to copy:', err);
         window.__pm_shared.showToast('Failed to copy to clipboard', 'error');
     });
 }
@@ -1144,12 +1144,12 @@ async function loadSettings() {
         }
         
         const settings = await response.json();
-        console.log('Settings loaded:', settings);
+        window.__pm_shared.log('Settings loaded:', settings);
         // TODO: Populate settings form
 
         // Show printer details modal by delegating to the shared renderer.
     } catch (error) {
-        console.error('Failed to load settings:', error);
+        window.__pm_shared.error('Failed to load settings:', error);
         window.__pm_shared.showToast('Failed to load settings', 'error');
     }
 }
@@ -1172,7 +1172,7 @@ async function saveSettings() {
 
         window.__pm_shared.showToast('Settings saved successfully', 'success');
     } catch (error) {
-        console.error('Failed to save settings:', error);
+        window.__pm_shared.error('Failed to save settings:', error);
     window.__pm_shared.showToast('Failed to save settings', 'error');
     }
 }
@@ -1188,7 +1188,7 @@ async function loadLogs() {
         const logs = await response.json();
         renderLogs(logs);
     } catch (error) {
-        console.error('Failed to load logs:', error);
+        window.__pm_shared.error('Failed to load logs:', error);
         const logEl = document.getElementById('log');
         if (logEl) {
             logEl.textContent = 'Failed to load logs: ' + error.message;
@@ -1229,7 +1229,7 @@ async function loadMetrics() {
             }
         }
     } catch (err) {
-        console.error('Failed to load metrics:', err);
+        window.__pm_shared.error('Failed to load metrics:', err);
         const contentEl = document.getElementById('metrics_content');
         if (contentEl) contentEl.innerHTML = '<div style="color:var(--error);">Failed to load metrics</div>';
     }
@@ -1238,7 +1238,7 @@ async function loadMetrics() {
 function renderLogs(logs) {
     const container = document.getElementById('log');
     if (!container) {
-        console.warn('renderLogs: log element not found');
+        window.__pm_shared.warn('renderLogs: log element not found');
         return;
     }
 
@@ -1304,7 +1304,7 @@ function toggleAdvancedSettings() {
         // Persist preference
         try { localStorage.setItem('settings_advanced', enabled ? 'true' : 'false'); } catch (e) {}
     } catch (e) {
-        console.error('toggleAdvancedSettings failed', e);
+        window.__pm_shared.error('toggleAdvancedSettings failed', e);
         throw e;
     }
 }

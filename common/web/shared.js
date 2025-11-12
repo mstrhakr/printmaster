@@ -5,6 +5,43 @@
 // promise and a small SHARED logger here so other scripts can await and
 // consistently emit debug/trace messages while initialization completes.
 window.__pm_shared = window.__pm_shared || {};
+(function console_forwarding_shim(){
+    // Keep originals so we can still call them if needed
+    try {
+        if (typeof window === 'undefined' || !window.console) return;
+        const orig = {
+            debug: console.debug && console.debug.bind(console) || console.log.bind(console),
+            info: console.info && console.info.bind(console) || console.log.bind(console),
+            warn: console.warn && console.warn.bind(console) || console.log.bind(console),
+            error: console.error && console.error.bind(console) || console.log.bind(console),
+            trace: console.trace && console.trace.bind(console) || console.log.bind(console),
+            log: console.log && console.log.bind(console) || function(){}
+        };
+
+        // If __pm_shared already has logger functions, prefer them; otherwise
+        // create forwarding functions that call into __pm_shared when ready
+        // but always fall back to original console to avoid losing logs.
+        ['debug','info','warn','error','trace','log'].forEach(fn => {
+            if (!window.__pm_shared[fn]) {
+                window.__pm_shared[fn] = function(...args) {
+                    try {
+                        // Call underlying shared logger if present
+                        if (window.__pm_shared && window.__pm_shared !== undefined && typeof window.__pm_shared[fn] === 'function' && window.__pm_shared[fn] !== orig[fn]) {
+                            // avoid recursion: if our shim has already been installed, call original
+                            // The check above ensures we don't infinitely recurse.
+                            // Use a try/catch to avoid throwing when shared logger not yet fully initialized
+                            try { orig[fn](...['[SHARED-FORWARD]'].concat(args)); } catch(e){}
+                        }
+                    } catch (e) {}
+                    // Always write to original console as well
+                    try { orig[fn](...args); } catch (e) {}
+                };
+            }
+        });
+    } catch (e) {
+        try { window.__pm_shared.warn('console forwarding shim failed', e); } catch (e2) {}
+    }
+})();
 (function __pm_shared_bootstrap(){
     const s = window.__pm_shared;
     // readiness promise (resolves when shared initialization completes)
@@ -28,16 +65,16 @@ window.__pm_shared = window.__pm_shared || {};
                 // remove resolver to prevent double-resolve
                 window.__pm_shared.__resolveReady = null;
             }
-        } catch (e) { console.warn('shared ready safety resolve failed', e); }
+        } catch (e) { window.__pm_shared.warn('shared ready safety resolve failed', e); }
     }, 250);
     // These forward to console with a consistent prefix. Consumers may
     // override these with a fancier implementation if needed.
-    s.debug = s.debug || function(...args) { console.debug('[SHARED]', ...args); };
-    s.trace = s.trace || function(...args) { console.trace('[SHARED]', ...args); };
-    s.info = s.info || function(...args) { console.info('[SHARED]', ...args); };
-    s.warn = s.warn || function(...args) { console.warn('[SHARED]', ...args); };
-    s.error = s.error || function(...args) { console.error('[SHARED]', ...args); };
-    s.log = s.log || function(...args) { console.log('[SHARED]', ...args); };
+    s.debug = s.debug || function(...args) { window.__pm_shared.debug('[SHARED]', ...args); };
+    s.trace = s.trace || function(...args) { window.__pm_shared.trace('[SHARED]', ...args); };
+    s.info = s.info || function(...args) { window.__pm_shared.info('[SHARED]', ...args); };
+    s.warn = s.warn || function(...args) { window.__pm_shared.warn('[SHARED]', ...args); };
+    s.error = s.error || function(...args) { window.__pm_shared.error('[SHARED]', ...args); };
+    s.log = s.log || function(...args) { window.__pm_shared.log('[SHARED]', ...args); };
 })();
 
 // Load shared vendor assets (flatpickr) from server-hosted copy if available,
@@ -75,7 +112,7 @@ window.__pm_shared = window.__pm_shared || {};
         document.head.appendChild(script);
     } catch (e) {
         // If injection fails for any reason, don't break the page.
-        console.warn('flatpickr static injection failed', e);
+        window.__pm_shared.warn('flatpickr static injection failed', e);
         if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') window.__pm_shared.__resolveReady();
     }
 })();
@@ -310,16 +347,17 @@ function copyToClipboard(text, callback, successMessage) {
     // callback (optional) will be called with a boolean success flag
     if (!text) {
         if (typeof callback === 'function') callback(false);
-        return;
+        return Promise.resolve(false);
     }
-
-    navigator.clipboard.writeText(text).then(() => {
+    return navigator.clipboard.writeText(text).then(() => {
         try { showToast(successMessage || 'Copied to clipboard', 'success', 1500); } catch (e) {}
         if (typeof callback === 'function') callback(true);
+        return true;
     }).catch(err => {
-        console.error('Failed to copy:', err);
+        try { window.__pm_shared.error('Failed to copy:', err); } catch (e) {}
         try { showToast('Failed to copy to clipboard', 'error'); } catch (e) {}
         if (typeof callback === 'function') callback(false);
+        return false;
     });
 }
 
@@ -349,7 +387,7 @@ function formatDateTime(dateString) {
             hour12: true
         });
     } catch (err) {
-        console.error('Date formatting error:', err);
+        window.__pm_shared.error('Date formatting error:', err);
         return dateString;
     }
 }
@@ -446,13 +484,13 @@ async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = tru
                 if (ip && ip === ipOrSerial && item.serial) { serial = item.serial; break; }
             }
         } catch (e) {
-            console.warn('Failed to resolve IP to serial for saveDiscoveredDevice', e);
+            window.__pm_shared.warn('Failed to resolve IP to serial for saveDiscoveredDevice', e);
         }
     }
 
     // If the input looked like an IP but we couldn't resolve to a serial, bail out
     if (looksLikeIP && serial === ipOrSerial) {
-        console.warn('saveDiscoveredDevice: could not resolve IP to serial, skipping save for', ipOrSerial);
+        window.__pm_shared.warn('saveDiscoveredDevice: could not resolve IP to serial, skipping save for', ipOrSerial);
         return;
     }
 
@@ -476,7 +514,7 @@ async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = tru
             try { updatePrinters(); } catch (e) { /* best-effort */ }
         }
     } catch (err) {
-        console.error('saveDiscoveredDevice failed', err);
+        window.__pm_shared.error('saveDiscoveredDevice failed', err);
         if (!autosave) showToast('Failed to save device: ' + err.message, 'error');
         throw err;
     }
@@ -497,7 +535,7 @@ function makeClipboardIcon() {
 function showWebUIModal(webUIURL, serial) {
     // Simple default: open in new tab if URL present
     if (!webUIURL) return;
-    try { window.open(webUIURL, '_blank'); } catch (e) { console.warn('showWebUIModal fallback failed', e); }
+    try { window.open(webUIURL, '_blank'); } catch (e) { window.__pm_shared.warn('showWebUIModal fallback failed', e); }
 }
 
 function showPrinterDetails(ip, source) {
@@ -517,7 +555,7 @@ function showPrinterDetails(ip, source) {
         } else {
             window.__pm_shared.showToast('Printer details UI unavailable', 'error');
         }
-    } catch (e) { console.warn('showPrinterDetails fallback failed', e); }
+    } catch (e) { window.__pm_shared.warn('showPrinterDetails fallback failed', e); }
 }
 
 async function deleteSavedDevice(serial) {
@@ -530,7 +568,7 @@ async function deleteSavedDevice(serial) {
         window.__pm_shared.showToast('Device deleted successfully', 'success');
         if (typeof updatePrinters === 'function') try { updatePrinters(); } catch (e) {}
     } catch (e) {
-        console.error('deleteSavedDevice failed', e);
+        window.__pm_shared.error('deleteSavedDevice failed', e);
         window.__pm_shared.showToast('Failed to delete device', 'error');
     }
 }
@@ -546,7 +584,7 @@ async function editField(serial, fieldName, currentValue, element) {
         // Refresh UI element if provided
         if (element && element.nodeType === 1) element.textContent = newValue;
     } catch (e) {
-        console.error('editField failed', e);
+        window.__pm_shared.error('editField failed', e);
         window.__pm_shared.showToast('Failed to update field', 'error');
     }
 }
@@ -576,7 +614,7 @@ function showDeviceMetricsModal(serial, preset) {
         } else {
             window.__pm_shared.showToast('Metrics UI not available', 'error');
         }
-    } catch (e) { console.warn('showDeviceMetricsModal failed', e); }
+    } catch (e) { window.__pm_shared.warn('showDeviceMetricsModal failed', e); }
 }
 
 // Export shims to global namespace
@@ -623,7 +661,7 @@ function formatRelativeTime(dateString) {
         const years = Math.floor(months / 12);
         return `${years} year${years !== 1 ? 's' : ''} ago`;
     } catch (err) {
-        console.error('Relative time formatting error:', err);
+        window.__pm_shared.error('Relative time formatting error:', err);
         return dateString;
     }
 }
@@ -707,7 +745,7 @@ window.__pm_shared.viewAgentDetails = async function (agentId) {
         // Fallback: open agents tab
         window.location.hash = '#agents';
     } catch (e) {
-        try { console.error('viewAgentDetails failed', e); } catch (e2) {}
+        try { window.__pm_shared.error('viewAgentDetails failed', e); } catch (e2) {}
     }
 };
 
@@ -785,6 +823,26 @@ function debounce(func, wait) {
     };
 }
 
+// If running under CommonJS (tests / Node), prefer the testable helpers
+// from `shared_helpers.js` to avoid duplicating pure logic and to ensure
+// unit-tested implementations are used during tests. In the browser this
+// `require` will be unavailable and we fall back to the in-file functions.
+try {
+    if (typeof module !== 'undefined' && module.exports && typeof require === 'function') {
+        const h = require('./shared_helpers');
+        if (h) {
+            // Override the local helper implementations with the tested ones
+            try { formatDateTime = h.formatDateTime || formatDateTime; } catch (e) {}
+            try { formatRelativeTime = h.formatRelativeTime || formatRelativeTime; } catch (e) {}
+            try { formatNumber = h.formatNumber || formatNumber; } catch (e) {}
+            try { formatBytes = h.formatBytes || formatBytes; } catch (e) {}
+            try { debounce = h.debounce || debounce; } catch (e) {}
+        }
+    }
+} catch (e) {
+    try { console.warn('Failed to load shared_helpers for test environment', e); } catch (e2) {}
+}
+
 // Export shared helpers under a single namespaced object to avoid global
 // symbol collisions when agent and server bundles are loaded together (proxied).
 // Consumers should prefer `window.__pm_shared.<fn>` instead of global functions.
@@ -808,7 +866,7 @@ function debounce(func, wait) {
         // shared namespace for safer cross-bundle interaction.
     } catch (e) {
         // Non-fatal: best-effort namespacing
-        try { console.warn('Failed to export __pm_shared namespace', e); } catch (e2) {}
+        try { window.__pm_shared.warn('Failed to export __pm_shared namespace', e); } catch (e2) {}
     }
 })();
 
@@ -885,10 +943,10 @@ window.showMetricsModal = async function (opts = {}) {
             // Call loader to render the full metrics UI into the modal content
             // Use a short timeout so the modal becomes visible before heavy work
             setTimeout(() => {
-                try { loader(serial, 'metrics_modal_content'); } catch (e) { console.warn('metrics loader failed', e); }
+                try { loader(serial, 'metrics_modal_content'); } catch (e) { window.__pm_shared.warn('metrics loader failed', e); }
             }, 60);
         } catch (e) {
-            console.warn('Failed to invoke shared metrics loader', e);
+            window.__pm_shared.warn('Failed to invoke shared metrics loader', e);
         }
 
         return; // done
@@ -919,7 +977,7 @@ window.showMetricsModal = async function (opts = {}) {
             }
         }
     } catch (e) {
-        console.warn('flatpickr init failed in shared metrics modal', e);
+        window.__pm_shared.warn('flatpickr init failed in shared metrics modal', e);
     }
 
     async function doLoad() {
@@ -956,7 +1014,7 @@ window.showMetricsModal = async function (opts = {}) {
             html += '</div>';
             contentEl.innerHTML = html;
         } catch (err) {
-            console.error('Metrics fetch failed', err);
+            window.__pm_shared.error('Metrics fetch failed', err);
             contentEl.innerHTML = `<div style="color:var(--error);">Failed to load metrics: ${err.message || err}</div>`;
         }
     }

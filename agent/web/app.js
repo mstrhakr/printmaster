@@ -3,7 +3,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
     try {
         return window.__pm_shared_cards.showPrinterDetailsData(p, source, parseDebug);
     } catch (e) {
-        console.warn('shared showPrinterDetailsData failed', e);
+        window.__pm_shared.warn('shared showPrinterDetailsData failed', e);
     }
 }
 
@@ -86,7 +86,7 @@ function updatePrinters() {
                 });
             }
 
-        }).catch(e => { console.error('updatePrinters discovered error', e); });
+        }).catch(e => { window.__pm_shared.error('updatePrinters discovered error', e); });
 
         // Render saved devices
         fetch('/devices/list').then(r => r.ok ? r.json() : []).then(saved => {
@@ -137,10 +137,10 @@ function updatePrinters() {
                     });
                 }
             }
-        }).catch(e => { console.error('updatePrinters saved error', e); });
+        }).catch(e => { window.__pm_shared.error('updatePrinters saved error', e); });
 
     } catch (e) {
-        console.error('updatePrinters failed', e);
+        window.__pm_shared.error('updatePrinters failed', e);
     }
 }
 
@@ -166,7 +166,7 @@ async function clearDatabase() {
             setTimeout(() => window.location.reload(), 1500);
         }
     } catch (e) {
-        console.error('Database clear failed:', e);
+        window.__pm_shared.error('Database clear failed:', e);
         window.__pm_shared.showToast('Database clear failed: ' + e.message, 'error');
     }
 }
@@ -203,7 +203,7 @@ async function deleteSavedDevice(serial) {
         window.__pm_shared.showToast('Device deleted successfully', 'success');
         updatePrinters();
     } catch (e) {
-    console.error('Delete failed:', e);
+    window.__pm_shared.error('Delete failed:', e);
     window.__pm_shared.showToast('Delete failed: ' + e.message, 'error');
     }
 }
@@ -235,7 +235,7 @@ async function editField(serial, fieldName, currentValue, element) {
         window.__pm_shared.showToast(`${displayName} updated successfully`, 'success');
 
     } catch (e) {
-        console.error('Update failed:', e);
+        window.__pm_shared.error('Update failed:', e);
         window.__pm_shared.showToast('Update failed: ' + e.message, 'error');
     }
 }
@@ -277,12 +277,12 @@ async function deleteAllSavedDevices() {
                 }
             } catch (e) {
                 failed++;
-                console.error('Failed to delete device ' + serial + ':', e);
+                window.__pm_shared.error('Failed to delete device ' + serial + ':', e);
             }
         }
 
         updatePrinters();
-        console.log('Delete complete: ' + deleted + ' deleted, ' + failed + ' failed');
+        window.__pm_shared.log('Delete complete: ' + deleted + ' deleted, ' + failed + ' failed');
         if (deleted > 0) {
             window.__pm_shared.showToast(`Deleted ${deleted} device${deleted !== 1 ? 's' : ''} successfully`, 'success');
         }
@@ -290,7 +290,7 @@ async function deleteAllSavedDevices() {
             window.__pm_shared.showToast(`Failed to delete ${failed} device${failed !== 1 ? 's' : ''}`, 'error');
         }
     } catch (e) {
-    console.error('Delete all failed:', e);
+    window.__pm_shared.error('Delete all failed:', e);
     window.__pm_shared.showToast('Delete all failed: ' + e.message, 'error');
     }
 }
@@ -363,7 +363,7 @@ async function copyLogs() {
         const text = await fetch('/logs').then(r => r.text());
         await copyToClipboard(text, null, 'All logs copied to clipboard');
     } catch (e) {
-        console.error('Copy logs failed:', e);
+        window.__pm_shared.error('Copy logs failed:', e);
         window.__pm_shared.showToast('Failed to copy logs: ' + e.message, 'error');
     }
 }
@@ -392,7 +392,7 @@ async function clearLogs() {
         
     window.__pm_shared.showToast('Logs cleared and rotated', 'success');
     } catch (e) {
-        console.error('Clear logs failed:', e);
+        window.__pm_shared.error('Clear logs failed:', e);
         window.__pm_shared.showToast('Failed to clear logs: ' + e.message, 'error');
     }
 }
@@ -416,7 +416,7 @@ async function downloadLogs() {
         URL.revokeObjectURL(url);
     window.__pm_shared.showToast('Log archive downloaded', 'success');
     } catch (e) {
-        console.error('Download failed:', e);
+        window.__pm_shared.error('Download failed:', e);
         window.__pm_shared.showToast('Failed to download logs: ' + e.message, 'error');
     }
 }
@@ -608,11 +608,11 @@ function updateSubnetDisplay() {
                             body: JSON.stringify({ discovery: { subnet_scan: false } })
                         }).then(r => {
                             if (!r.ok) {
-                                console.warn('Failed to persist subnet_scan=false');
+                                window.__pm_shared.warn('Failed to persist subnet_scan=false');
                             }
-                        }).catch(e => console.warn('Persist subnet_scan failed', e));
+                        }).catch(e => window.__pm_shared.warn('Persist subnet_scan failed', e));
                     } catch (e) {
-                        console.warn('Persist subnet_scan failed', e);
+                        window.__pm_shared.warn('Persist subnet_scan failed', e);
                     }
 
                     // Update inline reason text so users see why the control is disabled
@@ -637,7 +637,7 @@ function updateSubnetDisplay() {
                                 true
                             );
                         }
-                    } catch (e) { try { console.warn('alert failed', e); } catch(_){} }
+                    } catch (e) { try { window.__pm_shared.warn('alert failed', e); } catch(_){} }
                 } else {
                     if (scanEl) {
                         // ensure it's enabled (but don't override user's saved value)
@@ -1378,7 +1378,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                     if (!r.ok) {
                     deleteBtn.disabled = false;
                     deleteBtn.textContent = 'Delete Device';
-                    console.error('Delete failed');
+                    window.__pm_shared.error('Delete failed');
                     window.__pm_shared.showToast('Delete failed', 'error');
                     return;
                 }
@@ -1402,7 +1402,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                     updatePrinters();
                 }
             } catch (e) {
-                console.error('Delete failed:', e);
+                window.__pm_shared.error('Delete failed:', e);
                 window.__pm_shared.showToast('Delete failed: ' + e.message, 'error');
             }
         };
@@ -1463,7 +1463,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                         }, 1200);
                     } catch (e) {
                         // Background refresh failed, but device is already saved
-                        console.warn('Background refresh failed:', e);
+                        window.__pm_shared.warn('Background refresh failed:', e);
                         statusLine.textContent = '⚠ Refresh incomplete (device saved)';
                         statusLine.style.color = '#b58900';
                         setTimeout(() => { 
@@ -1474,7 +1474,7 @@ function showPrinterDetailsData(p, source, parseDebug) {
                     }
                 }, 100);
             } catch (e) {
-                console.error('Save failed:', e);
+                window.__pm_shared.error('Save failed:', e);
                 window.__pm_shared.showToast('Save failed: ' + e.message, 'error');
                 saveBtn.disabled = false;
                 saveBtn.textContent = 'Save Device';
@@ -1586,15 +1586,15 @@ function showPrinterDetails(ip, source) {
 // Load device metrics history and display in UI with interactive timeframe selector
 // If targetId is provided, render UI into that element. Otherwise render into default '#metrics_content'.
 async function loadDeviceMetrics(serial, targetId) {
-    console.log('[Metrics] loadDeviceMetrics called for serial:', serial);
+    window.__pm_shared.log('[Metrics] loadDeviceMetrics called for serial:', serial);
     let contentEl = null;
     if (targetId) contentEl = document.getElementById(targetId);
     if (!contentEl) contentEl = document.getElementById('metrics_content');
     if (!contentEl) {
-        console.error('[Metrics] metrics_content element not found and no target available');
+        window.__pm_shared.error('[Metrics] metrics_content element not found and no target available');
         return;
     }
-    console.log('[Metrics] Rendering metrics into element:', contentEl.id || contentEl.tagName);
+    window.__pm_shared.log('[Metrics] Rendering metrics into element:', contentEl.id || contentEl.tagName);
 
     // Create interactive metrics UI
     let html = '';
@@ -1654,32 +1654,32 @@ async function loadDeviceMetrics(serial, targetId) {
     try {
         // Small defer to allow DOM/layout to settle
         setTimeout(() => {
-            try { refreshMetricsChart(serial); } catch (e) { console.warn('[Metrics] auto refresh failed:', e); }
+            try { refreshMetricsChart(serial); } catch (e) { window.__pm_shared.warn('[Metrics] auto refresh failed:', e); }
         }, 50);
     } catch (e) {
-        console.warn('[Metrics] Failed to auto-refresh after init:', e);
+        window.__pm_shared.warn('[Metrics] Failed to auto-refresh after init:', e);
     }
 }
 
 // Initialize custom datetime picker with actual data bounds
 async function initializeCustomDatetimePicker(serial, contentElOverride) {
-    console.log('[Metrics] initializeCustomDatetimePicker called');
+    window.__pm_shared.log('[Metrics] initializeCustomDatetimePicker called');
     try {
         // Fetch all available metrics to determine data range
         const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&period=year';
-        console.log('[Metrics] Fetching:', url);
+        window.__pm_shared.log('[Metrics] Fetching:', url);
         const res = await fetch(url);
         if (!res.ok) {
-            console.error('[Metrics] API returned status:', res.status);
+            window.__pm_shared.error('[Metrics] API returned status:', res.status);
             return;
         }
 
         const history = await res.json();
-        console.log('[Metrics] Received', history?.length || 0, 'data points');
+        window.__pm_shared.log('[Metrics] Received', history?.length || 0, 'data points');
         // Use provided content element or fall back to global
         const contentEl = contentElOverride || document.getElementById('metrics_content');
         if (!history || history.length === 0) {
-            console.warn('[Metrics] No history data available');
+            window.__pm_shared.warn('[Metrics] No history data available');
             if (contentEl) {
                 const startEl = contentEl.querySelector('#metrics_data_range_start');
                 const endEl = contentEl.querySelector('#metrics_data_range_end');
@@ -1722,11 +1722,11 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
 
         // Check if flatpickr is available
         if (typeof flatpickr === 'undefined') {
-            console.error('[Metrics] flatpickr library not loaded');
+            window.__pm_shared.error('[Metrics] flatpickr library not loaded');
             if (contentEl) contentEl.innerHTML = '<div style="color:#d33;padding:12px">Error: Date picker library not loaded. Please refresh the page.</div>';
             return;
         }
-        console.log('[Metrics] Initializing flatpickr with full range:', minTime, 'to', maxTime);
+        window.__pm_shared.log('[Metrics] Initializing flatpickr with full range:', minTime, 'to', maxTime);
         // Initialize flatpickr with range mode
         const selector = (contentElOverride ? ('#' + (contentElOverride.id || 'metrics_datetime_range')) : '#metrics_datetime_range');
         // If contentElOverride is provided, use the input inside it
@@ -1741,14 +1741,14 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
             defaultDate: [minTime, maxTime],
             time_24hr: true,
             onChange: function (selectedDates, dateStr, instance) {
-                console.log('[Metrics] Range changed:', selectedDates);
+                window.__pm_shared.log('[Metrics] Range changed:', selectedDates);
                 // Auto-refresh chart when range changes
                 if (selectedDates.length === 2) {
                     refreshMetricsChart(serial);
                 }
             },
             onReady: function (selectedDates, dateStr, instance) {
-                console.log('[Metrics] flatpickr ready, refreshing chart');
+                window.__pm_shared.log('[Metrics] flatpickr ready, refreshing chart');
                 // Refresh chart with initial range
                 refreshMetricsChart(serial);
             }
@@ -1761,7 +1761,7 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
         updatePresetButtonStates(minTime, maxTime);
 
     } catch (e) {
-        console.error('[Metrics] Failed to initialize datetime picker:', e);
+        window.__pm_shared.error('[Metrics] Failed to initialize datetime picker:', e);
         const contentEl = document.getElementById('metrics_content');
         if (contentEl) {
             contentEl.innerHTML = '<div style="color:#d33;padding:12px">Error loading metrics: ' + e.message + '</div>';
@@ -1827,17 +1827,17 @@ window.setMetricsQuickRange = function (preset, serial) {
 
 // Refresh metrics chart based on selected timeframe
 window.refreshMetricsChart = async function (serial) {
-    console.log('[Metrics] refreshMetricsChart called for serial:', serial);
+    window.__pm_shared.log('[Metrics] refreshMetricsChart called for serial:', serial);
     // Prefer modal body if present, otherwise default metrics_content
     const container = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
     if (!container) {
-        console.error('[Metrics] No metrics container found');
+        window.__pm_shared.error('[Metrics] No metrics container found');
         return;
     }
     const statsEl = container.querySelector('#metrics_stats') || document.getElementById('metrics_stats');
     const canvas = container.querySelector('#metrics_chart') || document.getElementById('metrics_chart');
     if (!canvas || !statsEl) {
-        console.error('[Metrics] Missing chart elements within container - canvas:', !!canvas, 'stats:', !!statsEl);
+        window.__pm_shared.error('[Metrics] Missing chart elements within container - canvas:', !!canvas, 'stats:', !!statsEl);
         return;
     }
 
@@ -1845,11 +1845,11 @@ window.refreshMetricsChart = async function (serial) {
         // Get selected dates from flatpickr
         const fp = window.metricsDataRange?.flatpickr;
         if (!fp || !fp.selectedDates || fp.selectedDates.length !== 2) {
-            console.warn('[Metrics] No valid date range selected');
+            window.__pm_shared.warn('[Metrics] No valid date range selected');
             statsEl.textContent = 'Please select a date range';
             return;
         }
-        console.log('[Metrics] Using date range:', fp.selectedDates);
+        window.__pm_shared.log('[Metrics] Using date range:', fp.selectedDates);
 
         const startTime = fp.selectedDates[0];
         const endTime = fp.selectedDates[1];
@@ -1864,19 +1864,19 @@ window.refreshMetricsChart = async function (serial) {
         const startISO = startTime.toISOString();
         const endISO = endTime.toISOString();
         const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&since=' + encodeURIComponent(startISO) + '&until=' + encodeURIComponent(endISO);
-        console.log('[Metrics] Fetching chart data:', url);
+        window.__pm_shared.log('[Metrics] Fetching chart data:', url);
         const res = await fetch(url);
 
         if (!res.ok) {
-            console.error('[Metrics] Chart data API returned status:', res.status);
+            window.__pm_shared.error('[Metrics] Chart data API returned status:', res.status);
             statsEl.textContent = 'No metrics data available yet.';
             return;
         }
 
         const history = await res.json();
-        console.log('[Metrics] Received', history?.length || 0, 'chart data points');
+        window.__pm_shared.log('[Metrics] Received', history?.length || 0, 'chart data points');
         if (!history || history.length === 0) {
-            console.warn('[Metrics] No data in selected timeframe');
+            window.__pm_shared.warn('[Metrics] No data in selected timeframe');
             statsEl.textContent = 'No metrics data in selected timeframe.';
             drawEmptyChart(canvas);
             return;
@@ -1962,7 +1962,7 @@ window.refreshMetricsChart = async function (serial) {
 
         statsHtml += '</tbody></table>';
         statsEl.innerHTML = statsHtml;
-        console.log('[Metrics] Stats updated, drawing chart');
+        window.__pm_shared.log('[Metrics] Stats updated, drawing chart');
 
         // Draw chart
         drawMetricsChart(canvas, history, startTime, endTime);
@@ -2065,28 +2065,28 @@ window.refreshMetricsChart = async function (serial) {
                 metricsContainerForEvents._metricsDeleteHandler = handler;
             }
         } catch (e) {
-            console.warn('[Metrics] Failed to render metrics table:', e);
+            window.__pm_shared.warn('[Metrics] Failed to render metrics table:', e);
         }
 
     } catch (e) {
-        console.error('[Metrics] Error refreshing chart:', e);
+        window.__pm_shared.error('[Metrics] Error refreshing chart:', e);
         statsEl.textContent = 'Failed to load metrics: ' + e.message;
     }
 }
 
 // Draw smooth line graph showing cumulative page count over time
 function drawMetricsChart(canvas, history, startTime, endTime) {
-    console.log('[Metrics] drawMetricsChart called with', history.length, 'points');
+    window.__pm_shared.log('[Metrics] drawMetricsChart called with', history.length, 'points');
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-        console.error('[Metrics] Failed to get canvas 2d context');
+        window.__pm_shared.error('[Metrics] Failed to get canvas 2d context');
         return;
     }
 
     // Handle high DPI displays (Retina, etc.)
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    console.log('[Metrics] Canvas dimensions:', rect.width, 'x', rect.height, 'DPR:', dpr);
+    window.__pm_shared.log('[Metrics] Canvas dimensions:', rect.width, 'x', rect.height, 'DPR:', dpr);
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
@@ -2340,11 +2340,11 @@ setInterval(updateMetrics, 2000);
 // agent-local `/events` endpoint.
 const __isProxied = !!document.querySelector('meta[http-equiv="X-PrintMaster-Proxied"]');
 const __ssePath = __isProxied ? '/api/events' : '/events';
-console.log('[SSE] connecting to', __ssePath, 'proxied=', __isProxied);
+window.__pm_shared.log('[SSE] connecting to', __ssePath, 'proxied=', __isProxied);
 const eventSource = new EventSource(__ssePath);
 
 eventSource.addEventListener('connected', (e) => {
-    console.log('SSE connected:', e.data);
+    window.__pm_shared.log('SSE connected:', e.data);
     // Load initial logs when connected
     updateLog();
 });
@@ -2379,12 +2379,12 @@ eventSource.addEventListener('log_entry', (e) => {
 });
 
 eventSource.addEventListener('device_discovered', (e) => {
-    console.log('New device discovered:', e.data);
+    window.__pm_shared.log('New device discovered:', e.data);
     
     // Check if modal is open - pause updates to prevent glitchiness
     const overlay = document.getElementById('printer_details_overlay');
     if (overlay && overlay.style.display === 'flex' && overlay.dataset.currentPrinterIp) {
-        console.log('Skipping updatePrinters() - modal is open');
+        window.__pm_shared.log('Skipping updatePrinters() - modal is open');
         return;
     }
     
@@ -2392,7 +2392,7 @@ eventSource.addEventListener('device_discovered', (e) => {
 });
 
 eventSource.addEventListener('device_updated', (e) => {
-    console.log('Device updated:', e.data);
+    window.__pm_shared.log('Device updated:', e.data);
     
     // Check if modal is open showing this device - don't update to prevent glitchiness
     const overlay = document.getElementById('printer_details_overlay');
@@ -2404,11 +2404,11 @@ eventSource.addEventListener('device_updated', (e) => {
             
             // Skip update if modal is showing this device
             if (modalIP === updatedIP) {
-                console.log('Skipping updatePrinters() - modal open for this device');
+                window.__pm_shared.log('Skipping updatePrinters() - modal open for this device');
                 return;
             }
         } catch (err) {
-            console.warn('Failed to parse device_updated event:', err);
+            window.__pm_shared.warn('Failed to parse device_updated event:', err);
         }
     }
     
@@ -2417,7 +2417,7 @@ eventSource.addEventListener('device_updated', (e) => {
 
 eventSource.addEventListener('device_discovering', (e) => {
     const data = JSON.parse(e.data);
-    console.log('Device discovering:', data);
+    window.__pm_shared.log('Device discovering:', data);
     // Show progressive discovery card (fail-fast if shared renderer unavailable)
     window.__pm_shared_cards.showDiscoveringCard(data);
 });
@@ -2429,9 +2429,9 @@ eventSource.addEventListener('metrics_update', (e) => {
 
 eventSource.onerror = (e) => {
     try {
-        console.error('[SSE] connection error, will auto-reconnect', { error: e, readyState: eventSource.readyState, path: __ssePath, timestamp: new Date().toISOString() });
+        window.__pm_shared.error('[SSE] connection error, will auto-reconnect', { error: e, readyState: eventSource.readyState, path: __ssePath, timestamp: new Date().toISOString() });
     } catch (err) {
-        try { console.error('SSE connection error (failed to log details)'); } catch(_){}
+        try { window.__pm_shared.error('SSE connection error (failed to log details)'); } catch(_){}
     }
 };
 
@@ -2447,7 +2447,7 @@ fetch('/settings').then(r => r.json()).then(all => {
     const showDiscoveredAnywayContainer = document.getElementById('show_discovered_devices_anyway_container');
     if (showDiscoveredAnywayContainer) showDiscoveredAnywayContainer.style.display = (disc.autosave_discovered_devices === true) ? 'flex' : 'none';
 }).catch(e => {
-    console.error('Failed to load auto discover state:', e);
+    window.__pm_shared.error('Failed to load auto discover state:', e);
 });
 
 // UI helpers
@@ -2586,7 +2586,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const proxiedMeta = document.querySelector('meta[http-equiv="X-PrintMaster-Proxied"]');
     if (proxiedMeta) {
         isProxiedFromServer = true;
-        console.log('Agent UI is being accessed through server proxy - disabling nested proxy features');
+        window.__pm_shared.log('Agent UI is being accessed through server proxy - disabling nested proxy features');
     }
 
     // Check for database rotation warning on first page load (provided by shared cards)
@@ -3076,7 +3076,7 @@ function showTab(name) {
 // Load settings from /settings endpoint and populate ALL UI elements
 function loadSettings() {
     fetch('/settings').then(async r => {
-        if (!r.ok) { console.warn('failed to load settings'); return; }
+        if (!r.ok) { window.__pm_shared.warn('failed to load settings'); return; }
         const s = await r.json();
         const dev = s.developer || {};
         const disc = s.discovery || {};
@@ -3219,7 +3219,7 @@ function loadSettings() {
 
         updatePrinters();
         loadTraceTags();
-    }).catch(e => { console.error('loadSettings failed', e); });
+    }).catch(e => { window.__pm_shared.error('loadSettings failed', e); });
 }
 
 // Available trace tag categories for granular logging, organized by section
@@ -3255,18 +3255,18 @@ const TRACE_TAG_CATEGORIES = {
 function loadTraceTags() {
     const container = document.getElementById('trace_tags_container');
     if (!container) {
-        console.error('trace_tags_container element not found');
+        window.__pm_shared.error('trace_tags_container element not found');
         return;
     }
 
     fetch('/settings/trace_tags').then(async r => {
         if (!r.ok) {
-            console.error('Failed to load trace tags:', r.status, r.statusText);
+            window.__pm_shared.error('Failed to load trace tags:', r.status, r.statusText);
             container.innerHTML = '<span style="color:var(--muted);font-size:12px">Failed to load tags (status ' + r.status + ')</span>';
             return;
         }
         const data = await r.json();
-        console.log('Loaded trace tags:', data);
+        window.__pm_shared.log('Loaded trace tags:', data);
         // API returns tags as a map/object {tag: bool}, not an array
         const enabledTagsMap = data.tags || {};
 
@@ -3337,9 +3337,9 @@ function loadTraceTags() {
             updateSectionToggle(sectionName);
         });
 
-        console.log('Rendered', totalTags, 'trace tag checkboxes in', Object.keys(TRACE_TAG_CATEGORIES).length, 'sections');
+        window.__pm_shared.log('Rendered', totalTags, 'trace tag checkboxes in', Object.keys(TRACE_TAG_CATEGORIES).length, 'sections');
     }).catch(e => {
-        console.error('loadTraceTags failed', e);
+        window.__pm_shared.error('loadTraceTags failed', e);
         container.innerHTML = '<span style="color:var(--muted);font-size:12px">Error: ' + e.message + '</span>';
     });
 }
@@ -3377,7 +3377,7 @@ function saveTraceTags() {
         });
     });
 
-    console.log('Saving trace tags:', tagsMap);
+    window.__pm_shared.log('Saving trace tags:', tagsMap);
 
     fetch('/settings/trace_tags', {
         method: 'POST',
@@ -3390,7 +3390,7 @@ function saveTraceTags() {
         }
         window.__pm_shared.showToast('Trace tags saved successfully', 'success');
     }).catch(e => {
-        console.error('saveTraceTags failed', e);
+        window.__pm_shared.error('saveTraceTags failed', e);
         window.__pm_shared.showToast('Failed to save trace tags', 'error');
     });
 }
@@ -3423,7 +3423,7 @@ function refreshMibWalks() {
             tr.appendChild(nameTd); tr.appendChild(ipTd); tr.appendChild(dtTd); tr.appendChild(cntTd); tr.appendChild(actionsTd);
             tbody.appendChild(tr);
         });
-    }).catch(e => { console.error('failed to load devices', e); });
+    }).catch(e => { window.__pm_shared.error('failed to load devices', e); });
 }
 
 // Removed legacy alias: refreshDevices()
@@ -3508,13 +3508,13 @@ function saveDevSettings() {
         .then(async r => { 
             if (!r.ok) { 
                 const t = await r.text(); 
-                console.error('Save failed:', t); 
+                window.__pm_shared.error('Save failed:', t); 
                 window.__pm_shared.showToast('Save failed: ' + t, 'error');
                 return; 
             } 
             window.__pm_shared.showToast('Settings saved successfully', 'success');
         })
-        .catch(e => { console.error('Save failed:', e); window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); });
+        .catch(e => { window.__pm_shared.error('Save failed:', e); window.__pm_shared.showToast('Save failed: ' + e.message, 'error'); });
 }
 
 // Toggle auto-save mode
@@ -3567,7 +3567,7 @@ function toggleAdvancedSettings() {
         // Persist preference
         try { localStorage.setItem('settings_advanced', enabled ? 'true' : 'false'); } catch (e) {}
     } catch (e) {
-        console.error('toggleAdvancedSettings failed', e);
+        window.__pm_shared.error('toggleAdvancedSettings failed', e);
         throw e;
     }
 }
@@ -3811,7 +3811,7 @@ async function saveAllSettings(btn) {
             throw new Error('Failed to save settings: ' + t);
         }
 
-    console.log('All settings saved successfully');
+    window.__pm_shared.log('All settings saved successfully');
         if (btn) {
             btn.textContent = '✓ Applied';
             setTimeout(() => { btn.textContent = 'Apply'; btn.disabled = false; }, 1500);
@@ -3819,10 +3819,10 @@ async function saveAllSettings(btn) {
     window.__pm_shared.showToast('Settings saved successfully', 'success');
         return Promise.resolve();
     } catch (e) {
-        console.error('Save failed:', e);
+        window.__pm_shared.error('Save failed:', e);
         if (!btn) {
             // Autosave failed silently in background, just log it
-            console.warn('Autosave failed:', e.message);
+            window.__pm_shared.warn('Autosave failed:', e.message);
             } else {
             window.__pm_shared.showToast('Save failed: ' + e.message, 'error');
             btn.textContent = 'Apply';
@@ -3844,14 +3844,14 @@ async function resetSettings() {
         .then(async r => {
             if (!r.ok) {
                 const t = await r.text();
-                console.error('Reset failed:', t);
+                window.__pm_shared.error('Reset failed:', t);
                 window.__pm_shared.showToast('Reset failed: ' + t, 'error');
                 return;
             }
             loadSettings();
             window.__pm_shared.showToast('Settings reset successfully', 'success');
         })
-        .catch(e => { console.error('Reset failed:', e); window.__pm_shared.showToast('Reset failed: ' + e.message, 'error'); });
+        .catch(e => { window.__pm_shared.error('Reset failed:', e); window.__pm_shared.showToast('Reset failed: ' + e.message, 'error'); });
 }
 
 // Clipboard icon is provided by shared helpers (window.__pm_shared.makeClipboardIcon)
@@ -3894,7 +3894,7 @@ function showDeviceMetricsModal(serial, preset) {
             window.showMetricsModal({ serial, preset });
             return;
         } catch (e) {
-            console.warn('shared.showMetricsModal failed', e);
+            window.__pm_shared.warn('shared.showMetricsModal failed', e);
         }
     }
     // Fallback: minimal alert
@@ -3924,7 +3924,7 @@ function toggleMetricsTimeSelector(targetId) {
         btn.textContent = nowHidden ? 'Show time selector' : 'Hide time selector';
         btn.setAttribute('aria-expanded', (!nowHidden).toString());
     } catch (e) {
-        console.warn('toggleMetricsTimeSelector failed', e);
+        window.__pm_shared.warn('toggleMetricsTimeSelector failed', e);
     }
 }
 

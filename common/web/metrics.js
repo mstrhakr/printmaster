@@ -10,7 +10,7 @@ async function loadDeviceMetrics(serial, targetId) {
     if (targetId) contentEl = document.getElementById(targetId);
     if (!contentEl) contentEl = document.getElementById('metrics_content');
     if (!contentEl) {
-        console.error('[Metrics] metrics_content element not found and no target available');
+        window.__pm_shared.error('[Metrics] metrics_content element not found and no target available');
         return;
     }
     try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Rendering metrics into element:', contentEl.id || contentEl.tagName); } catch (e) {}
@@ -234,7 +234,7 @@ document.addEventListener('click', async function (ev) {
             refreshMetricsChart && refreshMetricsChart(serial);
             return;
         }
-    } catch (e) { console.warn('[Metrics] delegated handler error', e); }
+    } catch (e) { window.__pm_shared.warn('[Metrics] delegated handler error', e); }
 });
 
 // Quick range preset button handler
@@ -270,17 +270,17 @@ function setMetricsQuickRange(preset, serial) {
 
 // Refresh metrics chart based on selected timeframe
 async function refreshMetricsChart(serial) {
-    console.log('[Metrics] (shared) refreshMetricsChart called for serial:', serial);
+    window.__pm_shared.log('[Metrics] (shared) refreshMetricsChart called for serial:', serial);
     // Prefer modal body if present, otherwise default metrics_content
     const container = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
     if (!container) {
-        console.error('[Metrics] No metrics container found');
+        window.__pm_shared.error('[Metrics] No metrics container found');
         return;
     }
     const statsEl = container.querySelector('#metrics_stats') || document.getElementById('metrics_stats');
     const canvas = container.querySelector('#metrics_chart') || document.getElementById('metrics_chart');
     if (!canvas || !statsEl) {
-        console.error('[Metrics] Missing chart elements within container - canvas:', !!canvas, 'stats:', !!statsEl);
+        window.__pm_shared.error('[Metrics] Missing chart elements within container - canvas:', !!canvas, 'stats:', !!statsEl);
         return;
     }
 
@@ -288,11 +288,11 @@ async function refreshMetricsChart(serial) {
         // Get selected dates from flatpickr
         const fp = window.metricsDataRange?.flatpickr;
         if (!fp || !fp.selectedDates || fp.selectedDates.length !== 2) {
-            console.warn('[Metrics] No valid date range selected');
+            window.__pm_shared.warn('[Metrics] No valid date range selected');
             statsEl.textContent = 'Please select a date range';
             return;
         }
-        console.log('[Metrics] Using date range:', fp.selectedDates);
+        window.__pm_shared.log('[Metrics] Using date range:', fp.selectedDates);
 
         const startTime = fp.selectedDates[0];
         const endTime = fp.selectedDates[1];
@@ -307,19 +307,19 @@ async function refreshMetricsChart(serial) {
         const startISO = startTime.toISOString();
         const endISO = endTime.toISOString();
         const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&since=' + encodeURIComponent(startISO) + '&until=' + encodeURIComponent(endISO);
-        console.log('[Metrics] Fetching chart data:', url);
+        window.__pm_shared.log('[Metrics] Fetching chart data:', url);
         const res = await fetch(url);
 
         if (!res.ok) {
-            console.error('[Metrics] Chart data API returned status:', res.status);
+            window.__pm_shared.error('[Metrics] Chart data API returned status:', res.status);
             statsEl.textContent = 'No metrics data available yet.';
             return;
         }
 
         const history = await res.json();
-        console.log('[Metrics] Received', history?.length || 0, 'chart data points');
+        window.__pm_shared.log('[Metrics] Received', history?.length || 0, 'chart data points');
         if (!history || history.length === 0) {
-            console.warn('[Metrics] No data in selected timeframe');
+            window.__pm_shared.warn('[Metrics] No data in selected timeframe');
             statsEl.textContent = 'No metrics data in selected timeframe.';
             drawEmptyChart(canvas);
             return;
@@ -405,7 +405,7 @@ async function refreshMetricsChart(serial) {
 
         statsHtml += '</tbody></table>';
         statsEl.innerHTML = statsHtml;
-        console.log('[Metrics] Stats updated, drawing chart');
+        window.__pm_shared.log('[Metrics] Stats updated, drawing chart');
 
         // Draw chart
         drawMetricsChart(canvas, history, startTime, endTime);
@@ -499,28 +499,28 @@ async function refreshMetricsChart(serial) {
                 metricsContainerForEvents._metricsDeleteHandler = handler;
             }
         } catch (e) {
-            console.warn('[Metrics] Failed to render metrics table:', e);
+            window.__pm_shared.warn('[Metrics] Failed to render metrics table:', e);
         }
 
     } catch (e) {
-        console.error('[Metrics] Error refreshing chart:', e);
+        window.__pm_shared.error('[Metrics] Error refreshing chart:', e);
         statsEl.textContent = 'Failed to load metrics: ' + e.message;
     }
 }
 
 // Draw smooth line graph showing cumulative page count over time
 function drawMetricsChart(canvas, history, startTime, endTime) {
-    console.log('[Metrics] (shared) drawMetricsChart called with', history.length, 'points');
+    window.__pm_shared.log('[Metrics] (shared) drawMetricsChart called with', history.length, 'points');
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-        console.error('[Metrics] Failed to get canvas 2d context');
+        window.__pm_shared.error('[Metrics] Failed to get canvas 2d context');
         return;
     }
 
     // Handle high DPI displays (Retina, etc.)
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    console.log('[Metrics] Canvas dimensions:', rect.width, 'x', rect.height, 'DPR:', dpr);
+    window.__pm_shared.log('[Metrics] Canvas dimensions:', rect.width, 'x', rect.height, 'DPR:', dpr);
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
@@ -787,7 +787,7 @@ async function loadUsageGraph(serial) {
         const points = history.map(h => ({ t: new Date(h.timestamp).getTime(), v: Number(h.page_count || 0) }));
         drawUsageSparkline(canvas, points);
     } catch (e) {
-        console.warn('[Metrics] loadUsageGraph failed for', serial, e);
+        window.__pm_shared.warn('[Metrics] loadUsageGraph failed for', serial, e);
         container.innerHTML = '<div class="usage-graph-no-data">Error</div>';
     }
 }
