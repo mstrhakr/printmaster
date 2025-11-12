@@ -137,3 +137,18 @@ certs/
 
 agent/test_db/*
 server/test_db/*
+
+# Node / JS
+node_modules/
+npm-debug.log*
+package-lock.json
+.pnpm-debug.log
+
+# Playwright browsers (if downloaded locally)
+.playwright/
+
+# npm coverage / reports
+coverage/
+
+# Optional local npm artifact
+.npm/
