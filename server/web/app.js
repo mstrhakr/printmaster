@@ -444,7 +444,7 @@ function renderAgentCard(agent) {
                     <div style="display:flex;align-items:center;gap:8px">
                         <div class="device-card-title">${agent.hostname || agent.agent_id}</div>
                     </div>
-                    <div class="device-card-subtitle copyable" onclick="copyToClipboard('${agent.agent_id}')" title="Click to copy Agent ID">
+                    <div class="device-card-subtitle copyable" data-copy="${agent.agent_id}" title="Click to copy Agent ID">
                         ${agent.agent_id}
                     </div>
                 </div>
@@ -487,7 +487,7 @@ function renderAgentCard(agent) {
                 
                 <div class="device-card-row">
                     <span class="device-card-label">IP Address</span>
-                    <span class="device-card-value copyable" onclick="copyToClipboard('${agent.ip || ''}')" title="Click to copy">
+                    <span class="device-card-value copyable" data-copy="${agent.ip || ''}" title="Click to copy">
                         ${agent.ip || 'N/A'}
                     </span>
                 </div>
@@ -520,11 +520,11 @@ function renderAgentCard(agent) {
             </div>
             
             <div class="device-card-actions">
-                <button onclick="viewAgentDetails('${agent.agent_id}')">View Details</button>
-                <button onclick="openAgentUI('${agent.agent_id}')" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+                <button data-action="view-agent" data-agent-id="${agent.agent_id}">View Details</button>
+                <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
                     Open UI
                 </button>
-                <button onclick="deleteAgent('${agent.agent_id}', '${agent.hostname || agent.agent_id}')" 
+                <button data-action="delete-agent" data-agent-id="${agent.agent_id}" data-agent-name="${agent.hostname || agent.agent_id}" 
                     style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">
                     Delete
                 </button>
@@ -663,7 +663,7 @@ function addOrUpdateDeviceCard(device) {
                 </div>
             </div>
             <div class="device-card-actions">
-                <button onclick="openDeviceUI('${d.serial}')" ${!d.ip || !d.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
+                <button data-action="open-device" data-serial="${d.serial}" data-agent-id="${d.agent_id}" ${!d.ip || !d.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
                     Open Web UI
                 </button>
             </div>
@@ -741,7 +741,7 @@ function renderAgentDetailsModal(agent) {
                 <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
                     <div class="device-card-row">
                         <span class="device-card-label">Agent ID</span>
-                        <span class="device-card-value copyable" onclick="copyToClipboard('${agent.agent_id}')" title="Click to copy">
+                        <span class="device-card-value copyable" data-copy="${agent.agent_id}" title="Click to copy">
                             ${agent.agent_id}
                         </span>
                     </div>
@@ -751,7 +751,7 @@ function renderAgentDetailsModal(agent) {
                     </div>
                     <div class="device-card-row">
                         <span class="device-card-label">IP Address</span>
-                        <span class="device-card-value copyable" onclick="copyToClipboard('${agent.ip || ''}')" title="Click to copy">
+                        <span class="device-card-value copyable" data-copy="${agent.ip || ''}" title="Click to copy">
                             ${agent.ip || 'N/A'}
                         </span>
                     </div>
@@ -826,7 +826,7 @@ function renderAgentDetailsModal(agent) {
                     ${agent.git_commit && agent.git_commit !== 'unknown' ? `
                     <div class="device-card-row">
                         <span class="device-card-label">Git Commit</span>
-                        <span class="device-card-value copyable" onclick="copyToClipboard('${agent.git_commit}')" title="Click to copy">
+                        <span class="device-card-value copyable" data-copy="${agent.git_commit}" title="Click to copy">
                             ${agent.git_commit.substring(0, 8)}...
                         </span>
                     </div>
@@ -926,7 +926,7 @@ function renderAgentDetailsModal(agent) {
         </div>
         <!-- Action Buttons -->
         <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
-            <button onclick="openAgentUI('${agent.agent_id}')" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+            <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
                 Open Agent UI
             </button>
         </div>
@@ -1050,13 +1050,13 @@ function renderDevices(devices) {
                 </div>
             </div>
             <div class="device-card-actions">
-                <button onclick="openDeviceUI('${device.serial}')" ${!device.ip || !device.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
+                <button data-action="open-device" data-serial="${device.serial}" data-agent-id="${device.agent_id}" ${!device.ip || !device.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
                     Open Web UI
                 </button>
-                <button onclick="openDeviceMetrics('${device.serial}')" ${!device.serial ? 'disabled title="No serial"' : ''}>
+                <button data-action="view-metrics" data-serial="${device.serial}" ${!device.serial ? 'disabled title="No serial"' : ''}>
                     View Metrics
                 </button>
-                <button onclick="showPrinterDetails('${device.ip||''}','saved')" ${!device.ip ? 'disabled title="No IP"' : ''}>
+                <button data-action="show-printer-details" data-ip="${device.ip||''}" data-source="saved" ${!device.ip ? 'disabled title="No IP"' : ''}>
                     Details
                 </button>
             </div>
