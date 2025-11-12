@@ -598,7 +598,7 @@ function showDeviceMetricsModal(serial, preset) {
     if (!serial) return;
     try {
         // If the shared metrics modal exists, reuse it
-        if (window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadDeviceMetrics === 'function') {
+    if (typeof window.__pm_shared_metrics?.loadDeviceMetrics === 'function') {
             // If modal elements exist in DOM, show modal and render
             const modalBody = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
             if (modalBody) {
@@ -900,7 +900,7 @@ window.showMetricsModal = async function (opts = {}) {
     });
 
     // Use the shared metrics bundle loader directly (fail-fast if not present)
-    if (window.__pm_shared_metrics && typeof window.__pm_shared_metrics.loadDeviceMetrics === 'function') {
+    if (typeof window.__pm_shared_metrics?.loadDeviceMetrics === 'function') {
         // Create a modal container that the shared metrics loader understands
         let modal = document.getElementById('metrics_modal');
         if (!modal) {

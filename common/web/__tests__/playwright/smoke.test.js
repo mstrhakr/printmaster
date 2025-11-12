@@ -8,7 +8,7 @@ test('shared.js toast and confirm smoke', async ({ page }) => {
   await page.goto('file://' + fixture);
 
   // ensure shared loaded
-  await page.waitForFunction(() => window.__pm_shared && typeof window.__pm_shared.showToast === 'function');
+  await page.waitForFunction(() => typeof window.__pm_shared?.showToast === 'function');
 
   // trigger toast
   await page.evaluate(() => window.__pm_shared.showToast('Playwright Test', 'success', 500));
@@ -28,7 +28,7 @@ test('shared.js toast and confirm smoke', async ({ page }) => {
   await page.click('#confirm_modal_confirm');
 
   // wait for promise to settle and check result
-  await page.waitForFunction(() => window.__pm_shared && window.__pm_shared._lastConfirmResult === true);
-  const result = await page.evaluate(() => window.__pm_shared._lastConfirmResult);
+  await page.waitForFunction(() => window.__pm_shared?._lastConfirmResult === true);
+  const result = await page.evaluate(() => window.__pm_shared?._lastConfirmResult);
   expect(result).toBe(true);
 });
