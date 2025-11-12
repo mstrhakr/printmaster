@@ -9,7 +9,8 @@ func TestInjectProxyMetaAndBase(t *testing.T) {
 	agentID := "agent-123"
 	targetURL := "http://127.0.0.1:8080/"
 
-	out := injectProxyMetaAndBase([]byte(sample), agentID, targetURL)
+	proxyBase := "/api/v1/proxy/agent/" + agentID + "/"
+	out := injectProxyMetaAndBase([]byte(sample), proxyBase, agentID, targetURL)
 	s := string(out)
 
 	// Expect meta tag and base present
