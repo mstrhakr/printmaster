@@ -57,7 +57,9 @@ func (s *SQLiteStore) DownsampleRawToHourly(ctx context.Context, olderThan time.
 		ORDER BY serial, hour_start
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, olderThan)
+	// Use RFC3339Nano UTC string for time parameter to match stored timestamp format
+	olderStr := olderThan.UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx, query, olderStr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query raw metrics for hourly aggregation: %w", err)
 	}
@@ -110,7 +112,7 @@ func (s *SQLiteStore) DownsampleRawToHourly(ctx context.Context, olderThan time.
 		`
 
 		_, err = s.db.ExecContext(ctx, insertQuery,
-			serial, hourStart, sampleCount,
+			serial, hourStart.Format(time.RFC3339Nano), sampleCount,
 			pageMin, pageMax, pageAvg,
 			colorMin, colorMax, colorAvg,
 			monoMin, monoMax, monoAvg,
@@ -161,7 +163,8 @@ func (s *SQLiteStore) DownsampleHourlyToDaily(ctx context.Context, olderThan tim
 		ORDER BY serial, day_start
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, olderThan)
+	olderStr := olderThan.UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx, query, olderStr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query hourly metrics for daily aggregation: %w", err)
 	}
@@ -211,7 +214,7 @@ func (s *SQLiteStore) DownsampleHourlyToDaily(ctx context.Context, olderThan tim
 		`
 
 		_, err = s.db.ExecContext(ctx, insertQuery,
-			serial, dayStart, sampleCount,
+			serial, dayStart.Format(time.RFC3339Nano), sampleCount,
 			pageMin, pageMax, pageAvg,
 			colorMin, colorMax, colorAvg,
 			monoMin, monoMax, monoAvg,
@@ -262,7 +265,8 @@ func (s *SQLiteStore) DownsampleDailyToMonthly(ctx context.Context, olderThan ti
 		ORDER BY serial, month_start
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, olderThan)
+	olderStr := olderThan.UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx, query, olderStr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query daily metrics for monthly aggregation: %w", err)
 	}
@@ -312,7 +316,7 @@ func (s *SQLiteStore) DownsampleDailyToMonthly(ctx context.Context, olderThan ti
 		`
 
 		_, err = s.db.ExecContext(ctx, insertQuery,
-			serial, monthStart, sampleCount,
+			serial, monthStart.Format(time.RFC3339Nano), sampleCount,
 			pageMin, pageMax, pageAvg,
 			colorMin, colorMax, colorAvg,
 			monoMin, monoMax, monoAvg,
@@ -345,7 +349,8 @@ func (s *SQLiteStore) CleanupOldTieredMetrics(ctx context.Context, rawRetentionD
 
 	// Cleanup raw metrics (default 7 days)
 	rawCutoff := now.AddDate(0, 0, -rawRetentionDays)
-	rawResult, err := s.db.ExecContext(ctx, "DELETE FROM metrics_raw WHERE timestamp < ?", rawCutoff)
+	rawCutoffStr := rawCutoff.UTC().Format(time.RFC3339Nano)
+	rawResult, err := s.db.ExecContext(ctx, "DELETE FROM metrics_raw WHERE timestamp < ?", rawCutoffStr)
 	if err != nil {
 		return results, fmt.Errorf("failed to cleanup raw metrics: %w", err)
 	}
@@ -354,7 +359,8 @@ func (s *SQLiteStore) CleanupOldTieredMetrics(ctx context.Context, rawRetentionD
 
 	// Cleanup hourly metrics (default 30 days)
 	hourlyCutoff := now.AddDate(0, 0, -hourlyRetentionDays)
-	hourlyResult, err := s.db.ExecContext(ctx, "DELETE FROM metrics_hourly WHERE hour_start < ?", hourlyCutoff)
+	hourlyCutoffStr := hourlyCutoff.UTC().Format(time.RFC3339Nano)
+	hourlyResult, err := s.db.ExecContext(ctx, "DELETE FROM metrics_hourly WHERE hour_start < ?", hourlyCutoffStr)
 	if err != nil {
 		return results, fmt.Errorf("failed to cleanup hourly metrics: %w", err)
 	}
@@ -363,7 +369,8 @@ func (s *SQLiteStore) CleanupOldTieredMetrics(ctx context.Context, rawRetentionD
 
 	// Cleanup daily metrics (default 365 days)
 	dailyCutoff := now.AddDate(0, 0, -dailyRetentionDays)
-	dailyResult, err := s.db.ExecContext(ctx, "DELETE FROM metrics_daily WHERE day_start < ?", dailyCutoff)
+	dailyCutoffStr := dailyCutoff.UTC().Format(time.RFC3339Nano)
+	dailyResult, err := s.db.ExecContext(ctx, "DELETE FROM metrics_daily WHERE day_start < ?", dailyCutoffStr)
 	if err != nil {
 		return results, fmt.Errorf("failed to cleanup daily metrics: %w", err)
 	}

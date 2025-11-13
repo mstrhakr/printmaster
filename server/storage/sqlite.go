@@ -694,6 +694,16 @@ func (s *SQLiteStore) queryDevices(ctx context.Context, query string, args ...in
 func (s *SQLiteStore) SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) error {
 	tonerJSON, _ := json.Marshal(metrics.TonerLevels)
 
+	// Normalize timestamp to UTC RFC3339Nano before storing to ensure
+	// consistent, comparable text representation in SQLite.
+	ts := metrics.Timestamp
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	} else {
+		ts = ts.UTC()
+	}
+	tsStr := ts.Format(time.RFC3339Nano)
+
 	query := `
 		INSERT INTO metrics_history (
 			serial, agent_id, timestamp, page_count, color_pages,
@@ -702,7 +712,7 @@ func (s *SQLiteStore) SaveMetrics(ctx context.Context, metrics *MetricsSnapshot)
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
-		metrics.Serial, metrics.AgentID, metrics.Timestamp,
+		metrics.Serial, metrics.AgentID, tsStr,
 		metrics.PageCount, metrics.ColorPages, metrics.MonoPages,
 		metrics.ScanCount, string(tonerJSON),
 	)
@@ -748,13 +758,15 @@ func (s *SQLiteStore) GetLatestMetrics(ctx context.Context, serial string) (*Met
 func (s *SQLiteStore) GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error) {
 	query := `
 		SELECT id, serial, agent_id, timestamp, page_count, color_pages,
-		       mono_pages, scan_count, toner_levels
+			   mono_pages, scan_count, toner_levels
 		FROM metrics_history
 		WHERE serial = ? AND timestamp >= ?
-		ORDER BY timestamp DESC
+		ORDER BY timestamp ASC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, serial, since)
+	// Use parameter binding for the since time (normalized to UTC RFC3339Nano)
+	sinceStr := since.UTC().Format(time.RFC3339Nano)
+	rows, err := s.db.QueryContext(ctx, query, serial, sinceStr)
 	if err != nil {
 		return nil, err
 	}

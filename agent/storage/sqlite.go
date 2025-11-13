@@ -1314,6 +1314,8 @@ func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *Metrics
 	if snapshot.Timestamp.IsZero() {
 		snapshot.Timestamp = time.Now()
 	}
+	// Normalize to UTC for consistent storage/comparison
+	snapshot.Timestamp = snapshot.Timestamp.UTC()
 
 	tonerJSON, _ := json.Marshal(snapshot.TonerLevels)
 
@@ -1373,8 +1375,11 @@ func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *Metrics
 		) VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
+	// Store timestamp as RFC3339Nano UTC string to ensure consistent lexicographic
+	// ordering and comparability inside SQLite.
+	tsStr := snapshot.Timestamp.Format(time.RFC3339Nano)
 	result, err := s.db.ExecContext(ctx, query,
-		snapshot.Serial, snapshot.Timestamp, snapshot.PageCount,
+		snapshot.Serial, tsStr, snapshot.PageCount,
 		snapshot.ColorPages, snapshot.MonoPages, snapshot.ScanCount,
 		string(tonerJSON),
 	)
@@ -1407,22 +1412,22 @@ func (s *SQLiteStore) GetMetricsHistory(ctx context.Context, serial string, sinc
 		return nil, ErrInvalidSerial
 	}
 
-	// NOTE: We intentionally avoid time filtering in SQL because the stored timestamp
-	// format may include timezone names and monotonic clock info that SQLite's time
-	// functions cannot parse reliably. Instead, we fetch all snapshots for the serial
-	// and filter in Go using time.Time comparisons.
-	// TODO: Implement tiered query that selects appropriate table based on time range
+	// Now that timestamps are stored as UTC RFC3339Nano strings we can use
+	// indexed range queries in SQL. This is faster and avoids scanning all rows.
 	query := `
 		SELECT id, serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels,
-		       fax_pages, copy_pages, other_pages, copy_mono_pages, copy_flatbed_scans, copy_adf_scans,
-		       fax_flatbed_scans, fax_adf_scans, scan_to_host_flatbed, scan_to_host_adf,
-		       duplex_sheets, jam_events, scanner_jam_events
+			   fax_pages, copy_pages, other_pages, copy_mono_pages, copy_flatbed_scans, copy_adf_scans,
+			   fax_flatbed_scans, fax_adf_scans, scan_to_host_flatbed, scan_to_host_adf,
+			   duplex_sheets, jam_events, scanner_jam_events
 		FROM metrics_raw
-		WHERE serial = ?
+		WHERE serial = ? AND timestamp >= ? AND timestamp <= ?
 		ORDER BY timestamp ASC
 	`
 
-	rows, err := s.db.QueryContext(ctx, query, serial)
+	sinceStr := since.UTC().Format(time.RFC3339Nano)
+	untilStr := until.UTC().Format(time.RFC3339Nano)
+
+	rows, err := s.db.QueryContext(ctx, query, serial, sinceStr, untilStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics history: %w", err)
 	}
@@ -1450,15 +1455,7 @@ func (s *SQLiteStore) GetMetricsHistory(ctx context.Context, serial string, sinc
 			json.Unmarshal([]byte(tonerJSON.String), &snapshot.TonerLevels)
 		}
 
-		// Filter by requested time range (inclusive)
-		// Strip monotonic clock component for reliable comparison
-		ts := snapshot.Timestamp.Round(0)
-		sinceRound := since.Round(0)
-		untilRound := until.Round(0)
-
-		if !ts.Before(sinceRound) && !ts.After(untilRound) {
-			snapshots = append(snapshots, snapshot)
-		}
+		snapshots = append(snapshots, snapshot)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -1508,9 +1505,10 @@ func (s *SQLiteStore) GetLatestMetrics(ctx context.Context, serial string) (*Met
 // DeleteOldMetrics removes metrics history older than the given timestamp
 // TODO: Update to handle tiered cleanup (raw>7d, hourly>30d, daily>365d)
 func (s *SQLiteStore) DeleteOldMetrics(ctx context.Context, olderThan time.Time) (int, error) {
+	olderStr := olderThan.UTC().Format(time.RFC3339Nano)
 	result, err := s.db.ExecContext(ctx,
 		"DELETE FROM metrics_raw WHERE timestamp < ?",
-		olderThan)
+		olderStr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to delete old metrics: %w", err)
 	}
