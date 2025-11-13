@@ -1,4 +1,4 @@
-name: "CI/CD Pipeline — ${{ github.ref_name }}"
+name: CI/CD Pipeline
 
 on:
   push:
@@ -21,6 +21,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Set run display name
+      run: |
+        # Build a descriptive run name using the tag/branch
+        RUN_NAME="CI/CD Pipeline - ${GITHUB_REF_NAME:-${GITHUB_REF}}"
+        echo "Setting run display name to: $RUN_NAME"
+        # Update the workflow run name via the Actions REST API
+        gh api --method PATCH \
+          -H "Accept: application/vnd.github+json" \
+          /repos/${{ github.repository }}/actions/runs/${{ github.run_id }} \
+          -f name="$RUN_NAME"
+      env:
+        GITHUB_REF_NAME: ${{ github.ref_name }}
+      shell: bash
+
     - name: Checkout
       uses: actions/checkout@v4
 
