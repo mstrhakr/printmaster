@@ -250,7 +250,7 @@
     {
       "label": "Kill: PrintMaster processes",
       "type": "shell",
-      "command": "Get-Process | Where-Object {$_.ProcessName -like '*printmaster*' -or $_.Path -like '*printmaster*' -or $_.ProcessName -like '*debug_bin*' -or $_.ProcessName -eq 'dlv'} | Stop-Process -Force -ErrorAction SilentlyContinue; Write-Host 'All PrintMaster and debug processes killed' -ForegroundColor Green",
+      "command": ".\\scripts\\kill_printmaster_by_port.ps1",
       "group": "none",
       "problemMatcher": [],
       "presentation": {
