@@ -442,10 +442,11 @@ function renderAgentCard(agent) {
             <div class="device-card-header">
                 <div>
                     <div style="display:flex;align-items:center;gap:8px">
-                        <div class="device-card-title">${agent.hostname || agent.agent_id}</div>
+                        <div class="device-card-title">${agent.name || agent.hostname || agent.agent_id}</div>
                     </div>
-                    <div class="device-card-subtitle copyable" data-copy="${agent.agent_id}" title="Click to copy Agent ID">
-                        ${agent.agent_id}
+                    <div class="device-card-subtitle">
+                        <span class="copyable" data-copy="${agent.hostname || ''}" title="Click to copy Hostname">${agent.hostname || 'N/A'}</span>
+                        <span style="margin-left:8px;color:var(--muted);font-size:12px;" class="copyable" data-copy="${agent.agent_id}" title="Click to copy Agent ID">${agent.agent_id}</span>
                     </div>
                 </div>
             </div>
@@ -524,7 +525,7 @@ function renderAgentCard(agent) {
                 <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
                     Open UI
                 </button>
-                <button data-action="delete-agent" data-agent-id="${agent.agent_id}" data-agent-name="${agent.hostname || agent.agent_id}" 
+                <button data-action="delete-agent" data-agent-id="${agent.agent_id}" data-agent-name="${agent.name || agent.hostname || agent.agent_id}" 
                     style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">
                     Delete
                 </button>
@@ -709,7 +710,7 @@ function renderAgentDetailsModal(agent) {
     const title = document.getElementById('agent_details_title');
     const body = document.getElementById('agent_details_body');
     
-    title.textContent = `Agent: ${agent.hostname || agent.agent_id}`;
+    title.textContent = `Agent: ${agent.name || agent.hostname || agent.agent_id}`;
     
     const lastSeenDate = agent.last_seen ? new Date(agent.last_seen) : null;
     const registeredDate = agent.registered_at ? new Date(agent.registered_at) : null;
@@ -738,7 +739,7 @@ function renderAgentDetailsModal(agent) {
             <!-- Basic Info -->
             <div class="panel">
                 <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">Basic Information</h4>
-                <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+                    <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
                     <div class="device-card-row">
                         <span class="device-card-label">Agent ID</span>
                         <span class="device-card-value copyable" data-copy="${agent.agent_id}" title="Click to copy">
@@ -746,8 +747,15 @@ function renderAgentDetailsModal(agent) {
                         </span>
                     </div>
                     <div class="device-card-row">
+                        <span class="device-card-label">Name</span>
+                        <span class="device-card-value" id="agent_details_name_display">${agent.name || ''}</span>
+                        <span style="margin-left:8px;"><button id="agent_details_edit_name_btn">Edit</button></span>
+                    </div>
+                    <div class="device-card-row">
                         <span class="device-card-label">Hostname</span>
-                        <span class="device-card-value">${agent.hostname || 'N/A'}</span>
+                        <span class="device-card-value copyable" data-copy="${agent.hostname || ''}" title="Click to copy">
+                            ${agent.hostname || 'N/A'}
+                        </span>
                     </div>
                     <div class="device-card-row">
                         <span class="device-card-label">IP Address</span>
@@ -931,6 +939,58 @@ function renderAgentDetailsModal(agent) {
             </button>
         </div>
     `;
+    // Attach inline editor handlers now that DOM nodes are present
+    try { _attachAgentDetailsNameEditor(agent); } catch (e) { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('attach editor failed', e); }
+}
+
+// After rendering the agent details modal we attach a small inline handler
+// to allow editing the agent's user-friendly name. This toggles an input
+// in the modal and sends a POST to update the name on the server, then
+// updates the UI card in-place.
+function _attachAgentDetailsNameEditor(agent) {
+    try {
+        const editBtn = document.getElementById('agent_details_edit_name_btn');
+        if (!editBtn) return;
+        editBtn.addEventListener('click', () => {
+            const displayEl = document.getElementById('agent_details_name_display');
+            if (!displayEl) return;
+            const current = displayEl.textContent || '';
+            displayEl.innerHTML = ` <input id="agent_details_name_input" value="${(agent.name||'').replace(/"/g,'&quot;')}" style="width:70%" /> <button id="agent_details_save_name">Save</button> <button id="agent_details_cancel_name">Cancel</button>`;
+
+            const saveBtn = document.getElementById('agent_details_save_name');
+            const cancelBtn = document.getElementById('agent_details_cancel_name');
+            if (cancelBtn) cancelBtn.addEventListener('click', () => { displayEl.textContent = current; });
+
+            if (saveBtn) saveBtn.addEventListener('click', async () => {
+                const input = document.getElementById('agent_details_name_input');
+                if (!input) return;
+                const newName = input.value.trim();
+                try {
+                    const res = await fetch(`/api/v1/agents/${encodeURIComponent(agent.agent_id)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: newName })
+                    });
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const updated = await res.json();
+                    // Update modal display
+                    const title = document.getElementById('agent_details_title');
+                    const nameDisplay = document.getElementById('agent_details_name_display');
+                    if (nameDisplay) nameDisplay.textContent = updated.name || '';
+                    if (title) title.textContent = `Agent: ${updated.name || updated.hostname || updated.agent_id}`;
+                    // Update agent card in list
+                    try { addAgentCard(updated); } catch (e) {}
+                    window.__pm_shared.showToast('Agent name updated', 'success');
+                } catch (err) {
+                    window.__pm_shared.showToast('Failed to update agent name', 'error');
+                    // restore display
+                    displayEl.textContent = current;
+                }
+            });
+        });
+    } catch (e) {
+        window.__pm_shared.warn('Failed to attach agent details name editor', e);
+    }
 }
 
 // Expose server-specific agent UI helpers to the shared namespace so the

@@ -482,6 +482,13 @@ func (s *SQLiteStore) UpdateAgentHeartbeat(ctx context.Context, agentID string, 
 	return err
 }
 
+// UpdateAgentName updates the stored user-friendly name for an agent
+func (s *SQLiteStore) UpdateAgentName(ctx context.Context, agentID string, name string) error {
+	query := `UPDATE agents SET name = ? WHERE agent_id = ?`
+	_, err := s.db.ExecContext(ctx, query, name, agentID)
+	return err
+}
+
 // DeleteAgent removes an agent and all associated devices and metrics
 func (s *SQLiteStore) DeleteAgent(ctx context.Context, agentID string) error {
 	// Start transaction to ensure atomic deletion

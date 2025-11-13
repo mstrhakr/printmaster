@@ -1696,6 +1696,60 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(obj)
 
+	case http.MethodPost:
+		// Allow updating mutable agent fields (currently only 'name') from the UI
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		// Validate name length (basic)
+		if len(req.Name) > 512 {
+			http.Error(w, "Name too long", http.StatusBadRequest)
+			return
+		}
+
+		if err := serverStore.UpdateAgentName(ctx, agentID, req.Name); err != nil {
+			if serverLogger != nil {
+				serverLogger.Error("Failed to update agent name", "agent_id", agentID, "error", err)
+			}
+			http.Error(w, "Failed to update agent", http.StatusInternalServerError)
+			return
+		}
+
+		// Return updated agent object (same shape as GET)
+		agent, err := serverStore.GetAgent(ctx, agentID)
+		if err != nil {
+			if serverLogger != nil {
+				serverLogger.Error("Failed to get agent after update", "agent_id", agentID, "error", err)
+			}
+			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
+		}
+
+		// Remove sensitive token from response
+		agent.Token = ""
+
+		// Include WS diagnostic counters
+		var pf int64
+		var de int64
+		wsDiagLock.RLock()
+		pf = wsPingFailuresPerAgent[agent.AgentID]
+		de = wsDisconnectEventsPerAgent[agent.AgentID]
+		wsDiagLock.RUnlock()
+
+		var obj map[string]interface{}
+		buf, _ := json.Marshal(agent)
+		_ = json.Unmarshal(buf, &obj)
+		obj["ws_ping_failures"] = pf
+		obj["ws_disconnect_events"] = de
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(obj)
+		return
+
 	case http.MethodDelete:
 		// Delete agent and all associated data
 		err := serverStore.DeleteAgent(ctx, agentID)
