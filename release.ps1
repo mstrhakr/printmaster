@@ -26,6 +26,9 @@ param(
     [switch]$CreateGitHubRelease,
     
     [Parameter()]
+    [bool]$FailOnEmptyChangelog = $true,
+
+    [Parameter()]
     [switch]$DryRun
 )
 
@@ -413,7 +416,12 @@ function Get-ChangelogSinceLastTag {
     }
     
     if ($changelog.Count -eq 0) {
-        return "No changes since last release."
+        # Fallback: if we parsed nothing, return a raw commit list so releases always contain explicit entries
+        $raw = git log $commitRange --pretty=format:"- %s (%h)" --no-merges 2>$null
+        if (-not $raw) {
+            return "No changes since last release."
+        }
+        return ($raw.Trim())
     }
     
     return ($changelog -join "`n").Trim()
@@ -603,6 +611,45 @@ try {
         $serverChangelog = Get-ChangelogSinceLastTag -Component 'server' -CurrentVersion $serverVersion.New
     } else {
         $changelog = Get-ChangelogSinceLastTag -Component $Component -CurrentVersion $finalVersion
+    }
+
+    # Validate changelogs: fail by default if changelog is empty/unhelpful
+    function Is-ChangelogMeaningful {
+        param([string]$Text)
+        if (-not $Text) { return $false }
+        # If there are explicit list items or section headers, consider it meaningful
+        if ($Text -match '^- ' -or $Text -match '^###' ) { return $true }
+        if ($Text.Length -gt 80) { return $true }
+        return $false
+    }
+
+    if ($FailOnEmptyChangelog) {
+        if ($Component -eq 'both') {
+            if (-not (Is-ChangelogMeaningful $agentChangelog)) {
+                if ($DryRun) {
+                    Write-Status "[DRY RUN] Agent changelog would be considered empty or not meaningful - would abort release" "WARN"
+                } else {
+                    throw "Agent changelog is empty or not meaningful. Aborting release. To override, run with -FailOnEmptyChangelog:$false or provide release notes manually."
+                }
+            }
+            if (-not (Is-ChangelogMeaningful $serverChangelog)) {
+                if ($DryRun) {
+                    Write-Status "[DRY RUN] Server changelog would be considered empty or not meaningful - would abort release" "WARN"
+                } else {
+                    throw "Server changelog is empty or not meaningful. Aborting release. To override, run with -FailOnEmptyChangelog:$false or provide release notes manually."
+                }
+            }
+        } else {
+            if (-not (Is-ChangelogMeaningful $changelog)) {
+                if ($DryRun) {
+                    Write-Status "[DRY RUN] Changelog would be considered empty or not meaningful - would abort release" "WARN"
+                } else {
+                    throw "Changelog is empty or not meaningful. Aborting release. To override, run with -FailOnEmptyChangelog:$false or provide release notes manually."
+                }
+            }
+        }
+    } else {
+        Write-Status "FailOnEmptyChangelog disabled - continuing even if changelog is empty" "WARN"
     }
     
     # Commit and tag
