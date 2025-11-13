@@ -42,6 +42,52 @@ window.__pm_shared = window.__pm_shared || {};
         try { window.__pm_shared.warn('console forwarding shim failed', e); } catch (e2) {}
     }
 })();
+
+// ============================================================================
+// Debug controls and unload guard
+// ============================================================================
+// Provide a simple debugMode flag and an isUnloading guard so verbose
+// trace output (which used console.trace) can be suppressed in normal
+// runs and during page navigations. Calls to `window.__pm_shared.trace`
+// will be no-ops unless debugMode is true.
+try {
+    window.__pm_shared.debugMode = window.__pm_shared.debugMode || false;
+    window.__pm_shared.isUnloading = false;
+
+    // Mark unloading on various lifecycle events so we can suppress
+    // noisy logs when the browser intentionally tears down connections.
+    window.addEventListener && window.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') window.__pm_shared.isUnloading = true;
+    });
+    window.addEventListener && window.addEventListener('pagehide', () => { window.__pm_shared.isUnloading = true; });
+    window.addEventListener && window.addEventListener('beforeunload', () => { window.__pm_shared.isUnloading = true; });
+
+    // Wrap the existing trace function so we only emit a full stack trace
+    // when debugMode is enabled. In normal mode, downgrade to console.debug
+    // to avoid noisy stack traces in the browser console.
+    (function installTraceWrapper() {
+        try {
+            const s = window.__pm_shared || {};
+            // Keep a reference to any existing trace implementation
+            s.__original_trace = s.__original_trace || s.trace || function(){};
+            s.trace = function(...args) {
+                try {
+                    if (s.isUnloading) return; // suppress during unload/navigation
+                    if (s.debugMode) {
+                        // Full trace for debugging
+                        if (typeof console.trace === 'function') {
+                            console.trace('[SHARED-TRACE]', ...args);
+                            return;
+                        }
+                    }
+                    // Normal run: lighter debug output
+                    try { console.debug && console.debug('[SHARED]', ...args); } catch (e) { console.log('[SHARED]', ...args); }
+                } catch (e) {}
+            };
+            window.__pm_shared = s;
+        } catch (e) { /* best-effort: don't break the page */ }
+    })();
+} catch (e) { /* defensive */ }
 (function __pm_shared_bootstrap(){
     const s = window.__pm_shared;
     // readiness promise (resolves when shared initialization completes)

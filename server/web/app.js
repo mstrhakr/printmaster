@@ -933,6 +933,18 @@ function renderAgentDetailsModal(agent) {
     `;
 }
 
+// Expose server-specific agent UI helpers to the shared namespace so the
+// delegated card handlers (loaded earlier) call the rich renderer instead
+// of the generic fallback in `common/web/shared.js` which shows raw JSON.
+try {
+    window.__pm_shared = window.__pm_shared || {};
+    window.__pm_shared.viewAgentDetails = viewAgentDetails;
+    window.__pm_shared.renderAgentDetailsModal = renderAgentDetailsModal;
+    // Also expose delete/open helpers if present so shared callers use server implementations
+    window.__pm_shared.deleteAgent = window.__pm_shared.deleteAgent || deleteAgent;
+    window.__pm_shared.openAgentUI = window.__pm_shared.openAgentUI || openAgentUI;
+} catch (e) { console.warn('Failed to expose server UI helpers to shared namespace', e); }
+
 // ====== Delete Agent ======
 async function deleteAgent(agentId, displayName) {
     window.__pm_shared.log('deleteAgent called:', agentId, displayName);
