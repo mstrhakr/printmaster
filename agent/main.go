@@ -2662,24 +2662,27 @@ func runInteractive(ctx context.Context, configFlag string) {
 		json.NewEncoder(w).Encode(printers)
 	})
 
-	// POST /devices/clear_discovered - Hide discovered devices (soft delete)
+	// POST /devices/clear_discovered - Delete discovered devices (hard delete)
+	// This endpoint removes devices that are not saved (is_saved = 0) from the local DB.
 	http.HandleFunc("/devices/clear_discovered", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Hide discovered devices in database
+		// Delete discovered (unsaved) devices from database
 		ctx := context.Background()
-		count, err := deviceStore.HideDiscovered(ctx)
+		isSaved := false
+		filter := storage.DeviceFilter{IsSaved: &isSaved}
+		count, err := deviceStore.DeleteAll(ctx, filter)
 		if err != nil {
-			appLogger.Error("Error hiding discovered devices", "error", err.Error())
-			http.Error(w, "failed to hide discovered", http.StatusInternalServerError)
+			appLogger.Error("Error deleting discovered devices", "error", err.Error())
+			http.Error(w, "failed to delete discovered", http.StatusInternalServerError)
 			return
 		}
-		appLogger.Info("Hidden discovered devices", "count", count)
+		appLogger.Info("Deleted discovered devices", "count", count)
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "hidden %d devices", count)
+		fmt.Fprintf(w, "deleted %d devices", count)
 	})
 
 	// POST /database/clear - Backup current database and start fresh

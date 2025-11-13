@@ -135,6 +135,35 @@ async function saveAllDiscovered(evt) {
 // Expose agent implementation so shared delegate can call into it when proxied
 try { window.__agent_saveDiscoveredDevice = window.__agent_saveDiscoveredDevice || saveDiscoveredDevice; } catch (e) {}
 
+// Clear (delete) all discovered devices from the local DB
+async function clearDiscovered(evt) {
+    const btn = evt && evt.currentTarget ? evt.currentTarget : null;
+    const origText = btn && btn.textContent ? btn.textContent : null;
+
+    try {
+        // Confirm destructive action
+        if (!window.confirm || !window.confirm('Delete all discovered devices from the database? This cannot be undone.')) return;
+
+        if (btn) { btn.disabled = true; btn.textContent = 'Clearing...'; }
+
+        const resp = await fetch('/devices/clear_discovered', { method: 'POST' });
+        if (!resp.ok) {
+            let txt = '';
+            try { txt = await resp.text(); } catch (e) { txt = resp.statusText || 'unknown'; }
+            throw new Error('Failed to clear discovered devices: ' + txt + ' (status ' + resp.status + ')');
+        }
+
+        // Show feedback and refresh UI
+        window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Cleared discovered devices', 'success', 1500);
+        try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+    } catch (err) {
+        window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('clearDiscovered failed', err);
+        window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Failed to clear discovered devices: ' + (err && err.message ? err.message : err), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; if (origText) btn.textContent = origText; }
+    }
+}
+
 function showPrinterDetailsData(p, source, parseDebug) {
     // Delegated to shared implementation in `common/web/cards.js`.
     try {
