@@ -120,4 +120,8 @@ type Store interface {
 	// is not persisted in plain form).
 	CreateJoinToken(ctx context.Context, tenantID string, ttlMinutes int, oneTime bool) (*JoinToken, string, error)
 	ValidateJoinToken(ctx context.Context, token string) (*JoinToken, error)
+
+	// Admin: list and revoke join tokens
+	ListJoinTokens(ctx context.Context, tenantID string) ([]*JoinToken, error)
+	RevokeJoinToken(ctx context.Context, id string) error
 }

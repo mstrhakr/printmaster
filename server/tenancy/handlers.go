@@ -22,6 +22,8 @@ func RegisterRoutes(s storage.Store) {
 	http.HandleFunc("/api/v1/tenants", handleTenants)
 	http.HandleFunc("/api/v1/join-token", handleCreateJoinToken)
 	http.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken)
+	http.HandleFunc("/api/v1/join-tokens", handleListJoinTokens)        // GET (admin)
+	http.HandleFunc("/api/v1/join-token/revoke", handleRevokeJoinToken) // POST {"id":"..."}
 }
 
 // handleTenants supports GET (list) and POST (create)
@@ -132,6 +134,80 @@ func handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		"tenant_id":  jt.TenantID,
 		"expires_at": jt.ExpiresAt.Format(time.RFC3339),
 	})
+}
+
+// handleListJoinTokens returns a list of join tokens for a tenant. Query param: tenant_id
+func handleListJoinTokens(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	tenantID := r.URL.Query().Get("tenant_id")
+	if tenantID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"tenant_id required"}`))
+		return
+	}
+	if dbStore != nil {
+		list, err := dbStore.ListJoinTokens(r.Context(), tenantID)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to list tokens"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(list)
+		return
+	}
+	// fallback: filter in-memory store
+	all := make([]JoinToken, 0)
+	for _, jt := range store.tokens {
+		if jt.TenantID == tenantID {
+			all = append(all, jt)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(all)
+}
+
+// handleRevokeJoinToken revokes a token by id. Body: {"id":"..."}
+func handleRevokeJoinToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct{ ID string `json:"id"` }
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"invalid json"}`))
+		return
+	}
+	if in.ID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"id required"}`))
+		return
+	}
+	if dbStore != nil {
+		if err := dbStore.RevokeJoinToken(r.Context(), in.ID); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to revoke token"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
+	// fallback: remove from in-memory store
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, ok := store.tokens[in.ID]; ok {
+		delete(store.tokens, in.ID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
+	w.Write([]byte(`{"error":"token not found"}`))
 }
 
 // handleRegisterWithToken accepts {"token":"...","agent_id":"..."}

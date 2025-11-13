@@ -95,3 +95,44 @@ func TestCreateJoinTokenAndRegister(t *testing.T) {
 		t.Fatalf("agent_token missing in response")
 	}
 }
+
+func TestListAndRevokeJoinTokens(t *testing.T) {
+	// Ensure tenant exists and create token
+	_, _ = store.CreateTenant("admint", "Admin Tenant", "")
+	jt, err := store.CreateJoinToken("admint", 5, false)
+	if err != nil {
+		t.Fatalf("CreateJoinToken failed: %v", err)
+	}
+	if jt == (JoinToken{}) {
+		t.Fatalf("empty join token returned")
+	}
+
+	// List via handler (in-memory path)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/join-tokens?tenant_id=admint", nil)
+	rw := httptest.NewRecorder()
+	handleListJoinTokens(rw, req)
+	res := rw.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 got %d", res.StatusCode)
+	}
+	var list []JoinToken
+	if err := json.NewDecoder(res.Body).Decode(&list); err != nil {
+		t.Fatalf("decode list failed: %v", err)
+	}
+	if len(list) == 0 {
+		t.Fatalf("expected non-empty list")
+	}
+
+	// Revoke via handler (attempt by id)
+	// in-memory store uses token value as key; revoke by token
+	b, _ := json.Marshal(map[string]string{"id": jt.Token})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/join-token/revoke", bytes.NewReader(b))
+	rw = httptest.NewRecorder()
+	handleRevokeJoinToken(rw, req)
+	res = rw.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 got %d", res.StatusCode)
+	}
+
+	// no raw for in-memory path
+}

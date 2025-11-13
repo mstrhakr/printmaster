@@ -3,18 +3,21 @@ package storage
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"time"
+	"strings"
 
 	"printmaster/common/logger"
+
+	"golang.org/x/crypto/argon2"
 
 	_ "modernc.org/sqlite" // Pure Go SQLite driver (no CGO required)
 )
@@ -537,14 +540,12 @@ func (s *SQLiteStore) CreateJoinToken(ctx context.Context, tenantID string, ttlM
 		return nil, "", err
 	}
 
-	// generate raw token
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
+	// generate secret and id. The returned raw token will be <id>.<secret>
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
 		return nil, "", err
 	}
-	raw := hex.EncodeToString(b)
-	h := sha256.Sum256([]byte(raw))
-	hash := hex.EncodeToString(h[:])
+	secretStr := hex.EncodeToString(secret)
 
 	idb := make([]byte, 8)
 	if _, err := rand.Read(idb); err != nil {
@@ -554,13 +555,21 @@ func (s *SQLiteStore) CreateJoinToken(ctx context.Context, tenantID string, ttlM
 
 	expires := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
 
-	_, err := s.db.ExecContext(ctx, `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, 0)`,
-		id, hash, tenantID, expires, boolToInt(oneTime), time.Now().UTC())
+	// hash the secret using Argon2id
+	encoded, err := generateArgonHash(secretStr)
 	if err != nil {
 		return nil, "", err
 	}
 
-	jt := &JoinToken{ID: id, TokenHash: hash, TenantID: tenantID, ExpiresAt: expires, OneTime: oneTime, CreatedAt: time.Now().UTC(), Revoked: false}
+	_, err = s.db.ExecContext(ctx, `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+		id, encoded, tenantID, expires, boolToInt(oneTime), time.Now().UTC())
+	if err != nil {
+		return nil, "", err
+	}
+
+	jt := &JoinToken{ID: id, TokenHash: encoded, TenantID: tenantID, ExpiresAt: expires, OneTime: oneTime, CreatedAt: time.Now().UTC(), Revoked: false}
+	// return raw token as id.secret
+	raw := id + "." + secretStr
 	return jt, raw, nil
 }
 
@@ -573,8 +582,13 @@ func boolToInt(b bool) int {
 
 // ValidateJoinToken checks token validity and consumes it if one-time.
 func (s *SQLiteStore) ValidateJoinToken(ctx context.Context, token string) (*JoinToken, error) {
-	hash := sha256.Sum256([]byte(token))
-	hs := hex.EncodeToString(hash[:])
+	// Expect token format: id.secret
+	parts := strings.SplitN(token, ".", 2)
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid token format")
+	}
+	id := parts[0]
+	secret := parts[1]
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -586,12 +600,13 @@ func (s *SQLiteStore) ValidateJoinToken(ctx context.Context, token string) (*Joi
 		}
 	}()
 
-	row := tx.QueryRowContext(ctx, `SELECT id, tenant_id, expires_at, one_time, created_at, used_at, revoked FROM join_tokens WHERE token_hash = ?`, hs)
+	row := tx.QueryRowContext(ctx, `SELECT id, tenant_id, expires_at, one_time, created_at, used_at, revoked, token_hash FROM join_tokens WHERE id = ?`, id)
 	var jt JoinToken
 	var oneInt int
 	var usedAt sql.NullTime
 	var revokedInt int
-	if err := row.Scan(&jt.ID, &jt.TenantID, &jt.ExpiresAt, &oneInt, &jt.CreatedAt, &usedAt, &revokedInt); err != nil {
+	var storedHash string
+	if err := row.Scan(&jt.ID, &jt.TenantID, &jt.ExpiresAt, &oneInt, &jt.CreatedAt, &usedAt, &revokedInt, &storedHash); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
@@ -610,6 +625,17 @@ func (s *SQLiteStore) ValidateJoinToken(ctx context.Context, token string) (*Joi
 		return nil, fmt.Errorf("token expired")
 	}
 
+	// verify secret
+	ok, verr := verifyArgonHash(secret, storedHash)
+	if verr != nil {
+		tx.Rollback()
+		return nil, verr
+	}
+	if !ok {
+		tx.Rollback()
+		return nil, fmt.Errorf("invalid token")
+	}
+
 	if jt.OneTime {
 		// consume
 		if _, err := tx.ExecContext(ctx, `UPDATE join_tokens SET used_at = ?, revoked = 1 WHERE id = ?`, time.Now().UTC(), jt.ID); err != nil {
@@ -622,6 +648,129 @@ func (s *SQLiteStore) ValidateJoinToken(ctx context.Context, token string) (*Joi
 		return nil, err
 	}
 	return &jt, nil
+}
+
+// Argon2id helpers
+func generateArgonHash(secret string) (string, error) {
+	// Parameters (tune as needed)
+	time := uint32(1)
+	memory := uint32(64 * 1024)
+	threads := uint8(2)
+	keyLen := uint32(32)
+
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return "", err
+	}
+	hash := argon2.IDKey([]byte(secret), salt, time, memory, threads, keyLen)
+
+	// Encode as: $argon2id$v=19$m=...,t=...,p=...$<salt_b64>$<hash_b64>
+	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
+	b64Hash := base64.RawStdEncoding.EncodeToString(hash)
+	encoded := fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", memory, time, threads, b64Salt, b64Hash)
+	return encoded, nil
+}
+
+func verifyArgonHash(secret, encoded string) (bool, error) {
+	// encoded format: $argon2id$v=19$m=<mem>,t=<time>,p=<threads>$<salt>$<hash>
+	parts := strings.Split(encoded, "$")
+	if len(parts) < 6 {
+		return false, fmt.Errorf("bad encoded hash")
+	}
+	// parts[3] = params, parts[4]=salt, parts[5]=hash
+	params := parts[3]
+	saltB64 := parts[4]
+	hashB64 := parts[5]
+
+	// parse params (m=...,t=...,p=...)
+	var memory uint32
+	var time uint32
+	var threads uint8
+	_, err := fmt.Sscanf(params, "m=%d,t=%d,p=%d", &memory, &time, &threads)
+	if err != nil {
+		// fallback: try comma separated parsing
+		vals := strings.Split(params, ",")
+		for _, v := range vals {
+			kv := strings.SplitN(v, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			switch kv[0] {
+			case "m":
+				var m uint32
+				fmt.Sscanf(kv[1], "%d", &m)
+				memory = m
+			case "t":
+				var tt uint32
+				fmt.Sscanf(kv[1], "%d", &tt)
+				time = tt
+			case "p":
+				var p uint8
+				fmt.Sscanf(kv[1], "%d", &p)
+				threads = p
+			}
+		}
+	}
+
+	salt, err := base64.RawStdEncoding.DecodeString(saltB64)
+	if err != nil {
+		return false, err
+	}
+	expected, err := base64.RawStdEncoding.DecodeString(hashB64)
+	if err != nil {
+		return false, err
+	}
+
+	keyLen := uint32(len(expected))
+	derived := argon2.IDKey([]byte(secret), salt, time, memory, threads, keyLen)
+
+	if subtleConstantTimeCompare(derived, expected) {
+		return true, nil
+	}
+	return false, nil
+}
+
+func subtleConstantTimeCompare(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	var diff byte = 0
+	for i := 0; i < len(a); i++ {
+		diff |= a[i] ^ b[i]
+	}
+	return diff == 0
+}
+
+// ListJoinTokens lists tokens for a tenant (admin view)
+func (s *SQLiteStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*JoinToken, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, token_hash, tenant_id, expires_at, one_time, created_at, used_at, revoked FROM join_tokens WHERE tenant_id = ? ORDER BY created_at DESC`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var res []*JoinToken
+	for rows.Next() {
+		var jt JoinToken
+		var oneInt int
+		var usedAt sql.NullTime
+		var revokedInt int
+		if err := rows.Scan(&jt.ID, &jt.TokenHash, &jt.TenantID, &jt.ExpiresAt, &oneInt, &jt.CreatedAt, &usedAt, &revokedInt); err != nil {
+			return nil, err
+		}
+		jt.OneTime = oneInt != 0
+		jt.Revoked = revokedInt != 0
+		if usedAt.Valid {
+			jt.UsedAt = usedAt.Time
+		}
+		res = append(res, &jt)
+	}
+	return res, nil
+}
+
+// RevokeJoinToken marks a join token revoked (admin action)
+func (s *SQLiteStore) RevokeJoinToken(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE join_tokens SET revoked = 1 WHERE id = ?`, id)
+	return err
 }
 
 // GetAgentByToken retrieves an agent by bearer token
