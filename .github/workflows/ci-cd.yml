@@ -239,6 +239,7 @@ jobs:
         echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
     
     - name: Build Agent
+      if: ${{ startsWith(github.ref, 'refs/tags/agent-v') }}
       working-directory: ./agent
       env:
         GOOS: ${{ matrix.goos }}
@@ -248,6 +249,7 @@ jobs:
         go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.agent_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
     
     - name: Build Server
+      if: ${{ startsWith(github.ref, 'refs/tags/server-v') }}
       working-directory: ./server
       env:
         GOOS: ${{ matrix.goos }}
@@ -257,12 +259,14 @@ jobs:
         go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.server_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
     
     - name: Upload Agent Binary
+      if: ${{ startsWith(github.ref, 'refs/tags/agent-v') }}
       uses: actions/upload-artifact@v4
       with:
         name: agent-${{ matrix.goos }}-${{ matrix.goarch }}
         path: agent/printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}*
     
     - name: Upload Server Binary
+      if: ${{ startsWith(github.ref, 'refs/tags/server-v') }}
       uses: actions/upload-artifact@v4
       with:
         name: server-${{ matrix.goos }}-${{ matrix.goarch }}
