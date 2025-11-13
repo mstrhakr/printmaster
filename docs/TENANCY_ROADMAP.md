@@ -56,6 +56,7 @@ Implementation notes & patterns
 
 Short-term milestones (2-week slices)
 - Week 1: Add DB migration scaffolding + `tenants` migration; implement join-token DB model and server API skeleton.
+	- Note: initial migration filename created in this work: `server/storage/migrations/0001_create_tenants.sql`.
 - Week 2: Implement agent registration with join token + persist tenant_id; basic `Customers` API and minimal UI stub to generate tokens.
 - Week 3: Add auth middleware + local login flow; session support and simple tenant mapping UI.
 - Week 4: Add OIDC + SAML provider support (start with OIDC), RBAC enforcement, and tests.

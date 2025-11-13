@@ -28,6 +28,7 @@ import (
 	sharedweb "printmaster/common/web"
 	wscommon "printmaster/common/ws"
 	"printmaster/server/storage"
+	tenancy "printmaster/server/tenancy"
 	"runtime"
 	"strings"
 	"sync"
@@ -1187,6 +1188,9 @@ func setupRoutes() {
 	http.HandleFunc("/api/v1/agents/ws", func(w http.ResponseWriter, r *http.Request) { // WebSocket endpoint
 		handleAgentWebSocket(w, r, serverStore)
 	})
+
+	// Tenancy & join-token routes (DB-backed when available)
+	tenancy.RegisterRoutes(serverStore)
 
 	// Proxy endpoints - proxy HTTP requests through agent WebSocket
 	http.HandleFunc("/api/v1/proxy/agent/", handleAgentProxy)   // Proxy to agent's own web UI

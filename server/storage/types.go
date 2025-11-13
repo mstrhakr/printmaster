@@ -33,6 +33,7 @@ type Agent struct {
 	DeviceCount     int       `json:"device_count,omitempty"`      // Number of devices managed
 	LastDeviceSync  time.Time `json:"last_device_sync,omitempty"`  // Last device upload
 	LastMetricsSync time.Time `json:"last_metrics_sync,omitempty"` // Last metrics upload
+	TenantID        string    `json:"tenant_id,omitempty"`
 }
 
 // Device represents a printer device discovered by an agent (extends common Device)
@@ -47,6 +48,26 @@ type MetricsSnapshot struct {
 	commonstorage.MetricsSnapshot // Embed common fields
 
 	AgentID string `json:"agent_id"` // Which agent reported this (server-specific field)
+}
+
+// Tenant represents a customer/tenant stored in server DB
+type Tenant struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// JoinToken represents an opaque join token record stored in DB (token value not stored raw)
+type JoinToken struct {
+	ID        string    `json:"id"`
+	TokenHash string    `json:"token_hash"`
+	TenantID  string    `json:"tenant_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	OneTime   bool      `json:"one_time"`
+	CreatedAt time.Time `json:"created_at"`
+	UsedAt    time.Time `json:"used_at,omitempty"`
+	Revoked   bool      `json:"revoked"`
 }
 
 // AuditEntry represents an audit log entry for agent operations
@@ -88,4 +109,15 @@ type Store interface {
 
 	// Utility
 	Close() error
+
+	// Tenancy
+	CreateTenant(ctx context.Context, tenant *Tenant) error
+	GetTenant(ctx context.Context, id string) (*Tenant, error)
+	ListTenants(ctx context.Context) ([]*Tenant, error)
+
+	// Join tokens (opaque tokens): CreateJoinToken returns the created JoinToken
+	// and the raw token string that should be returned to the caller (raw token
+	// is not persisted in plain form).
+	CreateJoinToken(ctx context.Context, tenantID string, ttlMinutes int, oneTime bool) (*JoinToken, string, error)
+	ValidateJoinToken(ctx context.Context, token string) (*JoinToken, error)
 }

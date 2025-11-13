@@ -2,7 +2,10 @@ package storage
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -180,6 +183,30 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_audit_agent_id ON audit_log(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+
+	-- Tenants table for multi-tenant support
+	CREATE TABLE IF NOT EXISTS tenants (
+		id TEXT PRIMARY KEY,
+		name TEXT NOT NULL,
+		description TEXT,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Join tokens for agent onboarding (store only token hash)
+	CREATE TABLE IF NOT EXISTS join_tokens (
+		id TEXT PRIMARY KEY,
+		token_hash TEXT NOT NULL,
+		tenant_id TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		one_time INTEGER DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		used_at DATETIME,
+		revoked INTEGER DEFAULT 0,
+		FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_join_tokens_hash ON join_tokens(token_hash);
+	CREATE INDEX IF NOT EXISTS idx_join_tokens_tenant ON join_tokens(tenant_id);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -192,6 +219,10 @@ func (s *SQLiteStore) initSchema() error {
 	// may be missing from older database files. We intentionally ignore errors
 	// (column already exists) so this is safe to run on existing DBs.
 	altStmts := []string{
+		// tenancy tenant_id support
+		"ALTER TABLE agents ADD COLUMN tenant_id TEXT",
+		"ALTER TABLE devices ADD COLUMN tenant_id TEXT",
+		"ALTER TABLE metrics_history ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE agents ADD COLUMN os_version TEXT",
 		"ALTER TABLE agents ADD COLUMN go_version TEXT",
@@ -251,12 +282,12 @@ func (s *SQLiteStore) initSchema() error {
 func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 	query := `
 		INSERT INTO agents (
-			agent_id, name, hostname, ip, platform, version, protocol_version, token, 
+			agent_id, name, hostname, ip, platform, version, protocol_version, token, tenant_id,
 			registered_at, last_seen, status,
 			os_version, go_version, architecture, num_cpu, total_memory_mb,
 			build_type, git_commit, last_heartbeat
 		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(agent_id) DO UPDATE SET
 			name = excluded.name,
 			hostname = excluded.hostname,
@@ -265,6 +296,7 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 			version = excluded.version,
 			protocol_version = excluded.protocol_version,
 			token = excluded.token,
+			tenant_id = excluded.tenant_id,
 			last_seen = excluded.last_seen,
 			status = excluded.status,
 			os_version = excluded.os_version,
@@ -279,7 +311,7 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 
 	_, err := s.db.ExecContext(ctx, query,
 		agent.AgentID, agent.Name, agent.Hostname, agent.IP, agent.Platform,
-		agent.Version, agent.ProtocolVersion, agent.Token, agent.RegisteredAt,
+		agent.Version, agent.ProtocolVersion, agent.Token, agent.TenantID, agent.RegisteredAt,
 		agent.LastSeen, agent.Status,
 		agent.OSVersion, agent.GoVersion, agent.Architecture, agent.NumCPU,
 		agent.TotalMemoryMB, agent.BuildType, agent.GitCommit, agent.LastHeartbeat)
@@ -291,7 +323,7 @@ func (s *SQLiteStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, error) {
 	query := `
 		SELECT id, agent_id, name, hostname, ip, platform, version, protocol_version,
-		       token, registered_at, last_seen, status,
+		       token, tenant_id, registered_at, last_seen, status,
 		       os_version, go_version, architecture, num_cpu, total_memory_mb,
 		       build_type, git_commit, last_heartbeat, device_count,
 		       last_device_sync, last_metrics_sync
@@ -304,11 +336,12 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 	var numCPU, deviceCount sql.NullInt64
 	var totalMemoryMB sql.NullInt64
 	var lastHeartbeat, lastDeviceSync, lastMetricsSync sql.NullTime
+	var tenantID sql.NullString
 
 	err := s.db.QueryRowContext(ctx, query, agentID).Scan(
 		&agent.ID, &agent.AgentID, &name, &agent.Hostname, &agent.IP,
 		&agent.Platform, &agent.Version, &agent.ProtocolVersion,
-		&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
+		&agent.Token, &tenantID, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
 		&osVersion, &goVersion, &architecture, &numCPU, &totalMemoryMB,
 		&buildType, &gitCommit, &lastHeartbeat, &deviceCount,
 		&lastDeviceSync, &lastMetricsSync,
@@ -357,6 +390,9 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 	}
 	if lastMetricsSync.Valid {
 		agent.LastMetricsSync = lastMetricsSync.Time
+	}
+	if tenantID.Valid {
+		agent.TenantID = tenantID.String
 	}
 
 	return &agent, nil
@@ -442,6 +478,150 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	}
 
 	return agents, rows.Err()
+}
+
+// Tenancy methods
+func (s *SQLiteStore) CreateTenant(ctx context.Context, tenant *Tenant) error {
+	if tenant == nil {
+		return fmt.Errorf("tenant required")
+	}
+	if tenant.ID == "" {
+		// generate simple id
+		b := make([]byte, 6)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		tenant.ID = hex.EncodeToString(b)
+	}
+	if tenant.CreatedAt.IsZero() {
+		tenant.CreatedAt = time.Now().UTC()
+	}
+
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO tenants (id, name, description, created_at) VALUES (?, ?, ?, ?)`,
+		tenant.ID, tenant.Name, tenant.Description, tenant.CreatedAt)
+	return err
+}
+
+func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, created_at FROM tenants WHERE id = ?`, id)
+	var t Tenant
+	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, created_at FROM tenants ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var res []*Tenant
+	for rows.Next() {
+		var t Tenant
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.CreatedAt); err != nil {
+			return nil, err
+		}
+		res = append(res, &t)
+	}
+	return res, nil
+}
+
+// CreateJoinToken generates an opaque token for tenant onboarding and stores only its hash.
+func (s *SQLiteStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMinutes int, oneTime bool) (*JoinToken, string, error) {
+	// verify tenant exists
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM tenants WHERE id = ?`, tenantID).Scan(&exists); err != nil {
+		return nil, "", err
+	}
+
+	// generate raw token
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, "", err
+	}
+	raw := hex.EncodeToString(b)
+	h := sha256.Sum256([]byte(raw))
+	hash := hex.EncodeToString(h[:])
+
+	idb := make([]byte, 8)
+	if _, err := rand.Read(idb); err != nil {
+		return nil, "", err
+	}
+	id := hex.EncodeToString(idb)
+
+	expires := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
+
+	_, err := s.db.ExecContext(ctx, `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at, revoked) VALUES (?, ?, ?, ?, ?, ?, 0)`,
+		id, hash, tenantID, expires, boolToInt(oneTime), time.Now().UTC())
+	if err != nil {
+		return nil, "", err
+	}
+
+	jt := &JoinToken{ID: id, TokenHash: hash, TenantID: tenantID, ExpiresAt: expires, OneTime: oneTime, CreatedAt: time.Now().UTC(), Revoked: false}
+	return jt, raw, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// ValidateJoinToken checks token validity and consumes it if one-time.
+func (s *SQLiteStore) ValidateJoinToken(ctx context.Context, token string) (*JoinToken, error) {
+	hash := sha256.Sum256([]byte(token))
+	hs := hex.EncodeToString(hash[:])
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+
+	row := tx.QueryRowContext(ctx, `SELECT id, tenant_id, expires_at, one_time, created_at, used_at, revoked FROM join_tokens WHERE token_hash = ?`, hs)
+	var jt JoinToken
+	var oneInt int
+	var usedAt sql.NullTime
+	var revokedInt int
+	if err := row.Scan(&jt.ID, &jt.TenantID, &jt.ExpiresAt, &oneInt, &jt.CreatedAt, &usedAt, &revokedInt); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	jt.OneTime = oneInt != 0
+	jt.Revoked = revokedInt != 0
+	if usedAt.Valid {
+		jt.UsedAt = usedAt.Time
+	}
+
+	if jt.Revoked {
+		tx.Rollback()
+		return nil, fmt.Errorf("token revoked")
+	}
+	if time.Now().UTC().After(jt.ExpiresAt) {
+		tx.Rollback()
+		return nil, fmt.Errorf("token expired")
+	}
+
+	if jt.OneTime {
+		// consume
+		if _, err := tx.ExecContext(ctx, `UPDATE join_tokens SET used_at = ?, revoked = 1 WHERE id = ?`, time.Now().UTC(), jt.ID); err != nil {
+			tx.Rollback()
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &jt, nil
 }
 
 // GetAgentByToken retrieves an agent by bearer token
