@@ -384,6 +384,8 @@ function Build-Agent {
             $versionString = "$version"
         } else {
             $versionString = "$version.$buildNumber-dev"
+            # Append branch suffix (e.g. -feature-x) when building non-main branches
+            if ($script:BranchSuffix) { $versionString = "$versionString$script:BranchSuffix" }
         }
         
         # Set versioned log file
@@ -406,7 +408,7 @@ function Build-Agent {
         
         # Build ldflags for version injection
         $buildTypeString = if ($IsRelease) { "release" } else { "dev" }
-        $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString'"
+    $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString' -X 'main.GitBranch=$script:GitBranch'"
         
         # Generate Windows version resource (only on Windows)
         # Must happen AFTER $versionString is created so we can embed build number
@@ -568,6 +570,8 @@ function Build-Server {
             $versionString = "$version"
         } else {
             $versionString = "$version.$buildNumber-dev"
+            # Append branch suffix (e.g. -feature-x) when building non-main branches
+            if ($script:BranchSuffix) { $versionString = "$versionString$script:BranchSuffix" }
         }
         
         # Set versioned log file
@@ -590,7 +594,7 @@ function Build-Server {
         
         # Build ldflags for version injection
         $buildTypeString = if ($IsRelease) { "release" } else { "dev" }
-        $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString'"
+    $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString' -X 'main.GitBranch=$script:GitBranch'"
         
         # Generate Windows version resource (only on Windows)
         # Must happen AFTER $versionString is created so we can embed build number
@@ -769,6 +773,27 @@ if (-not (Test-Prerequisites)) {
     Write-BuildLog "Prerequisites check failed - cannot continue" "ERROR"
     exit 1
 }
+
+# Determine current git branch and create a branch suffix for dev builds when not main/master
+try {
+    $gitBranchRaw = (git rev-parse --abbrev-ref HEAD 2>$null) -join ""
+} catch {
+    $gitBranchRaw = ""
+}
+if (-not $gitBranchRaw) { $gitBranchRaw = "unknown" }
+
+# Sanitize branch for use in version strings: allow alphanumerics, dot, underscore and dash
+$gitBranchSanitized = $gitBranchRaw -replace '[^A-Za-z0-9_.-]', '-'
+
+# If branch is a mainline branch, don't add suffix; otherwise create a suffix like -feature-x
+if ($gitBranchSanitized -in @('main','master','trunk')) {
+    $script:BranchSuffix = ''
+} else {
+    $script:BranchSuffix = "-" + $gitBranchSanitized
+}
+
+# Expose GitBranch to ldflags as well
+$script:GitBranch = $gitBranchSanitized
 
 $success = $false
 

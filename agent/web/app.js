@@ -4132,3 +4132,64 @@ if (autoSave) {
     toggleAutoSave();
 }
 
+// Small helper: add a "Join with token" button to the UI header for quick onboarding.
+function initJoinWithTokenButton() {
+    try {
+        // Add button to top-right if header exists
+        const header = document.querySelector('header') || document.body;
+        const btn = document.createElement('button');
+        btn.id = 'join_token_btn';
+        btn.textContent = 'Join with token';
+        btn.style.position = 'fixed';
+        btn.style.right = '12px';
+        btn.style.top = '12px';
+        btn.style.zIndex = 1200;
+        btn.style.padding = '8px 12px';
+        btn.style.borderRadius = '6px';
+        btn.style.border = '1px solid var(--border)';
+        btn.style.background = 'var(--panel-bg)';
+        btn.style.cursor = 'pointer';
+        header.appendChild(btn);
+
+        btn.addEventListener('click', async function () {
+            const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', 'https://');
+            if (!server) return;
+            const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
+            if (!token) return;
+
+            // Optional: ask for CA path and insecure flag (advanced)
+            const confirmInsecure = confirm('If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.');
+            const insecure = confirmInsecure ? true : false;
+
+            // Show a progress toast
+            window.__pm_shared.showToast('Joining server...', 'info', 3000);
+
+            try {
+                const resp = await fetch('/settings/join', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ server_url: server, token: token, insecure: insecure })
+                });
+                if (!resp.ok) {
+                    const txt = await resp.text();
+                    throw new Error(txt || resp.statusText || 'join failed');
+                }
+                const body = await resp.json();
+                if (body && body.success) {
+                    window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
+                } else {
+                    window.__pm_shared.showToast('Join failed', 'error', 4000);
+                }
+            } catch (e) {
+                window.__pm_shared.error('Join failed', e);
+                window.__pm_shared.showToast('Join failed: ' + e.message, 'error', 6000);
+            }
+        });
+    } catch (e) {
+        console.warn('initJoinWithTokenButton failed', e);
+    }
+}
+
+// Initialize join button on DOMContentLoaded
+try { document.addEventListener('DOMContentLoaded', initJoinWithTokenButton); } catch (e) {}
+

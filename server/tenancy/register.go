@@ -6,4 +6,3 @@ package tenancy
 // Currently RegisterRoutes is declared in handlers.go so this file is a placeholder
 // to make it easy to add package-wide initialization later.
 
-func _placeholder() {}

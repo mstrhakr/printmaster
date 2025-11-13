@@ -54,6 +54,7 @@
             </div>
             <!-- Desktop tabs -->
             <button class="tab active" data-target="agents">Agents</button>
+            <button class="tab" data-target="tenants">Customers</button>
             <button class="tab" data-target="devices">Devices</button>
             <button class="tab" data-target="metrics">Metrics</button>
             <button class="tab" data-target="settings">Settings</button>
@@ -66,6 +67,21 @@
             <div id="agents_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
             <div id="agents_list">
                 <div style="color:var(--muted);">Loading agents...</div>
+            </div>
+        </div>
+
+        <!-- Tenants / Customers Tab -->
+        <div style="margin-top:12px;" data-tab="tenants" class="hidden">
+            <h3>Customers</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+                <div style="color:var(--muted);">Manage tenants and onboarding tokens</div>
+                <div>
+                    <button id="new_tenant_btn">New Tenant</button>
+                </div>
+            </div>
+
+            <div id="tenants_list">
+                <div style="color:var(--muted);">Loading tenants...</div>
             </div>
         </div>
 

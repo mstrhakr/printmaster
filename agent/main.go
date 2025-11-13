@@ -4695,6 +4695,97 @@ window.top.location.href = '/proxy/%s/';
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 
+	// Join the central server using a join token issued by the server.
+	// Body: {"server_url":"https://central:9443","token":"<raw join token>","ca_path":"/path/to/ca.pem","insecure":false}
+	http.HandleFunc("/settings/join", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		var in struct {
+			ServerURL string `json:"server_url"`
+			Token     string `json:"token"`
+			CAPath    string `json:"ca_path,omitempty"`
+			Insecure  bool   `json:"insecure,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"invalid json"}`))
+			return
+		}
+		if in.ServerURL == "" || in.Token == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"server_url and token required"}`))
+			return
+		}
+
+		// Ensure data directory and agent id
+		dataDir, err := config.GetDataDirectory("agent", isService)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to determine data directory"}`))
+			return
+		}
+
+		agentID, err := LoadOrGenerateAgentID(dataDir)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to load or generate agent id"}`))
+			return
+		}
+
+		// Use configured agent name if available, otherwise hostname
+		agentName := ""
+		if agentConfig != nil && agentConfig.Server.Name != "" {
+			agentName = agentConfig.Server.Name
+		} else {
+			h, _ := os.Hostname()
+			agentName = h
+		}
+
+		// Create a temporary client to call the central server register-with-token API
+		sc := agent.NewServerClientWithName(in.ServerURL, agentID, agentName, "", in.CAPath, in.Insecure)
+		ctx := r.Context()
+		agentToken, tenantID, err := sc.RegisterWithToken(ctx, in.Token, Version)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte(`{"error":"failed to register with server: ` + err.Error() + `"}`))
+			return
+		}
+
+		// Persist server settings to config store so they survive restarts
+		if agentConfigStore != nil {
+			_ = agentConfigStore.SetConfigValue("server", map[string]interface{}{
+				"url":                   in.ServerURL,
+				"name":                  agentName,
+				"ca_path":               in.CAPath,
+				"insecure_skip_verify":  in.Insecure,
+			})
+		}
+
+		// Save the agent token to disk
+		if err := SaveServerToken(dataDir, agentToken); err != nil {
+			// non-fatal, but report
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to save server token"}`))
+			return
+		}
+
+		// If upload worker exists, update its client with the new token and base URL
+		if uploadWorker != nil && uploadWorker.client != nil {
+			uploadWorker.client.SetToken(agentToken)
+			uploadWorker.client.BaseURL = in.ServerURL
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     true,
+			"tenant_id":   tenantID,
+			"agent_token": agentToken,
+		})
+	})
+
 	// Legacy subnet scan endpoint (deprecated, use /settings/discovery)
 	http.HandleFunc("/settings/subnet_scan", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {

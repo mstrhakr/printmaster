@@ -73,7 +73,7 @@
             `<p class="saved-device-card-subtitle"><span class="copyable" data-copy="${ipVal}" style="display:inline-flex;align-items:center;gap:4px;">IP: ${ipVal}${clipIcon}</span>` + (macVal?`<span class="copyable" data-copy="${macVal}" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;"> • MAC: ${macVal}${clipIcon}</span>`:'') + `</p>` +
             `</div><div style="display:flex;gap:8px;flex-wrap:wrap;">` +
             ((item && item.web_ui_url) ? `<button class="primary" style="font-size:12px" data-action="webui" data-webui-url="${item.web_ui_url}" data-serial="${serial}">WebUI</button>` : '') +
-            `<button data-action="details" data-ip="${device.ip||''}" data-source="saved">Details</button>` +
+            `<button data-action="details" data-ip="${device.ip||''}" data-serial="${serial}" data-source="saved">Details</button>` +
             `<button class="delete" data-action="delete" data-serial="${serial}">Delete</button>` +
             `</div></div>` +
             `<div class="saved-device-card-grid"><div class="saved-device-card-inner-panel">` +
@@ -227,16 +227,22 @@
             }
 
             if (action === 'show-printer-details') {
+                // Prefer serial lookup when available, otherwise fall back to IP.
+                const serial = btn.getAttribute('data-serial');
                 const ip = btn.getAttribute('data-ip');
+                const lookup = serial || ip;
                 const source = btn.getAttribute('data-source') || 'discovered';
-                window.__pm_shared.showPrinterDetails(ip, source);
+                window.__pm_shared.showPrinterDetails(lookup, source);
                 return;
             }
 
             if (action === 'details') {
+                // Prefer serial if provided on the button; many saved cards include data-serial.
+                const serial = btn.getAttribute('data-serial');
                 const ip = btn.getAttribute('data-ip');
+                const lookup = serial || ip;
                 const source = btn.getAttribute('data-source') || 'discovered';
-                window.__pm_shared.showPrinterDetails(ip, source);
+                window.__pm_shared.showPrinterDetails(lookup, source);
                 return;
             }
 

@@ -16,6 +16,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // Load initial data
     loadServerStatus();
     loadAgents();
+    // Tenants UI
+    initTenantsUI();
     
     // Set up periodic refresh for server status only
     // Keep the interval ID so we can cancel polling when WebSocket is active
@@ -308,6 +310,7 @@ function initTabs() {
         if (label) {
             const tabNames = {
                 'agents': 'Agents',
+                'tenants': 'Customers',
                 'devices': 'Devices',
                 'metrics': 'Metrics',
                 'settings': 'Settings',
@@ -375,6 +378,141 @@ async function loadAgents() {
             window.__pm_shared.warn('agents_list element not found in DOM while handling loadAgents error');
         }
     }
+}
+
+// ====== Tenants / Customers UI ======
+function initTenantsUI(){
+    const btn = document.getElementById('new_tenant_btn');
+    if(btn){
+        btn.addEventListener('click', ()=>{
+            const name = prompt('Create tenant — display name') || '';
+            if(!name) return;
+            createTenant({name, description: ''}).then(()=>{
+                loadTenants();
+            }).catch(err=>{
+                alert('Failed to create tenant: '+err.message);
+            });
+        });
+    }
+    loadTenants();
+}
+
+async function loadTenants(){
+    const el = document.getElementById('tenants_list');
+    if(!el) return;
+    el.innerHTML = '<div style="color:var(--muted)">Loading tenants...</div>';
+    try{
+        const r = await fetch('/api/v1/tenants');
+        if(!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        renderTenants(data);
+    }catch(err){
+        el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
+    }
+}
+
+function renderTenants(list){
+    const el = document.getElementById('tenants_list');
+    if(!el) return;
+    if(!Array.isArray(list) || list.length===0){
+        el.innerHTML = '<div style="color:var(--muted);">No tenants yet. Click New Tenant to add one.</div>';
+        return;
+    }
+    const rows = list.map(t => {
+        const id = t.id || t.uuid || '';
+        return `
+            <div class="card" style="margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="font-weight:600">${escapeHtml(t.name||'—')}</div>
+                        <div style="color:var(--muted);font-size:12px">${escapeHtml(id)}</div>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <button data-action="create-token" data-tenant="${id}">Create Token</button>
+                        <button data-action="view-tokens" data-tenant="${id}">Tokens</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('\n');
+    el.innerHTML = rows;
+
+    el.querySelectorAll('button[data-action="create-token"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const tenant = b.getAttribute('data-tenant');
+            await handleCreateToken(tenant);
+        });
+    });
+    el.querySelectorAll('button[data-action="view-tokens"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const tenant = b.getAttribute('data-tenant');
+            await showTokensList(tenant);
+        });
+    });
+}
+
+async function createTenant(body){
+    const r = await fetch('/api/v1/tenants', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+    if(!r.ok) throw new Error(await r.text());
+    return r.json();
+}
+
+async function handleCreateToken(tenantID){
+    const ttl = prompt('Token TTL minutes (e.g. 60)') || '60';
+    const oneTime = confirm('Make this a one-time (single-use) token? OK = yes');
+    const payload = {tenant_id: tenantID, ttl_minutes: parseInt(ttl,10)||60, one_time: oneTime};
+    try{
+        const r = await fetch('/api/v1/join-token', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(payload)});
+        if(!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        prompt('Join token (copy now) — token is shown only once', data.token);
+        await showTokensList(tenantID);
+    }catch(err){
+        alert('Failed to create token: '+(err.message||err));
+    }
+}
+
+async function showTokensList(tenantID){
+    try{
+        const r = await fetch('/api/v1/join-tokens?tenant_id='+encodeURIComponent(tenantID));
+        if(!r.ok) throw new Error(await r.text());
+        const tokens = await r.json();
+        renderTokenModal(tenantID, tokens);
+    }catch(err){
+        alert('Failed to load tokens: '+(err.message||err));
+    }
+}
+
+function renderTokenModal(tenantID, tokens){
+    let html = 'Tokens for tenant: '+escapeHtml(tenantID)+"\n\n";
+    if(!Array.isArray(tokens) || tokens.length===0){
+        html += '(none)';
+        alert(html);
+        return;
+    }
+    tokens.forEach(t => {
+        html += `ID: ${t.id} | one_time: ${t.one_time} | revoked: ${t.revoked?1:0} | used_at: ${t.used_at||'-'} | expires: ${t.expires_at||'-'}\n`;
+    });
+    const choose = prompt(html+"\n\nTo revoke a token enter its ID, or Cancel to close");
+    if(choose){
+        revokeToken(choose.trim()).then(()=>{
+            alert('Revoked '+choose);
+            showTokensList(tenantID);
+        }).catch(err=>{
+            alert('Failed to revoke: '+(err.message||err));
+        });
+    }
+}
+
+async function revokeToken(id){
+    const r = await fetch('/api/v1/join-token/revoke', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({id})});
+    if(!r.ok) throw new Error(await r.text());
+    return r.json();
+}
+
+function escapeHtml(s){
+    if(!s) return '';
+    return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':"&#39;"})[m]; });
 }
 
 function renderAgents(agents) {
@@ -1128,7 +1266,7 @@ function renderDevices(devices) {
                 <button data-action="view-metrics" data-serial="${device.serial}" ${!device.serial ? 'disabled title="No serial"' : ''}>
                     View Metrics
                 </button>
-                <button data-action="show-printer-details" data-ip="${device.ip||''}" data-source="saved" ${!device.ip ? 'disabled title="No IP"' : ''}>
+                <button data-action="show-printer-details" data-ip="${device.ip||''}" data-serial="${device.serial||''}" data-source="saved" ${!device.ip ? 'disabled title="No IP"' : ''}>
                     Details
                 </button>
             </div>

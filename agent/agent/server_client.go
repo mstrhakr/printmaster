@@ -180,6 +180,58 @@ func (c *ServerClient) Register(ctx context.Context, version string) (string, er
 	return resp.Token, nil
 }
 
+// RegisterWithToken registers the agent using a join token issued by the server.
+// On success it returns the agent-scoped token issued by the server and the
+// tenant ID the agent was assigned to. The returned agent token is also stored
+// on the client instance for future requests.
+func (c *ServerClient) RegisterWithToken(ctx context.Context, joinToken string, version string) (string, string, error) {
+	type JoinRequest struct {
+		Token         string `json:"token"`
+		AgentID       string `json:"agent_id"`
+		Name          string `json:"name,omitempty"`
+		AgentVersion  string `json:"agent_version,omitempty"`
+		ProtocolVersion string `json:"protocol_version,omitempty"`
+	}
+
+	type JoinResponse struct {
+		Success   bool   `json:"success"`
+		TenantID  string `json:"tenant_id"`
+		AgentToken string `json:"agent_token"`
+		Message   string `json:"message,omitempty"`
+	}
+
+	hostname, _ := getHostname()
+
+	req := JoinRequest{
+		Token:           joinToken,
+		AgentID:         c.AgentID,
+		Name:            c.AgentName,
+		AgentVersion:    version,
+		ProtocolVersion: "1",
+	}
+
+	var resp JoinResponse
+	if err := c.doRequest(ctx, "POST", "/api/v1/agents/register-with-token", req, &resp, false); err != nil {
+		return "", "", fmt.Errorf("register-with-token failed: %w", err)
+	}
+
+	if !resp.Success {
+		return "", "", fmt.Errorf("register-with-token failed: %s", resp.Message)
+	}
+
+	// Store token for future authenticated requests
+	if resp.AgentToken != "" {
+		c.SetToken(resp.AgentToken)
+	}
+
+	// If Name wasn't set, and server returned success, ensure we have hostname set
+	if c.AgentName == "" {
+		c.AgentName = hostname
+	}
+
+	return resp.AgentToken, resp.TenantID, nil
+}
+
 // Heartbeat sends a keep-alive signal to the server
 func (c *ServerClient) Heartbeat(ctx context.Context) error {
 	type HeartbeatRequest struct {

@@ -1360,6 +1360,21 @@ func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Keepalive pings to prevent idle connection termination by proxies/load-balancers.
+	pingTicker := time.NewTicker(30 * time.Second)
+	defer pingTicker.Stop()
+	go func() {
+		for {
+			select {
+			case <-pingTicker.C:
+				// Send a ping; if it fails, the read loop will notice and connection will close.
+				_ = conn.WritePing(5 * time.Second)
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	// Simple read loop to detect client disconnects. We don't expect inbound messages.
 	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetPongHandler(func(string) error {
@@ -1369,6 +1384,7 @@ func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		if _, err := conn.ReadMessage(); err != nil {
+			// If the read fails (client disconnect or network error), exit read loop.
 			break
 		}
 	}
