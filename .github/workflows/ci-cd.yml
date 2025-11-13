@@ -260,13 +260,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: agent-${{ matrix.goos }}-${{ matrix.goarch }}
-        path: agent/printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+        path: agent/printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}*
     
     - name: Upload Server Binary
       uses: actions/upload-artifact@v4
       with:
         name: server-${{ matrix.goos }}-${{ matrix.goarch }}
-        path: server/printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}
+        path: server/printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}*
 
   build-docker:
     name: Build and Push Docker Images (Multi-Arch)
