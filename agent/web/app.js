@@ -78,6 +78,60 @@ async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = tru
     }
 }
 
+// Save all discovered devices that are not already saved.
+// This implements the handler expected by the settings UI button.
+async function saveAllDiscovered(evt) {
+    const btn = evt && evt.currentTarget ? evt.currentTarget : null;
+    const origText = btn && btn.textContent ? btn.textContent : null;
+    try {
+        if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+        // Load discovered devices and saved devices in parallel
+        const [dresp, sresp] = await Promise.all([
+            fetch('/devices/discovered?include_known=false'),
+            fetch('/devices/list')
+        ]);
+
+        if (!dresp.ok) throw new Error('failed to fetch discovered devices');
+        const discovered = await dresp.json();
+        const saved = (sresp.ok ? await sresp.json() : []) || [];
+
+        const savedSerials = new Set(saved.map(i => i.serial).filter(Boolean));
+        const savedIPs = new Set(saved.map(i => (i.printer_info && (i.printer_info.ip || i.printer_info.IP)) || '').filter(Boolean));
+
+        let savedCount = 0;
+        for (const p of (discovered || [])) {
+            const info = p.printer_info || p || {};
+            const ip = info.ip || info.IP || '';
+            const serial = p.serial || '';
+            const isSaved = (serial && savedSerials.has(serial)) || (ip && savedIPs.has(ip));
+            if (isSaved) continue;
+
+            try {
+                // Use the shared/agent wrapper which handles IP->serial resolution
+                await window.__pm_shared.saveDiscoveredDevice(ip || serial, false, true);
+                savedCount++;
+            } catch (e) {
+                // best-effort: continue saving remaining devices
+                try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('saveAllDiscovered: item save failed', ip || serial, e); } catch (er) {}
+            }
+        }
+
+        if (savedCount > 0) {
+            window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Saved ' + savedCount + ' devices', 'success', 2000);
+        } else {
+            window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('No discovered devices to save', 'info', 1500);
+        }
+
+        try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+    } catch (err) {
+        window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('saveAllDiscovered failed', err);
+        window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Failed to save discovered devices: ' + (err && err.message ? err.message : err), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; if (origText) btn.textContent = origText; }
+    }
+}
+
 // Expose agent implementation so shared delegate can call into it when proxied
 try { window.__agent_saveDiscoveredDevice = window.__agent_saveDiscoveredDevice || saveDiscoveredDevice; } catch (e) {}
 
