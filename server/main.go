@@ -1452,124 +1452,17 @@ func handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-
-	var req struct {
-		AgentID         string `json:"agent_id"`
-		Name            string `json:"name,omitempty"` // User-friendly name (optional)
-		AgentVersion    string `json:"agent_version"`
-		ProtocolVersion string `json:"protocol_version"`
-		Hostname        string `json:"hostname"`
-		IP              string `json:"ip"`
-		Platform        string `json:"platform"`
-		// Additional metadata
-		OSVersion     string `json:"os_version,omitempty"`
-		GoVersion     string `json:"go_version,omitempty"`
-		Architecture  string `json:"architecture,omitempty"`
-		NumCPU        int    `json:"num_cpu,omitempty"`
-		TotalMemoryMB int64  `json:"total_memory_mb,omitempty"`
-		BuildType     string `json:"build_type,omitempty"`
-		GitCommit     string `json:"git_commit,omitempty"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		if serverLogger != nil {
-			serverLogger.Warn("Invalid JSON in agent register", "error", err)
-		}
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		return
-	}
-
-	if serverLogger != nil {
-		serverLogger.Info("Agent registering", "agent_id", req.AgentID, "version", req.AgentVersion, "host", req.Hostname)
-	}
-
-	// Check protocol version compatibility
-	if req.ProtocolVersion != ProtocolVersion {
-		if serverLogger != nil {
-			serverLogger.Warn("Protocol version mismatch", "agent", req.ProtocolVersion, "server", ProtocolVersion)
-		}
-		http.Error(w, fmt.Sprintf("Protocol mismatch: server supports v%s, agent uses v%s",
-			ProtocolVersion, req.ProtocolVersion), http.StatusBadRequest)
-		return
-	}
-
-	// Generate secure token for this agent
-	token, err := generateToken()
-	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to generate token", "agent_id", req.AgentID, "error", err)
-		}
-		http.Error(w, "Failed to generate authentication token", http.StatusInternalServerError)
-		return
-	}
-
-	// Save agent to database with token
-	// Use Name if provided, otherwise default to Hostname
-	agentName := req.Name
-	if agentName == "" {
-		agentName = req.Hostname
-	}
-
-	agent := &storage.Agent{
-		AgentID:         req.AgentID,
-		Name:            agentName,
-		Hostname:        req.Hostname,
-		IP:              req.IP,
-		Platform:        req.Platform,
-		Version:         req.AgentVersion,
-		ProtocolVersion: req.ProtocolVersion,
-		Token:           token,
-		RegisteredAt:    time.Now(),
-		LastSeen:        time.Now(),
-		Status:          "active",
-		OSVersion:       req.OSVersion,
-		GoVersion:       req.GoVersion,
-		Architecture:    req.Architecture,
-		NumCPU:          req.NumCPU,
-		TotalMemoryMB:   req.TotalMemoryMB,
-		BuildType:       req.BuildType,
-		GitCommit:       req.GitCommit,
-		LastHeartbeat:   time.Now(),
-	}
-
-	ctx := context.Background()
-	if err := serverStore.RegisterAgent(ctx, agent); err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to register agent", "agent_id", req.AgentID, "error", err)
-		}
-		http.Error(w, "Failed to register agent", http.StatusInternalServerError)
-		return
-	}
-
-	// Log audit entry for registration
-	clientIP := extractClientIP(r)
-	logAuditEntry(ctx, req.AgentID, "register", fmt.Sprintf("Agent registered: %s v%s on %s (%s)",
-		req.Hostname, req.AgentVersion, req.Platform, req.Architecture), clientIP)
-
-	if serverLogger != nil {
-		serverLogger.Info("Agent registered successfully", "agent_id", req.AgentID, "token", token[:8]+"...")
-	}
-
-	// Broadcast agent_registered event to UI via SSE
-	sseHub.Broadcast(SSEEvent{
-		Type: "agent_registered",
-		Data: map[string]interface{}{
-			"agent_id": req.AgentID,
-			"name":     agentName,
-			"hostname": req.Hostname,
-			"ip":       req.IP,
-			"version":  req.AgentVersion,
-			"platform": req.Platform,
-			"status":   "active",
-		},
-	})
+	// The open /api/v1/agents/register endpoint previously allowed unauthenticated
+	// registration and returned a credential. For security we disallow that path
+	// and require agents to use the token-based onboarding flow: POST
+	// /api/v1/agents/register-with-token with a valid join token. This prevents
+	// accidental or unauthenticated agent registration.
 
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":  true,
-		"agent_id": req.AgentID,
-		"token":    token,
-		"message":  "Agent registered successfully",
+		"error":   "agent registration via /api/v1/agents/register is disabled",
+		"message": "Use POST /api/v1/agents/register-with-token with a valid join token",
 	})
 }
 
