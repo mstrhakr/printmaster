@@ -18,6 +18,9 @@ document.addEventListener('DOMContentLoaded', function () {
     loadAgents();
     // Tenants UI
     initTenantsUI();
+    // Add-agent UI
+    // (Added helper and add-agent modal code)
+    initAddAgentUI();
     
     // Set up periodic refresh for server status only
     // Keep the interval ID so we can cancel polling when WebSocket is active
@@ -97,6 +100,8 @@ function connectSSE() {
             window.__pm_shared.log('Agent registered (SSE):', data);
             // Add card dynamically
             addAgentCard(data);
+            // Show joined bubble when registration event received
+            try { setAgentJoined(data.agent_id, true); } catch (ex) {}
         } catch (err) {
             window.__pm_shared.warn('Failed to parse agent_registered event, falling back to full reload:', err);
             loadAgents();
@@ -384,14 +389,15 @@ async function loadAgents() {
 function initTenantsUI(){
     const btn = document.getElementById('new_tenant_btn');
     if(btn){
-        btn.addEventListener('click', ()=>{
-            const name = prompt('Create tenant — display name') || '';
-            if(!name) return;
-            createTenant({name, description: ''}).then(()=>{
+        btn.addEventListener('click', async ()=>{
+            try {
+                const name = await showInputModal('Create tenant', 'Tenant display name', '');
+                if (!name) return;
+                await createTenant({name, description: ''});
                 loadTenants();
-            }).catch(err=>{
-                alert('Failed to create tenant: '+err.message);
-            });
+            } catch (err) {
+                window.__pm_shared.showAlert('Failed to create tenant: ' + (err && err.message ? err.message : err), 'Error', true, false);
+            }
         });
     }
     loadTenants();
@@ -405,6 +411,8 @@ async function loadTenants(){
         const r = await fetch('/api/v1/tenants');
         if(!r.ok) throw new Error(await r.text());
         const data = await r.json();
+        // Cache tenants for use in other UI flows (e.g. add-agent modal)
+        window._tenants = data;
         renderTenants(data);
     }catch(err){
         el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
@@ -458,17 +466,11 @@ async function createTenant(body){
 }
 
 async function handleCreateToken(tenantID){
-    const ttl = prompt('Token TTL minutes (e.g. 60)') || '60';
-    const oneTime = confirm('Make this a one-time (single-use) token? OK = yes');
-    const payload = {tenant_id: tenantID, ttl_minutes: parseInt(ttl,10)||60, one_time: oneTime};
-    try{
-        const r = await fetch('/api/v1/join-token', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(payload)});
-        if(!r.ok) throw new Error(await r.text());
-        const data = await r.json();
-        prompt('Join token (copy now) — token is shown only once', data.token);
-        await showTokensList(tenantID);
-    }catch(err){
-        alert('Failed to create token: '+(err.message||err));
+    // Open the unified Add Agent modal and preselect the tenant
+    try {
+        openAddAgentModal({ tenantID });
+    } catch (err) {
+        window.__pm_shared.showAlert('Failed to open Add Agent modal: ' + (err && err.message ? err.message : err), 'Error', true, false);
     }
 }
 
@@ -479,29 +481,31 @@ async function showTokensList(tenantID){
         const tokens = await r.json();
         renderTokenModal(tenantID, tokens);
     }catch(err){
-        alert('Failed to load tokens: '+(err.message||err));
+        window.__pm_shared.showAlert('Failed to load tokens: '+(err.message||err), 'Error', true, false);
     }
 }
 
 function renderTokenModal(tenantID, tokens){
-    let html = 'Tokens for tenant: '+escapeHtml(tenantID)+"\n\n";
     if(!Array.isArray(tokens) || tokens.length===0){
-        html += '(none)';
-        alert(html);
+        window.__pm_shared.showAlert('No tokens for tenant: ' + escapeHtml(tenantID), 'Tokens', false, false);
         return;
     }
+    let html = '<div style="font-family:monospace; white-space:pre-wrap;">';
     tokens.forEach(t => {
         html += `ID: ${t.id} | one_time: ${t.one_time} | revoked: ${t.revoked?1:0} | used_at: ${t.used_at||'-'} | expires: ${t.expires_at||'-'}\n`;
     });
-    const choose = prompt(html+"\n\nTo revoke a token enter its ID, or Cancel to close");
-    if(choose){
-        revokeToken(choose.trim()).then(()=>{
-            alert('Revoked '+choose);
+    html += '</div>';
+    // Ask user if they want to revoke a token via input modal
+    window.__pm_shared.showAlert(html, 'Tokens for tenant: ' + escapeHtml(tenantID), false, false);
+    showInputModal('Revoke token', 'Enter the token ID to revoke (leave empty to cancel)', '').then(id => {
+        if (!id) return;
+        revokeToken(id.trim()).then(()=>{
+            window.__pm_shared.showToast('Revoked ' + id.trim(), 'success');
             showTokensList(tenantID);
         }).catch(err=>{
-            alert('Failed to revoke: '+(err.message||err));
+            window.__pm_shared.showAlert('Failed to revoke: '+(err.message||err), 'Error', true, false);
         });
-    }
+    }).catch(()=>{});
 }
 
 async function revokeToken(id){
@@ -581,6 +585,7 @@ function renderAgentCard(agent) {
                 <div>
                     <div style="display:flex;align-items:center;gap:8px">
                         <div class="device-card-title">${agent.name || agent.hostname || agent.agent_id}</div>
+                        <span class="agent-joined-bubble" style="margin-left:8px;display:${registeredDate? 'inline-flex':'none'};align-items:center;padding:2px 6px;border-radius:12px;background:var(--panel);font-size:12px;color:var(--muted);border:1px solid var(--border);">${registeredDate? 'Joined' : ''}</span>
                     </div>
                     <div class="device-card-subtitle">
                         <span class="copyable" data-copy="${agent.hostname || ''}" title="Click to copy Hostname">${agent.hostname || 'N/A'}</span>
@@ -670,6 +675,23 @@ function renderAgentCard(agent) {
             </div>
         </div>
     `;
+}
+
+// Toggle the small 'Joined' bubble on an agent card
+function setAgentJoined(agentId, joined) {
+    const cards = findAgentsContainer();
+    if (!cards) return;
+    const card = cards.querySelector(`[data-agent-id="${agentId}"]`);
+    if (!card) return;
+    const bubble = card.querySelector('.agent-joined-bubble');
+    if (!bubble) return;
+    if (joined) {
+        bubble.style.display = 'inline-flex';
+        bubble.textContent = 'Joined';
+    } else {
+        bubble.style.display = 'none';
+        bubble.textContent = '';
+    }
 }
 
 // DOM helpers for incremental updates
@@ -1517,6 +1539,157 @@ function toggleAdvancedSettings() {
         window.__pm_shared.error('toggleAdvancedSettings failed', e);
         throw e;
     }
+}
+
+// ====== Add Agent Modal UI ======
+function initAddAgentUI(){
+    // Wire header Join button if present
+    const joinBtn = document.getElementById('join_token_btn');
+    if(joinBtn) joinBtn.addEventListener('click', ()=> openAddAgentModal({}));
+
+    // Wire modal chrome
+    const closeX = document.getElementById('add_agent_close_x');
+    const cancelBtn = document.getElementById('add_agent_cancel');
+    const primaryBtn = document.getElementById('add_agent_primary');
+
+    if(closeX) closeX.addEventListener('click', closeAddAgentModal);
+    if(cancelBtn) cancelBtn.addEventListener('click', closeAddAgentModal);
+    if(primaryBtn) primaryBtn.addEventListener('click', handleAddAgentPrimary);
+}
+
+function openAddAgentModal(opts){
+    // opts: { tenantID?: string }
+    window._addAgentState = {
+        step: 1,
+        tenantID: opts && opts.tenantID ? opts.tenantID : null,
+        ttl: 60,
+        one_time: true,
+        token: null
+    };
+    renderAddAgentStep(1);
+    const modal = document.getElementById('add_agent_modal');
+    if(modal){ modal.style.display = 'block'; document.body.style.overflow = 'hidden'; }
+}
+
+function closeAddAgentModal(){
+    const modal = document.getElementById('add_agent_modal');
+    if(modal){ modal.style.display = 'none'; document.body.style.overflow = ''; }
+    try{ delete window._addAgentState; }catch(e){}
+}
+
+async function handleAddAgentPrimary(){
+    const st = window._addAgentState || {step:1};
+    if(st.step === 1){
+        // Read form values
+        const tenantSel = document.getElementById('add_agent_tenant');
+        const ttlEl = document.getElementById('add_agent_ttl');
+        const oneTimeEl = document.getElementById('add_agent_one_time');
+        const tenantID = tenantSel ? tenantSel.value : (st.tenantID || null);
+        const ttl = ttlEl ? parseInt(ttlEl.value,10) || 60 : 60;
+        const one_time = oneTimeEl ? oneTimeEl.checked : true;
+
+        // Basic validation
+        if(!tenantID){ window.__pm_shared.showAlert('Please select a tenant (customer) to assign this token to.', 'Missing tenant', true, false); return; }
+
+        // Create join token
+        try{
+            const payload = { tenant_id: tenantID, ttl_minutes: ttl, one_time: one_time };
+            const r = await fetch('/api/v1/join-token', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+            if(!r.ok) throw new Error(await r.text());
+            const data = await r.json();
+            st.token = data.token;
+            st.step = 2;
+            st.tenantID = tenantID;
+            window._addAgentState = st;
+            renderAddAgentStep(2);
+        }catch(err){
+            window.__pm_shared.showAlert('Failed to create join token: ' + (err && err.message ? err.message : err), 'Error', true, false);
+        }
+    } else if(st.step === 2){
+        // Done
+        closeAddAgentModal();
+        // Optionally refresh tokens/tenants list
+        try{ loadTenants(); }catch(e){}
+    }
+}
+
+function renderAddAgentStep(step){
+    const indicator = document.getElementById('add_agent_step_indicator');
+    const content = document.getElementById('add_agent_content');
+    const primaryBtn = document.getElementById('add_agent_primary');
+    if(!content) return;
+    if(indicator) indicator.textContent = step === 1 ? 'Step 1/2 — Create join token' : 'Step 2/2 — Token (shown once)';
+
+    if(step === 1){
+        // Tenant select
+        let tenantOptions = '';
+        const tenants = Array.isArray(window._tenants) ? window._tenants : [];
+        if(tenants.length === 0 && window._addAgentState && window._addAgentState.tenantID){
+            tenantOptions = `<option value="${escapeHtml(window._addAgentState.tenantID)}">${escapeHtml(window._addAgentState.tenantID)}</option>`;
+        } else {
+            tenantOptions = tenants.map(t => `<option value="${escapeHtml(t.id||t.uuid||t.name)}">${escapeHtml(t.name||t.id||t.uuid||t.name)}</option>`).join('\n');
+        }
+
+        content.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <label style="font-weight:600">Customer (tenant)</label>
+                <select id="add_agent_tenant" style="padding:8px;border-radius:4px;border:1px solid var(--border);">
+                    <option value="">-- select customer --</option>
+                    ${tenantOptions}
+                </select>
+
+                <label style="font-weight:600">Token TTL (minutes)</label>
+                <input id="add_agent_ttl" type="number" value="60" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:120px;" />
+
+                <label style="display:flex;align-items:center;gap:8px;">
+                    <input id="add_agent_one_time" type="checkbox" checked />
+                    <span style="color:var(--muted)">One-time (single-use) token</span>
+                </label>
+
+                <div style="color:var(--muted);font-size:13px">This will create a join token that an agent can use to register with the server. The token will be shown once — copy it and deliver it to the agent (or use agent onboarding).</div>
+            </div>
+        `;
+        // Preselect tenant if supplied
+        if(window._addAgentState && window._addAgentState.tenantID){
+            const sel = content.querySelector('#add_agent_tenant');
+            if(sel) sel.value = window._addAgentState.tenantID;
+        }
+        if(primaryBtn) primaryBtn.textContent = 'Create Token';
+    } else {
+        // Step 2: show token
+        const token = (window._addAgentState && window._addAgentState.token) ? window._addAgentState.token : '';
+        content.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:12px;">
+                <div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(token)}</div>
+                <div style="display:flex;gap:8px;">
+                    <button id="add_agent_copy" class="modal-button modal-button-secondary">Copy token</button>
+                    <button id="add_agent_download" class="modal-button">Download token</button>
+                </div>
+                <div style="color:var(--muted);font-size:13px">This token is shown only once. After you close this modal the raw token cannot be retrieved again from the server.</div>
+            </div>
+        `;
+        // Wire copy/download
+        const copyBtn = document.getElementById('add_agent_copy');
+        if(copyBtn) copyBtn.addEventListener('click', copyTokenToClipboard);
+        const dlBtn = document.getElementById('add_agent_download');
+        if(dlBtn) dlBtn.addEventListener('click', ()=>{
+            const blob = new Blob([token], {type:'text/plain'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'join-token.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+        });
+        if(primaryBtn) primaryBtn.textContent = 'Done';
+    }
+}
+
+function copyTokenToClipboard(){
+    const token = (window._addAgentState && window._addAgentState.token) ? window._addAgentState.token : '';
+    if(!token) return;
+    navigator.clipboard?.writeText(token).then(()=>{
+        window.__pm_shared.showToast('Token copied to clipboard', 'success');
+    }).catch(err=>{
+        window.__pm_shared.showAlert('Failed to copy token: ' + (err && err.message ? err.message : err), 'Error', true, false);
+    });
 }
 
 // Update the compact time filter display label from slider index
