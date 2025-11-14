@@ -224,6 +224,66 @@ function initJoinWithTokenButton() {
         try { window.__pm_shared.warn && window.__pm_shared.warn('initJoinWithTokenButton failed', e); } catch (ex) {}
     }
 }
+
+function updatePrinters() {
+    try {
+        const showKnownDevices = document.getElementById('show_saved_in_discovered')?.checked || false;
+
+        // Map slider index to minute values (0 = all time)
+        const timeFilterValues = [1,2,5,10,15,30,60,120,180,360,720,1440,4320,0];
+        const slider = document.getElementById('time_slider');
+        const index = slider ? parseInt(slider.value) : (timeFilterValues.length - 1);
+        const timeMinutes = timeFilterValues[index] || 0;
+
+        let discoveredEndpoint = '/devices/discovered?include_known=' + showKnownDevices;
+        if (timeMinutes > 0) discoveredEndpoint += '&minutes=' + timeMinutes;
+
+        Promise.all([
+            fetch(discoveredEndpoint).then(r => r.ok ? r.json() : []),
+            fetch('/devices/list').then(r => r.ok ? r.json() : [])
+        ]).then(([discovered, saved]) => {
+            window.discoveredPrinters = discovered || [];
+
+            const discoveredContainer = document.getElementById('discovered_devices_cards');
+            if (!discoveredContainer) return;
+
+            const savedSerials = new Set();
+            const savedIPs = new Set();
+            if (Array.isArray(saved)) {
+                saved.forEach(item => {
+                    const p = item.printer_info || {};
+                    const serial = item.serial || '';
+                    const ip = p.ip || '';
+                    if (serial) savedSerials.add(serial);
+                    if (ip) savedIPs.add(ip);
+                });
+            }
+
+            // Autosave/display controls
+            const autosaveEnabled = document.getElementById('autosave_checkbox')?.checked || false;
+            const showDiscoveredAnyway = document.getElementById('show_discovered_devices_anyway')?.checked || false;
+            const discoveredSection = document.getElementById('discovered_section');
+            if (discoveredSection) {
+                const shouldShowDiscovered = !autosaveEnabled || (autosaveEnabled && showDiscoveredAnyway);
+                discoveredSection.style.display = shouldShowDiscovered ? 'block' : 'none';
+            }
+
+            // Render discovered
+            if (!Array.isArray(discovered) || discovered.length === 0) {
+                discoveredContainer.innerHTML = '<div style="color:var(--muted);padding:12px">No discovered printers</div>';
+                const statsEl = document.getElementById('discovered_stats'); if (statsEl) statsEl.innerHTML = '';
+            } else {
+                let lowTonerCount = 0;
+                discovered.forEach(p => {
+                    const toners = p.toner_levels || {};
+                    for (const c in toners) { if (toners[c] < 20) { lowTonerCount++; break; } }
+                });
+                const statsHtml = '<span style="color:var(--text)"><strong>Total:</strong> ' + discovered.length + '</span>' +
+                    '<span style="color:#b58900"><strong>Low Toner:</strong> ' + lowTonerCount + '</span>';
+                const statsEl = document.getElementById('discovered_stats'); if (statsEl) statsEl.innerHTML = statsHtml;
+
+                let cardsHTML = '';
+                discovered.forEach(p => {
                     const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
                     cardsHTML += window.__pm_shared_cards.renderDiscoveredCard(p, isSaved);
                 });
@@ -237,7 +297,7 @@ function initJoinWithTokenButton() {
                     const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
                     if (p.ip && !isSaved && !window.autosavedIPs.has(p.ip)) {
                         window.autosavedIPs.add(p.ip);
-                    window.__pm_shared.saveDiscoveredDevice(p.ip, true).catch(() => { window.autosavedIPs.delete(p.ip); });
+                        window.__pm_shared.saveDiscoveredDevice(p.ip, true).catch(() => { window.autosavedIPs.delete(p.ip); });
                     }
                 });
             }
@@ -267,7 +327,7 @@ function initJoinWithTokenButton() {
                 const existingKeys = new Set(existingCards.map(c => c.dataset.deviceKey));
                 const isInitialLoad = existingCards.length === 0;
 
-                    if (isInitialLoad) {
+                if (isInitialLoad) {
                     let cardsHTML = '';
                     saved.forEach(item => { cardsHTML += window.__pm_shared_cards.renderSavedCard(item); });
                     savedContainer.innerHTML = cardsHTML;
