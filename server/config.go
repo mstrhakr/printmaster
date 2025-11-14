@@ -14,6 +14,7 @@ type Config struct {
 	TLS      TLSConfigTOML         `toml:"tls"`
 	Database config.DatabaseConfig `toml:"database"`
 	Logging  config.LoggingConfig  `toml:"logging"`
+	Tenancy  TenancyConfig         `toml:"tenancy"`
 }
 
 // ServerConfig holds server-specific settings
@@ -40,6 +41,11 @@ type TLSConfigTOML struct {
 	CertPath    string            `toml:"cert_path"`
 	KeyPath     string            `toml:"key_path"`
 	LetsEncrypt LetsEncryptConfig `toml:"letsencrypt"`
+}
+
+// TenancyConfig holds flags for tenancy feature rollout
+type TenancyConfig struct {
+	Enabled bool `toml:"enabled"`
 }
 
 // LetsEncryptConfig holds Let's Encrypt specific settings
@@ -79,6 +85,9 @@ func DefaultConfig() *Config {
 		},
 		Logging: config.LoggingConfig{
 			Level: "info",
+		},
+		Tenancy: TenancyConfig{
+			Enabled: false,
 		},
 	}
 }

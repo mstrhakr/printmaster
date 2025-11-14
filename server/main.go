@@ -467,7 +467,7 @@ func runServer(ctx context.Context, configFlag string) {
 	}
 
 	// Setup HTTP routes
-	setupRoutes()
+	setupRoutes(cfg)
 
 	// Get TLS configuration
 	tlsConfig := cfg.ToTLSConfig()
@@ -1162,7 +1162,7 @@ func extractClientIP(r *http.Request) string {
 	return ip
 }
 
-func setupRoutes() {
+func setupRoutes(cfg *Config) {
 	// Health check (no auth required)
 	http.HandleFunc("/health", handleHealth)
 
@@ -1190,7 +1190,12 @@ func setupRoutes() {
 	})
 
 	// Tenancy & join-token routes (DB-backed when available)
-	tenancy.RegisterRoutes(serverStore)
+	if cfg != nil && cfg.Tenancy.Enabled {
+		tenancy.RegisterRoutes(serverStore)
+		serverLogger.Info("Tenancy routes registered", "enabled", true)
+	} else {
+		serverLogger.Info("Tenancy disabled - routes not registered", "enabled", false)
+	}
 
 	// Proxy endpoints - proxy HTTP requests through agent WebSocket
 	http.HandleFunc("/api/v1/proxy/agent/", handleAgentProxy)   // Proxy to agent's own web UI
