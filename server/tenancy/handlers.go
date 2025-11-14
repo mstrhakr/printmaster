@@ -1,9 +1,10 @@
 package tenancy
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"printmaster/server/storage"
@@ -13,17 +14,31 @@ import (
 // dbStore, when set via RegisterRoutes, will be used for persistence. If nil,
 // the package in-memory `store` is used (keeps tests and backwards compatibility).
 var dbStore storage.Store
+var routesRegistered bool
 
 // RegisterRoutes registers HTTP handlers for tenancy endpoints. If a
 // non-nil storage.Store is provided, handlers will persist tenants and tokens
 // in the server DB; otherwise the in-memory store is used.
 func RegisterRoutes(s storage.Store) {
+	// Allow RegisterRoutes to be called multiple times (tests may swap muxes).
+	// If routes already registered, just update the dbStore reference and return
+	// to avoid duplicate http.HandleFunc registration which panics.
+	// Delegate to the mux-aware registration using the default mux
+	RegisterRoutesOnMux(http.DefaultServeMux, s)
+}
+
+// RegisterRoutesOnMux registers tenancy routes on the provided ServeMux.
+// This is useful for tests which create their own muxes to avoid global
+// DefaultServeMux races. It will always register the routes on the given
+// mux; callers are responsible for ensuring they don't register the same
+// routes multiple times on the same mux.
+func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	dbStore = s
-	http.HandleFunc("/api/v1/tenants", handleTenants)
-	http.HandleFunc("/api/v1/join-token", handleCreateJoinToken)
-	http.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken)
-	http.HandleFunc("/api/v1/join-tokens", handleListJoinTokens)        // GET (admin)
-	http.HandleFunc("/api/v1/join-token/revoke", handleRevokeJoinToken) // POST {"id":"..."}
+	mux.HandleFunc("/api/v1/tenants", handleTenants)
+	mux.HandleFunc("/api/v1/join-token", handleCreateJoinToken)
+	mux.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken)
+	mux.HandleFunc("/api/v1/join-tokens", handleListJoinTokens)        // GET (admin)
+	mux.HandleFunc("/api/v1/join-token/revoke", handleRevokeJoinToken) // POST {"id":"..."}
 }
 
 // handleTenants supports GET (list) and POST (create)
@@ -176,7 +191,9 @@ func handleRevokeJoinToken(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	var in struct{ ID string `json:"id"` }
+	var in struct {
+		ID string `json:"id"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"error":"invalid json"}`))
@@ -218,9 +235,21 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Token   string `json:"token"`
-		AgentID string `json:"agent_id"`
-		Name    string `json:"name,omitempty"`
+		Token           string `json:"token"`
+		AgentID         string `json:"agent_id"`
+		Name            string `json:"name,omitempty"`
+		AgentVersion    string `json:"agent_version,omitempty"`
+		ProtocolVersion string `json:"protocol_version,omitempty"`
+		Hostname        string `json:"hostname,omitempty"`
+		IP              string `json:"ip,omitempty"`
+		Platform        string `json:"platform,omitempty"`
+		OSVersion       string `json:"os_version,omitempty"`
+		GoVersion       string `json:"go_version,omitempty"`
+		Architecture    string `json:"architecture,omitempty"`
+		NumCPU          int    `json:"num_cpu,omitempty"`
+		TotalMemoryMB   int64  `json:"total_memory_mb,omitempty"`
+		BuildType       string `json:"build_type,omitempty"`
+		GitCommit       string `json:"git_commit,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -240,19 +269,36 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create or update agent in server DB with tenant assignment and issue placeholder token
-		// Generate placeholder agent token
-		placeholder := "agent_token_" + strconv.FormatInt(time.Now().Unix(), 10)
+		// Create or update agent in server DB with tenant assignment and issue a secure token
+		// Generate secure random token (256 bits -> base64url)
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to generate agent token"}`))
+			return
+		}
+		token := base64.URLEncoding.EncodeToString(b)
 
 		// Persist agent with tenant assignment using storage.Store.RegisterAgent
 		ag := &storage.Agent{
 			AgentID:         in.AgentID,
 			Name:            in.Name,
-			Token:           placeholder,
+			Hostname:        in.Hostname,
+			IP:              in.IP,
+			Platform:        in.Platform,
+			Version:         in.AgentVersion,
+			Token:           token,
 			RegisteredAt:    time.Now().UTC(),
 			LastSeen:        time.Now().UTC(),
 			Status:          "active",
-			ProtocolVersion: "1",
+			OSVersion:       in.OSVersion,
+			GoVersion:       in.GoVersion,
+			Architecture:    in.Architecture,
+			NumCPU:          in.NumCPU,
+			TotalMemoryMB:   in.TotalMemoryMB,
+			BuildType:       in.BuildType,
+			GitCommit:       in.GitCommit,
+			ProtocolVersion: in.ProtocolVersion,
 			TenantID:        jt.TenantID,
 		}
 		if err := dbStore.RegisterAgent(r.Context(), ag); err != nil {
@@ -265,7 +311,7 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     true,
 			"tenant_id":   jt.TenantID,
-			"agent_token": placeholder,
+			"agent_token": token,
 		})
 		return
 	}
@@ -282,12 +328,14 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For now, we don't persist the agent with tenant to DB from here. Instead,
-	// return the tenant assignment and a placeholder bearer token the agent can
-	// use. Later this handler should create the agent record in server DB and
-	// return a real token.
-
-	placeholder := "agent_token_" + strconv.FormatInt(time.Now().Unix(), 10)
+	// For non-DB (in-memory) fallback, generate a secure token and return it
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"failed to generate agent token"}`))
+		return
+	}
+	placeholder := base64.URLEncoding.EncodeToString(b)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
