@@ -624,6 +624,16 @@ function showPrompt(message, defaultValue = '', title = 'Input') {
 }
 
 /**
+ * Compatibility wrapper used by older code paths that call showInputModal(title, label, default)
+ * Maps the parameters to showPrompt(label, defaultValue, title) so existing callers work.
+ * @returns {Promise<string|null>}
+ */
+function showInputModal(title, label, defaultValue = '') {
+    // Note: showPrompt signature is (message, defaultValue, title)
+    return showPrompt(label, defaultValue, title);
+}
+
+/**
  * Agent-only saveDiscoveredDevice delegate.
  * The full implementation now lives in the agent bundle. This thin wrapper
  * delegates to the agent-provided implementation when available. This keeps
