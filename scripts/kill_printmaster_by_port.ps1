@@ -5,6 +5,9 @@ Param(
 # Kill by known process names/paths (printmaster, debug_bin, dlv)
 $killedDetails = @()
 $killedIds = @()
+# Processes to ignore when killing by listening ports (don't kill browsers)
+$ignoredBrowserNames = @('librewolf','firefox','chrome','msedge','edge','brave','opera','safari','iexplore','chromium')
+$skippedDetails = @()
 try {
     $candidates = Get-Process -ErrorAction SilentlyContinue | Where-Object {
         ($_.ProcessName -like '*printmaster*') -or
@@ -50,14 +53,20 @@ foreach ($listenerPid in $portPids) {
         try {
             $proc = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
             if ($proc) {
+                $pname = ($proc.ProcessName || '') -as [string]
+                if ($pname) { $pname = $pname.ToLower() }
+                # If the process name matches a known browser, skip killing it
+                if ($pname -and ($ignoredBrowserNames -contains $pname)) {
+                    $skippedDetails += [pscustomobject]@{ Id = $proc.Id; ProcessName = $proc.ProcessName; Path = $proc.Path; Reason = 'ignored browser' }
+                    continue
+                }
+
                 Stop-Process -Id $listenerPid -Force -ErrorAction SilentlyContinue
                 $killedDetails += [pscustomobject]@{ Id = $proc.Id; ProcessName = $proc.ProcessName; Path = $proc.Path }
                 $killedIds += $proc.Id
             } else {
-                # Still attempt to stop by PID even if Get-Process couldn't fetch details
-                Stop-Process -Id $listenerPid -Force -ErrorAction SilentlyContinue
-                $killedDetails += [pscustomobject]@{ Id = $listenerPid; ProcessName = '<unknown>'; Path = '' }
-                $killedIds += $listenerPid
+                # If we can't resolve the process details, be conservative and skip killing
+                $skippedDetails += [pscustomobject]@{ Id = $listenerPid; ProcessName = '<unknown>'; Path = ''; Reason = 'could not resolve process - skipped' }
             }
         } catch {}
     }
@@ -69,6 +78,11 @@ if ($killedDetails.Count -gt 0) {
     Write-Host "Summary: $($killedIds -join ', ')" -ForegroundColor Green
 } else {
     Write-Host "No matching PrintMaster processes or port listeners found" -ForegroundColor Yellow
+}
+
+if ($skippedDetails.Count -gt 0) {
+    Write-Host "Skipped processes (not killed):" -ForegroundColor Yellow
+    $skippedDetails | Format-Table Id, ProcessName, Path, Reason -AutoSize
 }
 
 # Exit with success
