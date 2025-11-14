@@ -225,6 +225,105 @@ function showToast(message, type = 'success', duration = 3000) {
 // MODAL SYSTEM
 // ============================================================================
 
+// Create a simple temporary confirm modal when the embedded `confirm_modal`
+// DOM is not available or when we want to avoid the native blocking
+// `window.confirm`. Returns a Promise<boolean> that resolves to true when
+// confirmed and false when cancelled.
+function createTemporaryConfirmModal(message, title = 'Confirm', isDangerous = false) {
+    return new Promise((resolve) => {
+        try {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'modal-overlay';
+            const uid = 'tmp_confirm_' + Date.now();
+            wrapper.id = uid;
+            wrapper.style.display = 'flex';
+            wrapper.innerHTML = `
+                <div class="modal-content" style="max-width:480px;">
+                    <div class="modal-header">
+                        <h3 class="modal-title">${escapeHtml(title)}</h3>
+                        <button class="modal-close-x" title="Close">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <p style="white-space:pre-wrap;">${escapeHtml(message)}</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="modal-button modal-button-secondary" data-action="cancel">Cancel</button>
+                        <button class="modal-button modal-button-primary" data-action="confirm">OK</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(wrapper);
+
+            const onConfirm = () => { cleanup(); resolve(true); };
+            const onCancel = () => { cleanup(); resolve(false); };
+            const onBackdrop = (e) => { if (e.target === wrapper) onCancel(); };
+
+            const btnConfirm = wrapper.querySelector('[data-action="confirm"]');
+            const btnCancel = wrapper.querySelector('[data-action="cancel"]');
+            const closeX = wrapper.querySelector('.modal-close-x');
+
+            function cleanup() {
+                try { btnConfirm && btnConfirm.removeEventListener('click', onConfirm); } catch (e) {}
+                try { btnCancel && btnCancel.removeEventListener('click', onCancel); } catch (e) {}
+                try { closeX && closeX.removeEventListener('click', onCancel); } catch (e) {}
+                try { wrapper.removeEventListener('click', onBackdrop); } catch (e) {}
+                try { wrapper.parentNode && wrapper.parentNode.removeChild(wrapper); } catch (e) {}
+            }
+
+            btnConfirm && btnConfirm.addEventListener('click', onConfirm);
+            btnCancel && btnCancel.addEventListener('click', onCancel);
+            closeX && closeX.addEventListener('click', onCancel);
+            wrapper.addEventListener('click', onBackdrop);
+        } catch (e) {
+            try { resolve(false); } catch (ex) {}
+        }
+    });
+}
+
+// Create a simple temporary alert modal when embedded modal is not present.
+// This is non-blocking and will dismiss on OK.
+function createTemporaryAlertModal(message, title = 'Notice', showDontRemindCheckbox = false) {
+    try {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'modal-overlay';
+        wrapper.style.display = 'flex';
+        wrapper.innerHTML = `
+            <div class="modal-content" style="max-width:480px;">
+                <div class="modal-header">
+                    <h3 class="modal-title">${escapeHtml(title)}</h3>
+                    <button class="modal-close-x" title="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div style="white-space:pre-wrap;">${escapeHtml(message)}</div>
+                    ${showDontRemindCheckbox ? `<div style="margin-top:12px"><label><input type="checkbox" id="_tmp_alert_dont_remind"> Don't show this again</label></div>` : ''}
+                </div>
+                <div class="modal-footer">
+                    <button class="modal-button modal-button-primary" data-action="ok">OK</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(wrapper);
+
+        const btnOk = wrapper.querySelector('[data-action="ok"]');
+        const closeX = wrapper.querySelector('.modal-close-x');
+
+        const cleanup = () => { try { wrapper.parentNode && wrapper.parentNode.removeChild(wrapper); } catch (e) {} };
+        btnOk && btnOk.addEventListener('click', () => {
+            const cb = wrapper.querySelector('#_tmp_alert_dont_remind');
+            if (cb && cb.checked) {
+                try { localStorage.setItem('hideConfigWarning', 'true'); } catch (e) {}
+            }
+            cleanup();
+        });
+        closeX && closeX.addEventListener('click', cleanup);
+        wrapper.addEventListener('click', (e) => { if (e.target === wrapper) cleanup(); });
+    } catch (e) {
+        // Last resort fallback to console if DOM operations fail
+        try { console.warn('Alert fallback failed:', e); } catch (ex) {}
+    }
+}
+
+
 /**
  * Show a confirmation modal dialog
  * @param {string} message - Message to display
@@ -238,12 +337,10 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
         // avoid opening another one. This guards against accidental re-binding
         // or nested calls that caused "too much recursion" in some pages.
         if (window.__pm_confirm_open) {
-            // Fallback: use browser confirm as a safe synchronous fallback
-            try {
-                resolve(window.confirm(message));
-            } catch (e) {
-                resolve(false);
-            }
+            // If a confirm is already open, create a small temporary async
+            // confirm modal instead of using the native `window.confirm`.
+            // This keeps behavior consistent (returns a Promise<boolean>). 
+            createTemporaryConfirmModal(message, title, isDangerous).then(resolve).catch(() => resolve(false));
             return;
         }
 
@@ -257,8 +354,10 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
         const closeX = document.getElementById('confirm_modal_close_x');
         
         if (!modal || !titleEl || !messageEl || !confirmBtn || !cancelBtn) {
-            // Fallback to browser confirm if modal not available
-            try { resolve(window.confirm(message)); } catch (e) { resolve(false); }
+            // Fallback: create a temporary confirm modal if the expected
+            // DOM elements are not present. This avoids calling the native
+            // window.confirm which produces a blocking native dialog.
+            createTemporaryConfirmModal(message, title, isDangerous).then(resolve).catch(() => resolve(false));
             return;
         }
         
@@ -328,7 +427,8 @@ function showAlert(message, title = 'Notice', isDangerous = false, showDontRemin
     const closeX = document.getElementById('confirm_modal_close_x');
     
     if (!modal || !titleEl || !messageEl || !confirmBtn) {
-        alert(message);
+        // Fallback to a temporary alert modal instead of native alert()
+        createTemporaryAlertModal(message, title, showDontRemindCheckbox);
         return;
     }
     
