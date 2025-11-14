@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"printmaster/server/storage"
+	"printmaster/server/tenancy"
 	"testing"
 	"time"
 )
@@ -25,16 +26,24 @@ func setupTestServer(t *testing.T) (*httptest.Server, storage.Store) {
 	serverStore = store
 	// Note: serverLogger is nil in tests, handlers should handle gracefully
 
-	// Setup routes and create test server
+	// Create a dedicated mux for this test server to avoid races when tests run
+	// in parallel. Register the core handlers on that mux and register tenancy
+	// routes onto the same mux using the mux-aware registration function.
 	mux := http.NewServeMux()
+
+	// Register core handlers onto the new mux
 	mux.HandleFunc("/health", handleHealth)
 	mux.HandleFunc("/api/version", handleVersion)
+	// Keep /api/v1/agents/register for compatibility (it will return 403)
 	mux.HandleFunc("/api/v1/agents/register", handleAgentRegister)
 	mux.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
 	mux.HandleFunc("/api/v1/agents/list", handleAgentsList)
 	mux.HandleFunc("/api/v1/agents/", handleAgentDetails)
 	mux.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	mux.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
+
+	// Register tenancy routes onto this mux (avoids global DefaultServeMux)
+	tenancy.RegisterRoutesOnMux(mux, store)
 
 	server := httptest.NewServer(mux)
 	t.Cleanup(func() {
@@ -102,8 +111,19 @@ func TestAgentRegistration(t *testing.T) {
 	// Note: Not parallel due to shared global serverStore
 	server, store := setupTestServer(t)
 
-	// Register agent
+	// Create tenant and join token, then register agent using register-with-token
+	ctx := context.Background()
+	tn := &storage.Tenant{ID: "test-tenant-01", Name: "TestTenant"}
+	if err := store.CreateTenant(ctx, tn); err != nil {
+		t.Fatalf("Failed to create tenant: %v", err)
+	}
+	_, rawToken, err := store.CreateJoinToken(ctx, tn.ID, 60, true)
+	if err != nil {
+		t.Fatalf("Failed to create join token: %v", err)
+	}
+
 	reqBody := map[string]interface{}{
+		"token":            rawToken,
 		"agent_id":         "test-agent-01",
 		"agent_version":    "v0.2.0",
 		"protocol_version": "1",
@@ -113,7 +133,7 @@ func TestAgentRegistration(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(server.URL+"/api/v1/agents/register", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(server.URL+"/api/v1/agents/register-with-token", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("Failed to register agent: %v", err)
 	}
@@ -132,17 +152,12 @@ func TestAgentRegistration(t *testing.T) {
 	if result["success"] != true {
 		t.Errorf("Expected success=true, got %v", result["success"])
 	}
-	if result["agent_id"] != "test-agent-01" {
-		t.Errorf("Expected agent_id=test-agent-01, got %v", result["agent_id"])
-	}
-
-	token, ok := result["token"].(string)
-	if !ok || token == "" {
-		t.Error("Response missing or empty token")
+	agentToken, ok := result["agent_token"].(string)
+	if !ok || agentToken == "" {
+		t.Error("Response missing or empty agent_token")
 	}
 
 	// Verify agent in database
-	ctx := context.Background()
 	agent, err := store.GetAgent(ctx, "test-agent-01")
 	if err != nil {
 		t.Fatalf("Failed to retrieve agent from store: %v", err)
@@ -151,8 +166,8 @@ func TestAgentRegistration(t *testing.T) {
 	if agent.AgentID != "test-agent-01" {
 		t.Errorf("Expected AgentID=test-agent-01, got %s", agent.AgentID)
 	}
-	if agent.Token != token {
-		t.Errorf("Token mismatch: response=%s, db=%s", token, agent.Token)
+	if agent.Token != agentToken {
+		t.Errorf("Token mismatch: response=%s, db=%s", agentToken, agent.Token)
 	}
 	if agent.Status != "active" {
 		t.Errorf("Expected status=active, got %s", agent.Status)
@@ -521,8 +536,20 @@ func TestAgentRegistrationWithMetadata(t *testing.T) {
 	// Test that new metadata fields are properly stored
 	server, store := setupTestServer(t)
 
+	// Create tenant and join token, then register agent with metadata using register-with-token
+	ctx := context.Background()
+	tn := &storage.Tenant{ID: "test-tenant-02", Name: "MetaTenant"}
+	if err := store.CreateTenant(ctx, tn); err != nil {
+		t.Fatalf("Failed to create tenant: %v", err)
+	}
+	_, rawToken, err := store.CreateJoinToken(ctx, tn.ID, 60, true)
+	if err != nil {
+		t.Fatalf("Failed to create join token: %v", err)
+	}
+
 	// Register agent with extended metadata
 	reqBody := map[string]interface{}{
+		"token":            rawToken,
 		"agent_id":         "test-agent-metadata",
 		"agent_version":    "v0.3.0",
 		"protocol_version": "1",
@@ -539,7 +566,7 @@ func TestAgentRegistrationWithMetadata(t *testing.T) {
 	}
 	body, _ := json.Marshal(reqBody)
 
-	resp, err := http.Post(server.URL+"/api/v1/agents/register", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(server.URL+"/api/v1/agents/register-with-token", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("Failed to register agent: %v", err)
 	}
@@ -559,7 +586,6 @@ func TestAgentRegistrationWithMetadata(t *testing.T) {
 	}
 
 	// Verify all metadata is stored
-	ctx := context.Background()
 	agent, err := store.GetAgent(ctx, "test-agent-metadata")
 	if err != nil {
 		t.Fatalf("Failed to retrieve agent from store: %v", err)
