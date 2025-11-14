@@ -141,8 +141,9 @@ async function clearDiscovered(evt) {
     const origText = btn && btn.textContent ? btn.textContent : null;
 
     try {
-        // Confirm destructive action
-        if (!window.confirm || !window.confirm('Delete all discovered devices from the database? This cannot be undone.')) return;
+        // Confirm destructive action using shared confirm modal (avoid native confirm)
+        const confirmed = await window.__pm_shared.showConfirm('Delete all discovered devices from the database? This cannot be undone.', 'Delete discovered devices', true);
+        if (!confirmed) return;
 
         if (btn) { btn.disabled = true; btn.textContent = 'Clearing...'; }
 
@@ -175,65 +176,54 @@ function showPrinterDetailsData(p, source, parseDebug) {
 
 // Update the discovered and saved printers UI by querying the backend and
 // rendering cards using the shared card renderers in `common/web/cards.js`.
-function updatePrinters() {
+function initJoinWithTokenButton() {
     try {
-        const showKnownDevices = document.getElementById('show_saved_in_discovered')?.checked || false;
+        // Wire existing button (placed in HTML next to title) so we don't
+        // create duplicate fixed-position elements.
+        const btn = document.getElementById('join_token_btn');
+        if (!btn) return;
+    // Ensure prominent styling (use existing modal primary styles)
+    btn.classList.add('modal-button', 'modal-button-primary');
 
-        // Map slider index to minute values (0 = all time)
-        const timeFilterValues = [1,2,5,10,15,30,60,120,180,360,720,1440,4320,0];
-        const slider = document.getElementById('time_slider');
-        const index = slider ? parseInt(slider.value) : (timeFilterValues.length - 1);
-        const timeMinutes = timeFilterValues[index] || 0;
+        btn.addEventListener('click', async function () {
+            const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', 'https://');
+            if (!server) return;
+            const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
+            if (!token) return;
 
-        let discoveredEndpoint = '/devices/discovered?include_known=' + showKnownDevices;
-        if (timeMinutes > 0) discoveredEndpoint += '&minutes=' + timeMinutes;
+            // Optional: ask for CA path and insecure flag (advanced)
+            const confirmInsecure = await window.__pm_shared.showConfirm(
+                'If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.',
+                'Self-signed certificate',
+                false
+            );
+            const insecure = !!confirmInsecure;
 
-        Promise.all([
-            fetch(discoveredEndpoint).then(r => r.ok ? r.json() : []),
-            fetch('/devices/list').then(r => r.ok ? r.json() : [])
-        ]).then(([discovered, saved]) => {
-            window.discoveredPrinters = discovered || [];
+            // Show a progress toast
+            window.__pm_shared.showToast('Joining server...', 'info', 3000);
 
-            const discoveredContainer = document.getElementById('discovered_devices_cards');
-            if (!discoveredContainer) return;
-
-            const savedSerials = new Set();
-            const savedIPs = new Set();
-            if (Array.isArray(saved)) {
-                saved.forEach(item => {
-                    const p = item.printer_info || {};
-                    const serial = item.serial || '';
-                    const ip = p.ip || '';
-                    if (serial) savedSerials.add(serial);
-                    if (ip) savedIPs.add(ip);
+            try {
+                const resp = await fetch('/settings/join', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ server_url: server, token: token, insecure: insecure })
                 });
+                if (!resp.ok) {
+                    const txt = await resp.text();
+                    throw new Error(txt || resp.statusText || 'join failed');
+                }
+                const body = await resp.json();
+                if (body && body.success) {
+                    window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
+                }
+            } catch (err) {
+                window.__pm_shared.showToast('Failed to join server: ' + (err && err.message ? err.message : err), 'error', 4000);
             }
-
-            // Autosave/display controls
-            const autosaveEnabled = document.getElementById('autosave_checkbox')?.checked || false;
-            const showDiscoveredAnyway = document.getElementById('show_discovered_devices_anyway')?.checked || false;
-            const discoveredSection = document.getElementById('discovered_section');
-            if (discoveredSection) {
-                const shouldShowDiscovered = !autosaveEnabled || (autosaveEnabled && showDiscoveredAnyway);
-                discoveredSection.style.display = shouldShowDiscovered ? 'block' : 'none';
-            }
-
-            // Render discovered
-            if (!Array.isArray(discovered) || discovered.length === 0) {
-                discoveredContainer.innerHTML = '<div style="color:var(--muted);padding:12px">No discovered printers</div>';
-                const statsEl = document.getElementById('discovered_stats'); if (statsEl) statsEl.innerHTML = '';
-            } else {
-                let lowTonerCount = 0;
-                discovered.forEach(p => {
-                    const toners = p.toner_levels || {};
-                    for (const c in toners) { if (toners[c] < 20) { lowTonerCount++; break; } }
-                });
-                const statsHtml = '<span style="color:var(--text)"><strong>Total:</strong> ' + discovered.length + '</span>' +
-                    '<span style="color:#b58900"><strong>Low Toner:</strong> ' + lowTonerCount + '</span>';
-                const statsEl = document.getElementById('discovered_stats'); if (statsEl) statsEl.innerHTML = statsHtml;
-
-                let cardsHTML = '';
-                discovered.forEach(p => {
+        });
+    } catch (e) {
+        try { window.__pm_shared.warn && window.__pm_shared.warn('initJoinWithTokenButton failed', e); } catch (ex) {}
+    }
+}
                     const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
                     cardsHTML += window.__pm_shared_cards.renderDiscoveredCard(p, isSaved);
                 });
@@ -4132,24 +4122,13 @@ if (autoSave) {
     toggleAutoSave();
 }
 
-// Small helper: add a "Join with token" button to the UI header for quick onboarding.
+// Small helper: wire the existing "Join Server" button (placed in HTML next to title).
 function initJoinWithTokenButton() {
     try {
-        // Add button to top-right if header exists
-        const header = document.querySelector('header') || document.body;
-        const btn = document.createElement('button');
-        btn.id = 'join_token_btn';
-        btn.textContent = 'Join with token';
-        btn.style.position = 'fixed';
-        btn.style.right = '12px';
-        btn.style.top = '12px';
-        btn.style.zIndex = 1200;
-        btn.style.padding = '8px 12px';
-        btn.style.borderRadius = '6px';
-        btn.style.border = '1px solid var(--border)';
-        btn.style.background = 'var(--panel-bg)';
-        btn.style.cursor = 'pointer';
-        header.appendChild(btn);
+        const btn = document.getElementById('join_token_btn');
+        if (!btn) return;
+        // Ensure prominent styling (primary class should exist in CSS)
+        btn.classList.add('primary');
 
         btn.addEventListener('click', async function () {
             const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', 'https://');
@@ -4157,11 +4136,13 @@ function initJoinWithTokenButton() {
             const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
             if (!token) return;
 
-            // Optional: ask for CA path and insecure flag (advanced)
-            const confirmInsecure = confirm('If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.');
-            const insecure = confirmInsecure ? true : false;
+            const confirmInsecure = await window.__pm_shared.showConfirm(
+                'If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.',
+                'Self-signed certificate',
+                false
+            );
+            const insecure = !!confirmInsecure;
 
-            // Show a progress toast
             window.__pm_shared.showToast('Joining server...', 'info', 3000);
 
             try {
@@ -4177,16 +4158,13 @@ function initJoinWithTokenButton() {
                 const body = await resp.json();
                 if (body && body.success) {
                     window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
-                } else {
-                    window.__pm_shared.showToast('Join failed', 'error', 4000);
                 }
-            } catch (e) {
-                window.__pm_shared.error('Join failed', e);
-                window.__pm_shared.showToast('Join failed: ' + e.message, 'error', 6000);
+            } catch (err) {
+                window.__pm_shared.showToast('Failed to join server: ' + (err && err.message ? err.message : err), 'error', 4000);
             }
         });
     } catch (e) {
-        console.warn('initJoinWithTokenButton failed', e);
+        try { window.__pm_shared.warn && window.__pm_shared.warn('initJoinWithTokenButton failed', e); } catch (ex) {}
     }
 }
 
