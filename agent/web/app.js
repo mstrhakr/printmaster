@@ -288,6 +288,13 @@ function updatePrinters() {
                     cardsHTML += window.__pm_shared_cards.renderDiscoveredCard(p, isSaved);
                 });
                 discoveredContainer.innerHTML = cardsHTML;
+                // Normalize any inline onclick handlers produced by renderers into
+                // programmatic event listeners so behavior matches the saved-card
+                // buttons (which use direct .onclick handlers). This helps keep
+                // a single wiring strategy across the UI and avoids relying on
+                // inline JS in generated HTML.
+                // Buttons in discovered cards are wired via delegated handlers in shared cards
+                // (`cards.js`) so no runtime normalization is required here.
             }
 
             // Autosave new discovered devices if enabled
@@ -331,6 +338,11 @@ function updatePrinters() {
                     let cardsHTML = '';
                     saved.forEach(item => { cardsHTML += window.__pm_shared_cards.renderSavedCard(item); });
                     savedContainer.innerHTML = cardsHTML;
+                    // Ensure saved card inline handlers are normalized to programmatic
+                    // listeners as well so Delete/Details/other actions behave the
+                    // same across discovered and saved lists.
+                    // Saved cards use data-action attributes and delegated handlers
+                    // implemented in `common/web/cards.js` — no runtime rewrite needed.
                     saved.forEach(item => { if (item.serial) window.__pm_shared_metrics.loadUsageGraph(item.serial); });
                 } else {
                     saved.forEach(item => {
@@ -2547,6 +2559,10 @@ function loadUnknowns() {
     }).catch(e => { document.getElementById('unknowns').textContent = 'Failed to load: ' + e });
 }
 
+// Inline onclick normalization removed. Buttons should be emitted with
+// data-action attributes or wired directly when created. See `common/web/cards.js`
+// for delegated action handling.
+
 setInterval(updateMetrics, 2000);
 
 // Connect to SSE for real-time updates (replaces polling)
@@ -3031,16 +3047,14 @@ document.addEventListener('DOMContentLoaded', function () {
         timeSlider.addEventListener('change', updatePrinters);
     }
 
-    // Discovered section buttons
-    const saveAllBtn = document.querySelector('#discovered_section button[onclick*="saveAllDiscovered"]');
+    // Discovered section buttons (use data-action attributes)
+    const saveAllBtn = document.querySelector('#discovered_section button[data-action="save-all-discovered"]');
     if (saveAllBtn) {
-        saveAllBtn.removeAttribute('onclick');
         saveAllBtn.addEventListener('click', saveAllDiscovered);
     }
 
-    const clearDiscBtn = document.querySelector('#discovered_section button[onclick*="clearDiscovered"]');
+    const clearDiscBtn = document.querySelector('#discovered_section button[data-action="clear-discovered"]');
     if (clearDiscBtn) {
-        clearDiscBtn.removeAttribute('onclick');
         clearDiscBtn.addEventListener('click', clearDiscovered);
     }
 
@@ -3052,10 +3066,9 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // Delete all saved devices button
-    const deleteAllBtn = document.querySelector('button[onclick*="deleteAllSavedDevices"]');
+    // Delete all saved devices button (data-action="delete-all-saved")
+    const deleteAllBtn = document.querySelector('button[data-action="delete-all-saved"]');
     if (deleteAllBtn) {
-        deleteAllBtn.removeAttribute('onclick');
         deleteAllBtn.addEventListener('click', deleteAllSavedDevices);
     }
 
