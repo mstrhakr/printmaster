@@ -2044,7 +2044,7 @@ function openAddAgentModal(opts){
     };
     renderAddAgentStep(1);
     const modal = document.getElementById('add_agent_modal');
-    if(modal){ modal.style.display = 'block'; document.body.style.overflow = 'hidden'; }
+    if(modal){ modal.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
 }
 
 function closeAddAgentModal(){
