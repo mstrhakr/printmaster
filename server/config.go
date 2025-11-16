@@ -15,15 +15,18 @@ type Config struct {
 	Database config.DatabaseConfig `toml:"database"`
 	Logging  config.LoggingConfig  `toml:"logging"`
 	Tenancy  TenancyConfig         `toml:"tenancy"`
+	SMTP     SMTPConfig            `toml:"smtp"`
 }
 
 // ServerConfig holds server-specific settings
 type ServerConfig struct {
-	HTTPPort      int    `toml:"http_port"`
-	HTTPSPort     int    `toml:"https_port"`
-	BehindProxy   bool   `toml:"behind_proxy"`
-	ProxyUseHTTPS bool   `toml:"proxy_use_https"` // If true, use HTTPS even when behind proxy (default: false for HTTP)
-	BindAddress   string `toml:"bind_address"`    // Address to bind to (default: 0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
+	HTTPPort            int    `toml:"http_port"`
+	HTTPSPort           int    `toml:"https_port"`
+	BehindProxy         bool   `toml:"behind_proxy"`
+	ProxyUseHTTPS       bool   `toml:"proxy_use_https"` // If true, use HTTPS even when behind proxy (default: false for HTTP)
+	BindAddress         string `toml:"bind_address"`    // Address to bind to (default: 0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
+	AutoApproveAgents   bool   `toml:"auto_approve_agents"`
+	AgentTimeoutMinutes int    `toml:"agent_timeout_minutes"`
 }
 
 // SecurityConfig holds security and rate limiting settings
@@ -48,6 +51,16 @@ type TenancyConfig struct {
 	Enabled bool `toml:"enabled"`
 }
 
+// SMTPConfig holds SMTP settings for outgoing mail
+type SMTPConfig struct {
+	Enabled bool   `toml:"enabled"`
+	Host    string `toml:"host"`
+	Port    int    `toml:"port"`
+	User    string `toml:"user"`
+	Pass    string `toml:"pass"`
+	From    string `toml:"from"`
+}
+
 // LetsEncryptConfig holds Let's Encrypt specific settings
 type LetsEncryptConfig struct {
 	Domain    string `toml:"domain"`
@@ -60,11 +73,13 @@ type LetsEncryptConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			HTTPPort:      9090,
-			HTTPSPort:     9443,
-			BehindProxy:   false,
-			ProxyUseHTTPS: false,     // Default to HTTP when behind proxy
-			BindAddress:   "0.0.0.0", // Bind to all interfaces by default
+			HTTPPort:            9090,
+			HTTPSPort:           9443,
+			BehindProxy:         false,
+			ProxyUseHTTPS:       false,     // Default to HTTP when behind proxy
+			BindAddress:         "0.0.0.0", // Bind to all interfaces by default
+			AutoApproveAgents:   false,
+			AgentTimeoutMinutes: 15,
 		},
 		Security: SecurityConfig{
 			RateLimitEnabled:       true, // Enable rate limiting by default
@@ -88,6 +103,14 @@ func DefaultConfig() *Config {
 		},
 		Tenancy: TenancyConfig{
 			Enabled: false,
+		},
+		SMTP: SMTPConfig{
+			Enabled: false,
+			Host:    "",
+			Port:    587,
+			User:    "",
+			Pass:    "",
+			From:    "",
 		},
 	}
 }
@@ -125,6 +148,15 @@ func LoadConfig(configPath string) (*Config, error) {
 	if val := os.Getenv("BIND_ADDRESS"); val != "" {
 		cfg.Server.BindAddress = val
 	}
+	if val := os.Getenv("AUTO_APPROVE_AGENTS"); val != "" {
+		cfg.Server.AutoApproveAgents = val == "true" || val == "1"
+	}
+	if val := os.Getenv("AGENT_TIMEOUT_MINUTES"); val != "" {
+		var v int
+		if _, err := fmt.Sscanf(val, "%d", &v); err == nil {
+			cfg.Server.AgentTimeoutMinutes = v
+		}
+	}
 	if val := os.Getenv("TLS_MODE"); val != "" {
 		cfg.TLS.Mode = val
 	}
@@ -142,6 +174,29 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 	if val := os.Getenv("LETSENCRYPT_ACCEPT_TOS"); val != "" {
 		cfg.TLS.LetsEncrypt.AcceptTOS = val == "true" || val == "1"
+	}
+
+	// SMTP env overrides
+	if val := os.Getenv("SMTP_ENABLED"); val != "" {
+		cfg.SMTP.Enabled = val == "true" || val == "1"
+	}
+	if val := os.Getenv("SMTP_HOST"); val != "" {
+		cfg.SMTP.Host = val
+	}
+	if val := os.Getenv("SMTP_PORT"); val != "" {
+		var p int
+		if _, err := fmt.Sscanf(val, "%d", &p); err == nil {
+			cfg.SMTP.Port = p
+		}
+	}
+	if val := os.Getenv("SMTP_USER"); val != "" {
+		cfg.SMTP.User = val
+	}
+	if val := os.Getenv("SMTP_PASS"); val != "" {
+		cfg.SMTP.Pass = val
+	}
+	if val := os.Getenv("SMTP_FROM"); val != "" {
+		cfg.SMTP.From = val
 	}
 
 	// Apply common environment variable overrides (component-specific prefixed env var supported)
