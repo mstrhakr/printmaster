@@ -3,34 +3,145 @@
 // ====== Initialization ======
 document.addEventListener('DOMContentLoaded', function () {
     window.__pm_shared.log('PrintMaster Server UI loaded');
-    
-    // Initialize theme toggle
-    initThemeToggle();
-    
-    // Initialize tabs
-    initTabs();
-    
-    // Check config status and show warning if needed
-    checkConfigStatus();
-    
-    // Load initial data
-    loadServerStatus();
-    loadAgents();
-    // Tenants UI
-    initTenantsUI();
-    // Add-agent UI
-    // (Added helper and add-agent modal code)
-    initAddAgentUI();
-    
-    // Set up periodic refresh for server status only
-    // Keep the interval ID so we can cancel polling when WebSocket is active
-    window._serverStatusInterval = setInterval(loadServerStatus, 30000); // Every 30 seconds
 
-    // Try WebSocket first for low-latency liveness; fallback to SSE if WS not available
-    connectWS();
-    // Also keep SSE as a fallback
-    connectSSE();
+    // Before initializing the UI, ensure user is authenticated (local login)
+    ensureAuthenticated().then(authenticated => {
+        if (!authenticated) {
+            // ensureAuthenticated will show the login modal and resolve when logged in
+            return;
+        }
+
+        // Initialize theme toggle
+        initThemeToggle();
+
+        // Initialize tabs
+        initTabs();
+
+        // Check config status and show warning if needed
+        checkConfigStatus();
+
+        // Load initial data
+        loadServerStatus();
+        loadAgents();
+        // Tenants UI
+        initTenantsUI();
+        initUsersUI();
+        // Add-agent UI
+        // (Added helper and add-agent modal code)
+        initAddAgentUI();
+
+        // Set up periodic refresh for server status only
+        // Keep the interval ID so we can cancel polling when WebSocket is active
+        window._serverStatusInterval = setInterval(loadServerStatus, 30000); // Every 30 seconds
+
+        // Try WebSocket first for low-latency liveness; fallback to SSE if WS not available
+        connectWS();
+        // Also keep SSE as a fallback
+        connectSSE();
+        // Update auth-related UI (logout button)
+        updateAuthUI();
+    }).catch(err=>{
+        window.__pm_shared.error('Auth initialization failed', err);
+    });
 });
+
+// Ensure user is authenticated, show login modal if not. Resolves true once authenticated.
+async function ensureAuthenticated(){
+    try{
+        const res = await fetch('/api/v1/auth/me');
+        if(res.ok){
+            return true;
+        }
+        if(res.status===401){
+            // Redirect to dedicated login page for better separation
+            window.location = '/login';
+            return false;
+        }
+        // Other errors: still show login modal (server may be misconfigured)
+        window.location = '/login';
+        return false;
+    }catch(err){
+        window.__pm_shared.warn('Auth check failed, showing login modal', err);
+        window.location = '/login';
+        return false;
+    }
+}
+
+function showLoginModal(){
+    const modal = document.getElementById('login_modal');
+    if(!modal) return;
+    modal.style.display = 'flex';
+    document.getElementById('login_username').focus();
+
+    const submit = document.getElementById('login_submit');
+    const cancel = document.getElementById('login_cancel');
+    const errEl = document.getElementById('login_error');
+
+    const doSubmit = async ()=>{
+        errEl.style.display='none';
+        const u = document.getElementById('login_username').value || '';
+        const p = document.getElementById('login_password').value || '';
+        try{
+            const r = await fetch('/api/v1/auth/login', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({username:u,password:p})});
+            if(!r.ok){
+                const text = await r.text();
+                errEl.textContent = text || 'Invalid credentials';
+                errEl.style.display='block';
+                return;
+            }
+            // success - hide modal and re-init UI
+            modal.style.display='none';
+            // re-run initialization once authenticated
+            initThemeToggle(); initTabs(); checkConfigStatus(); loadServerStatus(); loadAgents(); initTenantsUI(); initUsersUI(); initAddAgentUI(); connectWS(); connectSSE();
+        }catch(ex){
+            errEl.textContent = ex && ex.message ? ex.message : 'Login failed';
+            errEl.style.display='block';
+        }
+    };
+
+    submit.onclick = doSubmit;
+    cancel.onclick = ()=>{ modal.style.display='none'; };
+    document.getElementById('login_password').addEventListener('keypress', function(e){ if(e.key==='Enter'){ doSubmit(); } });
+}
+
+// Log out the current user and show login modal
+async function logout() {
+    try {
+        const r = await fetch('/api/v1/auth/logout', { method: 'POST' });
+        if (!r.ok) {
+            // still attempt to clear UI
+            window.location = '/login';
+            window.__pm_shared.showToast('Logged out (server responded ' + r.status + ')', 'info');
+            document.getElementById('logout_btn').style.display = 'none';
+            return;
+        }
+        document.getElementById('logout_btn').style.display = 'none';
+        window.location = '/login';
+        window.__pm_shared.showToast('Logged out', 'success');
+    } catch (err) {
+        window.__pm_shared.error('Logout failed', err);
+        window.location = '/login';
+    }
+}
+
+// Show or hide logout button based on current auth state
+async function updateAuthUI() {
+    try {
+        const r = await fetch('/api/v1/auth/me');
+        const btn = document.getElementById('logout_btn');
+        if (!btn) return;
+        if (r.ok) {
+            btn.style.display = 'inline-block';
+            btn.onclick = logout;
+        } else {
+            btn.style.display = 'none';
+        }
+    } catch (err) {
+        // If the auth check fails, hide logout button
+        const btn = document.getElementById('logout_btn');
+        if (btn) btn.style.display = 'none';
+    }
+}
 
 // ====== WebSocket Connection (UI liveness channel) ======
 function connectWS() {
@@ -331,6 +442,8 @@ function initTabs() {
             loadMetrics();
         } else if (targetTab === 'settings') {
             loadSettings();
+            // initialize settings buttons and autosave wiring
+            initSettingsButtons();
         } else if (targetTab === 'logs') {
             // Previously called connectLogStream() which no longer exists - use loadLogs()
             loadLogs();
@@ -401,6 +514,173 @@ function initTenantsUI(){
         });
     }
     loadTenants();
+}
+
+// ====== Users UI ======
+function initUsersUI(){
+    const btn = document.getElementById('new_user_btn');
+    if(btn){
+        btn.addEventListener('click', ()=>{
+            openUserModal();
+        });
+    }
+    // Wire modal close/buttons
+    const userModal = document.getElementById('user_modal');
+    if(userModal){
+        document.getElementById('user_modal_close_x').addEventListener('click', ()=> userModal.style.display='none');
+        document.getElementById('user_cancel').addEventListener('click', ()=> userModal.style.display='none');
+        document.getElementById('user_submit').addEventListener('click', submitCreateUser);
+    }
+
+    loadUsers();
+}
+
+async function loadUsers(){
+    const el = document.getElementById('users_list');
+    if(!el) return;
+    el.innerHTML = '<div style="color:var(--muted)">Loading users...</div>';
+    try{
+        const r = await fetch('/api/v1/users');
+        if(!r.ok) throw new Error(await r.text());
+        const users = await r.json();
+        renderUsers(users);
+    }catch(err){
+        el.innerHTML = '<div style="color:var(--danger)">Error loading users: '+(err.message||err)+'</div>';
+    }
+}
+
+function renderUsers(list){
+    const el = document.getElementById('users_list');
+    if(!el) return;
+    if(!Array.isArray(list) || list.length===0){
+        el.innerHTML = '<div style="color:var(--muted);">No users found.</div>';
+        return;
+    }
+    const rows = list.map(u=>{
+        return `
+            <div class="card" style="margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="font-weight:600">${escapeHtml(u.username||'—')}</div>
+                        <div style="color:var(--muted);font-size:12px">Role: ${escapeHtml(u.role||'user')} &nbsp; Tenant: ${escapeHtml(u.tenant_id||'(global)')} &nbsp; Email: ${escapeHtml(u.email||'(none)')}</div>
+                    </div>
+                    <div style="display:flex;gap:8px;">
+                        <button data-action="edit-user" data-id="${u.id}">Edit</button>
+                        <button data-action="delete-user" data-id="${u.id}">Delete</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('\n');
+    el.innerHTML = rows;
+
+    // Attach handlers for edit/delete
+    el.querySelectorAll('button[data-action="edit-user"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const id = b.getAttribute('data-id');
+            openUserEditModal(id);
+        });
+    });
+    el.querySelectorAll('button[data-action="delete-user"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const id = b.getAttribute('data-id');
+            if(!confirm('Delete user ID '+id+'? This cannot be undone.')) return;
+            try{
+                const r = await fetch('/api/v1/users/'+encodeURIComponent(id), { method: 'DELETE' });
+                if(!r.ok) throw new Error(await r.text());
+                window.__pm_shared.showToast('User deleted', 'success');
+                loadUsers();
+            }catch(err){
+                window.__pm_shared.showAlert('Failed to delete user: '+(err.message||err), 'Error', true, false);
+            }
+        });
+    });
+}
+
+function openUserModal(){
+    const modal = document.getElementById('user_modal');
+    if(!modal) return;
+    // populate tenant select from cached tenants
+    const sel = document.getElementById('user_tenant');
+    if(sel){
+        sel.innerHTML = '<option value="">(Global / Server)</option>';
+        if(window._tenants && Array.isArray(window._tenants)){
+            window._tenants.forEach(t=>{
+                const opt = document.createElement('option');
+                opt.value = t.id || t.uuid || '';
+                opt.textContent = t.name || opt.value;
+                sel.appendChild(opt);
+            });
+        }
+    }
+    // reset fields
+    document.getElementById('user_username').value = '';
+    document.getElementById('user_email').value = '';
+    document.getElementById('user_password').value = '';
+    document.getElementById('user_role').value = 'user';
+    document.getElementById('user_error').style.display='none';
+    modal.style.display = 'flex';
+    document.getElementById('user_username').focus();
+}
+
+async function submitCreateUser(){
+    const modal = document.getElementById('user_modal');
+    const username = document.getElementById('user_username').value || '';
+    const email = document.getElementById('user_email').value || '';
+    const password = document.getElementById('user_password').value || '';
+    const role = document.getElementById('user_role').value || 'user';
+    const tenant = document.getElementById('user_tenant').value || '';
+    const errEl = document.getElementById('user_error');
+    errEl.style.display='none';
+    if(!username || !password){
+        errEl.textContent = 'Username and password required'; errEl.style.display='block'; return;
+    }
+    try{
+        const payload = { username, password, role };
+        if(email) payload.email = email;
+        if(tenant) payload.tenant_id = tenant;
+        const editId = modal.getAttribute('data-edit-id');
+        let r;
+        if(editId) {
+            // update existing
+            r = await fetch('/api/v1/users/'+encodeURIComponent(editId), { method: 'PUT', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+        } else {
+            r = await fetch('/api/v1/users', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+        }
+        if(!r.ok){
+            const txt = await r.text();
+            throw new Error(txt || 'Request failed');
+        }
+        const created = await r.json();
+        modal.style.display='none';
+        modal.removeAttribute('data-edit-id');
+        document.getElementById('user_submit').textContent = 'Create';
+        window.__pm_shared.showToast(editId ? 'User updated' : 'User created', 'success');
+        loadUsers();
+    }catch(err){
+        errEl.textContent = (err && err.message) ? err.message : 'Failed to create user'; errEl.style.display='block';
+    }
+}
+
+// Open modal for editing an existing user
+async function openUserEditModal(id){
+    try{
+        const r = await fetch('/api/v1/users/'+encodeURIComponent(id));
+        if(!r.ok) throw new Error(await r.text());
+        const u = await r.json();
+        const modal = document.getElementById('user_modal');
+        document.getElementById('user_username').value = u.username || '';
+        document.getElementById('user_email').value = u.email || '';
+        document.getElementById('user_password').value = '';
+        document.getElementById('user_role').value = u.role || 'user';
+        document.getElementById('user_tenant').value = u.tenant_id || '';
+        // store editing id on modal
+        modal.setAttribute('data-edit-id', id);
+        document.getElementById('user_submit').textContent = 'Save';
+        modal.style.display = 'flex';
+    }catch(err){
+        window.__pm_shared.showAlert('Failed to load user: '+(err.message||err), 'Error', true, false);
+    }
 }
 
 async function loadTenants(){
@@ -611,11 +891,11 @@ function renderAgentCard(agent) {
                             let cls = 'none';
                             if (agent.connection_type === 'ws') {
                                 label = 'Live';
-                                title = 'WebSocket (live)';
+                                title = 'Live';
                                 cls = 'ws';
                             } else if (agent.connection_type === 'http') {
                                 label = 'HTTP(s) Fallback';
-                                title = 'HTTP(s) recent fallback';
+                                title = 'HTTP(s) Fallback';
                                 cls = 'http';
                             } else {
                                 label = 'Disconnected';
@@ -1368,16 +1648,30 @@ function openDeviceMetrics(serial) {
 // ====== Settings Management ======
 async function loadSettings() {
     try {
-        // There's no complex settings endpoint yet; reuse config status as a safe probe
-        const response = await fetch('/api/config/status');
+        const response = await fetch('/api/settings');
         if (!response.ok) {
             window.__pm_shared.showToast('Failed to load settings', 'error');
             return;
         }
-        
         const settings = await response.json();
         window.__pm_shared.log('Settings loaded:', settings);
-        // TODO: Populate settings form
+
+        // populate server settings
+        if (settings.server_http_port) document.getElementById('server_http_port').value = settings.server_http_port;
+        if (settings.server_https_port) document.getElementById('server_https_port').value = settings.server_https_port;
+        if (settings.server_db_path) document.getElementById('server_db_path').value = settings.server_db_path;
+        // populate SMTP
+        if (settings.smtp) {
+            document.getElementById('smtp_enabled').checked = !!settings.smtp.enabled;
+            if (settings.smtp.host) document.getElementById('smtp_host').value = settings.smtp.host;
+            if (settings.smtp.port) document.getElementById('smtp_port').value = settings.smtp.port;
+            if (settings.smtp.user) document.getElementById('smtp_user').value = settings.smtp.user;
+            if (settings.smtp.from) document.getElementById('smtp_from').value = settings.smtp.from;
+        }
+
+        // populate agent settings
+        if (typeof settings.auto_approve_agents !== 'undefined') document.getElementById('auto_approve_agents').checked = !!settings.auto_approve_agents;
+        if (settings.agent_timeout) document.getElementById('agent_timeout').value = settings.agent_timeout;
 
         // Show printer details modal by delegating to the shared renderer.
     } catch (error) {
@@ -1388,9 +1682,24 @@ async function loadSettings() {
 
 async function saveSettings() {
     try {
-        // TODO: Collect settings from form
-        const settings = {};
-        // Post to /api/settings if available; server provides a minimal handler
+        const settings = {
+            server_http_port: parseInt(document.getElementById('server_http_port').value, 10) || undefined,
+            server_https_port: parseInt(document.getElementById('server_https_port').value, 10) || undefined,
+            server_db_path: document.getElementById('server_db_path').value || "",
+            smtp: {
+                enabled: !!document.getElementById('smtp_enabled').checked,
+                host: document.getElementById('smtp_host').value || "",
+                port: parseInt(document.getElementById('smtp_port').value, 10) || 0,
+                user: document.getElementById('smtp_user').value || "",
+                pass: document.getElementById('smtp_pass').value || "",
+                from: document.getElementById('smtp_from').value || "",
+            }
+        };
+
+        // agent settings
+        settings.auto_approve_agents = !!document.getElementById('auto_approve_agents').checked;
+        settings.agent_timeout = parseInt(document.getElementById('agent_timeout').value, 10) || 0;
+
         const response = await fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1403,9 +1712,101 @@ async function saveSettings() {
         }
 
         window.__pm_shared.showToast('Settings saved successfully', 'success');
+        // show autosave feedback if enabled
+        const fb = document.getElementById('autosave_feedback');
+        if (fb) {
+            fb.classList.add('show');
+            setTimeout(()=> fb.classList.remove('show'), 2000);
+        }
     } catch (error) {
         window.__pm_shared.error('Failed to save settings:', error);
     window.__pm_shared.showToast('Failed to save settings', 'error');
+    }
+}
+
+// Revert UI fields to last-saved settings from server
+async function revertSettings() {
+    await loadSettings();
+    window.__pm_shared.showToast('Settings reverted', 'info');
+}
+
+// Reset UI fields to reasonable defaults (client-side) — does not persist until Apply pressed
+function resetSettings() {
+    document.getElementById('server_http_port').value = 9090;
+    document.getElementById('server_https_port').value = 9443;
+    document.getElementById('server_db_path').value = '';
+    document.getElementById('smtp_enabled').checked = false;
+    document.getElementById('smtp_host').value = '';
+    document.getElementById('smtp_port').value = 587;
+    document.getElementById('smtp_user').value = '';
+    document.getElementById('smtp_pass').value = '';
+    document.getElementById('smtp_from').value = '';
+    document.getElementById('auto_approve_agents').checked = false;
+    document.getElementById('agent_timeout').value = 15;
+    window.__pm_shared.showToast('Settings reset to defaults (not saved)', 'info');
+}
+
+// Debounce helper
+function debounce(fn, ms){
+    let t;
+    return (...args)=>{ clearTimeout(t); t = setTimeout(()=> fn(...args), ms); };
+}
+
+// Autosave setup — when enabled, auto-save on input change (debounced)
+function setupAutosave() {
+    const autosaveCheckbox = document.getElementById('settings_autosave');
+    if (!autosaveCheckbox) return;
+    const inputs = document.querySelectorAll('.settings-grid input, .settings-grid select');
+    const debouncedSave = debounce(()=>{ if (autosaveCheckbox.checked) saveSettings(); }, 800);
+    inputs.forEach(i=> i.addEventListener('input', debouncedSave));
+    // Also toggle visibility of Apply/Revert/Reset buttons when autosave enabled
+    autosaveCheckbox.addEventListener('change', ()=>{
+        const btns = document.getElementById('settings_buttons');
+        if (btns) btns.style.display = autosaveCheckbox.checked ? 'none' : 'block';
+    });
+}
+
+// Wire settings buttons (call on init)
+function initSettingsButtons(){
+    const apply = document.getElementById('settings_apply_btn');
+    const revert = document.getElementById('settings_revert_btn');
+    const reset = document.getElementById('settings_reset_btn');
+    if (apply) apply.addEventListener('click', saveSettings);
+    if (revert) revert.addEventListener('click', revertSettings);
+    if (reset) reset.addEventListener('click', resetSettings);
+    setupAutosave();
+}
+
+// Send a test email using current SMTP settings. Prompts for recipient if not provided.
+async function sendTestEmail() {
+    try {
+        let to = document.getElementById('smtp_test_to').value || '';
+        if (!to) {
+            to = prompt('Enter an email address to send the test message to:');
+            if (!to) return;
+        }
+
+        const response = await fetch('/api/settings/test-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ to })
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            window.__pm_shared.showToast('Failed to send test email: ' + txt, 'error', 5000);
+            return;
+        }
+
+        const data = await response.json();
+        if (data && data.sent) {
+            window.__pm_shared.showToast('Test email sent', 'success', 4000);
+        } else {
+            window.__pm_shared.showToast('Test email request completed', 'success', 3000);
+        }
+    } catch (err) {
+        window.__pm_shared.error('sendTestEmail failed', err);
+        window.__pm_shared.showToast('Failed to send test email', 'error');
     }
 }
 

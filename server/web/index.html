@@ -31,6 +31,7 @@
                     <div class="theme-toggle-icon"></div>
                 </div>
             </label>
+            <button id="logout_btn" style="display:none;" title="Log out" class="modal-button">Log out</button>
         </div>
     </div>
 
@@ -50,6 +51,7 @@
             </div>
             <div class="mobile-nav" id="mobile_nav">
                 <button class="tab active" data-target="agents">Agents</button>
+                <button class="tab" data-target="users">Users</button>
                 <button class="tab" data-target="devices">Devices</button>
                 <button class="tab" data-target="metrics">Metrics</button>
                 <button class="tab" data-target="settings">Settings</button>
@@ -57,6 +59,7 @@
             </div>
             <!-- Desktop tabs -->
             <button class="tab active" data-target="agents">Agents</button>
+            <button class="tab" data-target="users">Users</button>
             <button class="tab" data-target="tenants">Customers</button>
             <button class="tab" data-target="devices">Devices</button>
             <button class="tab" data-target="metrics">Metrics</button>
@@ -154,6 +157,42 @@
                     </div>
                 </div>
 
+                <!-- Email / SMTP -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Email (SMTP)</h4>
+                    <div style="display:flex;flex-direction:column;gap:12px;">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" id="smtp_enabled" />
+                            <span style="font-weight:500;font-size:14px;">Enable SMTP</span>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">SMTP Host:</span>
+                            <input id="smtp_host" type="text" style="width:320px" placeholder="smtp.example.com" />
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">SMTP Port:</span>
+                            <input id="smtp_port" type="number" style="width:120px" value="587" />
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">SMTP User:</span>
+                            <input id="smtp_user" type="text" style="width:320px" placeholder="user@example.com" />
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">SMTP Password:</span>
+                            <input id="smtp_pass" type="password" style="width:320px" placeholder="secret" />
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">From Address:</span>
+                            <input id="smtp_from" type="text" style="width:320px" placeholder="no-reply@example.com" />
+                        </label>
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">Test Recipient:</span>
+                            <input id="smtp_test_to" type="text" style="width:320px" placeholder="your-email@example.com" />
+                            <button type="button" class="btn" onclick="sendTestEmail()">Send test email</button>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Agent Management -->
                 <div class="panel">
                     <h4 style="margin-top:0;color:var(--highlight)">Agent Management</h4>
@@ -208,6 +247,21 @@
             </div> <!-- End settings-grid -->
         </div>
 
+        <!-- Users Tab -->
+        <div style="margin-top:12px;" data-tab="users" class="hidden">
+            <h3>Users</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+                <div style="color:var(--muted);">Manage local users and roles</div>
+                <div>
+                    <button id="new_user_btn">New User</button>
+                </div>
+            </div>
+
+            <div id="users_list">
+                <div style="color:var(--muted);">Loading users...</div>
+            </div>
+        </div>
+
         <!-- Logs Tab -->
         <div class="hidden" style="margin-top:12px;" data-tab="logs">
             <h3>Server Log</h3>
@@ -236,6 +290,27 @@
 
     <!-- Toast notification container -->
     <div class="toast-container" id="toast_container"></div>
+
+    <!-- Login Modal -->
+    <div class="modal" id="login_modal" style="display:none;">
+        <div class="modal-content" style="max-width:420px;">
+            <div class="modal-header">
+                <span class="modal-title">Sign In</span>
+            </div>
+            <div class="modal-body">
+                <div style="margin-bottom:8px;color:var(--muted);">Sign in to access PrintMaster.</div>
+                <label style="display:block;margin-bottom:6px;">Username</label>
+                <input id="login_username" type="text" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
+                <label style="display:block;margin-bottom:6px;">Password</label>
+                <input id="login_password" type="password" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
+                <div id="login_error" style="color:var(--danger);display:none;margin-bottom:8px;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="login_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="login_submit">Sign In</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Confirmation Modal -->
     <div class="modal" id="confirm_modal" style="display:none;">
@@ -318,6 +393,39 @@
             <div class="modal-footer">
                 <button class="modal-button modal-button-secondary" id="input_modal_cancel">Cancel</button>
                 <button class="modal-button modal-button-primary" id="input_modal_ok">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Modal (create/edit) -->
+    <div class="modal" id="user_modal" style="display:none;">
+        <div class="modal-content" style="max-width:520px;">
+            <div class="modal-header">
+                <span class="modal-title" id="user_modal_title">Add User</span>
+                <span class="modal-close" id="user_modal_close_x">&times;</span>
+            </div>
+            <div class="modal-body">
+                <label style="display:block;margin-bottom:6px;">Username</label>
+                <input id="user_username" type="text" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
+                <label style="display:block;margin-bottom:6px;">Email</label>
+                <input id="user_email" type="text" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
+                <label style="display:block;margin-bottom:6px;">Password</label>
+                <input id="user_password" type="password" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
+                <label style="display:block;margin-bottom:6px;">Role</label>
+                <select id="user_role" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);">
+                    <option value="user">User</option>
+                    <option value="readonly">Read-only</option>
+                    <option value="admin">Admin</option>
+                </select>
+                <label style="display:block;margin-bottom:6px;">Tenant (optional)</label>
+                <select id="user_tenant" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);">
+                    <option value="">(Global / Server)</option>
+                </select>
+                <div id="user_error" style="color:var(--danger);display:none;margin-top:6px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="user_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="user_submit">Create</button>
             </div>
         </div>
     </div>

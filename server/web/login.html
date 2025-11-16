@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PrintMaster — Login</title>
+    <link rel="stylesheet" href="/static/shared.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/shared.js"></script>
+</head>
+<body>
+    <div style="display:flex;min-height:100vh;align-items:center;justify-content:center;background:var(--bg);">
+        <div style="width:380px;padding:28px;border-radius:8px;box-shadow:var(--shadow);background:var(--panel);">
+            <h2 style="margin:0 0 8px 0;">Sign in to PrintMaster</h2>
+            <div id="login_error" style="display:none;color:var(--danger);margin-bottom:8px;"></div>
+            <label style="display:flex;flex-direction:column;margin-bottom:8px;">
+                <span style="font-size:13px;color:var(--muted);">Username</span>
+                <input id="login_username" type="text" placeholder="admin" style="padding:8px;margin-top:6px;" />
+            </label>
+            <label style="display:flex;flex-direction:column;margin-bottom:12px;">
+                <span style="font-size:13px;color:var(--muted);">Password</span>
+                <input id="login_password" type="password" placeholder="password" style="padding:8px;margin-top:6px;" />
+            </label>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button id="login_submit" class="modal-button modal-button-primary">Sign in</button>
+                <button id="login_cancel" class="modal-button">Cancel</button>
+            </div>
+            <div style="margin-top:12px;font-size:13px;color:var(--muted);">
+                <a href="/">Back to home</a>
+            </div>
+        </div>
+    </div>
+
+<script>
+// Minimal login page behavior
+async function doLogin(){
+    const errEl = document.getElementById('login_error'); errEl.style.display='none';
+    const u = document.getElementById('login_username').value || '';
+    const p = document.getElementById('login_password').value || '';
+    try{
+        const r = await fetch('/api/v1/auth/login', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({username:u,password:p})});
+        if(!r.ok){
+            const text = await r.text();
+            errEl.textContent = text || 'Invalid credentials';
+            errEl.style.display = 'block';
+            return;
+        }
+        // On success redirect to root
+        window.location = '/';
+    }catch(e){
+        errEl.textContent = e && e.message ? e.message : 'Login failed';
+        errEl.style.display = 'block';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+    document.getElementById('login_submit').onclick = doLogin;
+    document.getElementById('login_cancel').onclick = function(){ window.location = '/'; };
+    document.getElementById('login_password').addEventListener('keypress', function(e){ if(e.key==='Enter'){ doLogin(); } });
+});
+</script>
+</body>
+</html>
