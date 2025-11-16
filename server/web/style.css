@@ -1837,6 +1837,8 @@ input[type="checkbox"]:indeterminate::before {
   padding: 24px;
   max-width: 500px;
   width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
   animation: modal-slide-in 0.3s ease;
   position: relative;

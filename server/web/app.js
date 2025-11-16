@@ -2067,19 +2067,64 @@ async function handleAddAgentPrimary(){
         // Basic validation
         if(!tenantID){ window.__pm_shared.showAlert('Please select a tenant (customer) to assign this token to.', 'Missing tenant', true, false); return; }
 
-        // Create join token
-        try{
-            const payload = { tenant_id: tenantID, ttl_minutes: ttl, one_time: one_time };
-            const r = await fetch('/api/v1/join-token', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
-            if(!r.ok) throw new Error(await r.text());
-            const data = await r.json();
-            st.token = data.token;
-            st.step = 2;
-            st.tenantID = tenantID;
-            window._addAgentState = st;
-            renderAddAgentStep(2);
-        }catch(err){
-            window.__pm_shared.showAlert('Failed to create join token: ' + (err && err.message ? err.message : err), 'Error', true, false);
+        // Decide whether user wants a raw token or a generated bootstrap script
+        const selectedActionEl = document.querySelector('input[name="add_agent_action"]:checked');
+        const action = selectedActionEl ? selectedActionEl.value : 'token';
+        if(action === 'token'){
+            // Create join token
+            try{
+                const payload = { tenant_id: tenantID, ttl_minutes: ttl, one_time: one_time };
+                const r = await fetch('/api/v1/join-token', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+                if(!r.ok) throw new Error(await r.text());
+                const data = await r.json();
+                st.token = data.token;
+                st.step = 2;
+                st.tenantID = tenantID;
+                window._addAgentState = st;
+                renderAddAgentStep(2);
+            }catch(err){
+                window.__pm_shared.showAlert('Failed to create join token: ' + (err && err.message ? err.message : err), 'Error', true, false);
+            }
+        } else {
+            // Generate bootstrap script via server packages API
+            try{
+                const platformSel = document.getElementById('add_agent_platform');
+                const platform = platformSel ? platformSel.value : 'linux';
+                const payload = { tenant_id: tenantID, platform: platform, installer_type: 'script', ttl_minutes: ttl };
+                const r = await fetch('/api/v1/packages', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+                if(!r.ok) {
+                    throw new Error(await r.text());
+                }
+                // Handle JSON or plain text responses
+                const ct = (r.headers.get('content-type') || '').toLowerCase();
+                let scriptText = '';
+                let filename = 'bootstrap.sh';
+                let downloadURL = null;
+                if(ct.includes('application/json')){
+                    const data = await r.json();
+                    scriptText = data.script || '';
+                    filename = data.filename || filename;
+                    downloadURL = data.download_url || null;
+                } else {
+                    scriptText = await r.text();
+                    const cd = r.headers.get('content-disposition');
+                    if(cd){
+                        const m = cd.match(/filename="?([^";]+)"?/);
+                        if(m && m[1]) filename = m[1];
+                    } else if(platform === 'windows') filename = 'bootstrap.ps1';
+                    else if(platform === 'darwin') filename = 'bootstrap.sh';
+                }
+
+                st.script = scriptText;
+                st.scriptFilename = filename;
+                st.scriptDownloadURL = downloadURL;
+                st.step = 2;
+                st.tenantID = tenantID;
+                window._addAgentState = st;
+                renderAddAgentStep(2);
+            }catch(err){
+                window.__pm_shared.showAlert('Failed to generate bootstrap script: ' + (err && err.message ? err.message : err), 'Error', true, false);
+            }
         }
     } else if(st.step === 2){
         // Done
@@ -2122,6 +2167,20 @@ function renderAddAgentStep(step){
                     <span style="color:var(--muted)">One-time (single-use) token</span>
                 </label>
 
+                <div style="margin-top:8px;">
+                    <div style="font-weight:600;margin-bottom:6px;">Onboarding method</div>
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="token" checked /> Show raw token</label>
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="script" /> Generate bootstrap script</label>
+                    <div id="add_agent_platform_row" style="margin-top:8px;display:none;">
+                        <label style="font-weight:600">Target platform</label>
+                        <select id="add_agent_platform" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:180px;">
+                            <option value="linux">Linux</option>
+                            <option value="windows">Windows</option>
+                            <option value="darwin">macOS</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div style="color:var(--muted);font-size:13px">This will create a join token that an agent can use to register with the server. The token will be shown once — copy it and deliver it to the agent (or use agent onboarding).</div>
             </div>
         `;
@@ -2130,30 +2189,63 @@ function renderAddAgentStep(step){
             const sel = content.querySelector('#add_agent_tenant');
             if(sel) sel.value = window._addAgentState.tenantID;
         }
+        // Wire action radio toggles to show/hide platform
+        const actionRadios = content.querySelectorAll('input[name="add_agent_action"]');
+        const platRow = content.querySelector('#add_agent_platform_row');
+        actionRadios.forEach(r => r.addEventListener('change', ()=>{
+            if(platRow) platRow.style.display = (r.value === 'script' && r.checked) ? '' : 'none';
+        }));
         if(primaryBtn) primaryBtn.textContent = 'Create Token';
     } else {
         // Step 2: show token
         const token = (window._addAgentState && window._addAgentState.token) ? window._addAgentState.token : '';
-        content.innerHTML = `
-            <div style="display:flex;flex-direction:column;gap:12px;">
-                <div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(token)}</div>
-                <div style="display:flex;gap:8px;">
-                    <button id="add_agent_copy" class="modal-button modal-button-secondary">Copy token</button>
-                    <button id="add_agent_download" class="modal-button">Download token</button>
+        // If we have a generated script, show it instead of raw token
+        const script = (window._addAgentState && window._addAgentState.script) ? window._addAgentState.script : null;
+        const filename = (window._addAgentState && window._addAgentState.scriptFilename) ? window._addAgentState.scriptFilename : 'bootstrap';
+        if(script){
+            content.innerHTML = `
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>
+                    <div style="display:flex;gap:8px;">
+                        <button id="add_agent_copy" class="modal-button modal-button-secondary">Copy script</button>
+                        <button id="add_agent_download" class="modal-button">Download script</button>
+                        ${ (window._addAgentState && window._addAgentState.scriptDownloadURL) ? `<a id="add_agent_download_url" class="modal-button" href="${escapeHtml(window._addAgentState.scriptDownloadURL)}" target="_blank">Open hosted URL</a>` : '' }
+                    </div>
+                    <div style="color:var(--muted);font-size:13px">This script was generated for the selected platform. Download or copy it and execute it on the target machine to install and register the agent.</div>
                 </div>
-                <div style="color:var(--muted);font-size:13px">This token is shown only once. After you close this modal the raw token cannot be retrieved again from the server.</div>
-            </div>
-        `;
-        // Wire copy/download
-        const copyBtn = document.getElementById('add_agent_copy');
-        if(copyBtn) copyBtn.addEventListener('click', copyTokenToClipboard);
-        const dlBtn = document.getElementById('add_agent_download');
-        if(dlBtn) dlBtn.addEventListener('click', ()=>{
-            const blob = new Blob([token], {type:'text/plain'});
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = 'join-token.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-        });
+            `;
+            const copyBtn = document.getElementById('add_agent_copy');
+            if(copyBtn) copyBtn.addEventListener('click', ()=>{
+                navigator.clipboard?.writeText(script).then(()=>{ window.__pm_shared.showToast('Script copied to clipboard','success'); }).catch(err=>{ window.__pm_shared.showAlert('Failed to copy script: ' + (err && err.message ? err.message : err), 'Error', true, false); });
+            });
+            const dlBtn = document.getElementById('add_agent_download');
+            if(dlBtn) dlBtn.addEventListener('click', ()=>{
+                const blob = new Blob([script], {type:'application/octet-stream'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            });
+        } else {
+            content.innerHTML = `
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(token)}</div>
+                    <div style="display:flex;gap:8px;">
+                        <button id="add_agent_copy" class="modal-button modal-button-secondary">Copy token</button>
+                        <button id="add_agent_download" class="modal-button">Download token</button>
+                    </div>
+                    <div style="color:var(--muted);font-size:13px">This token is shown only once. After you close this modal the raw token cannot be retrieved again from the server.</div>
+                </div>
+            `;
+            // Wire copy/download for token
+            const copyBtn = document.getElementById('add_agent_copy');
+            if(copyBtn) copyBtn.addEventListener('click', copyTokenToClipboard);
+            const dlBtn = document.getElementById('add_agent_download');
+            if(dlBtn) dlBtn.addEventListener('click', ()=>{
+                const blob = new Blob([token], {type:'text/plain'});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'join-token.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+            });
+        }
         if(primaryBtn) primaryBtn.textContent = 'Done';
     }
 }
