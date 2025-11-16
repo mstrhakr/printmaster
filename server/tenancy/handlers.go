@@ -552,10 +552,22 @@ fi
 
 		// Respond with JSON containing script and hosted URL for convenience
 		w.Header().Set("Content-Type", "application/json")
+		// Provide a short one-line command that admins can paste into a shell
+		// to fetch and execute the hosted install script. For Windows we emit
+		// an Invoke-RestMethod/Invoke-Expression pattern (`irm <url> | iex`) and
+		// for Unix-like systems we emit `curl -fsSL <url> | sh`.
+		oneLiner := ""
+		switch platform {
+		case "windows":
+			oneLiner = fmt.Sprintf("irm %q | iex", downloadURL)
+		default:
+			oneLiner = fmt.Sprintf("curl -fsSL %q | sh", downloadURL)
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"script":       script,
 			"filename":     filename,
 			"download_url": downloadURL,
+			"one_liner":    oneLiner,
 		})
 		return
 	}
