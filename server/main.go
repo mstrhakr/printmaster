@@ -1770,6 +1770,9 @@ func setupRoutes(cfg *Config) {
 	// Tenancy & join-token routes (DB-backed when available). Protect via requireWebAuth.
 	if cfg != nil && cfg.Tenancy.Enabled {
 		tenancy.AuthMiddleware = requireWebAuth
+		// Provide runtime server version to tenancy handlers so the
+		// download redirect can select a matching agent release on GitHub.
+		tenancy.SetServerVersion(Version)
 		tenancy.RegisterRoutes(serverStore)
 		serverLogger.Info("Tenancy routes registered", "enabled", true)
 	} else {

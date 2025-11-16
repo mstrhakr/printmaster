@@ -4,7 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"printmaster/server/storage"
@@ -19,6 +23,33 @@ var dbStore storage.Store
 // tenancy handlers so they can enforce authentication/authorization.
 // Set to nil to leave routes unprotected (not recommended).
 var AuthMiddleware func(http.HandlerFunc) http.HandlerFunc
+
+// installMap stores transient install scripts keyed by a short code.
+type installEntry struct {
+	Script    string
+	Filename  string
+	ExpiresAt time.Time
+	OneTime   bool
+}
+
+var installStore = struct {
+	mu sync.Mutex
+	m  map[string]installEntry
+}{
+	m: make(map[string]installEntry),
+}
+
+var installCleanerOnce sync.Once
+
+// serverVersion holds the running server semantic version. Main should set
+// this via SetServerVersion so the download redirect can choose the matching
+// agent release asset on GitHub.
+var serverVersion string
+
+// SetServerVersion sets the server version (called from main at startup).
+func SetServerVersion(v string) {
+	serverVersion = v
+}
 
 // RegisterRoutes registers HTTP handlers for tenancy endpoints. If a
 // non-nil storage.Store is provided, handlers will persist tenants and tokens
@@ -51,6 +82,18 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	mux.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken) // registration must remain public
 	mux.HandleFunc("/api/v1/join-tokens", wrap(handleListJoinTokens))             // GET (admin)
 	mux.HandleFunc("/api/v1/join-token/revoke", wrap(handleRevokeJoinToken))      // POST {"id":"..."}
+	// Package generation (bootstrap script / archive) - admin only
+	mux.HandleFunc("/api/v1/packages", wrap(handleGeneratePackage))
+	// Public redirect to latest agent binary on GitHub releases. This chooses
+	// the release based on the running server version (set by main via
+	// SetServerVersion) and redirects to the appropriate asset for the
+	// requested platform/arch.
+	mux.HandleFunc("/api/v1/agents/download/latest", handleAgentDownloadLatest)
+	// Hosted install scripts (transient codes)
+	mux.HandleFunc("/install/", handleInstall)
+
+	// Start background cleanup for transient installs (runs once)
+	installCleanerOnce.Do(func() { go installCleanupLoop() })
 }
 
 // handleTenants supports GET (list) and POST (create)
@@ -354,4 +397,273 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		"tenant_id":   jt.TenantID,
 		"agent_token": placeholder,
 	})
+}
+
+// handleGeneratePackage creates a bootstrap package/script for an agent to
+// download and register using a join token. Request (POST) JSON:
+// {"tenant_id":"...","platform":"linux|windows|darwin","installer_type":"script|archive","ttl_minutes":10}
+// Response: attachment (script) or JSON with download_url depending on request.
+func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		TenantID      string `json:"tenant_id"`
+		Platform      string `json:"platform"`
+		InstallerType string `json:"installer_type"` // script or archive
+		TTLMinutes    int    `json:"ttl_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"invalid json"}`))
+		return
+	}
+	if in.TTLMinutes <= 0 {
+		in.TTLMinutes = 10
+	}
+	// Ensure tenant exists
+	if dbStore != nil {
+		if _, err := dbStore.GetTenant(r.Context(), in.TenantID); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":"tenant not found"}`))
+			return
+		}
+	} else {
+		// In-memory fallback - check tenants map under lock
+		store.mu.Lock()
+		_, ok := store.tenants[in.TenantID]
+		store.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":"tenant not found"}`))
+			return
+		}
+	}
+
+	// Create a short-lived one-time join token for the package
+	var rawToken string
+	if dbStore != nil {
+		if _, rt, err := dbStore.CreateJoinToken(r.Context(), in.TenantID, in.TTLMinutes, true); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to create token"}`))
+			return
+		} else {
+			rawToken = rt
+		}
+	} else {
+		jt, err := store.CreateJoinToken(in.TenantID, in.TTLMinutes, true)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to create token"}`))
+			return
+		}
+		rawToken = jt.Token
+	}
+
+	// Build server URL from request
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	serverURL := scheme + "://" + r.Host
+
+	// Provide simple script templates for platforms (script installer MVP)
+	installerType := strings.ToLower(in.InstallerType)
+	if installerType == "" {
+		installerType = "script"
+	}
+	platform := strings.ToLower(in.Platform)
+
+	if installerType == "script" {
+		var script string
+		filename := "bootstrap"
+		switch platform {
+		case "windows", "win", "windows_nt":
+			filename = "install.ps1"
+			pwTemplate := `# PowerShell bootstrap for PrintMaster
+$server = "%s"
+$token = "%s"
+Write-Host "Downloading agent..."
+Invoke-WebRequest -Uri "$server/api/v1/agents/download/latest" -OutFile "C:\\Program Files\\PrintMaster\\pm-agent.exe" -UseBasicParsing
+# Create config and launch agent
+New-Item -ItemType Directory -Force -Path 'C:\\ProgramData\\PrintMaster' | Out-Null
+$conf = '{"server_url":"' + $server + '","join_token":"' + $token + '"}'
+Set-Content -Path 'C:\\ProgramData\\PrintMaster\\pm-config.json' -Value $conf
+# Try to start the agent (best-effort)
+try {
+	Start-Process -FilePath "C:\\Program Files\\PrintMaster\\pm-agent.exe" -ArgumentList "--config C:\\ProgramData\\PrintMaster\\pm-config.json" -NoNewWindow
+} catch {
+	Write-Host "Failed to start agent: $_"
+}
+`
+			script = fmt.Sprintf(pwTemplate, serverURL, rawToken)
+		default:
+			// linux / darwin
+			filename = "install.sh"
+			shTemplate := `#!/bin/sh
+SERVER="%s"
+TOKEN="%s"
+set -e
+echo "Downloading agent..."
+curl -fsSL "$SERVER/api/v1/agents/download/latest" -o /usr/local/bin/pm-agent || exit 1
+chmod +x /usr/local/bin/pm-agent
+mkdir -p /etc/printmaster
+cat > /etc/printmaster/pm-config.json <<EOF
+{"server_url":"$SERVER","join_token":"$TOKEN"}
+EOF
+# Try to install systemd unit if available (best-effort)
+if command -v systemctl >/dev/null 2>&1; then
+	cat >/etc/systemd/system/printmaster-agent.service <<EOL
+[Unit]
+Description=PrintMaster Agent
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/pm-agent --config /etc/printmaster/pm-config.json
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOL
+	systemctl daemon-reload || true
+	systemctl enable --now printmaster-agent || true
+else
+	/usr/local/bin/pm-agent --config /etc/printmaster/pm-config.json &
+fi
+`
+			script = fmt.Sprintf(shTemplate, serverURL, rawToken)
+		}
+
+		// Create a short-lived install code and store the script for hosting
+		code := randomHex(12) // 24 hex chars
+		oneTimeDownload := true
+		if inOneTime, ok := r.URL.Query()["one_time_download"]; ok && len(inOneTime) > 0 {
+			// allow override via query param (string values like "false")
+			if strings.ToLower(inOneTime[0]) == "false" || strings.ToLower(inOneTime[0]) == "0" {
+				oneTimeDownload = false
+			}
+		}
+		installStore.mu.Lock()
+		installStore.m[code] = installEntry{Script: script, Filename: filename, ExpiresAt: time.Now().UTC().Add(time.Duration(in.TTLMinutes) * time.Minute), OneTime: oneTimeDownload}
+		installStore.mu.Unlock()
+
+		downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
+
+		// Respond with JSON containing script and hosted URL for convenience
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"script":       script,
+			"filename":     filename,
+			"download_url": downloadURL,
+		})
+		return
+	}
+
+	// For archive type or others, simply respond not implemented for MVP
+	w.WriteHeader(http.StatusNotImplemented)
+	w.Write([]byte(`{"error":"archive generation not implemented yet"}`))
+}
+
+// handleInstall serves hosted install scripts by short code. URL: /install/{code}/{filename}
+func handleInstall(w http.ResponseWriter, r *http.Request) {
+	// expect path /install/{code}/{filename}
+	p := strings.TrimPrefix(r.URL.Path, "/install/")
+	parts := strings.SplitN(p, "/", 2)
+	if len(parts) < 1 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	code := parts[0]
+
+	installStore.mu.Lock()
+	entry, ok := installStore.m[code]
+	// If one-time, remove immediately (we'll serve below)
+	if ok && entry.OneTime {
+		delete(installStore.m, code)
+	}
+	installStore.mu.Unlock()
+	if !ok || time.Now().UTC().After(entry.ExpiresAt) {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Serve script with appropriate content-type based on filename
+	contentType := "text/plain; charset=utf-8"
+	if strings.HasSuffix(entry.Filename, ".sh") {
+		contentType = "application/x-sh"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+entry.Filename+"\"")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	_, _ = w.Write([]byte(entry.Script))
+}
+
+// installCleanupLoop periodically removes expired install entries.
+func installCleanupLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now().UTC()
+		installStore.mu.Lock()
+		for k, v := range installStore.m {
+			if now.After(v.ExpiresAt) {
+				delete(installStore.m, k)
+			}
+		}
+		installStore.mu.Unlock()
+	}
+}
+
+// handleAgentDownloadLatest redirects to the latest compatible agent binary
+// on GitHub Releases. Query params accepted: ?platform=linux|windows|darwin&arch=amd64|arm64
+// If server version was supplied by main via SetServerVersion, that is used;
+// otherwise the handler attempts to read `server/VERSION` from the working
+// directory. If no version can be determined, a 404 is returned.
+func handleAgentDownloadLatest(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	platform := strings.ToLower(q.Get("platform"))
+	arch := strings.ToLower(q.Get("arch"))
+	if platform == "" {
+		platform = "linux"
+	}
+	if arch == "" {
+		arch = "amd64"
+	}
+	switch platform {
+	case "win", "windows", "windows_nt":
+		platform = "windows"
+	case "mac", "darwin", "osx":
+		platform = "darwin"
+	default:
+		platform = "linux"
+	}
+
+	ver := serverVersion
+	if ver == "" {
+		if b, err := os.ReadFile("server/VERSION"); err == nil {
+			ver = strings.TrimSpace(string(b))
+		}
+	}
+	if ver == "" {
+		http.Error(w, "server version unknown", http.StatusNotFound)
+		return
+	}
+
+	tag := ver
+	if !strings.HasPrefix(tag, "v") {
+		tag = "v" + tag
+	}
+
+	ext := ""
+	if platform == "windows" {
+		ext = ".exe"
+	}
+
+	asset := fmt.Sprintf("printmaster-agent-%s-%s-%s%s", tag, platform, arch, ext)
+	redirectURL := fmt.Sprintf("https://github.com/mstrhakr/printmaster/releases/download/%s/%s", tag, asset)
+
+	// Use 302/Found to allow clients to follow to GitHub.
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
