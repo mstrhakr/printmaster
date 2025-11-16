@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -157,6 +158,32 @@ func WriteDefaultTOML(configPath string, config interface{}) error {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
+	return nil
+}
+
+// WriteTOML writes the provided config structure to the given path, overwriting
+// any existing file. It ensures the containing directory exists.
+func WriteTOML(configPath string, config interface{}) error {
+	// Ensure directory exists
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	var buf bytes.Buffer
+	encoder := toml.NewEncoder(&buf)
+	if err := encoder.Encode(config); err != nil {
+		return fmt.Errorf("failed to encode config to TOML: %w", err)
+	}
+
+	// Write atomically: write to temp file then rename
+	tmp := configPath + ".tmp"
+	if err := os.WriteFile(tmp, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write temp config file: %w", err)
+	}
+	if err := os.Rename(tmp, configPath); err != nil {
+		return fmt.Errorf("failed to rename temp config file: %w", err)
+	}
 	return nil
 }
 
