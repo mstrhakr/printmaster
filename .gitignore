@@ -154,3 +154,4 @@ coverage/
 .npm/
 test-results/.last-run.json
 # Local env file for server (do NOT commit)\nserver/.env
+server/.env
