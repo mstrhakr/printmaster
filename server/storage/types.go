@@ -87,6 +87,7 @@ type Session struct {
 	UserID    int64     `json:"user_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+	Username  string    `json:"username,omitempty"`
 }
 
 // AuditEntry represents an audit log entry for agent operations
@@ -153,6 +154,10 @@ type Store interface {
 	CreateSession(ctx context.Context, userID int64, ttlMinutes int) (*Session, error)
 	GetSessionByToken(ctx context.Context, token string) (*Session, error)
 	DeleteSession(ctx context.Context, token string) error
+	// ListSessions returns all sessions (admin) including username when available
+	ListSessions(ctx context.Context) ([]*Session, error)
+	// DeleteSessionByHash deletes a session by its stored token hash (DB-side key)
+	DeleteSessionByHash(ctx context.Context, tokenHash string) error
 	GetUserByID(ctx context.Context, id int64) (*User, error)
 	// ListUsers returns all local users (admin UI)
 	ListUsers(ctx context.Context) ([]*User, error)

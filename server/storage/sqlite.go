@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -309,6 +310,27 @@ func (s *SQLiteStore) initSchema() error {
 			schemaVersion, time.Now())
 		if err != nil {
 			return fmt.Errorf("failed to update schema version: %w", err)
+		}
+	}
+
+	// Security migration: detect and clear legacy sessions stored as raw tokens
+	// New behavior stores SHA-256 hex tokens (64 chars). If any existing rows
+	// contain tokens of a different length, clear the sessions table so users
+	// must re-authenticate. This avoids keeping raw tokens in the DB.
+	var nonHashedCount int
+	err = s.db.QueryRow("SELECT COALESCE(COUNT(1),0) FROM sessions WHERE LENGTH(token) != 64").Scan(&nonHashedCount)
+	if err == nil && nonHashedCount > 0 {
+		if Log != nil {
+			Log.Info("Clearing legacy sessions (security migration)", "non_hashed_count", nonHashedCount)
+		} else {
+			log.Printf("Clearing %d legacy sessions (security migration)", nonHashedCount)
+		}
+		if _, derr := s.db.Exec("DELETE FROM sessions"); derr != nil {
+			if Log != nil {
+				Log.Warn("Failed to clear legacy sessions", "error", derr)
+			} else {
+				log.Printf("Failed to clear legacy sessions: %v", derr)
+			}
 		}
 	}
 
@@ -781,6 +803,12 @@ func subtleConstantTimeCompare(a, b []byte) bool {
 	return diff == 0
 }
 
+// tokenHash computes a stable SHA-256 hex digest of a session token.
+func tokenHash(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
 // ListJoinTokens lists tokens for a tenant (admin view)
 func (s *SQLiteStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*JoinToken, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, token_hash, tenant_id, expires_at, one_time, created_at, used_at, revoked FROM join_tokens WHERE tenant_id = ? ORDER BY created_at DESC`, tenantID)
@@ -1062,9 +1090,11 @@ func (s *SQLiteStore) AuthenticateUser(ctx context.Context, username, rawPasswor
 	return u, nil
 }
 
-// CreateSession creates a session token for a user and stores it
+// CreateSession creates a session token for a user and stores its hash
+// The raw token is returned to the caller but only the hash is persisted
+// so that raw session tokens are not stored in the database.
 func (s *SQLiteStore) CreateSession(ctx context.Context, userID int64, ttlMinutes int) (*Session, error) {
-	// generate token
+	// generate raw token
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return nil, err
@@ -1072,16 +1102,19 @@ func (s *SQLiteStore) CreateSession(ctx context.Context, userID int64, ttlMinute
 	token := hex.EncodeToString(b)
 	expires := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
 
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`, token, userID, expires, time.Now().UTC()); err != nil {
+	// store only hash of token in DB
+	h := tokenHash(token)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`, h, userID, expires, time.Now().UTC()); err != nil {
 		return nil, err
 	}
 
 	return &Session{Token: token, UserID: userID, ExpiresAt: expires, CreatedAt: time.Now().UTC()}, nil
 }
 
-// GetSessionByToken retrieves a session by token and ensures it's not expired
+// GetSessionByToken retrieves a session by raw token (hashing it first) and ensures it's not expired
 func (s *SQLiteStore) GetSessionByToken(ctx context.Context, token string) (*Session, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT token, user_id, expires_at, created_at FROM sessions WHERE token = ?`, token)
+	h := tokenHash(token)
+	row := s.db.QueryRowContext(ctx, `SELECT token, user_id, expires_at, created_at FROM sessions WHERE token = ?`, h)
 	var ses Session
 	var created sql.NullTime
 	if err := row.Scan(&ses.Token, &ses.UserID, &ses.ExpiresAt, &created); err != nil {
@@ -1095,13 +1128,52 @@ func (s *SQLiteStore) GetSessionByToken(ctx context.Context, token string) (*Ses
 		s.DeleteSession(ctx, token)
 		return nil, fmt.Errorf("session expired")
 	}
+	// Do not return the hashed token value back to callers; replace with raw input
+	ses.Token = token
 	return &ses, nil
 }
 
 // DeleteSession deletes a session token
 func (s *SQLiteStore) DeleteSession(ctx context.Context, token string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
+	h := tokenHash(token)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, h)
 	return err
+}
+
+// DeleteSessionByHash deletes a session by the stored token hash (used by admin revocation)
+func (s *SQLiteStore) DeleteSessionByHash(ctx context.Context, tokenHash string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, tokenHash)
+	return err
+}
+
+// ListSessions returns all sessions with optional username if available
+func (s *SQLiteStore) ListSessions(ctx context.Context) ([]*Session, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT s.token, s.user_id, s.expires_at, s.created_at, u.username FROM sessions s LEFT JOIN users u ON s.user_id = u.id ORDER BY s.created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var res []*Session
+	for rows.Next() {
+		var tokenHash string
+		var userID int64
+		var expires time.Time
+		var created sql.NullTime
+		var username sql.NullString
+		if err := rows.Scan(&tokenHash, &userID, &expires, &created, &username); err != nil {
+			return nil, err
+		}
+		ses := &Session{Token: tokenHash, UserID: userID, ExpiresAt: expires}
+		if created.Valid {
+			ses.CreatedAt = created.Time
+		}
+		if username.Valid {
+			ses.Username = username.String
+		}
+		// Do not expose raw tokens; Token here is the stored hash (used for deletion)
+		res = append(res, ses)
+	}
+	return res, rows.Err()
 }
 
 // GetAgentByToken retrieves an agent by bearer token

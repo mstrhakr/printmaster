@@ -1465,6 +1465,74 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleListSessions returns all sessions (admin only). Optionally filter by ?user_id={id}
+func handleListSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cur := getUserFromContext(r)
+	if cur == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if cur.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	ctx := context.Background()
+	sessions, err := serverStore.ListSessions(ctx)
+	if err != nil {
+		http.Error(w, "failed to list sessions", http.StatusInternalServerError)
+		return
+	}
+	// optional filter by user_id
+	userIDStr := r.URL.Query().Get("user_id")
+	if userIDStr != "" {
+		if uid, err := strconv.ParseInt(userIDStr, 10, 64); err == nil {
+			var f []*storage.Session
+			for _, s := range sessions {
+				if s.UserID == uid {
+					f = append(f, s)
+				}
+			}
+			sessions = f
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(sessions)
+}
+
+// handleDeleteSession deletes a session by its stored token hash (admin only)
+func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cur := getUserFromContext(r)
+	if cur == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if cur.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	key := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
+	key = strings.Trim(key, "/")
+	if key == "" {
+		http.Error(w, "session key required", http.StatusBadRequest)
+		return
+	}
+	ctx := context.Background()
+	if err := serverStore.DeleteSessionByHash(ctx, key); err != nil {
+		http.Error(w, "failed to delete session", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
 // sendEmail sends a simple plain-text email using SMTP settings.
 // It prefers the runtime `serverConfig.SMTP` settings (if present and enabled),
 // falling back to environment variables for compatibility.
@@ -1537,6 +1605,17 @@ func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "email required", http.StatusBadRequest)
 		return
 	}
+	// rate limiting: limit requests per IP+email to prevent abuse
+	clientIP := extractIPFromAddr(r.RemoteAddr)
+	if authRateLimiter != nil {
+		if isBlocked, _ := authRateLimiter.IsBlocked(clientIP, req.Email); isBlocked {
+			http.Error(w, "Too many requests. Try again later.", http.StatusTooManyRequests)
+			return
+		}
+		// record attempt (counts towards limit)
+		authRateLimiter.RecordFailure(clientIP, req.Email)
+	}
+
 	ctx := context.Background()
 	u, err := serverStore.GetUserByEmail(ctx, req.Email)
 	// Always return success to avoid revealing which emails exist
@@ -1657,6 +1736,9 @@ func setupRoutes(cfg *Config) {
 	// User management (admin only): list and create users
 	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
 	http.HandleFunc("/api/v1/users/", requireWebAuth(handleUser))
+	// Sessions management (admin): list and revoke sessions
+	http.HandleFunc("/api/v1/sessions", requireWebAuth(handleListSessions))
+	http.HandleFunc("/api/v1/sessions/", requireWebAuth(handleDeleteSession))
 
 	// Password reset endpoints (public)
 	http.HandleFunc("/api/v1/users/reset/request", handlePasswordResetRequest)
@@ -3316,6 +3398,16 @@ func handleSettingsTestEmail(w http.ResponseWriter, r *http.Request) {
 	if to == "" {
 		http.Error(w, "no recipient specified", http.StatusBadRequest)
 		return
+	}
+
+	// rate limiting to avoid SMTP abuse (count attempts by IP)
+	clientIP := extractIPFromAddr(r.RemoteAddr)
+	if authRateLimiter != nil {
+		if isBlocked, _ := authRateLimiter.IsBlocked(clientIP, "settings-test-email"); isBlocked {
+			http.Error(w, "Too many requests. Try again later.", http.StatusTooManyRequests)
+			return
+		}
+		authRateLimiter.RecordFailure(clientIP, "settings-test-email")
 	}
 
 	body := fmt.Sprintf("This is a test email from PrintMaster sent at %s\n\nIf you received this message, SMTP settings are working.", time.Now().Format(time.RFC3339))

@@ -565,6 +565,7 @@ function renderUsers(list){
                         <div style="color:var(--muted);font-size:12px">Role: ${escapeHtml(u.role||'user')} &nbsp; Tenant: ${escapeHtml(u.tenant_id||'(global)')} &nbsp; Email: ${escapeHtml(u.email||'(none)')}</div>
                     </div>
                     <div style="display:flex;gap:8px;">
+                        <button data-action="user-sessions" data-id="${u.id}" data-username="${escapeHtml(u.username||'')}">Sessions</button>
                         <button data-action="edit-user" data-id="${u.id}">Edit</button>
                         <button data-action="delete-user" data-id="${u.id}">Delete</button>
                     </div>
@@ -592,6 +593,80 @@ function renderUsers(list){
                 loadUsers();
             }catch(err){
                 window.__pm_shared.showAlert('Failed to delete user: '+(err.message||err), 'Error', true, false);
+            }
+        });
+    });
+    el.querySelectorAll('button[data-action="user-sessions"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const id = b.getAttribute('data-id');
+            const username = b.getAttribute('data-username') || '';
+            await loadUserSessions(id, username);
+        });
+    });
+}
+
+async function loadUserSessions(userId, username){
+    try{
+        const r = await fetch('/api/v1/sessions?user_id='+encodeURIComponent(userId));
+        if(!r.ok) throw new Error(await r.text());
+        const sessions = await r.json();
+        showSessionsModal(sessions, username);
+    }catch(err){
+        window.__pm_shared.showAlert('Failed to load sessions: '+(err.message||err), 'Error', true, false);
+    }
+}
+
+function showSessionsModal(sessions, username){
+    // create simple modal
+    const modal = document.createElement('div');
+    modal.style.position = 'fixed'; modal.style.left='0'; modal.style.top='0'; modal.style.right='0'; modal.style.bottom='0';
+    modal.style.background = 'rgba(0,0,0,0.5)'; modal.style.display='flex'; modal.style.alignItems='center'; modal.style.justifyContent='center';
+    modal.style.zIndex = 9999;
+    const box = document.createElement('div');
+    box.style.background = 'var(--bg)'; box.style.color='var(--fg)'; box.style.padding='16px'; box.style.borderRadius='6px'; box.style.width='600px'; box.style.maxHeight='80vh'; box.style.overflow='auto';
+    const title = document.createElement('div'); title.style.display='flex'; title.style.justifyContent='space-between'; title.style.alignItems='center';
+    const h = document.createElement('div'); h.style.fontWeight='600'; h.textContent = 'Sessions for '+(username||'user');
+    const close = document.createElement('button'); close.textContent='Close'; close.addEventListener('click', ()=> document.body.removeChild(modal));
+    title.appendChild(h); title.appendChild(close);
+    box.appendChild(title);
+    const list = document.createElement('div'); list.style.marginTop='12px';
+    if(!Array.isArray(sessions) || sessions.length===0){
+        list.innerHTML = '<div style="color:var(--muted)">No sessions found.</div>';
+    } else {
+        const rows = sessions.map(s => {
+            const created = s.created_at ? new Date(s.created_at).toLocaleString() : '';
+            const expires = s.expires_at ? new Date(s.expires_at).toLocaleString() : '';
+            const user = s.username || '';
+            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--muted)">
+                <div style="font-size:13px">
+                    <div><strong>${escapeHtml(user)}</strong></div>
+                    <div style="color:var(--muted);font-size:12px">Created: ${escapeHtml(created)} &nbsp; Expires: ${escapeHtml(expires)}</div>
+                </div>
+                <div>
+                    <button data-action="revoke-session" data-key="${escapeHtml(s.token || '')}">Revoke</button>
+                </div>
+            </div>`;
+        }).join('\n');
+        list.innerHTML = rows;
+    }
+    box.appendChild(list);
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+
+    // Attach revoke handlers
+    modal.querySelectorAll('button[data-action="revoke-session"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const key = b.getAttribute('data-key');
+            if(!confirm('Revoke session?')) return;
+            try{
+                const r = await fetch('/api/v1/sessions/'+encodeURIComponent(key), { method: 'DELETE' });
+                if(!r.ok) throw new Error(await r.text());
+                window.__pm_shared.showToast('Session revoked', 'success');
+                // refresh list
+                const id = sessions.length>0 ? sessions[0].user_id : null;
+                if(id) await loadUserSessions(id, username);
+            }catch(err){
+                window.__pm_shared.showAlert('Failed to revoke session: '+(err.message||err), 'Error', true, false);
             }
         });
     });
