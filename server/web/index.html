@@ -157,6 +157,22 @@
                     </div>
                 </div>
 
+                <!-- Single Sign-On -->
+                <div class="panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                        <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                            Connect identity providers for the hosted login page. Providers can be tenant-specific or global.
+                        </div>
+                        <div>
+                            <button id="sso_add_provider_btn">Add Provider</button>
+                        </div>
+                    </div>
+                    <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
+                        <div class="muted-text">Loading identity providers…</div>
+                    </div>
+                </div>
+
                 <!-- Email / SMTP -->
                 <div class="panel">
                     <h4 style="margin-top:0;color:var(--highlight)">Email (SMTP)</h4>
@@ -397,6 +413,84 @@
         </div>
     </div>
 
+    <!-- SSO Provider Modal -->
+    <div class="modal" id="sso_modal" style="display:none;">
+        <div class="modal-content" style="max-width:640px;">
+            <div class="modal-header">
+                <span class="modal-title" id="sso_modal_title">Add OIDC Provider</span>
+                <span class="modal-close" id="sso_modal_close">&times;</span>
+            </div>
+            <form id="sso_modal_form">
+                <div class="modal-body" style="max-height:70vh;overflow:auto;display:flex;flex-direction:column;gap:16px;">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                            <span>Display Name</span>
+                            <input id="sso_display_name" type="text" required style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Acme SSO" />
+                        </label>
+                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                            <span>Slug</span>
+                            <input id="sso_slug" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="acme" />
+                            <small style="color:var(--muted);">Lowercase letters, numbers, and hyphen.</small>
+                        </label>
+                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                            <span>Tenant Scope</span>
+                            <select id="sso_tenant" style="padding:8px;border-radius:4px;border:1px solid var(--border);"></select>
+                            <small style="color:var(--muted);">Leave blank to make the provider global.</small>
+                        </label>
+                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                            <span>Default Role</span>
+                            <select id="sso_default_role" style="padding:8px;border-radius:4px;border:1px solid var(--border);">
+                                <option value="user">User</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                        <span>Issuer URL</span>
+                        <input id="sso_issuer" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://login.microsoftonline.com/..." />
+                    </label>
+                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                        <span>Client ID</span>
+                        <input id="sso_client_id" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" />
+                    </label>
+                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                        <span>Client Secret</span>
+                        <input id="sso_client_secret" type="password" style="padding:8px;border-radius:4px;border:1px solid var(--border);" />
+                        <small style="color:var(--muted);">Leave blank to keep the existing secret when editing.</small>
+                    </label>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                            <span>Button Text</span>
+                            <input id="sso_button_text" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Sign in with Contoso" />
+                        </label>
+                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                            <span>Icon URL</span>
+                            <input id="sso_icon" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://.../logo.svg" />
+                        </label>
+                    </div>
+                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                        <span>Button Style (optional CSS classes)</span>
+                        <input id="sso_button_style" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="btn btn-accent" />
+                    </label>
+                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                        <span>Scopes</span>
+                        <input id="sso_scopes" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" />
+                        <small style="color:var(--muted);">Separate scopes with spaces or commas. "openid" is always included.</small>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+                        <input id="sso_auto_login" type="checkbox" />
+                        <span>Automatically redirect users to this provider when it is the only option.</span>
+                    </label>
+                    <div id="sso_modal_error" style="display:none;color:var(--danger);font-size:13px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="modal-button modal-button-secondary" id="sso_modal_cancel">Cancel</button>
+                    <button type="submit" class="modal-button modal-button-primary" id="sso_modal_submit">Save Provider</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- User Modal (create/edit) -->
     <div class="modal" id="user_modal" style="display:none;">
         <div class="modal-content" style="max-width:520px;">
@@ -430,6 +524,7 @@
         </div>
     </div>
 
+    <script src="/static/sso-admin.js"></script>
     <script src="/static/app.js"></script>
 
 </body>

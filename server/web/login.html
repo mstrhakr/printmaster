@@ -7,57 +7,57 @@
     <link rel="stylesheet" href="/static/shared.css">
     <link rel="stylesheet" href="/static/style.css">
     <script src="/static/shared.js"></script>
+    <script src="/static/login.js"></script>
+    <style>
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
 </head>
 <body>
-    <div style="display:flex;min-height:100vh;align-items:center;justify-content:center;background:var(--bg);">
-        <div style="width:380px;padding:28px;border-radius:8px;box-shadow:var(--shadow);background:var(--panel);">
+    <div style="display:flex;min-height:100vh;align-items:center;justify-content:center;background:var(--bg);padding:16px;">
+        <div style="width:420px;max-width:100%;padding:28px;border-radius:8px;box-shadow:var(--shadow);background:var(--panel);">
             <h2 style="margin:0 0 8px 0;">Sign in to PrintMaster</h2>
-            <div id="login_error" style="display:none;color:var(--danger);margin-bottom:8px;"></div>
-            <label style="display:flex;flex-direction:column;margin-bottom:8px;">
-                <span style="font-size:13px;color:var(--muted);">Username</span>
-                <input id="login_username" type="text" placeholder="admin" style="padding:8px;margin-top:6px;" />
-            </label>
-            <label style="display:flex;flex-direction:column;margin-bottom:12px;">
-                <span style="font-size:13px;color:var(--muted);">Password</span>
-                <input id="login_password" type="password" placeholder="password" style="padding:8px;margin-top:6px;" />
-            </label>
-            <div style="display:flex;gap:8px;justify-content:flex-end;">
-                <button id="login_submit" class="modal-button modal-button-primary">Sign in</button>
-                <button id="login_cancel" class="modal-button">Cancel</button>
+            <p style="margin:0 0 16px 0;color:var(--muted);font-size:14px;">Choose a sign-in option below. Your administrator can enable local login or single sign-on per tenant.</p>
+            <div id="login_error" style="display:none;color:var(--danger);margin-bottom:12px;"></div>
+
+            <div id="auth_loading" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+                <div class="spinner" style="width:16px;height:16px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:spin 0.9s linear infinite;"></div>
+                <span style="font-size:14px;color:var(--muted);">Checking available sign-in options…</span>
             </div>
-            <div style="margin-top:12px;font-size:13px;color:var(--muted);">
+
+            <div id="auto_login_hint" style="display:none;margin-bottom:12px;background:rgba(103,80,164,0.08);border:1px solid rgba(103,80,164,0.4);padding:10px;border-radius:6px;font-size:13px;color:var(--muted);">
+                Redirecting to your organization’s identity provider. <a id="skip_auto_link" href="?no_auto=1" style="color:var(--accent);">Stay here</a>
+            </div>
+
+            <div id="sso_section" style="display:none;margin-bottom:18px;">
+                <h3 style="margin:0 0 8px 0;font-size:15px;">Single sign-on</h3>
+                <div id="sso_buttons" style="display:flex;flex-direction:column;gap:8px;"></div>
+            </div>
+
+            <div id="local_login_section" style="display:none;">
+                <h3 style="margin:0 0 8px 0;font-size:15px;">Local account</h3>
+                <label style="display:flex;flex-direction:column;margin-bottom:8px;">
+                    <span style="font-size:13px;color:var(--muted);">Username</span>
+                    <input id="login_username" type="text" placeholder="admin" style="padding:8px;margin-top:6px;" autocomplete="username" />
+                </label>
+                <label style="display:flex;flex-direction:column;margin-bottom:12px;">
+                    <span style="font-size:13px;color:var(--muted);">Password</span>
+                    <input id="login_password" type="password" placeholder="password" style="padding:8px;margin-top:6px;" autocomplete="current-password" />
+                </label>
+                <div style="display:flex;gap:8px;justify-content:flex-end;">
+                    <button id="login_submit" class="modal-button modal-button-primary">Sign in</button>
+                    <button id="login_cancel" class="modal-button">Cancel</button>
+                </div>
+            </div>
+
+            <div id="no_options_message" style="display:none;margin:12px 0 0 0;font-size:13px;color:var(--danger);">
+                No sign-in methods are currently available. Please contact your administrator.
+            </div>
+
+            <div style="margin-top:16px;font-size:13px;color:var(--muted);">
                 <a href="/">Back to home</a>
             </div>
         </div>
     </div>
 
-<script>
-// Minimal login page behavior
-async function doLogin(){
-    const errEl = document.getElementById('login_error'); errEl.style.display='none';
-    const u = document.getElementById('login_username').value || '';
-    const p = document.getElementById('login_password').value || '';
-    try{
-        const r = await fetch('/api/v1/auth/login', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({username:u,password:p})});
-        if(!r.ok){
-            const text = await r.text();
-            errEl.textContent = text || 'Invalid credentials';
-            errEl.style.display = 'block';
-            return;
-        }
-        // On success redirect to root
-        window.location = '/';
-    }catch(e){
-        errEl.textContent = e && e.message ? e.message : 'Login failed';
-        errEl.style.display = 'block';
-    }
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-    document.getElementById('login_submit').onclick = doLogin;
-    document.getElementById('login_cancel').onclick = function(){ window.location = '/'; };
-    document.getElementById('login_password').addEventListener('keypress', function(e){ if(e.key==='Enter'){ doLogin(); } });
-});
-</script>
 </body>
 </html>

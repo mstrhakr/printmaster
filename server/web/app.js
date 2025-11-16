@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Add-agent UI
         // (Added helper and add-agent modal code)
         initAddAgentUI();
+        initSSOAdmin();
 
         // Set up periodic refresh for server status only
         // Keep the interval ID so we can cancel polling when WebSocket is active
@@ -444,11 +445,43 @@ function initTabs() {
             loadSettings();
             // initialize settings buttons and autosave wiring
             initSettingsButtons();
+            refreshSSOProviders();
         } else if (targetTab === 'logs') {
             // Previously called connectLogStream() which no longer exists - use loadLogs()
             loadLogs();
         }
     }
+}
+
+function logSSOWarning(message, err) {
+    if (window.__pm_shared && typeof window.__pm_shared.warn === 'function') {
+        window.__pm_shared.warn(message, err);
+    } else {
+        console.warn(message, err);
+    }
+}
+
+function invokeSSOMethod(method, ...args) {
+    if (!window.__pmSSO || typeof window.__pmSSO[method] !== 'function') {
+        return;
+    }
+    try {
+        window.__pmSSO[method](...args);
+    } catch (err) {
+        logSSOWarning('SSO admin call failed: ' + method, err);
+    }
+}
+
+function initSSOAdmin() {
+    invokeSSOMethod('init');
+}
+
+function refreshSSOProviders() {
+    invokeSSOMethod('loadProviders');
+}
+
+function syncSSOTenants(list) {
+    invokeSSOMethod('syncTenants', Array.isArray(list) ? list : []);
 }
 
 // Wrapper functions removed: call sites should use window.__pm_shared.showToast / showConfirm / showAlert directly.
@@ -768,6 +801,7 @@ async function loadTenants(){
         const data = await r.json();
         // Cache tenants for use in other UI flows (e.g. add-agent modal)
         window._tenants = data;
+        syncSSOTenants(data);
         renderTenants(data);
     }catch(err){
         el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
