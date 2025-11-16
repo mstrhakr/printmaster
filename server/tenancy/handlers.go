@@ -14,7 +14,11 @@ import (
 // dbStore, when set via RegisterRoutes, will be used for persistence. If nil,
 // the package in-memory `store` is used (keeps tests and backwards compatibility).
 var dbStore storage.Store
-var routesRegistered bool
+
+// AuthMiddleware, when set by the main application, will be used to wrap
+// tenancy handlers so they can enforce authentication/authorization.
+// Set to nil to leave routes unprotected (not recommended).
+var AuthMiddleware func(http.HandlerFunc) http.HandlerFunc
 
 // RegisterRoutes registers HTTP handlers for tenancy endpoints. If a
 // non-nil storage.Store is provided, handlers will persist tenants and tokens
@@ -34,11 +38,19 @@ func RegisterRoutes(s storage.Store) {
 // routes multiple times on the same mux.
 func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	dbStore = s
-	mux.HandleFunc("/api/v1/tenants", handleTenants)
-	mux.HandleFunc("/api/v1/join-token", handleCreateJoinToken)
-	mux.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken)
-	mux.HandleFunc("/api/v1/join-tokens", handleListJoinTokens)        // GET (admin)
-	mux.HandleFunc("/api/v1/join-token/revoke", handleRevokeJoinToken) // POST {"id":"..."}
+	// Wrap handlers with AuthMiddleware when provided
+	wrap := func(h http.HandlerFunc) http.HandlerFunc {
+		if AuthMiddleware != nil {
+			return AuthMiddleware(h)
+		}
+		return h
+	}
+
+	mux.HandleFunc("/api/v1/tenants", wrap(handleTenants))
+	mux.HandleFunc("/api/v1/join-token", wrap(handleCreateJoinToken))
+	mux.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken) // registration must remain public
+	mux.HandleFunc("/api/v1/join-tokens", wrap(handleListJoinTokens))             // GET (admin)
+	mux.HandleFunc("/api/v1/join-token/revoke", wrap(handleRevokeJoinToken))      // POST {"id":"..."}
 }
 
 // handleTenants supports GET (list) and POST (create)
