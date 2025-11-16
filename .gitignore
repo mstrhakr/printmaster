@@ -155,3 +155,6 @@ coverage/
 test-results/.last-run.json
 # Local env file for server (do NOT commit)\nserver/.env
 server/.env
+# Test artifacts (local)
+server/test_results.json
+test_run_full.txt

@@ -37,8 +37,9 @@ func setupTestServer(t *testing.T) (*httptest.Server, storage.Store) {
 	// Keep /api/v1/agents/register for compatibility (it will return 403)
 	mux.HandleFunc("/api/v1/agents/register", handleAgentRegister)
 	mux.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
-	mux.HandleFunc("/api/v1/agents/list", handleAgentsList)
-	mux.HandleFunc("/api/v1/agents/", handleAgentDetails)
+	// For tests, inject a default admin user into requests for UI endpoints
+	mux.HandleFunc("/api/v1/agents/list", WrapWithAdmin(handleAgentsList))
+	mux.HandleFunc("/api/v1/agents/", WrapWithAdmin(handleAgentDetails))
 	mux.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	mux.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
@@ -656,14 +657,16 @@ func TestAgentDetailsEndpoint(t *testing.T) {
 		t.Fatalf("Failed to register agent: %v", err)
 	}
 
-	// Setup the agent details handler
+	// Setup the agent details handler (inject admin user for test)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/agents/", handleAgentDetails)
+	mux.HandleFunc("/api/v1/agents/", WrapWithAdmin(handleAgentDetails))
 	testServer := httptest.NewServer(mux)
 	defer testServer.Close()
 
-	// Fetch agent details
-	resp, err := http.Get(testServer.URL + "/api/v1/agents/test-agent-details")
+	// Fetch agent details (attach admin user to context so handler auth passes)
+	req, _ := http.NewRequest("GET", testServer.URL+"/api/v1/agents/test-agent-details", nil)
+	req = InjectTestAdmin(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to fetch agent details: %v", err)
 	}
@@ -709,14 +712,16 @@ func TestAgentDetailsNotFound(t *testing.T) {
 
 	_, _ = setupTestServer(t)
 
-	// Setup the agent details handler
+	// Setup the agent details handler (inject admin user for test)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/agents/", handleAgentDetails)
+	mux.HandleFunc("/api/v1/agents/", WrapWithAdmin(handleAgentDetails))
 	testServer := httptest.NewServer(mux)
 	defer testServer.Close()
 
-	// Try to fetch non-existent agent
-	resp, err := http.Get(testServer.URL + "/api/v1/agents/non-existent-agent")
+	// Try to fetch non-existent agent (attach admin user to context so handler auth passes)
+	req, _ := http.NewRequest("GET", testServer.URL+"/api/v1/agents/non-existent-agent", nil)
+	req = InjectTestAdmin(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to fetch agent details: %v", err)
 	}
@@ -766,8 +771,10 @@ func TestAgentsListEndpoint(t *testing.T) {
 		}
 	}
 
-	// Fetch agents list
-	resp, err := http.Get(server.URL + "/api/v1/agents/list")
+	// Fetch agents list (attach admin user to context so handler auth passes)
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/list", nil)
+	req = InjectTestAdmin(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to fetch agents list: %v", err)
 	}
@@ -843,7 +850,10 @@ func TestAgentsListConnectionType(t *testing.T) {
 	wsConnections["ws-agent"] = nil // presence matters, value may be nil in tests
 	wsConnectionsLock.Unlock()
 
-	resp, err := http.Get(server.URL + "/api/v1/agents/list")
+	// Request agents list (attach admin user to context so handler auth passes)
+	req, _ := http.NewRequest("GET", server.URL+"/api/v1/agents/list", nil)
+	req = InjectTestAdmin(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to fetch agents list: %v", err)
 	}

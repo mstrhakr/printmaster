@@ -1255,6 +1255,17 @@ func getUserFromContext(r *http.Request) *storage.User {
 	return nil
 }
 
+// getUserAndPrivileges returns the current user (from context), whether they
+// are a global admin, and the tenant id they belong to (empty for global).
+func getUserAndPrivileges(r *http.Request) (*storage.User, bool, string) {
+	u := getUserFromContext(r)
+	if u == nil {
+		return nil, false, ""
+	}
+	isAdmin := u.Role == "admin"
+	return u, isAdmin, u.TenantID
+}
+
 // handleUsers handles GET (list users) and POST (create user) for admin UI
 func handleUsers(w http.ResponseWriter, r *http.Request) {
 	// Must be authenticated
@@ -2107,6 +2118,13 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce tenant scoping for non-admin users
+	user, isAdmin, tenantID := getUserAndPrivileges(r)
+	if user == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
 	ctx := context.Background()
 	agents, err := serverStore.ListAgents(ctx)
 	if err != nil {
@@ -2115,6 +2133,16 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "Failed to list agents", http.StatusInternalServerError)
 		return
+	}
+	// If not an admin, filter agents to only those in the user's tenant
+	if !isAdmin && tenantID != "" {
+		filtered := make([]*storage.Agent, 0, len(agents))
+		for _, a := range agents {
+			if a != nil && a.TenantID == tenantID {
+				filtered = append(filtered, a)
+			}
+		}
+		agents = filtered
 	}
 
 	// Build response objects with a derived connection_type field
@@ -2154,8 +2182,14 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
+	// Require authenticated web user for tenant-scoped access
+	user, isAdmin, tenantID := getUserAndPrivileges(r)
+	if user == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
 
+	ctx := context.Background()
 	switch r.Method { //nolint:exhaustive
 	case http.MethodGet:
 		agent, err := serverStore.GetAgent(ctx, agentID)
@@ -2164,6 +2198,12 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 				serverLogger.Error("Failed to get agent", "agent_id", agentID, "error", err)
 			}
 			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
+		}
+
+		// Enforce tenant boundary for non-admin users
+		if !isAdmin && tenantID != "" && agent.TenantID != tenantID {
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 
@@ -2857,9 +2897,16 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Require authenticated web user for tenant-scoped device listing
+	user, isAdmin, tenantID := getUserAndPrivileges(r)
+	if user == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
 	ctx := context.Background()
 
-	// Get all devices across all agents
+	// Get all devices across all agents (will filter below for tenant users)
 	devices, err := serverStore.ListAllDevices(ctx)
 	if err != nil {
 		if serverLogger != nil {
@@ -2867,6 +2914,34 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "Failed to list devices", http.StatusInternalServerError)
 		return
+	}
+
+	// If not admin, filter devices to those owned by agents in the user's tenant
+	if !isAdmin && tenantID != "" {
+		// Build agent->tenant map
+		agents, aerr := serverStore.ListAgents(ctx)
+		if aerr != nil {
+			http.Error(w, "Failed to list agents for filtering", http.StatusInternalServerError)
+			return
+		}
+		agentTenant := make(map[string]string, len(agents))
+		for _, a := range agents {
+			if a != nil {
+				agentTenant[a.AgentID] = a.TenantID
+			}
+		}
+
+		filtered := make([]*storage.Device, 0, len(devices))
+		for _, d := range devices {
+			if d == nil {
+				continue
+			}
+			// Use AgentID on device to determine tenant (could be empty)
+			if at, ok := agentTenant[d.AgentID]; ok && at == tenantID {
+				filtered = append(filtered, d)
+			}
+		}
+		devices = filtered
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2885,9 +2960,16 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Require authenticated web user for tenant-scoped summary
+	user, isAdmin, tenantID := getUserAndPrivileges(r)
+	if user == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
 	ctx := context.Background()
 
-	// Count agents
+	// Count agents (may be filtered below for non-admins)
 	agents, err := serverStore.ListAgents(ctx)
 	if err != nil {
 		if serverLogger != nil {
@@ -2905,6 +2987,35 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "Failed to fetch metrics summary", http.StatusInternalServerError)
 		return
+	}
+
+	// If not admin, filter agents/devices to tenant scope
+	if !isAdmin && tenantID != "" {
+		fAgents := make([]*storage.Agent, 0)
+		for _, a := range agents {
+			if a != nil && a.TenantID == tenantID {
+				fAgents = append(fAgents, a)
+			}
+		}
+		agents = fAgents
+
+		// Build agent->tenant map and filter devices via AgentID
+		agentTenant := make(map[string]string, len(agents))
+		for _, a := range agents {
+			if a != nil {
+				agentTenant[a.AgentID] = a.TenantID
+			}
+		}
+		fDevices := make([]*storage.Device, 0)
+		for _, d := range devices {
+			if d == nil {
+				continue
+			}
+			if at, ok := agentTenant[d.AgentID]; ok && at == tenantID {
+				fDevices = append(fDevices, d)
+			}
+		}
+		devices = fDevices
 	}
 
 	// For a lightweight recent-metrics view, sample up to N devices and fetch their latest metrics
