@@ -18,6 +18,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/smtp"
 	"net/url"
 	"os"
 	"path"
@@ -30,6 +31,7 @@ import (
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +44,7 @@ type contextKey string
 
 const (
 	agentContextKey contextKey = "agent"
+	userContextKey  contextKey = "user"
 )
 
 //go:embed web
@@ -159,6 +162,7 @@ var (
 	loadedConfigPath   string           // Path of the config file that was successfully loaded
 	sseHub             *SSEHub          // SSE hub for real-time UI updates
 	wsHub              *wscommon.Hub    // In-process hub for websocket-capable UI clients
+	serverConfig       *Config          // Loaded server configuration (accessible to handlers)
 )
 
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
@@ -408,6 +412,9 @@ func runServer(ctx context.Context, configFlag string) {
 	serverLogger = logger.NewWithComponent(logger.LevelFromString(cfg.Logging.Level), logDir, "server", 1000)
 	serverLogger.Info("Server starting", "version", Version, "protocol", ProtocolVersion, "config", loadedConfigPath)
 
+	// Save loaded config globally for handlers
+	serverConfig = cfg
+
 	// Initialize database
 	log.Printf("Database: %s", cfg.Database.Path)
 	serverLogger.Info("Initializing database", "path", cfg.Database.Path)
@@ -422,6 +429,27 @@ func runServer(ctx context.Context, configFlag string) {
 	defer serverStore.Close()
 
 	serverLogger.Info("Database initialized successfully")
+
+	// Bootstrap initial admin user. Default to ADMIN_USER=admin and ADMIN_PASSWORD=printmaster
+	adminUser := os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+	adminPass := os.Getenv("ADMIN_PASSWORD")
+	if adminPass == "" {
+		adminPass = "printmaster"
+	}
+
+	bctx := context.Background()
+	if _, err := serverStore.GetUserByUsername(bctx, adminUser); err != nil {
+		// create admin user
+		u := &storage.User{Username: adminUser, Role: "admin"}
+		if err := serverStore.CreateUser(bctx, u, adminPass); err != nil {
+			serverLogger.Warn("Failed to create initial admin user", "user", adminUser, "error", err)
+		} else {
+			serverLogger.Info("Initial admin user created (default)", "user", adminUser)
+		}
+	}
 
 	// Initialize SSE hub for real-time UI updates if not already created (tests may have pre-initialized)
 	if sseHub == nil {
@@ -1125,6 +1153,448 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// requireWebAuth validates a session token from cookie or Authorization header
+func requireWebAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := ""
+		if ah := r.Header.Get("Authorization"); ah != "" {
+			parts := strings.SplitN(ah, " ", 2)
+			if len(parts) == 2 && parts[0] == "Bearer" {
+				token = parts[1]
+			}
+		}
+		if token == "" {
+			if c, err := r.Cookie("pm_session"); err == nil {
+				token = c.Value
+			}
+		}
+		if token == "" {
+			http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.Background()
+		ses, err := serverStore.GetSessionByToken(ctx, token)
+		if err != nil {
+			http.Error(w, "invalid session", http.StatusUnauthorized)
+			return
+		}
+
+		user, err := serverStore.GetUserByID(ctx, ses.UserID)
+		if err != nil {
+			http.Error(w, "invalid session user", http.StatusUnauthorized)
+			return
+		}
+
+		// attach user to request context
+		ctx2 := context.WithValue(r.Context(), userContextKey, user)
+		next.ServeHTTP(w, r.WithContext(ctx2))
+	}
+}
+
+// handleAuthLogin handles local username/password login and returns a session token
+func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Username == "" || req.Password == "" {
+		http.Error(w, "username and password required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+	user, err := serverStore.AuthenticateUser(ctx, req.Username, req.Password)
+	if err != nil {
+		// rate limit
+		if authRateLimiter != nil {
+			clientIP := extractIPFromAddr(r.RemoteAddr)
+			authRateLimiter.RecordFailure(clientIP, req.Username)
+		}
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// create session for 24 hours
+	ses, err := serverStore.CreateSession(ctx, user.ID, 60*24)
+	if err != nil {
+		http.Error(w, "failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	cookie := &http.Cookie{
+		Name:     "pm_session",
+		Value:    ses.Token,
+		Path:     "/",
+		HttpOnly: true,
+		Expires:  ses.ExpiresAt,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, cookie)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "token": ses.Token, "expires_at": ses.ExpiresAt.Format(time.RFC3339)})
+}
+
+// admin helper: get user from context and ensure admin role
+func getUserFromContext(r *http.Request) *storage.User {
+	if v := r.Context().Value(userContextKey); v != nil {
+		if u, ok := v.(*storage.User); ok {
+			return u
+		}
+	}
+	return nil
+}
+
+// handleUsers handles GET (list users) and POST (create user) for admin UI
+func handleUsers(w http.ResponseWriter, r *http.Request) {
+	// Must be authenticated
+	cur := getUserFromContext(r)
+	if cur == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	// Only admins may manage users
+	if cur.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	ctx := context.Background()
+	switch r.Method {
+	case http.MethodGet:
+		users, err := serverStore.ListUsers(ctx)
+		if err != nil {
+			http.Error(w, "failed to list users", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(users)
+		return
+	case http.MethodPost:
+		var req struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Role     string `json:"role"`
+			TenantID string `json:"tenant_id,omitempty"`
+			Email    string `json:"email,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if req.Username == "" || req.Password == "" {
+			http.Error(w, "username and password required", http.StatusBadRequest)
+			return
+		}
+		if req.Role == "" {
+			req.Role = "user"
+		}
+		u := &storage.User{
+			Username: req.Username,
+			Role:     req.Role,
+			TenantID: req.TenantID,
+			Email:    req.Email,
+		}
+		if err := serverStore.CreateUser(ctx, u, req.Password); err != nil {
+			http.Error(w, fmt.Sprintf("failed to create user: %v", err), http.StatusInternalServerError)
+			return
+		}
+		// Do not return password hash
+		u.PasswordHash = ""
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(u)
+		return
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+}
+
+// handleAuthLogout removes the session token
+func handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	token := ""
+	if ah := r.Header.Get("Authorization"); ah != "" {
+		parts := strings.SplitN(ah, " ", 2)
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			token = parts[1]
+		}
+	}
+	if token == "" {
+		if c, err := r.Cookie("pm_session"); err == nil {
+			token = c.Value
+		}
+	}
+	if token == "" {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	ctx := context.Background()
+	_ = serverStore.DeleteSession(ctx, token)
+	// expire cookie
+	cookie := &http.Cookie{
+		Name:     "pm_session",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteLaxMode,
+	}
+	http.SetCookie(w, cookie)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+// handleAuthMe returns current user info from context
+func handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	u, ok := r.Context().Value(userContextKey).(*storage.User)
+	if !ok || u == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	// don't expose password hash
+	out := map[string]interface{}{
+		"id":         u.ID,
+		"username":   u.Username,
+		"role":       u.Role,
+		"tenant_id":  u.TenantID,
+		"created_at": u.CreatedAt.Format(time.RFC3339),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// handleUser handles single-user operations: GET, PUT, DELETE (admin only)
+func handleUser(w http.ResponseWriter, r *http.Request) {
+	cur := getUserFromContext(r)
+	if cur == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	if cur.Role != "admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Extract ID from path /api/v1/users/{id}
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
+	if idStr == "" {
+		http.Error(w, "user id required", http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseInt(strings.Trim(idStr, "/"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid user id", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+	switch r.Method {
+	case http.MethodGet:
+		u, err := serverStore.GetUserByID(ctx, id)
+		if err != nil {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		u.PasswordHash = ""
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(u)
+		return
+	case http.MethodDelete:
+		if err := serverStore.DeleteUser(ctx, id); err != nil {
+			http.Error(w, "failed to delete user", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	case http.MethodPut, http.MethodPatch:
+		var req struct {
+			Role     string `json:"role"`
+			TenantID string `json:"tenant_id"`
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		u, err := serverStore.GetUserByID(ctx, id)
+		if err != nil {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		if req.Role != "" {
+			u.Role = req.Role
+		}
+		u.TenantID = req.TenantID
+		if req.Email != "" {
+			u.Email = req.Email
+		}
+		if err := serverStore.UpdateUser(ctx, u); err != nil {
+			http.Error(w, "failed to update user", http.StatusInternalServerError)
+			return
+		}
+		if req.Password != "" {
+			if err := serverStore.UpdateUserPassword(ctx, id, req.Password); err != nil {
+				http.Error(w, "failed to update password", http.StatusInternalServerError)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(u)
+		return
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+}
+
+// sendEmail sends a simple plain-text email using SMTP settings.
+// It prefers the runtime `serverConfig.SMTP` settings (if present and enabled),
+// falling back to environment variables for compatibility.
+func sendEmail(to string, subject string, body string) error {
+	var host, user, pass, from string
+	var port int
+
+	// Prefer settings saved in-memory (UI/settings) when enabled
+	if serverConfig != nil && serverConfig.SMTP.Enabled {
+		host = serverConfig.SMTP.Host
+		port = serverConfig.SMTP.Port
+		user = serverConfig.SMTP.User
+		pass = serverConfig.SMTP.Pass
+		from = serverConfig.SMTP.From
+	}
+
+	// Fallback to env vars when settings not provided
+	if host == "" {
+		host = os.Getenv("SMTP_HOST")
+	}
+	if port == 0 {
+		if p := os.Getenv("SMTP_PORT"); p != "" {
+			if v, err := strconv.Atoi(p); err == nil {
+				port = v
+			}
+		}
+	}
+	if user == "" {
+		user = os.Getenv("SMTP_USER")
+	}
+	if pass == "" {
+		pass = os.Getenv("SMTP_PASS")
+	}
+	if from == "" {
+		from = os.Getenv("SMTP_FROM")
+	}
+	if from == "" {
+		from = user
+	}
+
+	if host == "" || port == 0 {
+		return fmt.Errorf("SMTP not configured")
+	}
+
+	addr := fmt.Sprintf("%s:%d", host, port)
+	auth := smtp.PlainAuth("", user, pass, host)
+	msg := "From: " + from + "\r\n" +
+		"To: " + to + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: text/plain; charset=utf-8\r\n" +
+		"\r\n" + body
+	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+}
+
+// handlePasswordResetRequest accepts {email} and sends a reset token by email (if configured)
+func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Email == "" {
+		http.Error(w, "email required", http.StatusBadRequest)
+		return
+	}
+	ctx := context.Background()
+	u, err := serverStore.GetUserByEmail(ctx, req.Email)
+	// Always return success to avoid revealing which emails exist
+	if err != nil || u == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"sent": true})
+		return
+	}
+	token, err := serverStore.CreatePasswordResetToken(ctx, u.ID, 60)
+	if err != nil {
+		http.Error(w, "failed to create token", http.StatusInternalServerError)
+		return
+	}
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	resetURL := fmt.Sprintf("%s://%s/reset?token=%s", scheme, r.Host, token)
+	body := fmt.Sprintf("You requested a password reset for %s\n\nUse the following link to reset your password (valid 60 minutes):\n\n%s\n\nIf you did not request this, ignore this message.", req.Email, resetURL)
+	_ = sendEmail(req.Email, "PrintMaster Password Reset", body)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"sent": true})
+}
+
+// handlePasswordResetConfirm accepts {token, password} to reset the password
+func handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Token == "" || req.Password == "" {
+		http.Error(w, "token and password required", http.StatusBadRequest)
+		return
+	}
+	ctx := context.Background()
+	userID, err := serverStore.ValidatePasswordResetToken(ctx, req.Token)
+	if err != nil {
+		http.Error(w, "invalid or expired token", http.StatusBadRequest)
+		return
+	}
+	if err := serverStore.UpdateUserPassword(ctx, userID, req.Password); err != nil {
+		http.Error(w, "failed to reset password", http.StatusInternalServerError)
+		return
+	}
+	// Optionally delete any other outstanding tokens for this user
+	_ = serverStore.DeletePasswordResetToken(ctx, req.Token)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
 // logAuditEntry is a helper to log agent operations to the audit log
 func logAuditEntry(ctx context.Context, agentID, action, details, ipAddress string) {
 	entry := &storage.AuditEntry{
@@ -1169,65 +1639,93 @@ func setupRoutes(cfg *Config) {
 	// Version info (no auth required)
 	http.HandleFunc("/api/version", handleVersion)
 
-	// Config status (no auth required - for UI warnings)
-	http.HandleFunc("/api/config/status", handleConfigStatus)
+	// Config status (protected - requires login for UI warnings)
+	http.HandleFunc("/api/config/status", requireWebAuth(handleConfigStatus))
 
-	// SSE endpoint for real-time UI updates
-	http.HandleFunc("/api/events", handleSSE)
+	// SSE endpoint for real-time UI updates (protected)
+	http.HandleFunc("/api/events", requireWebAuth(handleSSE))
 	// Backwards-compatible SSE path used by some client bundles (/events)
-	http.HandleFunc("/events", handleSSE)
+	http.HandleFunc("/events", requireWebAuth(handleSSE))
 
-	// UI WebSocket endpoint (for live UI liveness/status)
-	http.HandleFunc("/api/ws/ui", handleUIWebSocket)
+	// Authentication (local)
+	// Login (public) - creates a session
+	http.HandleFunc("/api/v1/auth/login", handleAuthLogin)
+	// Logout (requires valid session)
+	http.HandleFunc("/api/v1/auth/logout", requireWebAuth(handleAuthLogout))
+	http.HandleFunc("/api/v1/auth/me", requireWebAuth(handleAuthMe))
+
+	// User management (admin only): list and create users
+	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
+	http.HandleFunc("/api/v1/users/", requireWebAuth(handleUser))
+
+	// Password reset endpoints (public)
+	http.HandleFunc("/api/v1/users/reset/request", handlePasswordResetRequest)
+	http.HandleFunc("/api/v1/users/reset/confirm", handlePasswordResetConfirm)
+
+	// UI WebSocket endpoint (for live UI liveness/status) - require login
+	http.HandleFunc("/api/ws/ui", requireWebAuth(handleUIWebSocket))
 
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
-	http.HandleFunc("/api/v1/agents/list", handleAgentsList)                            // List all agents (for UI)
-	http.HandleFunc("/api/v1/agents/", handleAgentDetails)                              // Get single agent details (for UI)
-	http.HandleFunc("/api/v1/agents/ws", func(w http.ResponseWriter, r *http.Request) { // WebSocket endpoint
+	http.HandleFunc("/api/v1/agents/list", requireWebAuth(handleAgentsList))                           // List all agents (for UI)
+	http.HandleFunc("/api/v1/agents/", requireWebAuth(handleAgentDetails))                             // Get single agent details (for UI)
+	http.HandleFunc("/api/v1/agents/ws", requireWebAuth(func(w http.ResponseWriter, r *http.Request) { // WebSocket endpoint
 		handleAgentWebSocket(w, r, serverStore)
-	})
+	}))
 
-	// Tenancy & join-token routes (DB-backed when available)
+	// Tenancy & join-token routes (DB-backed when available). Protect via requireWebAuth.
 	if cfg != nil && cfg.Tenancy.Enabled {
+		tenancy.AuthMiddleware = requireWebAuth
 		tenancy.RegisterRoutes(serverStore)
 		serverLogger.Info("Tenancy routes registered", "enabled", true)
 	} else {
 		serverLogger.Info("Tenancy disabled - routes not registered", "enabled", false)
 	}
 
-	// Proxy endpoints - proxy HTTP requests through agent WebSocket
-	http.HandleFunc("/api/v1/proxy/agent/", handleAgentProxy)   // Proxy to agent's own web UI
-	http.HandleFunc("/api/v1/proxy/device/", handleDeviceProxy) // Proxy to device web UI through agent
+	// Proxy endpoints - require login
+	http.HandleFunc("/api/v1/proxy/agent/", requireWebAuth(handleAgentProxy))   // Proxy to agent's own web UI
+	http.HandleFunc("/api/v1/proxy/device/", requireWebAuth(handleDeviceProxy)) // Proxy to device web UI through agent
 
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
 	http.HandleFunc("/api/v1/devices/list", handleDevicesList) // List all devices (for UI)
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
-	// Web UI endpoints
+	// Web UI endpoints - keep landing/static public so login assets load
 	http.HandleFunc("/", handleWebUI)
+	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		// Serve the dedicated login page from embedded web assets
+		content, err := webFS.ReadFile("web/login.html")
+		if err != nil {
+			serverLogger.Warn("Login page not found", "err", err)
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(content)
+	})
 	http.HandleFunc("/static/", handleStatic)
 
-	// UI metrics summary endpoint (simple aggregated view for the UI)
-	http.HandleFunc("/api/metrics", handleMetricsSummary)
+	// UI metrics summary endpoint (protected)
+	http.HandleFunc("/api/metrics", requireWebAuth(handleMetricsSummary))
 
 	// Serve device metrics history from server DB. If the server has historical
 	// metrics stored (uploaded by agents) this endpoint will return them. The
 	// endpoint supports the same query parameters as the agent: `serial` plus
 	// either `since` (RFC3339) or `period` (day|week|month|year). Default period
 	// is `week` when nothing is supplied.
-	http.HandleFunc("/api/devices/metrics/history", handleMetricsHistory)
+	http.HandleFunc("/api/devices/metrics/history", requireWebAuth(handleMetricsHistory))
 
 	// Minimal settings & logs endpoints for the UI (placeholders)
-	http.HandleFunc("/api/settings", handleSettings)
-	http.HandleFunc("/api/logs", handleLogs)
+	http.HandleFunc("/api/settings", requireWebAuth(handleSettings))
+	http.HandleFunc("/api/settings/test-email", requireWebAuth(handleSettingsTestEmail))
+	http.HandleFunc("/api/logs", requireWebAuth(handleLogs))
 
 	// Provide a lightweight proxy/compat endpoint for web UI credentials so the
 	// server UI doesn't 404 when the shared cards call /device/webui-credentials.
 	// If the server does not have credentials for the device, respond with
 	// exists:false — agent UIs will use their own endpoint.
-	http.HandleFunc("/device/webui-credentials", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/device/webui-credentials", requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			// Query param: serial
@@ -1251,7 +1749,7 @@ func setupRoutes(cfg *Config) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-	})
+	}))
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -2612,27 +3110,115 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 
 // Minimal settings handler - returns a small placeholder payload and accepts POST
 func handleSettings(w http.ResponseWriter, r *http.Request) {
+	if serverConfig == nil {
+		http.Error(w, "server config not loaded", http.StatusInternalServerError)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
-		// Return a lightweight settings object the UI can use as a probe
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"autosave":               true,
-			"server_http_port":       9090,
-			"server_https_port":      9443,
+		// Return relevant settings for the UI
+		out := map[string]interface{}{
+			"server_http_port":       serverConfig.Server.HTTPPort,
+			"server_db_path":         serverConfig.Database.Path,
+			"server_https_port":      serverConfig.Server.HTTPSPort,
 			"metrics_retention_days": 365,
 			"audit_retention_days":   90,
-		})
+			"smtp": map[string]interface{}{
+				"enabled": serverConfig.SMTP.Enabled,
+				"host":    serverConfig.SMTP.Host,
+				"port":    serverConfig.SMTP.Port,
+				"user":    serverConfig.SMTP.User,
+				"from":    serverConfig.SMTP.From,
+			},
+			"auto_approve_agents": serverConfig.Server.AutoApproveAgents,
+			"agent_timeout":       serverConfig.Server.AgentTimeoutMinutes,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
 		return
 	case http.MethodPost:
-		// Accept and ignore for now (persisting real settings is out of scope)
-		var payload map[string]interface{}
+		// Accept settings updates from UI and persist to config file if possible
+		var payload struct {
+			ServerHTTPPort  int    `json:"server_http_port,omitempty"`
+			ServerHTTPSPort int    `json:"server_https_port,omitempty"`
+			ServerDBPath    string `json:"server_db_path,omitempty"`
+			SMTP            struct {
+				Enabled bool   `json:"enabled"`
+				Host    string `json:"host"`
+				Port    int    `json:"port"`
+				User    string `json:"user"`
+				Pass    string `json:"pass"`
+				From    string `json:"from"`
+			} `json:"smtp"`
+			AutoApproveAgents bool `json:"auto_approve_agents"`
+			AgentTimeout      int  `json:"agent_timeout"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
+
+		// Apply to in-memory config
+		if payload.ServerHTTPPort != 0 {
+			serverConfig.Server.HTTPPort = payload.ServerHTTPPort
+		}
+		if payload.ServerHTTPSPort != 0 {
+			serverConfig.Server.HTTPSPort = payload.ServerHTTPSPort
+		}
+		if payload.ServerDBPath != "" {
+			serverConfig.Database.Path = payload.ServerDBPath
+		}
+		// Agent management
+		serverConfig.Server.AutoApproveAgents = payload.AutoApproveAgents
+		if payload.AgentTimeout != 0 {
+			serverConfig.Server.AgentTimeoutMinutes = payload.AgentTimeout
+		}
+		serverConfig.SMTP.Enabled = payload.SMTP.Enabled
+		if payload.SMTP.Host != "" {
+			serverConfig.SMTP.Host = payload.SMTP.Host
+		}
+		if payload.SMTP.Port != 0 {
+			serverConfig.SMTP.Port = payload.SMTP.Port
+		}
+		if payload.SMTP.User != "" {
+			serverConfig.SMTP.User = payload.SMTP.User
+		}
+		if payload.SMTP.Pass != "" {
+			// Keep SMTP password env-only: set in-memory and update process env.
+			serverConfig.SMTP.Pass = payload.SMTP.Pass
+			// Update process env so immediate operations can use it
+			_ = os.Setenv("SMTP_PASS", payload.SMTP.Pass)
+			// Persist to a .env file next to the loaded config (fallback to cwd) so
+			// operators can pick it up for future restarts without storing it in
+			// the main config TOML.
+			go func(pass string) {
+				envPath := ".env"
+				if loadedConfigPath != "" && loadedConfigPath != "defaults" {
+					dir := filepath.Dir(loadedConfigPath)
+					envPath = filepath.Join(dir, ".env")
+				}
+				_ = writeEnvFile(envPath, map[string]string{"SMTP_PASS": pass})
+			}(payload.SMTP.Pass)
+		}
+		if payload.SMTP.From != "" {
+			serverConfig.SMTP.From = payload.SMTP.From
+		}
+
+		// Persist to config file if we loaded a real file. When persisting, scrub
+		// sensitive secrets (like SMTP.Pass) from the main TOML so secrets remain
+		// env-only. Use a temporary copy to avoid mutating in-memory serverConfig.
+		if loadedConfigPath != "defaults" && loadedConfigPath != "" {
+			copyCfg := *serverConfig
+			copyCfg.SMTP.Pass = ""
+			if err := config.WriteTOML(loadedConfigPath, &copyCfg); err != nil {
+				http.Error(w, fmt.Sprintf("failed to save config: %v", err), http.StatusInternalServerError)
+				return
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 		return
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -2666,4 +3252,78 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"logs": lines})
+}
+
+// writeEnvFile updates or creates a simple KEY=VALUE env file at path with
+// the provided vars. Existing keys are updated; other lines are preserved.
+func writeEnvFile(path string, vars map[string]string) error {
+	// Read existing file if present
+	existing := map[string]string{}
+	if b, err := os.ReadFile(path); err == nil {
+		lines := strings.Split(string(b), "\n")
+		for _, l := range lines {
+			l = strings.TrimSpace(l)
+			if l == "" || strings.HasPrefix(l, "#") {
+				continue
+			}
+			parts := strings.SplitN(l, "=", 2)
+			if len(parts) == 2 {
+				k := strings.TrimSpace(parts[0])
+				v := strings.TrimSpace(parts[1])
+				existing[k] = v
+			}
+		}
+	}
+
+	// Merge updates
+	for k, v := range vars {
+		existing[k] = v
+	}
+
+	// Build output content
+	var buf bytes.Buffer
+	for k, v := range existing {
+		fmt.Fprintf(&buf, "%s=%s\n", k, v)
+	}
+
+	// Write file with owner-only perms when possible
+	return os.WriteFile(path, buf.Bytes(), 0600)
+}
+
+// handleSettingsTestEmail accepts POST { to: "recipient@example.com" }
+// and sends a short test email using the configured SMTP settings.
+func handleSettingsTestEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		To string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	to := strings.TrimSpace(req.To)
+	if to == "" {
+		// fallback to configured From address
+		if serverConfig != nil && serverConfig.SMTP.From != "" {
+			to = serverConfig.SMTP.From
+		}
+	}
+	if to == "" {
+		http.Error(w, "no recipient specified", http.StatusBadRequest)
+		return
+	}
+
+	body := fmt.Sprintf("This is a test email from PrintMaster sent at %s\n\nIf you received this message, SMTP settings are working.", time.Now().Format(time.RFC3339))
+	if err := sendEmail(to, "PrintMaster: Test Email", body); err != nil {
+		http.Error(w, fmt.Sprintf("failed to send test email: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"sent": true})
 }
