@@ -43,9 +43,79 @@ import (
 type contextKey string
 
 const (
-	agentContextKey contextKey = "agent"
-	userContextKey  contextKey = "user"
+	agentContextKey     contextKey = "agent"
+	userContextKey      contextKey = "user"
+	principalContextKey contextKey = "principal"
 )
+
+// Principal represents the authenticated user along with cached authorization helpers.
+type Principal struct {
+	User      *storage.User
+	Role      storage.Role
+	TenantIDs []string
+}
+
+func newPrincipal(u *storage.User) *Principal {
+	if u == nil {
+		return nil
+	}
+	ids := append([]string{}, u.TenantIDs...)
+	if len(ids) == 0 && strings.TrimSpace(u.TenantID) != "" {
+		ids = []string{strings.TrimSpace(u.TenantID)}
+	}
+	ids = storage.SortTenantIDs(ids)
+	return &Principal{
+		User:      u,
+		Role:      storage.NormalizeRole(string(u.Role)),
+		TenantIDs: ids,
+	}
+}
+
+func (p *Principal) IsAdmin() bool {
+	return p != nil && p.Role == storage.RoleAdmin
+}
+
+func (p *Principal) HasRole(min storage.Role) bool {
+	return rolePriority(p.Role) >= rolePriority(min)
+}
+
+func (p *Principal) AllowedTenantIDs() []string {
+	if p == nil || p.IsAdmin() {
+		return nil
+	}
+	return append([]string{}, p.TenantIDs...)
+}
+
+func (p *Principal) CanAccessTenant(tenantID string) bool {
+	if p == nil {
+		return false
+	}
+	if tenantID == "" {
+		return p.IsAdmin()
+	}
+	if p.IsAdmin() {
+		return true
+	}
+	for _, id := range p.TenantIDs {
+		if id == tenantID {
+			return true
+		}
+	}
+	return false
+}
+
+func rolePriority(role storage.Role) int {
+	switch role {
+	case storage.RoleAdmin:
+		return 3
+	case storage.RoleOperator:
+		return 2
+	case storage.RoleViewer:
+		return 1
+	default:
+		return 0
+	}
+}
 
 //go:embed web
 var webFS embed.FS
@@ -443,7 +513,7 @@ func runServer(ctx context.Context, configFlag string) {
 	bctx := context.Background()
 	if _, err := serverStore.GetUserByUsername(bctx, adminUser); err != nil {
 		// create admin user
-		u := &storage.User{Username: adminUser, Role: "admin"}
+		u := &storage.User{Username: adminUser, Role: storage.RoleAdmin}
 		if err := serverStore.CreateUser(bctx, u, adminPass); err != nil {
 			serverLogger.Warn("Failed to create initial admin user", "user", adminUser, "error", err)
 		} else {
@@ -1186,10 +1256,22 @@ func requireWebAuth(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// attach user to request context
-		ctx2 := context.WithValue(r.Context(), userContextKey, user)
+		// attach user + principal to request context for downstream RBAC
+		ctx2 := contextWithPrincipal(r.Context(), user)
 		next.ServeHTTP(w, r.WithContext(ctx2))
 	}
+}
+
+// requireRole ensures the authenticated user meets the provided role requirement.
+func requireRole(minRole storage.Role, next http.HandlerFunc) http.HandlerFunc {
+	return requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
+		principal := getPrincipal(r)
+		if principal == nil || !principal.HasRole(minRole) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // handleAuthLogin handles local username/password login and returns a session token
@@ -1281,6 +1363,27 @@ func getUserFromContext(r *http.Request) *storage.User {
 	return nil
 }
 
+func getPrincipal(r *http.Request) *Principal {
+	if v := r.Context().Value(principalContextKey); v != nil {
+		if p, ok := v.(*Principal); ok && p != nil {
+			return p
+		}
+	}
+	if u := getUserFromContext(r); u != nil {
+		return newPrincipal(u)
+	}
+	return nil
+}
+
+func contextWithPrincipal(ctx context.Context, user *storage.User) context.Context {
+	if user == nil {
+		return ctx
+	}
+	principal := newPrincipal(user)
+	ctx = context.WithValue(ctx, userContextKey, user)
+	return context.WithValue(ctx, principalContextKey, principal)
+}
+
 // getUserAndPrivileges returns the current user (from context), whether they
 // are a global admin, and the tenant id they belong to (empty for global).
 func getUserAndPrivileges(r *http.Request) (*storage.User, bool, string) {
@@ -1288,7 +1391,7 @@ func getUserAndPrivileges(r *http.Request) (*storage.User, bool, string) {
 	if u == nil {
 		return nil, false, ""
 	}
-	isAdmin := u.Role == "admin"
+	isAdmin := u.Role == storage.RoleAdmin
 	return u, isAdmin, u.TenantID
 }
 
@@ -1301,7 +1404,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only admins may manage users
-	if cur.Role != "admin" {
+	if cur.Role != storage.RoleAdmin {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1319,11 +1422,12 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	case http.MethodPost:
 		var req struct {
-			Username string `json:"username"`
-			Password string `json:"password"`
-			Role     string `json:"role"`
-			TenantID string `json:"tenant_id,omitempty"`
-			Email    string `json:"email,omitempty"`
+			Username  string   `json:"username"`
+			Password  string   `json:"password"`
+			Role      string   `json:"role"`
+			TenantID  string   `json:"tenant_id,omitempty"`
+			TenantIDs []string `json:"tenant_ids,omitempty"`
+			Email     string   `json:"email,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -1333,14 +1437,17 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "username and password required", http.StatusBadRequest)
 			return
 		}
-		if req.Role == "" {
-			req.Role = "user"
+		role := storage.NormalizeRole(req.Role)
+		tenantIDs := req.TenantIDs
+		if len(tenantIDs) == 0 && strings.TrimSpace(req.TenantID) != "" {
+			tenantIDs = []string{strings.TrimSpace(req.TenantID)}
 		}
 		u := &storage.User{
-			Username: req.Username,
-			Role:     req.Role,
-			TenantID: req.TenantID,
-			Email:    req.Email,
+			Username:  req.Username,
+			Role:      role,
+			TenantIDs: tenantIDs,
+			TenantID:  strings.TrimSpace(req.TenantID),
+			Email:     req.Email,
 		}
 		if err := serverStore.CreateUser(ctx, u, req.Password); err != nil {
 			http.Error(w, fmt.Sprintf("failed to create user: %v", err), http.StatusInternalServerError)
@@ -1423,7 +1530,7 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	if cur.Role != "admin" {
+	if cur.Role != storage.RoleAdmin {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1462,10 +1569,11 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 		return
 	case http.MethodPut, http.MethodPatch:
 		var req struct {
-			Role     string `json:"role"`
-			TenantID string `json:"tenant_id"`
-			Email    string `json:"email"`
-			Password string `json:"password"`
+			Role      string   `json:"role"`
+			TenantID  string   `json:"tenant_id"`
+			TenantIDs []string `json:"tenant_ids"`
+			Email     string   `json:"email"`
+			Password  string   `json:"password"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -1477,9 +1585,19 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Role != "" {
-			u.Role = req.Role
+			u.Role = storage.NormalizeRole(req.Role)
 		}
-		u.TenantID = req.TenantID
+		if len(req.TenantIDs) > 0 {
+			u.TenantIDs = req.TenantIDs
+			u.TenantID = req.TenantIDs[0]
+		} else {
+			u.TenantID = req.TenantID
+			if req.TenantID != "" {
+				u.TenantIDs = []string{req.TenantID}
+			} else {
+				u.TenantIDs = nil
+			}
+		}
 		if req.Email != "" {
 			u.Email = req.Email
 		}
@@ -1513,7 +1631,7 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	if cur.Role != "admin" {
+	if cur.Role != storage.RoleAdmin {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1551,7 +1669,7 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	if cur.Role != "admin" {
+	if cur.Role != storage.RoleAdmin {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

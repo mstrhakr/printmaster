@@ -3,8 +3,58 @@ package storage
 import (
 	"context"
 	commonstorage "printmaster/common/storage"
+	"sort"
+	"strings"
 	"time"
 )
+
+// Role represents the authorization level granted to a user.
+type Role string
+
+const (
+	RoleAdmin    Role = "admin"
+	RoleOperator Role = "operator"
+	RoleViewer   Role = "viewer"
+)
+
+// NormalizeRole ensures any persisted or user-provided role maps to a known value.
+func NormalizeRole(value string) Role {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(RoleAdmin):
+		return RoleAdmin
+	case string(RoleOperator):
+		return RoleOperator
+	case "user":
+		// Legacy value from pre-RBAC builds maps to operator by default.
+		return RoleOperator
+	default:
+		return RoleViewer
+	}
+}
+
+// DefaultRoles returns a deterministic list of built-in roles ordered by privilege.
+func DefaultRoles() []Role {
+	return []Role{RoleAdmin, RoleOperator, RoleViewer}
+}
+
+// SortTenantIDs normalizes tenant slices for stable storage/JSON.
+func SortTenantIDs(ids []string) []string {
+	res := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		res = append(res, id)
+	}
+	sort.Strings(res)
+	return res
+}
 
 // Agent represents a registered PrintMaster agent
 type Agent struct {
@@ -75,8 +125,9 @@ type User struct {
 	ID           int64     `json:"id"`
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"-"`
-	Role         string    `json:"role"` // admin, user
+	Role         Role      `json:"role"`
 	TenantID     string    `json:"tenant_id,omitempty"`
+	TenantIDs    []string  `json:"tenant_ids,omitempty"`
 	Email        string    `json:"email,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -104,7 +155,7 @@ type OIDCProvider struct {
 	ButtonStyle  string    `json:"button_style,omitempty"`
 	AutoLogin    bool      `json:"auto_login"`
 	TenantID     string    `json:"tenant_id,omitempty"`
-	DefaultRole  string    `json:"default_role"`
+	DefaultRole  Role      `json:"default_role"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

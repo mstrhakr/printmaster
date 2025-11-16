@@ -226,6 +226,16 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+	CREATE TABLE IF NOT EXISTS user_tenants (
+		user_id INTEGER NOT NULL,
+		tenant_id TEXT NOT NULL,
+		PRIMARY KEY (user_id, tenant_id),
+		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_user_tenants_tenant ON user_tenants(tenant_id);
+
 	-- Sessions for local login (token stored as plain long random string)
 	CREATE TABLE IF NOT EXISTS sessions (
 		token TEXT PRIMARY KEY,
@@ -310,6 +320,7 @@ func (s *SQLiteStore) initSchema() error {
 		"ALTER TABLE devices ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE metrics_history ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE oidc_providers ADD COLUMN tenant_id TEXT",
+		"ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
 		"ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE agents ADD COLUMN os_version TEXT",
 		"ALTER TABLE agents ADD COLUMN go_version TEXT",
@@ -342,6 +353,9 @@ func (s *SQLiteStore) initSchema() error {
 			}
 		}
 	}
+
+	s.backfillUserTenantMappings()
+	s.migrateLegacyRoles()
 
 	// Check/update schema version
 	var currentVersion int
@@ -687,6 +701,36 @@ func boolToInt(b bool) int {
 	return 0
 }
 
+func (s *SQLiteStore) backfillUserTenantMappings() {
+	stmt := `INSERT OR IGNORE INTO user_tenants (user_id, tenant_id)
+		SELECT id, tenant_id FROM users
+		WHERE tenant_id IS NOT NULL AND tenant_id != ''`
+	if _, err := s.db.Exec(stmt); err != nil {
+		if Log != nil {
+			Log.Warn("Failed to backfill user_tenants", "error", err)
+		} else {
+			log.Printf("Failed to backfill user_tenants: %v", err)
+		}
+	}
+}
+
+func (s *SQLiteStore) migrateLegacyRoles() {
+	stmts := []string{
+		"UPDATE users SET role = 'operator' WHERE role = 'user'",
+		"UPDATE users SET role = 'viewer' WHERE role IS NULL OR TRIM(role) = ''",
+		"UPDATE oidc_providers SET default_role = 'viewer' WHERE default_role NOT IN ('admin','operator','viewer')",
+	}
+	for _, stmt := range stmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			if Log != nil {
+				Log.Warn("Legacy role migration failed", "stmt", stmt, "error", err)
+			} else {
+				log.Printf("Legacy role migration failed (%s): %v", stmt, err)
+			}
+		}
+	}
+}
+
 func intToBool(i int) bool { return i != 0 }
 
 // ValidateJoinToken checks token validity and consumes it if one-time.
@@ -855,6 +899,7 @@ func (s *SQLiteStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProv
 	}
 
 	scopes := strings.Join(provider.Scopes, " ")
+	provider.DefaultRole = NormalizeRole(string(provider.DefaultRole))
 	_, err := s.db.ExecContext(ctx, `INSERT INTO oidc_providers (
 		slug, display_name, issuer, client_id, client_secret, scopes, icon,
 		button_text, button_style, auto_login, tenant_id, default_role,
@@ -863,7 +908,7 @@ func (s *SQLiteStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProv
 		provider.Slug, provider.DisplayName, provider.Issuer, provider.ClientID,
 		provider.ClientSecret, scopes, provider.Icon, provider.ButtonText,
 		provider.ButtonStyle, boolToInt(provider.AutoLogin), provider.TenantID,
-		provider.DefaultRole, provider.CreatedAt, provider.UpdatedAt,
+		string(provider.DefaultRole), provider.CreatedAt, provider.UpdatedAt,
 	)
 	return err
 }
@@ -877,10 +922,11 @@ func (s *SQLiteStore) UpdateOIDCProvider(ctx context.Context, provider *OIDCProv
 	}
 	provider.UpdatedAt = time.Now().UTC()
 	scopes := strings.Join(provider.Scopes, " ")
+	provider.DefaultRole = NormalizeRole(string(provider.DefaultRole))
 	_, err := s.db.ExecContext(ctx, `UPDATE oidc_providers SET display_name=?, issuer=?, client_id=?, client_secret=?, scopes=?, icon=?, button_text=?, button_style=?, auto_login=?, tenant_id=?, default_role=?, updated_at=? WHERE slug=?`,
 		provider.DisplayName, provider.Issuer, provider.ClientID, provider.ClientSecret,
 		scopes, provider.Icon, provider.ButtonText, provider.ButtonStyle,
-		boolToInt(provider.AutoLogin), provider.TenantID, provider.DefaultRole,
+		boolToInt(provider.AutoLogin), provider.TenantID, string(provider.DefaultRole),
 		provider.UpdatedAt, provider.Slug,
 	)
 	return err
@@ -896,7 +942,8 @@ func (s *SQLiteStore) GetOIDCProvider(ctx context.Context, slug string) (*OIDCPr
 	var p OIDCProvider
 	var scopes string
 	var autoLogin int
-	if err := row.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle, &autoLogin, &p.TenantID, &p.DefaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
+	var defaultRole string
+	if err := row.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle, &autoLogin, &p.TenantID, &defaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
 	p.AutoLogin = intToBool(autoLogin)
@@ -904,6 +951,7 @@ func (s *SQLiteStore) GetOIDCProvider(ctx context.Context, slug string) (*OIDCPr
 		scopes = "openid profile email"
 	}
 	p.Scopes = strings.Fields(scopes)
+	p.DefaultRole = NormalizeRole(defaultRole)
 	return &p, nil
 }
 
@@ -925,11 +973,13 @@ func (s *SQLiteStore) ListOIDCProviders(ctx context.Context, tenantID string) ([
 		var p OIDCProvider
 		var scopes string
 		var autoLogin int
-		if err := rows.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle, &autoLogin, &p.TenantID, &p.DefaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var defaultRole string
+		if err := rows.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle, &autoLogin, &p.TenantID, &defaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		p.AutoLogin = intToBool(autoLogin)
 		p.Scopes = strings.Fields(scopes)
+		p.DefaultRole = NormalizeRole(defaultRole)
 		providers = append(providers, &p)
 	}
 	return providers, rows.Err()
@@ -1053,6 +1103,93 @@ func (s *SQLiteStore) RevokeJoinToken(ctx context.Context, id string) error {
 	return err
 }
 
+func normalizeUserTenantIDs(u *User) []string {
+	ids := u.TenantIDs
+	if len(ids) == 0 && strings.TrimSpace(u.TenantID) != "" {
+		ids = []string{u.TenantID}
+	}
+	return SortTenantIDs(ids)
+}
+
+func primaryTenantID(ids []string) string {
+	if len(ids) > 0 {
+		return ids[0]
+	}
+	return ""
+}
+
+func (s *SQLiteStore) replaceUserTenantIDsTx(ctx context.Context, tx *sql.Tx, userID int64, tenantIDs []string) error {
+	if tx == nil {
+		return fmt.Errorf("transaction required for tenant assignment")
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM user_tenants WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	for _, tenantID := range tenantIDs {
+		if tenantID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO user_tenants (user_id, tenant_id) VALUES (?, ?)`, userID, tenantID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SQLiteStore) listTenantIDsForUser(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT tenant_id FROM user_tenants WHERE user_id = ? ORDER BY tenant_id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var tid string
+		if err := rows.Scan(&tid); err != nil {
+			return nil, err
+		}
+		ids = append(ids, tid)
+	}
+	return ids, nil
+}
+
+func (s *SQLiteStore) loadUserTenantMap(ctx context.Context) (map[int64][]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id, tenant_id FROM user_tenants ORDER BY tenant_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	res := make(map[int64][]string)
+	for rows.Next() {
+		var userID int64
+		var tenantID string
+		if err := rows.Scan(&userID, &tenantID); err != nil {
+			return nil, err
+		}
+		if tenantID == "" {
+			continue
+		}
+		res[userID] = append(res[userID], tenantID)
+	}
+	for id, ids := range res {
+		res[id] = SortTenantIDs(ids)
+	}
+	return res, nil
+}
+
+func applyTenantAssignments(u *User, legacy sql.NullString, ids []string) {
+	ids = SortTenantIDs(ids)
+	if len(ids) == 0 && legacy.Valid && legacy.String != "" {
+		ids = []string{legacy.String}
+	}
+	u.TenantIDs = ids
+	if len(ids) > 0 {
+		u.TenantID = ids[0]
+	} else if legacy.Valid {
+		u.TenantID = legacy.String
+	}
+}
+
 // CreateUser creates a new local user with a hashed password
 func (s *SQLiteStore) CreateUser(ctx context.Context, user *User, rawPassword string) error {
 	if user == nil {
@@ -1071,15 +1208,35 @@ func (s *SQLiteStore) CreateUser(ctx context.Context, user *User, rawPassword st
 		return err
 	}
 
-	res, err := s.db.ExecContext(ctx, `INSERT INTO users (username, password_hash, role, tenant_id, email, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		user.Username, encoded, user.Role, user.TenantID, user.Email, time.Now().UTC())
+	role := NormalizeRole(string(user.Role))
+	tenantIDs := normalizeUserTenantIDs(user)
+	primaryTenant := primaryTenantID(tenantIDs)
+	now := time.Now().UTC()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `INSERT INTO users (username, password_hash, role, tenant_id, email, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		user.Username, encoded, string(role), primaryTenant, user.Email, now)
 	if err != nil {
 		return err
 	}
 	id, _ := res.LastInsertId()
 	user.ID = id
+	if err := s.replaceUserTenantIDsTx(ctx, tx, id, tenantIDs); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	user.Role = role
 	user.PasswordHash = encoded
-	user.CreatedAt = time.Now().UTC()
+	user.CreatedAt = now
+	user.TenantIDs = tenantIDs
+	user.TenantID = primaryTenant
 	return nil
 }
 
@@ -1087,15 +1244,19 @@ func (s *SQLiteStore) CreateUser(ctx context.Context, user *User, rawPassword st
 func (s *SQLiteStore) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, role, tenant_id, email, created_at FROM users WHERE username = ?`, username)
 	var u User
+	var role string
 	var tenant sql.NullString
 	var email sql.NullString
 	var created sql.NullTime
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenant, &email, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &role, &tenant, &email, &created); err != nil {
 		return nil, err
 	}
-	if tenant.Valid {
-		u.TenantID = tenant.String
+	ids, err := s.listTenantIDsForUser(ctx, u.ID)
+	if err != nil {
+		return nil, err
 	}
+	applyTenantAssignments(&u, tenant, ids)
+	u.Role = NormalizeRole(role)
 	if email.Valid {
 		u.Email = email.String
 	}
@@ -1109,15 +1270,19 @@ func (s *SQLiteStore) GetUserByUsername(ctx context.Context, username string) (*
 func (s *SQLiteStore) GetUserByID(ctx context.Context, id int64) (*User, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, role, tenant_id, email, created_at FROM users WHERE id = ?`, id)
 	var u User
+	var role string
 	var tenant sql.NullString
 	var email sql.NullString
 	var created sql.NullTime
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenant, &email, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &role, &tenant, &email, &created); err != nil {
 		return nil, err
 	}
-	if tenant.Valid {
-		u.TenantID = tenant.String
+	ids, err := s.listTenantIDsForUser(ctx, u.ID)
+	if err != nil {
+		return nil, err
 	}
+	applyTenantAssignments(&u, tenant, ids)
+	u.Role = NormalizeRole(role)
 	if email.Valid {
 		u.Email = email.String
 	}
@@ -1129,6 +1294,10 @@ func (s *SQLiteStore) GetUserByID(ctx context.Context, id int64) (*User, error) 
 
 // ListUsers returns all users (admin use)
 func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
+	tenantMap, err := s.loadUserTenantMap(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, username, role, tenant_id, email, created_at FROM users ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
@@ -1138,15 +1307,16 @@ func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
 	var res []*User
 	for rows.Next() {
 		var u User
+		var role string
 		var tenant sql.NullString
 		var email sql.NullString
 		var created sql.NullTime
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &tenant, &email, &created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &role, &tenant, &email, &created); err != nil {
 			return nil, err
 		}
-		if tenant.Valid {
-			u.TenantID = tenant.String
-		}
+		ids := tenantMap[u.ID]
+		applyTenantAssignments(&u, tenant, ids)
+		u.Role = NormalizeRole(role)
 		if email.Valid {
 			u.Email = email.String
 		}
@@ -1169,23 +1339,46 @@ func (s *SQLiteStore) UpdateUser(ctx context.Context, user *User) error {
 	if user == nil {
 		return fmt.Errorf("user required")
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE users SET role = ?, tenant_id = ?, email = ? WHERE id = ?`, user.Role, user.TenantID, user.Email, user.ID)
-	return err
+	role := NormalizeRole(string(user.Role))
+	tenantIDs := normalizeUserTenantIDs(user)
+	primaryTenant := primaryTenantID(tenantIDs)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET role = ?, tenant_id = ?, email = ? WHERE id = ?`, string(role), primaryTenant, user.Email, user.ID); err != nil {
+		return err
+	}
+	if err := s.replaceUserTenantIDsTx(ctx, tx, user.ID, tenantIDs); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	user.Role = role
+	user.TenantIDs = tenantIDs
+	user.TenantID = primaryTenant
+	return nil
 }
 
 // GetUserByEmail returns a user by email
 func (s *SQLiteStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, role, tenant_id, email, created_at FROM users WHERE email = ?`, email)
 	var u User
+	var role string
 	var tenant sql.NullString
 	var em sql.NullString
 	var created sql.NullTime
-	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenant, &em, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &role, &tenant, &em, &created); err != nil {
 		return nil, err
 	}
-	if tenant.Valid {
-		u.TenantID = tenant.String
+	ids, err := s.listTenantIDsForUser(ctx, u.ID)
+	if err != nil {
+		return nil, err
 	}
+	applyTenantAssignments(&u, tenant, ids)
+	u.Role = NormalizeRole(role)
 	if em.Valid {
 		u.Email = em.String
 	}

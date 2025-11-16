@@ -15,7 +15,7 @@ func TestSessionLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a user
-	u := &User{Username: "tester", Role: "user", Email: "t@example.com"}
+	u := &User{Username: "tester", Role: RoleOperator, Email: "t@example.com"}
 	if err := s.CreateUser(ctx, u, "password123"); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}

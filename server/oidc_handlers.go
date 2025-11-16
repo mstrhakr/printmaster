@@ -87,7 +87,7 @@ func handleAuthOptions(w http.ResponseWriter, r *http.Request) {
 
 func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
 	cur := getUserFromContext(r)
-	if cur == nil || cur.Role != "admin" {
+	if cur == nil || cur.Role != storage.RoleAdmin {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -132,7 +132,7 @@ func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
 
 func handleOIDCProvider(w http.ResponseWriter, r *http.Request) {
 	cur := getUserFromContext(r)
-	if cur == nil || cur.Role != "admin" {
+	if cur == nil || cur.Role != storage.RoleAdmin {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -433,7 +433,7 @@ func buildProviderFromPayload(payload *oidcProviderPayload, existing *storage.OI
 	if role != "admin" {
 		role = "user"
 	}
-	result.DefaultRole = role
+	result.DefaultRole = storage.NormalizeRole(role)
 
 	return result, nil
 }
@@ -571,8 +571,8 @@ func resolveOIDCUser(ctx context.Context, provider *storage.OIDCProvider, claims
 
 	username := deriveUsername(claims)
 	role := provider.DefaultRole
-	if role != "admin" {
-		role = "user"
+	if role != storage.RoleAdmin && role != storage.RoleOperator {
+		role = storage.RoleViewer
 	}
 
 	var user *storage.User
@@ -586,10 +586,14 @@ func resolveOIDCUser(ctx context.Context, provider *storage.OIDCProvider, claims
 			candidate = fmt.Sprintf("%s-user", provider.Slug)
 		}
 		tempUser := &storage.User{
-			Username: candidate,
-			Role:     role,
-			TenantID: provider.TenantID,
-			Email:    email,
+			Username:  candidate,
+			Role:      role,
+			TenantIDs: []string{},
+			Email:     email,
+		}
+		if provider.TenantID != "" {
+			tempUser.TenantIDs = []string{provider.TenantID}
+			tempUser.TenantID = provider.TenantID
 		}
 		pass, err := randomURLSafe(18)
 		if err != nil {
