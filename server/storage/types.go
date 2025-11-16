@@ -70,6 +70,25 @@ type JoinToken struct {
 	Revoked   bool      `json:"revoked"`
 }
 
+// User represents a local user account for the server UI/API
+type User struct {
+	ID           int64     `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"` // admin, user
+	TenantID     string    `json:"tenant_id,omitempty"`
+	Email        string    `json:"email,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// Session represents a short lived session/token for UI auth
+type Session struct {
+	Token     string    `json:"token"`
+	UserID    int64     `json:"user_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // AuditEntry represents an audit log entry for agent operations
 type AuditEntry struct {
 	ID        int64     `json:"id"`
@@ -124,4 +143,26 @@ type Store interface {
 	// Admin: list and revoke join tokens
 	ListJoinTokens(ctx context.Context, tenantID string) ([]*JoinToken, error)
 	RevokeJoinToken(ctx context.Context, id string) error
+
+	// User & session management (local login)
+	CreateUser(ctx context.Context, user *User, rawPassword string) error
+	GetUserByUsername(ctx context.Context, username string) (*User, error)
+	AuthenticateUser(ctx context.Context, username, rawPassword string) (*User, error)
+
+	// Sessions
+	CreateSession(ctx context.Context, userID int64, ttlMinutes int) (*Session, error)
+	GetSessionByToken(ctx context.Context, token string) (*Session, error)
+	DeleteSession(ctx context.Context, token string) error
+	GetUserByID(ctx context.Context, id int64) (*User, error)
+	// ListUsers returns all local users (admin UI)
+	ListUsers(ctx context.Context) ([]*User, error)
+	DeleteUser(ctx context.Context, id int64) error
+	UpdateUser(ctx context.Context, user *User) error
+	GetUserByEmail(ctx context.Context, email string) (*User, error)
+
+	// Password reset tokens (opaque token stored hashed)
+	CreatePasswordResetToken(ctx context.Context, userID int64, ttlMinutes int) (string, error)
+	ValidatePasswordResetToken(ctx context.Context, token string) (int64, error)
+	DeletePasswordResetToken(ctx context.Context, token string) error
+	UpdateUserPassword(ctx context.Context, userID int64, rawPassword string) error
 }

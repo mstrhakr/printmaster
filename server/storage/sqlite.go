@@ -4,16 +4,16 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime"
-	"time"
 	"strings"
+	"time"
 
 	"printmaster/common/logger"
 
@@ -210,6 +210,44 @@ func (s *SQLiteStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_join_tokens_hash ON join_tokens(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_join_tokens_tenant ON join_tokens(tenant_id);
+
+	-- Local users for UI and API authentication
+	CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL UNIQUE,
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'user',
+		tenant_id TEXT,
+		email TEXT,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+	-- Sessions for local login (token stored as plain long random string)
+	CREATE TABLE IF NOT EXISTS sessions (
+		token TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		expires_at DATETIME NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+
+	-- Password reset tokens (store hashed token)
+	CREATE TABLE IF NOT EXISTS password_resets (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		token_hash TEXT NOT NULL,
+		user_id INTEGER NOT NULL,
+		expires_at DATETIME NOT NULL,
+		used INTEGER DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -238,6 +276,8 @@ func (s *SQLiteStore) initSchema() error {
 		"ALTER TABLE agents ADD COLUMN device_count INTEGER DEFAULT 0",
 		"ALTER TABLE agents ADD COLUMN last_device_sync DATETIME",
 		"ALTER TABLE agents ADD COLUMN last_metrics_sync DATETIME",
+		// users: add email column
+		"ALTER TABLE users ADD COLUMN email TEXT",
 	}
 
 	for _, stmt := range altStmts {
@@ -770,6 +810,297 @@ func (s *SQLiteStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*J
 // RevokeJoinToken marks a join token revoked (admin action)
 func (s *SQLiteStore) RevokeJoinToken(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE join_tokens SET revoked = 1 WHERE id = ?`, id)
+	return err
+}
+
+// CreateUser creates a new local user with a hashed password
+func (s *SQLiteStore) CreateUser(ctx context.Context, user *User, rawPassword string) error {
+	if user == nil {
+		return fmt.Errorf("user required")
+	}
+	if user.Username == "" {
+		return fmt.Errorf("username required")
+	}
+	if rawPassword == "" {
+		return fmt.Errorf("password required")
+	}
+
+	// Hash password using existing argon2 helper
+	encoded, err := generateArgonHash(rawPassword)
+	if err != nil {
+		return err
+	}
+
+	res, err := s.db.ExecContext(ctx, `INSERT INTO users (username, password_hash, role, tenant_id, email, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		user.Username, encoded, user.Role, user.TenantID, user.Email, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	id, _ := res.LastInsertId()
+	user.ID = id
+	user.PasswordHash = encoded
+	user.CreatedAt = time.Now().UTC()
+	return nil
+}
+
+// GetUserByUsername returns a user by username
+func (s *SQLiteStore) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, role, tenant_id, email, created_at FROM users WHERE username = ?`, username)
+	var u User
+	var tenant sql.NullString
+	var email sql.NullString
+	var created sql.NullTime
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenant, &email, &created); err != nil {
+		return nil, err
+	}
+	if tenant.Valid {
+		u.TenantID = tenant.String
+	}
+	if email.Valid {
+		u.Email = email.String
+	}
+	if created.Valid {
+		u.CreatedAt = created.Time
+	}
+	return &u, nil
+}
+
+// GetUserByID returns a user by numeric ID
+func (s *SQLiteStore) GetUserByID(ctx context.Context, id int64) (*User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, role, tenant_id, email, created_at FROM users WHERE id = ?`, id)
+	var u User
+	var tenant sql.NullString
+	var email sql.NullString
+	var created sql.NullTime
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenant, &email, &created); err != nil {
+		return nil, err
+	}
+	if tenant.Valid {
+		u.TenantID = tenant.String
+	}
+	if email.Valid {
+		u.Email = email.String
+	}
+	if created.Valid {
+		u.CreatedAt = created.Time
+	}
+	return &u, nil
+}
+
+// ListUsers returns all users (admin use)
+func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, username, role, tenant_id, email, created_at FROM users ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var res []*User
+	for rows.Next() {
+		var u User
+		var tenant sql.NullString
+		var email sql.NullString
+		var created sql.NullTime
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &tenant, &email, &created); err != nil {
+			return nil, err
+		}
+		if tenant.Valid {
+			u.TenantID = tenant.String
+		}
+		if email.Valid {
+			u.Email = email.String
+		}
+		if created.Valid {
+			u.CreatedAt = created.Time
+		}
+		res = append(res, &u)
+	}
+	return res, nil
+}
+
+// DeleteUser removes a user by ID
+func (s *SQLiteStore) DeleteUser(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
+	return err
+}
+
+// UpdateUser updates a user's role, tenant and email
+func (s *SQLiteStore) UpdateUser(ctx context.Context, user *User) error {
+	if user == nil {
+		return fmt.Errorf("user required")
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE users SET role = ?, tenant_id = ?, email = ? WHERE id = ?`, user.Role, user.TenantID, user.Email, user.ID)
+	return err
+}
+
+// GetUserByEmail returns a user by email
+func (s *SQLiteStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, username, password_hash, role, tenant_id, email, created_at FROM users WHERE email = ?`, email)
+	var u User
+	var tenant sql.NullString
+	var em sql.NullString
+	var created sql.NullTime
+	if err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenant, &em, &created); err != nil {
+		return nil, err
+	}
+	if tenant.Valid {
+		u.TenantID = tenant.String
+	}
+	if em.Valid {
+		u.Email = em.String
+	}
+	if created.Valid {
+		u.CreatedAt = created.Time
+	}
+	return &u, nil
+}
+
+// CreatePasswordResetToken creates a reset token for a user and stores its hash
+func (s *SQLiteStore) CreatePasswordResetToken(ctx context.Context, userID int64, ttlMinutes int) (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(b)
+	// Hash token
+	h, err := generateArgonHash(token)
+	if err != nil {
+		return "", err
+	}
+	expires := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO password_resets (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`, h, userID, expires, time.Now().UTC()); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// ValidatePasswordResetToken verifies the token and marks it used; returns userID
+func (s *SQLiteStore) ValidatePasswordResetToken(ctx context.Context, token string) (int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, token_hash, user_id, expires_at, used FROM password_resets WHERE used = 0 AND expires_at > ?`, time.Now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var hash string
+		var userID int64
+		var expires time.Time
+		var usedInt int
+		if err := rows.Scan(&id, &hash, &userID, &expires, &usedInt); err != nil {
+			return 0, err
+		}
+		ok, verr := verifyArgonHash(token, hash)
+		if verr != nil {
+			return 0, verr
+		}
+		if ok {
+			// mark used
+			if _, err := s.db.ExecContext(ctx, `UPDATE password_resets SET used = 1 WHERE id = ?`, id); err != nil {
+				return 0, err
+			}
+			return userID, nil
+		}
+	}
+	return 0, fmt.Errorf("invalid or expired token")
+}
+
+// DeletePasswordResetToken deletes a matching reset token (if present)
+func (s *SQLiteStore) DeletePasswordResetToken(ctx context.Context, token string) error {
+	// scan to find matching id
+	rows, err := s.db.QueryContext(ctx, `SELECT id, token_hash FROM password_resets`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var hash string
+		if err := rows.Scan(&id, &hash); err != nil {
+			return err
+		}
+		ok, verr := verifyArgonHash(token, hash)
+		if verr != nil {
+			return verr
+		}
+		if ok {
+			_, err := s.db.ExecContext(ctx, `DELETE FROM password_resets WHERE id = ?`, id)
+			return err
+		}
+	}
+	return nil
+}
+
+// UpdateUserPassword replaces the password hash for a user
+func (s *SQLiteStore) UpdateUserPassword(ctx context.Context, userID int64, rawPassword string) error {
+	if rawPassword == "" {
+		return fmt.Errorf("password required")
+	}
+	h, err := generateArgonHash(rawPassword)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, h, userID)
+	return err
+}
+
+// AuthenticateUser verifies username/password and returns the user if valid
+func (s *SQLiteStore) AuthenticateUser(ctx context.Context, username, rawPassword string) (*User, error) {
+	u, err := s.GetUserByUsername(ctx, username)
+	if err != nil {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+	ok, verr := verifyArgonHash(rawPassword, u.PasswordHash)
+	if verr != nil {
+		return nil, verr
+	}
+	if !ok {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+	// Remove password hash from returned struct for safety
+	u.PasswordHash = ""
+	return u, nil
+}
+
+// CreateSession creates a session token for a user and stores it
+func (s *SQLiteStore) CreateSession(ctx context.Context, userID int64, ttlMinutes int) (*Session, error) {
+	// generate token
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil, err
+	}
+	token := hex.EncodeToString(b)
+	expires := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
+
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`, token, userID, expires, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+
+	return &Session{Token: token, UserID: userID, ExpiresAt: expires, CreatedAt: time.Now().UTC()}, nil
+}
+
+// GetSessionByToken retrieves a session by token and ensures it's not expired
+func (s *SQLiteStore) GetSessionByToken(ctx context.Context, token string) (*Session, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT token, user_id, expires_at, created_at FROM sessions WHERE token = ?`, token)
+	var ses Session
+	var created sql.NullTime
+	if err := row.Scan(&ses.Token, &ses.UserID, &ses.ExpiresAt, &created); err != nil {
+		return nil, err
+	}
+	if created.Valid {
+		ses.CreatedAt = created.Time
+	}
+	if time.Now().UTC().After(ses.ExpiresAt) {
+		// session expired - delete and return error
+		s.DeleteSession(ctx, token)
+		return nil, fmt.Errorf("session expired")
+	}
+	return &ses, nil
+}
+
+// DeleteSession deletes a session token
+func (s *SQLiteStore) DeleteSession(ctx context.Context, token string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE token = ?`, token)
 	return err
 }
 
