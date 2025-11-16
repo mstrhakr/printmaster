@@ -4035,6 +4035,40 @@ window.top.location.href = '/proxy/%s/';
 				tonerLevels = snapshot.TonerLevels
 			}
 
+			// If metrics do not contain toner_levels, try to synthesize from RawData
+			if len(tonerLevels) == 0 && device.RawData != nil {
+				// If raw_data already contains a structured toner_levels map, use it
+				if tl, ok := device.RawData["toner_levels"].(map[string]interface{}); ok && len(tl) > 0 {
+					tonerLevels = tl
+				} else {
+					// Otherwise, look for per-color keys and build a map
+					tl := map[string]interface{}{}
+					if v, ok := device.RawData["toner_level_black"].(float64); ok {
+						tl["Black"] = int(v)
+					} else if v, ok := device.RawData["toner_level_black"].(int); ok {
+						tl["Black"] = v
+					}
+					if v, ok := device.RawData["toner_level_cyan"].(float64); ok {
+						tl["Cyan"] = int(v)
+					} else if v, ok := device.RawData["toner_level_cyan"].(int); ok {
+						tl["Cyan"] = v
+					}
+					if v, ok := device.RawData["toner_level_magenta"].(float64); ok {
+						tl["Magenta"] = int(v)
+					} else if v, ok := device.RawData["toner_level_magenta"].(int); ok {
+						tl["Magenta"] = v
+					}
+					if v, ok := device.RawData["toner_level_yellow"].(float64); ok {
+						tl["Yellow"] = int(v)
+					} else if v, ok := device.RawData["toner_level_yellow"].(int); ok {
+						tl["Yellow"] = v
+					}
+					if len(tl) > 0 {
+						tonerLevels = tl
+					}
+				}
+			}
+
 			// Create response with all device fields + printer_info for compatibility
 			response := map[string]interface{}{
 				"serial":          device.Serial,
@@ -4757,10 +4791,10 @@ window.top.location.href = '/proxy/%s/';
 		// Persist server settings to config store so they survive restarts
 		if agentConfigStore != nil {
 			_ = agentConfigStore.SetConfigValue("server", map[string]interface{}{
-				"url":                   in.ServerURL,
-				"name":                  agentName,
-				"ca_path":               in.CAPath,
-				"insecure_skip_verify":  in.Insecure,
+				"url":                  in.ServerURL,
+				"name":                 agentName,
+				"ca_path":              in.CAPath,
+				"insecure_skip_verify": in.Insecure,
 			})
 		}
 

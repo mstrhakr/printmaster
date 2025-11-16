@@ -163,6 +163,58 @@ func DeviceToPrinterInfo(device *Device) agent.PrinterInfo {
 			pi.LearnedOIDs = learnedOIDs
 		}
 		// Add more field extractions as needed
+
+		// Populate per-color toner fields and TonerLevels map from RawData when present
+		// Some devices / older runs stored color-specific toner values in raw_data
+		// under keys like "toner_level_black" (number) and "toner_desc_black" (string).
+		// Map those into the PrinterInfo so UI code that expects TonerLevels or
+		// TonerLevel* fields will find them.
+		tonerMap := map[string]int{}
+		// helper to read numeric value from raw_data
+		readInt := func(key string) (int, bool) {
+			if v, ok := device.RawData[key].(float64); ok {
+				return int(v), true
+			}
+			if v, ok := device.RawData[key].(int); ok {
+				return v, true
+			}
+			return 0, false
+		}
+
+		if v, ok := readInt("toner_level_black"); ok {
+			pi.TonerLevelBlack = v
+			tonerMap["Black"] = v
+		}
+		if v, ok := readInt("toner_level_cyan"); ok {
+			pi.TonerLevelCyan = v
+			tonerMap["Cyan"] = v
+		}
+		if v, ok := readInt("toner_level_magenta"); ok {
+			pi.TonerLevelMagenta = v
+			tonerMap["Magenta"] = v
+		}
+		if v, ok := readInt("toner_level_yellow"); ok {
+			pi.TonerLevelYellow = v
+			tonerMap["Yellow"] = v
+		}
+
+		// copy toner descriptions if present
+		if v, ok := device.RawData["toner_desc_black"].(string); ok {
+			pi.TonerDescBlack = v
+		}
+		if v, ok := device.RawData["toner_desc_cyan"].(string); ok {
+			pi.TonerDescCyan = v
+		}
+		if v, ok := device.RawData["toner_desc_magenta"].(string); ok {
+			pi.TonerDescMagenta = v
+		}
+		if v, ok := device.RawData["toner_desc_yellow"].(string); ok {
+			pi.TonerDescYellow = v
+		}
+
+		if len(tonerMap) > 0 {
+			pi.TonerLevels = tonerMap
+		}
 	}
 
 	return pi

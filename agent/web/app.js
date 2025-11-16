@@ -84,6 +84,12 @@ async function saveAllDiscovered(evt) {
     const btn = evt && evt.currentTarget ? evt.currentTarget : null;
     const origText = btn && btn.textContent ? btn.textContent : null;
     try {
+        // Prevent concurrent Save All operations
+        if (window.__pm_saveAllInProgress) {
+            window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Save All already in progress', 'info');
+            return;
+        }
+        window.__pm_saveAllInProgress = true;
         if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
 
         // Load discovered devices and saved devices in parallel
@@ -99,22 +105,29 @@ async function saveAllDiscovered(evt) {
         const savedSerials = new Set(saved.map(i => i.serial).filter(Boolean));
         const savedIPs = new Set(saved.map(i => (i.printer_info && (i.printer_info.ip || i.printer_info.IP)) || '').filter(Boolean));
 
-        let savedCount = 0;
+        // Process saves in controlled concurrency batches to avoid overloading
+        const toSave = [];
         for (const p of (discovered || [])) {
             const info = p.printer_info || p || {};
             const ip = info.ip || info.IP || '';
             const serial = p.serial || '';
             const isSaved = (serial && savedSerials.has(serial)) || (ip && savedIPs.has(ip));
             if (isSaved) continue;
+            toSave.push(ip || serial);
+        }
 
-            try {
-                // Use the shared/agent wrapper which handles IP->serial resolution
-                await window.__pm_shared.saveDiscoveredDevice(ip || serial, false, true);
-                savedCount++;
-            } catch (e) {
-                // best-effort: continue saving remaining devices
-                try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('saveAllDiscovered: item save failed', ip || serial, e); } catch (er) {}
-            }
+        const CONCURRENCY = 6;
+        let savedCount = 0;
+        for (let i = 0; i < toSave.length; i += CONCURRENCY) {
+            const batch = toSave.slice(i, i + CONCURRENCY);
+            const promises = batch.map(target => {
+                return window.__pm_shared.saveDiscoveredDevice(target, false, false).then(() => { savedCount++; }).catch(e => {
+                    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('saveAllDiscovered: item save failed', target, e); } catch (er) {}
+                });
+            });
+            await Promise.all(promises);
+            // small delay to allow UI and SSE to settle
+            await new Promise(res => setTimeout(res, 120));
         }
 
         if (savedCount > 0) {
@@ -128,6 +141,7 @@ async function saveAllDiscovered(evt) {
         window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('saveAllDiscovered failed', err);
         window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Failed to save discovered devices: ' + (err && err.message ? err.message : err), 'error');
     } finally {
+        window.__pm_saveAllInProgress = false;
         if (btn) { btn.disabled = false; if (origText) btn.textContent = origText; }
     }
 }
@@ -165,14 +179,10 @@ async function clearDiscovered(evt) {
     }
 }
 
-function showPrinterDetailsData(p, source, parseDebug) {
-    // Delegated to shared implementation in `common/web/cards.js`.
-    try {
-        return window.__pm_shared_cards.showPrinterDetailsData(p, source, parseDebug);
-    } catch (e) {
-        window.__pm_shared.warn('shared showPrinterDetailsData failed', e);
-    }
-}
+// NOTE: The canonical printer-details renderer lives in
+// `common/web/cards.js` as `window.__pm_shared_cards.showPrinterDetailsData`.
+// We no longer provide a local wrapper here to avoid duplication and
+// indirection — callers should call the shared renderer directly.
 
 // Update the discovered and saved printers UI by querying the backend and
 // rendering cards using the shared card renderers in `common/web/cards.js`.
@@ -247,6 +257,20 @@ function updatePrinters() {
             const discoveredContainer = document.getElementById('discovered_devices_cards');
             if (!discoveredContainer) return;
 
+                // If any card is currently animating (saving/removing), defer
+                // this re-render so we don't interrupt exit animations. SSE or
+                // other async updates may call updatePrinters frequently; it's
+                // better to wait a short time and retry than to forcibly
+                // replace innerHTML while a visual transition is in progress.
+                try {
+                    const animating = discoveredContainer.querySelector('.saving, .removing');
+                    if (animating) {
+                        // schedule a retry shortly after expected animation end
+                        setTimeout(() => { try { updatePrinters(); } catch (e) {} }, 500);
+                        return;
+                    }
+                } catch (e) {}
+
             const savedSerials = new Set();
             const savedIPs = new Set();
             if (Array.isArray(saved)) {
@@ -275,7 +299,7 @@ function updatePrinters() {
             } else {
                 let lowTonerCount = 0;
                 discovered.forEach(p => {
-                    const toners = p.toner_levels || {};
+                    const toners = p.toners || p.toner || {};
                     for (const c in toners) { if (toners[c] < 20) { lowTonerCount++; break; } }
                 });
                 const statsHtml = '<span style="color:var(--text)"><strong>Total:</strong> ' + discovered.length + '</span>' +
@@ -323,7 +347,7 @@ function updatePrinters() {
                 let lowTonerCount = 0;
                 saved.forEach(item => {
                     const p = item.printer_info || {};
-                    const toners = p.toner_levels || {};
+                    const toners = p.toners || p.toner || {};
                     for (const c in toners) { if (toners[c] < 20) { lowTonerCount++; break; } }
                 });
                 const statsHtml = '<span style="color:var(--text)"><strong>Total:</strong> ' + saved.length + '</span>' +
@@ -337,7 +361,16 @@ function updatePrinters() {
                 if (isInitialLoad) {
                     let cardsHTML = '';
                     saved.forEach(item => { cardsHTML += window.__pm_shared_cards.renderSavedCard(item); });
-                    savedContainer.innerHTML = cardsHTML;
+                    // If any saved card is animating, defer replacing the
+                    // entire saved container to avoid cutting animations short.
+                    try {
+                        const animatingSaved = savedContainer.querySelector('.saving, .removing');
+                        if (animatingSaved) {
+                            setTimeout(() => { try { savedContainer.innerHTML = cardsHTML; } catch (e) {} }, 500);
+                        } else {
+                            savedContainer.innerHTML = cardsHTML;
+                        }
+                    } catch (e) { savedContainer.innerHTML = cardsHTML; }
                     // Ensure saved card inline handlers are normalized to programmatic
                     // listeners as well so Delete/Details/other actions behave the
                     // same across discovered and saved lists.
@@ -403,13 +436,19 @@ async function clearDatabase() {
 async function showSavedDeviceDetails(serial) {
     if (!serial) return;
     try {
-        const r = await fetch('/devices/get?serial=' + encodeURIComponent(serial));
-        if (!r.ok) throw new Error('Device not found');
-        const device = await r.json();
-
-        // Device from database has lowercase field names; use shared modal renderer
-        // which normalizes both formats and is provided by common/web/cards.js
-        window.__pm_shared_cards.showPrinterDetailsData(device, 'saved');
+        // Delegate to the shared serial-resolving wrapper. That wrapper will
+        // prefer server-side data when available and fall back to the agent
+        // local DB otherwise. Using the shared function keeps behavior
+        // consistent across Agent and Server UIs.
+        if (window.__pm_shared && typeof window.__pm_shared.showPrinterDetails === 'function') {
+            window.__pm_shared.showPrinterDetails(serial, 'saved');
+        } else {
+            // Fallback: try agent-local endpoint directly
+            const r = await fetch('/devices/get?serial=' + encodeURIComponent(serial));
+            if (!r.ok) throw new Error('Device not found');
+            const device = await r.json();
+            window.__pm_shared_cards.showPrinterDetailsData(device, 'saved');
+        }
     } catch (e) {
         window.__pm_shared.showToast('Failed to load device: ' + e.message, 'error');
     }
@@ -429,7 +468,27 @@ async function deleteSavedDevice(serial) {
         const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: serial }) });
         if (!r.ok) throw new Error('Delete failed');
         window.__pm_shared.showToast('Device deleted successfully', 'success');
-        updatePrinters();
+        // Animate removal of the saved-device card to avoid an abrupt snap.
+        try {
+            const card = document.querySelector('.saved-device-card[data-serial="' + (serial || '') + '"]') || document.querySelector('.saved-device-card[data-device-key="' + (serial || '') + '"]');
+            if (card) {
+                card.classList.add('removing');
+                let handled = false;
+                const onEnd = () => {
+                    if (handled) return; handled = true;
+                    try { card.remove(); } catch (e) {}
+                    try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+                    card.removeEventListener('animationend', onEnd);
+                    card.removeEventListener('transitionend', onEnd);
+                };
+                card.addEventListener('animationend', onEnd);
+                card.addEventListener('transitionend', onEnd);
+                // safety fallback
+                setTimeout(onEnd, 800);
+            } else {
+                try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+            }
+        } catch (e) { try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (er) {} }
     } catch (e) {
     window.__pm_shared.error('Delete failed:', e);
     window.__pm_shared.showToast('Delete failed: ' + e.message, 'error');
@@ -1011,769 +1070,10 @@ function viewDiag(ip) {
     // ensure the Devices tab is visible so diagnostics are visible
     showTab('devices');
     const pre = document.getElementById('mib_results');
-    pre.textContent = 'Loading diagnostics for ' + ip + '...';
-    fetch('/parse_debug?ip=' + encodeURIComponent(ip)).then(async r => {
-        if (!r.ok) { const t = await r.text(); pre.textContent = 'No diagnostics: ' + t; return; }
-        const j = await r.json();
-        pre.textContent = JSON.stringify(j, null, 2);
-    }).catch(e => { pre.textContent = 'Request failed: ' + e; });
+    if (pre) pre.textContent = 'Device diagnostics removed (legacy feature).';
+    try { window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Device diagnostics view removed (legacy)', 'info'); } catch (e) { /* ignore */ }
 }
 
-// Show printer details modal with printer data already loaded
-// source: 'discovered' or 'saved' to control title and action buttons
-function showPrinterDetailsData(p, source, parseDebug) {
-    if (!p) return;
-    source = source || 'discovered';
-    const bodyEl = document.getElementById('printer_details_body');
-    const overlay = document.getElementById('printer_details_overlay');
-    const titleEl = document.getElementById('printer_details_title');
-    const actionsEl = document.getElementById('printer_details_actions');
-
-    titleEl.textContent = (source === 'saved') ? 'Saved Device' : 'Discovered Device';
-    
-    // Store the current printer IP to prevent glitchy updates from live data
-    overlay.dataset.currentPrinterIp = p.ip || p.IP || '';
-    
-    // Show modal overlay and prevent body scroll
-    overlay.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-
-    // Render card with consistent styling
-    function renderInfoCard(title, content) {
-        if (!content) return '';
-        return '<div class="panel">' +
-            '<h4 style="margin-top:0;color:var(--highlight)">' + title + '</h4>' +
-            content +
-            '</div>';
-    }
-    
-    // Render grid row (label: value)
-    function renderRow(label, value) {
-        if (!value) return '';
-        return '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;padding:4px 0">' +
-            '<div style="color:var(--muted);white-space:nowrap">' + label + ':</div>' +
-            '<div style="word-break:break-word">' + value + '</div>' +
-            '</div>';
-    }
-    
-    let html = '<div class="settings-grid" style="margin-top:0">';
-
-    // Debug: show if printer object is empty
-    if (!p || Object.keys(p).length === 0) {
-        html += '<div style="color:var(--muted);padding:12px">No printer data available</div>';
-        bodyEl.innerHTML = html + '</div>';
-        return;
-    }
-
-    // Editable device fields with lock toggles
-    const isLocked = (field) => Array.isArray(p.locked_fields) && p.locked_fields.some(f => (f.field || f.Field || '').toLowerCase() === field);
-
-    const renderEditableRow = (label, field, value, opts = { type: 'text', readonly: false, placeholder: '' }) => {
-        const locked = isLocked(field);
-        const inputId = 'field_' + field;
-        const safeVal = (value === undefined || value === null) ? '' : value;
-        const isReadonly = opts.readonly || locked;
-        const disabledStyle = locked ? 'background:var(--panel);color:var(--text);border-color:var(--border);cursor:not-allowed;opacity:0.8;' : '';
-
-        let row = '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;padding:4px 0" data-field-row="' + field + '">';
-        row += '<div style="color:var(--muted)">' + label + ':</div>';
-        if (opts.type === 'textarea') {
-            row += '<textarea id="' + inputId + '" ' + (isReadonly ? 'readonly' : '') + ' ' + (locked ? 'disabled' : '') + ' placeholder="' + (opts.placeholder || '') + '" style="min-height:56px;' + disabledStyle + '">' + safeVal + '</textarea>';
-        } else {
-            row += '<input id="' + inputId + '" type="' + opts.type + '" ' + (isReadonly ? 'readonly' : '') + ' ' + (locked ? 'disabled' : '') + ' value="' + safeVal + '" placeholder="' + (opts.placeholder || '') + '" style="' + disabledStyle + '">';
-        }
-        row += '<button class="lock-btn' + (locked ? ' locked' : '') + '" data-field="' + field + '" title="' + (locked ? 'Unlock field' : 'Lock field') + '"' + (opts.readonly ? ' style="visibility:hidden"' : '') + '></button>';
-        row += '</div>';
-        return row;
-    };
-
-    // Capabilities Card
-    // Use the canonical shared implementation. The shared loader is injected
-    // synchronously, so callers can reference the namespaced API directly.
-    const capabilitiesHTML = window.__pm_shared_cards.renderCapabilities(p);
-    if (capabilitiesHTML) {
-        html += renderInfoCard('Capabilities', capabilitiesHTML);
-    }
-    
-    // Device Info (editable)
-    let deviceInfo = '<div style="display:flex;flex-direction:column;gap:6px">';
-    deviceInfo += renderEditableRow('Manufacturer', 'manufacturer', p.manufacturer);
-    deviceInfo += renderEditableRow('Model', 'model', p.model);
-    deviceInfo += renderEditableRow('Serial', 'serial', p.serial, { type: 'text', readonly: true });
-    deviceInfo += renderEditableRow('Firmware', 'firmware', p.firmware);
-    deviceInfo += renderEditableRow('Asset Number', 'asset_number', p.asset_number);
-    deviceInfo += renderEditableRow('Location', 'location', p.location);
-    deviceInfo += renderEditableRow('Description', 'description', p.description, { type: 'textarea' });
-    // Web UI with proxy buttons
-    const webUILocked = isLocked('web_ui_url');
-    const webUIVal = (p.web_ui_url === undefined || p.web_ui_url === null) ? '' : p.web_ui_url;
-    const webUIDisabledStyle = webUILocked ? 'background:var(--panel);color:var(--text);border-color:var(--border);cursor:not-allowed;opacity:0.8;' : '';
-    deviceInfo += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center" data-field-row="web_ui_url">';
-    deviceInfo += '<div style="color:var(--muted)">Web UI:</div>';
-    deviceInfo += '<div style="display:flex;gap:4px;align-items:center">';
-    deviceInfo += '<input id="field_web_ui_url" type="text" value="' + webUIVal + '" ' + (webUILocked ? 'disabled' : '') + ' style="flex:1;' + webUIDisabledStyle + '">';
-    if (webUIVal) {
-        deviceInfo += '<button style="font-size:11px;padding:2px 6px" data-action="open-direct" data-webui-url="' + webUIVal + '">Direct</button>';
-        deviceInfo += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" data-action="open-proxy" data-serial="' + (p.serial || '') + '">Proxy</button>';
-    }
-    deviceInfo += '</div>';
-    deviceInfo += '<button class="lock-btn' + (webUILocked ? ' locked' : '') + '" data-field="web_ui_url" title="' + (webUILocked ? 'Unlock field' : 'Lock field') + '"></button>';
-    deviceInfo += '</div>';
-    if (p.last_seen) {
-        deviceInfo += '<div style="color:var(--muted);font-size:12px;margin-top:6px">Last Seen: ' + new Date(p.last_seen).toLocaleString() + '</div>';
-    }
-    if (p.first_seen) {
-        deviceInfo += '<div style="color:var(--muted);font-size:12px">First Seen: ' + new Date(p.first_seen).toLocaleString() + '</div>';
-    }
-    deviceInfo += '</div>';
-    html += renderInfoCard('Device Info', deviceInfo);
-
-    // Metrics card for saved devices (compact summary + quick-open buttons)
-    if (source === 'saved' && p.serial) {
-        const metricsHtml = '<div id="printer_metrics_summary" style="margin-top:8px"></div>' +
-            '<div style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
-            '<button class="primary" data-action="metrics" data-serial="' + p.serial + '">Open Metrics</button>' +
-            '<button style="font-size:12px;padding:6px" data-action="metrics" data-serial="' + p.serial + '" data-preset="7day">Open Last 7 Days</button>' +
-            '</div>';
-        html += renderInfoCard('Metrics', metricsHtml);
-    }
-
-    // Network Info Card
-    let networkInfo = '<div style="display:flex;flex-direction:column;gap:6px">';
-    networkInfo += renderEditableRow('IP Address', 'ip', p.ip);
-    networkInfo += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center;padding:4px 0">' +
-        '<div style="color:var(--muted)">MAC Address:</div>' +
-        '<div style="font-family:monospace">' + (p.mac_address || '') + '</div></div>';
-    networkInfo += renderEditableRow('Hostname', 'hostname', p.hostname);
-    networkInfo += renderEditableRow('Subnet Mask', 'subnet_mask', p.subnet_mask);
-    networkInfo += renderEditableRow('Gateway', 'gateway', p.gateway);
-    networkInfo += renderEditableRow('DNS Servers', 'dns_servers', (p.dns_servers || []).join(', '), { placeholder: 'comma separated' });
-    networkInfo += renderEditableRow('DHCP Server', 'dhcp_server', p.dhcp_server);
-    networkInfo += '</div>';
-    html += renderInfoCard('Network', networkInfo);
-
-    // Web UI Credentials Card (for proxy auto-login)
-    // Determine default username based on manufacturer
-    const mfg = (p.manufacturer || '').toLowerCase();
-    let defaultUser = 'admin';
-    let passwordHint = 'Serial Number';
-    if (mfg.includes('kyocera')) {
-        defaultUser = 'Admin'; // Capital A for Kyocera
-    } else if (mfg.includes('epson')) {
-        defaultUser = 'EPSON';
-        passwordHint = 'Serial Number (default)';
-    } else if (mfg.includes('hp')) {
-        passwordHint = 'Blank (default) or set password';
-    }
-
-    // Only render credentials card if feature is enabled in settings
-    if (globalSettings.security.credentials_enabled !== false) {
-        let credsInfo = '<div style="color:var(--muted);font-size:12px;margin-bottom:8px">For automatic proxy login. Password is encrypted at rest.</div>';
-        credsInfo += '<div style="display:grid;gap:6px">';
-        credsInfo += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">';
-        credsInfo += '<div style="color:var(--muted)">Username:</div>';
-        credsInfo += '<input id="cred_username" type="text" placeholder="' + defaultUser + '" style="width:100%">';
-        credsInfo += '</div>';
-        credsInfo += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">';
-        credsInfo += '<div style="color:var(--muted)">Password:</div>';
-        credsInfo += '<input id="cred_password" type="password" placeholder="' + passwordHint + '" style="width:100%">';
-        credsInfo += '</div>';
-        credsInfo += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">';
-        credsInfo += '<div style="color:var(--muted)">Auth Type:</div>';
-        credsInfo += '<select id="cred_auth_type" style="width:100%"><option value="basic">HTTP Basic</option><option value="form">Form Login</option></select>';
-        credsInfo += '</div>';
-        credsInfo += '<div style="display:flex;align-items:center;gap:8px">';
-        credsInfo += '<input type="checkbox" id="cred_auto_login">';
-        credsInfo += '<label for="cred_auto_login" style="color:var(--text);cursor:pointer">Enable auto-login when using proxy</label>';
-        credsInfo += '</div>';
-        credsInfo += '<div style="display:flex;gap:8px;margin-top:4px">';
-        credsInfo += '<button id="save_creds_btn" style="flex:1">Save Credentials</button>';
-        credsInfo += '<span id="creds_status" style="color:var(--muted);align-self:center;font-size:12px"></span>';
-        credsInfo += '</div>';
-        credsInfo += '</div>';
-        html += renderInfoCard('Web UI Credentials (optional)', credsInfo);
-    }
-
-    // Page Counters Card - show all available metrics
-    const rawData = p.raw_data || {};
-    const metersData = rawData.meters || p.meters || {};
-    const counterItems = [];
-
-    // Add main counters
-    if (p.page_count) counterItems.push({ label: 'Total Pages', value: p.page_count });
-    if (p.mono_impressions || rawData.mono_impressions) counterItems.push({ label: 'Mono Impressions', value: p.mono_impressions || rawData.mono_impressions });
-    if (p.color_impressions || rawData.color_impressions) counterItems.push({ label: 'Color Impressions', value: p.color_impressions || rawData.color_impressions });
-
-    // Add per-color counters if available
-    if (rawData.black_impressions) counterItems.push({ label: 'Black', value: rawData.black_impressions });
-    if (rawData.cyan_impressions) counterItems.push({ label: 'Cyan', value: rawData.cyan_impressions });
-    if (rawData.magenta_impressions) counterItems.push({ label: 'Magenta', value: rawData.magenta_impressions });
-    if (rawData.yellow_impressions) counterItems.push({ label: 'Yellow', value: rawData.yellow_impressions });
-
-    // Add category meters
-    if (metersData.scan_pages) counterItems.push({ label: 'Scan Pages', value: metersData.scan_pages });
-    if (metersData.copier_pages) counterItems.push({ label: 'Copier Pages', value: metersData.copier_pages });
-    if (metersData.fax_pages) counterItems.push({ label: 'Fax Pages', value: metersData.fax_pages });
-    if (metersData.printer_pages) counterItems.push({ label: 'Printer Pages', value: metersData.printer_pages });
-
-    if (counterItems.length > 0) {
-        let countersContent = '<div style="display:flex;flex-direction:column;gap:2px">';
-        counterItems.forEach(item => {
-            countersContent += renderRow(item.label, item.value);
-        });
-        countersContent += '</div>';
-        html += renderInfoCard('Page Counters', countersContent);
-    }
-
-    // Additional device properties
-    const additionalItems = [];
-    if (rawData.uptime_seconds) {
-        const days = Math.floor(rawData.uptime_seconds / 86400);
-        const hours = Math.floor((rawData.uptime_seconds % 86400) / 3600);
-        additionalItems.push({ label: 'Uptime', value: days + 'd ' + hours + 'h' });
-    }
-    if (rawData.duplex_supported) additionalItems.push({ label: 'Duplex', value: 'Supported' });
-    if (rawData.admin_contact) additionalItems.push({ label: 'Admin Contact', value: rawData.admin_contact });
-    if (rawData.asset_id) additionalItems.push({ label: 'Asset ID', value: rawData.asset_id });
-
-    if (additionalItems.length > 0) {
-        let additionalContent = '<div style="display:flex;flex-direction:column;gap:2px">';
-        additionalItems.forEach(item => {
-            additionalContent += renderRow(item.label, item.value);
-        });
-        additionalContent += '</div>';
-        html += renderInfoCard('Additional Info', additionalContent);
-    }
-
-    // Metrics History Section moved into Device Info card for saved devices
-
-    // Unified Consumables section - combines toner levels, waste toner, maintenance boxes, etc.
-    function renderConsumable(name, value, isLevel) {
-        const nameLower = name.toLowerCase();
-
-        // If it's a numeric level (0-100), show as progress bar
-        if (isLevel) {
-            const v = Number(value);
-            const pct = isNaN(v) ? '' : Math.max(0, Math.min(100, v));
-
-            // Determine color based on supply type and level
-            let color = '#6c6';
-            let icon = '';
-
-            // Toner colors
-            if (nameLower.includes('black') || nameLower === 'k') { color = '#111'; icon = '●'; }
-            else if (nameLower.includes('cyan') || nameLower === 'c') { color = '#0097a7'; icon = '●'; }
-            else if (nameLower.includes('magenta') || nameLower === 'm') { color = '#c2185b'; icon = '●'; }
-            else if (nameLower.includes('yellow') || nameLower === 'y') { color = '#fbc02d'; icon = '●'; }
-            // Waste/Maintenance items (reverse logic - high is bad)
-            else if (nameLower.includes('waste') || nameLower.includes('maintenance')) {
-                icon = '⚠';
-                if (pct === '') color = '#888';
-                else if (pct > 80) color = '#d32f2f';
-                else if (pct > 50) color = '#f57c00';
-                else color = '#388e3c';
-            }
-            // Other supplies (low is bad)
-            else {
-                icon = '▮';
-                if (pct === '') color = '#888';
-                else if (pct < 20) color = '#d32f2f';
-                else if (pct < 50) color = '#f57c00';
-                else color = '#388e3c';
-            }
-
-            const pctTextColor = (nameLower.includes('yellow') ? '#000' : '#fff');
-            let html = '<div style="margin-top:6px">';
-            html += '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">' + icon + ' ' + name + '</div>';
-            html += '<div style="background:#001f22;border:1px solid rgba(255,255,255,0.06);padding:6px;border-radius:8px;max-width:100%;width:100%;position:relative">';
-            html += '<div style="width:' + pct + '%;background:' + color + ';height:18px;border-radius:6px;box-shadow:inset 0 -2px 4px rgba(0,0,0,0.4)"></div>';
-            html += '<div style="position:absolute;left:8px;top:2px;font-size:12px;color:' + pctTextColor + '">' + (pct !== '' ? pct + '%' : 'n/a') + '</div>';
-            html += '</div></div>';
-            return html;
-        } else {
-            // Text description (e.g., part numbers, status messages)
-            return '<div style="margin-top:6px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px"><div style="color:var(--muted)">' + name + ':</div><div>' + value + '</div></div>';
-        }
-    }
-
-    // Consumables section - show all supply levels (toner, waste, maintenance, etc.)
-    const tonerLevels = p.toner_levels;
-
-    if (tonerLevels && Object.keys(tonerLevels).length > 0) {
-        html += '<div style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
-        html += '<div style="font-weight:600;color:var(--highlight);margin-bottom:8px;font-size:14px">Consumables</div>';
-
-        // Render all consumable levels with progress bars
-        for (let k in tonerLevels) {
-            html += renderConsumable(k, tonerLevels[k], true);
-        }
-
-        html += '</div>';
-    }
-
-    // Interfaces: attempt to extract from parseDebug.RawPDUs (IF-MIB columns)
-    if (parseDebug && Array.isArray(parseDebug.raw_pdus)) {
-        const ifs = {};
-        parseDebug.raw_pdus.forEach(rp => {
-            const oid = rp.oid || rp.OID || '';
-            if (oid.startsWith('1.3.6.1.2.1.2.2.1.')) {
-                // column form: ...1.3.6.1.2.1.2.2.1.<col>.<ifIndex>
-                const parts = oid.split('.');
-                const col = parts[parts.length - 2];
-                const idx = parts[parts.length - 1];
-                if (!ifs[idx]) ifs[idx] = { index: idx };
-                const v = rp.str_value || rp.StrValue || '';
-                switch (col) {
-                    case '2': ifs[idx].descr = v; break; // ifDescr
-                    case '3': ifs[idx].type = v; break; // ifType
-                    case '5': ifs[idx].speed = v; break; // ifSpeed
-                    case '6': ifs[idx].mac = v; break; // ifPhysAddress
-                }
-            }
-        });
-        const keys = Object.keys(ifs);
-        if (keys.length > 0) {
-            html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
-            html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px;margin-bottom:8px">Network Interfaces (' + keys.length + ')</summary>';
-            keys.forEach(k => {
-                const it = ifs[k];
-                html += '<div style="background:rgba(0,0,0,0.15);border-radius:4px;padding:8px;margin-bottom:6px;font-size:13px">';
-                html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px">';
-                if (it.descr) html += '<div style="color:var(--muted)">Interface:</div><div>' + it.descr + '</div>';
-                if (it.mac) html += '<div style="color:var(--muted)">MAC:</div><div style="font-family:monospace;font-size:12px">' + it.mac + '</div>';
-                if (it.speed) html += '<div style="color:var(--muted)">Speed:</div><div>' + it.speed + '</div>';
-                html += '</div></div>';
-            });
-            html += '</details>';
-        }
-    }
-
-    // Paper trays - collapsible
-    if (p.paper_tray_status && p.paper_tray_status.length) {
-        html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
-        html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px">Paper Trays (' + p.paper_tray_status.length + ')</summary>';
-        html += '<div style="margin-top:8px">';
-        p.paper_tray_status.forEach(t => html += '<div style="padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;margin-bottom:4px;font-size:13px">' + t + '</div>');
-        html += '</div></details>';
-    }
-
-    // Status messages and alerts - collapsible
-    if (p.status_messages && p.status_messages.length) {
-        html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
-        html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px">Status Messages (' + p.status_messages.length + ')</summary>';
-        html += '<div style="margin-top:8px">';
-        p.status_messages.forEach(s => html += '<div style="padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;margin-bottom:4px;font-size:13px">' + s + '</div>');
-        html += '</div></details>';
-    }
-
-    // Parse debug link (fallback to constructed endpoint if not present)
-    const dbgLink = p.parse_debug_path || ('/parse_debug?ip=' + encodeURIComponent(p.ip || ''));
-    html += '<div><a href="' + dbgLink + '" target="_blank">View Parse Debug</a></div>';
-
-    // Action buttons for refreshing device data and collecting metrics
-    html += '</div>'; // Close settings-grid
-    
-    // Action buttons below the grid
-    html += '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(0,0,0,0.1);border-radius:6px">';
-    html += '<button id="refresh_data_btn">Refresh Details</button>';
-    if (source === 'saved') {
-        html += '<button id="collect_metrics_btn">Collect Metrics</button>';
-    }
-    html += '<span id="refresh_status" style="color:var(--muted);align-self:center"></span>';
-    html += '</div>';
-
-    bodyEl.innerHTML = html;
-
-    // Populate small metrics summary into Device Info (if present)
-    (async function populatePrinterMetricsSummary() {
-        try {
-            if (source !== 'saved' || !p || !p.serial) return;
-            const summaryEl = document.getElementById('printer_metrics_summary');
-            if (!summaryEl) return;
-            summaryEl.textContent = 'Loading metrics summary...';
-
-            const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(p.serial) + '&period=7day';
-            const res = await fetch(url);
-            if (!res.ok) { summaryEl.innerHTML = '<div style="color:var(--muted)">No metrics data available</div>'; return; }
-            const history = await res.json();
-            if (!history || history.length === 0) { summaryEl.innerHTML = '<div style="color:var(--muted)">No metrics data available</div>'; return; }
-
-            const latest = history[history.length - 1];
-            const oldest = history[0];
-            const durationMs = new Date(latest.timestamp).getTime() - new Date(oldest.timestamp).getTime();
-            const durationDays = Math.max(1, durationMs / (24 * 60 * 60 * 1000));
-
-            let statsHtml = '<table style="width:100%;border-collapse:collapse;margin-bottom:6px;font-size:12px">';
-            statsHtml += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06)">';
-            statsHtml += '<th style="text-align:left;padding:6px 8px;color:var(--highlight);font-weight:600">Metric</th>';
-            statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Lifetime Total</th>';
-            statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Period Diff</th>';
-            statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Avg/Day</th>';
-            statsHtml += '</tr></thead><tbody>';
-
-            const lifetimePages = latest.page_count || 0;
-            const periodPages = lifetimePages - (oldest.page_count || 0);
-            const avgPages = (periodPages / durationDays).toFixed(1);
-            statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-            statsHtml += '<td style="padding:6px 8px;color:var(--text)">Total Pages</td>';
-            statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--text);font-weight:600">' + lifetimePages.toLocaleString() + '</td>';
-            statsHtml += '<td style="padding:6px 8px;text-align:right;color:#268bd2;font-weight:600">' + periodPages.toLocaleString() + '</td>';
-            statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)">' + avgPages + '</td>';
-            statsHtml += '</tr>';
-
-            if (latest.mono_pages !== undefined || latest.mono_impressions !== undefined) {
-                const lifetimeMono = latest.mono_pages || latest.mono_impressions || 0;
-                const periodMono = lifetimeMono - (oldest.mono_pages || oldest.mono_impressions || 0);
-                const avgMono = (periodMono / durationDays).toFixed(1);
-                statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-                statsHtml += '<td style="padding:6px 8px;color:var(--text)">Mono Pages</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--text);font-weight:600">' + (lifetimeMono.toLocaleString ? lifetimeMono.toLocaleString() : lifetimeMono) + '</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:#268bd2;font-weight:600">' + (periodMono.toLocaleString ? periodMono.toLocaleString() : periodMono) + '</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)">' + avgMono + '</td>';
-                statsHtml += '</tr>';
-            }
-
-            // Toner levels - show current levels if present
-            if (latest.toner_levels && Object.keys(latest.toner_levels).length > 0) {
-                for (const [color, level] of Object.entries(latest.toner_levels)) {
-                    const levelNum = typeof level === 'number' ? level : parseInt(level) || 0;
-                    const levelColor = levelNum < 20 ? '#d32f2f' : (levelNum < 50 ? '#f57c00' : '#388e3c');
-                    statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-                    statsHtml += '<td style="padding:6px 8px;color:var(--text)">' + color + '</td>';
-                    statsHtml += '<td style="padding:6px 8px;text-align:right;color:' + levelColor + ';font-weight:600">' + levelNum + '%</td>';
-                    // Render a visual progress bar for the current toner level in the
-                    // toner color. Keep the percentage in the Lifetime Total column
-                    // (as above) and render the bar across the remaining two columns.
-                    statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)" colspan="2">';
-                    statsHtml += '<div style="width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.03);padding:6px;border-radius:6px;">';
-                    statsHtml += '<div role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + levelNum + '" title="' + levelNum + '%" ' +
-                        'style="height:12px;border-radius:6px;width:' + levelNum + '%;background:' + levelColor + ';box-shadow:inset 0 -2px 4px rgba(0,0,0,0.3)"></div>';
-                    statsHtml += '</div>';
-                    statsHtml += '</td>';
-                    statsHtml += '</tr>';
-                }
-            }
-
-            statsHtml += '</tbody></table>';
-            summaryEl.innerHTML = statsHtml;
-        } catch (err) {
-            try { const summaryEl = document.getElementById('printer_metrics_summary'); if (summaryEl) summaryEl.innerHTML = '<div style="color:var(--muted)">Metrics unavailable</div>'; } catch(_){}
-        }
-    })();
-
-    // Apply masonry layout to modal grid after a short delay for rendering
-    setTimeout(() => {
-        const modalGrid = bodyEl.querySelector('.settings-grid');
-        if (modalGrid && typeof applyMasonryLayout === 'function') {
-            applyMasonryLayout(modalGrid);
-        }
-    }, 50);
-
-    // Wire up lock toggles
-    bodyEl.addEventListener('click', async (e) => {
-        const btn = e.target.closest('.lock-btn');
-        if (!btn) return;
-        const field = btn.getAttribute('data-field');
-        const locked = btn.classList.contains('locked');
-
-        // Find the input/textarea for this field
-        const inputEl = document.getElementById('field_' + field);
-        if (!inputEl) return;
-
-        try {
-            const r = await fetch('/devices/lock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: p.serial, field, lock: !locked }) });
-            if (r.ok) {
-                if (locked) {
-                    // Unlocking - enable the field
-                    btn.classList.remove('locked');
-                    btn.title = 'Lock field';
-                    inputEl.disabled = false;
-                    inputEl.style.background = '';
-                    inputEl.style.opacity = '';
-                    inputEl.style.cursor = '';
-                } else {
-                    // Locking - disable the field with animation
-                    btn.classList.add('locked');
-                    btn.title = 'Unlock field';
-                    inputEl.disabled = true;
-                    inputEl.style.transition = 'background 0.3s ease, opacity 0.3s ease';
-                    inputEl.style.background = 'var(--panel)';
-                    inputEl.style.opacity = '0.8';
-                    inputEl.style.cursor = 'not-allowed';
-                }
-            }
-        } catch (_) { }
-    });
-
-    // Wire up refresh button - switch to Preview workflow
-    document.getElementById('refresh_data_btn').addEventListener('click', async function () {
-        const statusEl = document.getElementById('refresh_status');
-        const btn = document.getElementById('refresh_data_btn');
-        btn.disabled = true;
-        statusEl.textContent = ' Previewing updates...';
-        try {
-            const body = { serial: p.serial || '', ip: p.ip };
-            const r = await fetch('/devices/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-            if (!r.ok) { const t = await r.text(); statusEl.textContent = ' Error: ' + t; btn.disabled = false; return; }
-            const { proposed } = await r.json();
-            statusEl.textContent = '';
-            // Render a diff section
-            const fields = ['manufacturer', 'model', 'hostname', 'firmware', 'ip', 'subnet_mask', 'gateway', 'dns_servers', 'dhcp_server', 'asset_number', 'location', 'description', 'web_ui_url'];
-            let diffHtml = '<div id="diff_card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px;margin:8px 0">';
-            diffHtml += '<div style="font-weight:600;color:var(--highlight);margin-bottom:6px;font-size:14px">Proposed Updates</div>';
-            diffHtml += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:6px 8px">';
-            fields.forEach(f => {
-                let currentVal = (f === 'dns_servers') ? (p.dns_servers || []).join(', ') : (p[f] || '');
-                let proposedVal = (f === 'dns_servers') ? (proposed[f] || []).join(', ') : (proposed[f] || '');
-                const locked = isLocked(f);
-                if (String(currentVal) !== String(proposedVal) && !locked && proposedVal !== '') {
-                    diffHtml += '<div style="color:var(--muted)">' + f.replace(/_/g, ' ') + '</div>';
-                    diffHtml += '<div><div style="font-size:12px;color:var(--muted)">' + (currentVal || '<i>empty</i>') + ' →</div><div>' + proposedVal + '</div></div>';
-                    diffHtml += '<label style="justify-self:end"><input type="checkbox" class="apply-proposed" data-field="' + f + '"> Apply</label>';
-                }
-            });
-            diffHtml += '</div>';
-            diffHtml += '<div style="margin-top:8px;text-align:right"><button id="apply_selected_btn" class="primary">Apply Selected</button></div>';
-            diffHtml += '</div>';
-            const container = document.createElement('div');
-            container.innerHTML = diffHtml;
-            bodyEl.insertBefore(container, bodyEl.firstChild);
-
-            document.getElementById('apply_selected_btn').addEventListener('click', async () => {
-                const checks = Array.from(container.querySelectorAll('.apply-proposed:checked'));
-                if (checks.length === 0) { statusEl.textContent = ' No changes selected'; return; }
-                // Build update payload from selected fields reading proposed values
-                const payload = { serial: p.serial };
-                checks.forEach(ch => {
-                    const f = ch.getAttribute('data-field');
-                    let v = proposed[f];
-                    if (f === 'dns_servers' && Array.isArray(v)) {
-                        payload[f] = v; // array
-                    } else {
-                        payload[f] = v;
-                    }
-                });
-                const ur = await fetch('/devices/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                if (!ur.ok) { const t = await ur.text(); statusEl.textContent = ' Update failed: ' + t; return; }
-                statusEl.textContent = ' Changes applied ✓';
-                await new Promise(res => setTimeout(res, 400));
-                showPrinterDetails(p.ip, source);
-            });
-        } catch (err) {
-            statusEl.textContent = ' Failed: ' + err;
-        } finally {
-            btn.disabled = false;
-        }
-    });
-
-    // Wire up metrics collection button (saved devices only)
-    if (source === 'saved') {
-        document.getElementById('collect_metrics_btn')?.addEventListener('click', async function () {
-            const statusEl = document.getElementById('refresh_status');
-            const btn = document.getElementById('collect_metrics_btn');
-            btn.disabled = true;
-            statusEl.textContent = ' Collecting metrics...';
-            try {
-                const body = { serial: p.serial, ip: p.ip };
-                const r = await fetch('/devices/metrics/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                if (!r.ok) {
-                    const t = await r.text();
-                    statusEl.textContent = ' Error: ' + t;
-                    btn.disabled = false;
-                    return;
-                }
-                const result = await r.json();
-                statusEl.textContent = ' Metrics saved ✓';
-                setTimeout(() => { statusEl.textContent = ''; btn.disabled = false; }, 2000);
-            } catch (err) {
-                statusEl.textContent = ' Failed: ' + err;
-                btn.disabled = false;
-            }
-        });
-    }
-
-    // Update action buttons based on source
-    actionsEl.innerHTML = '';
-    if (source === 'saved') {
-        // Saved device: show Delete button
-        const deleteBtn = document.createElement('button');
-        deleteBtn.textContent = 'Delete Device';
-        deleteBtn.onclick = async function () {
-            deleteBtn.disabled = true;
-            deleteBtn.textContent = 'Deleting...';
-            try {
-                const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: p.Serial }) });
-                    if (!r.ok) {
-                    deleteBtn.disabled = false;
-                    deleteBtn.textContent = 'Delete Device';
-                    window.__pm_shared.error('Delete failed');
-                    window.__pm_shared.showToast('Delete failed', 'error');
-                    return;
-                }
-                deleteBtn.textContent = 'Deleted ✓';
-                window.__pm_shared.showToast('Device deleted successfully', 'success');
-
-                // Animate card removal before closing modal
-                const cardToRemove = document.querySelector('.saved-device-card[data-serial="' + p.Serial + '"]');
-                if (cardToRemove) {
-                    cardToRemove.classList.add('removing');
-                    setTimeout(() => {
-                        overlay.style.display = 'none';
-                        document.body.style.overflow = '';
-                        delete overlay.dataset.currentPrinterIp;
-                        updatePrinters();
-                    }, 400);
-                } else {
-                    overlay.style.display = 'none';
-                    document.body.style.overflow = '';
-                    delete overlay.dataset.currentPrinterIp;
-                    updatePrinters();
-                }
-            } catch (e) {
-                window.__pm_shared.error('Delete failed:', e);
-                window.__pm_shared.showToast('Delete failed: ' + e.message, 'error');
-            }
-        };
-        actionsEl.appendChild(deleteBtn);
-    } else {
-        // Discovered device: show Save button
-        const saveBtn = document.createElement('button');
-        saveBtn.textContent = 'Save Device';
-        saveBtn.classList.add('primary');
-        saveBtn.onclick = async function () {
-            saveBtn.disabled = true;
-            saveBtn.textContent = 'Saving...';
-
-            // Create status line for refresh progress
-            const statusLine = document.createElement('div');
-            statusLine.style.cssText = 'margin-top: 12px; font-size: 0.9em; color: #93a1a1; text-align: center;';
-
-            try {
-                // Fast save first (instant response, no confirmation popup)
-                await window.__pm_shared.saveDiscoveredDevice(p.IP, true, false);
-                saveBtn.textContent = 'Saved ✓';
-                actionsEl.appendChild(statusLine);
-
-                // Animate card removal from discovered section
-                const cardToRemove = document.querySelector('.device-card[data-ip="' + p.IP + '"]');
-                if (cardToRemove) {
-                    cardToRemove.classList.add('removing');
-                }
-
-                // Then trigger background refresh for additional details
-                setTimeout(async () => {
-                    try {
-                        // Show refreshing indicator with animated dots
-                        let dots = 0;
-                        statusLine.textContent = 'Gathering additional details';
-                        const dotInterval = setInterval(() => {
-                            dots = (dots + 1) % 4;
-                            statusLine.textContent = 'Gathering additional details' + '.'.repeat(dots);
-                        }, 400);
-
-                        // Do full walk in background to get any additional details
-                        const body = { ip: p.IP, max_entries: 5000 };
-                        const r = await fetch('/mib_walk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-
-                        clearInterval(dotInterval);
-
-                        if (r.ok) {
-                            const j = await r.json();
-                            statusLine.textContent = 'Processing network details...';
-                            // Data is already stored in DB from the walk
-                            updatePrinters();
-                        } statusLine.textContent = '✓ Details updated';
-                        statusLine.style.color = '#859900';
-                        setTimeout(() => { 
-                            overlay.style.display = 'none';
-                            document.body.style.overflow = '';
-                            delete overlay.dataset.currentPrinterIp;
-                        }, 1200);
-                    } catch (e) {
-                        // Background refresh failed, but device is already saved
-                        window.__pm_shared.warn('Background refresh failed:', e);
-                        statusLine.textContent = '⚠ Refresh incomplete (device saved)';
-                        statusLine.style.color = '#b58900';
-                        setTimeout(() => { 
-                            overlay.style.display = 'none';
-                            document.body.style.overflow = '';
-                            delete overlay.dataset.currentPrinterIp;
-                        }, 1500);
-                    }
-                }, 100);
-            } catch (e) {
-                window.__pm_shared.error('Save failed:', e);
-                window.__pm_shared.showToast('Save failed: ' + e.message, 'error');
-                saveBtn.disabled = false;
-                saveBtn.textContent = 'Save Device';
-                if (statusLine.parentNode) {
-                    statusLine.remove();
-                }
-            }
-        };
-        actionsEl.appendChild(saveBtn);
-    }
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = 'Close';
-    closeBtn.onclick = () => { 
-        overlay.style.display = 'none';
-        document.body.style.overflow = '';
-        delete overlay.dataset.currentPrinterIp;
-    };
-    actionsEl.appendChild(closeBtn);
-
-    // Load existing Web UI credentials for this device
-    if (p && p.serial) {
-        (async function () {
-            try {
-                const r = await fetch('/device/webui-credentials?serial=' + encodeURIComponent(p.serial));
-                if (r.ok) {
-                    const creds = await r.json();
-                    if (creds.exists) {
-                        document.getElementById('cred_username').value = creds.username || '';
-                        document.getElementById('cred_auth_type').value = creds.auth_type || 'basic';
-                        document.getElementById('cred_auto_login').checked = creds.auto_login || false;
-                        document.getElementById('creds_status').textContent = '✓ Saved';
-                        document.getElementById('creds_status').style.color = '#859900';
-                    }
-                }
-            } catch (_) { }
-        })();
-    }
-
-    // Wire up save credentials button
-    document.getElementById('save_creds_btn').addEventListener('click', async function () {
-        const statusEl = document.getElementById('creds_status');
-        const btn = document.getElementById('save_creds_btn');
-        if (!p || !p.serial) { statusEl.textContent = 'Error: no serial'; statusEl.style.color = '#dc322f'; return; }
-        btn.disabled = true;
-        statusEl.textContent = 'Saving...';
-        statusEl.style.color = 'var(--muted)';
-        try {
-            const payload = {
-                serial: p.serial,
-                username: document.getElementById('cred_username').value.trim(),
-                password: document.getElementById('cred_password').value,
-                auth_type: document.getElementById('cred_auth_type').value,
-                auto_login: document.getElementById('cred_auto_login').checked
-            };
-            const r = await fetch('/device/webui-credentials', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            if (!r.ok) throw new Error('Save failed');
-            statusEl.textContent = '✓ Saved';
-            statusEl.style.color = '#859900';
-            document.getElementById('cred_password').value = ''; // clear password field
-        } catch (e) {
-            statusEl.textContent = 'Error: ' + e;
-            statusEl.style.color = '#dc322f';
-        } finally {
-            btn.disabled = false;
-        }
-    });
-}
 
 // Show printer details modal by fetching device info by IP
 // source: 'discovered' or 'saved' to control title and action buttons
@@ -1791,19 +1091,22 @@ function showPrinterDetails(ip, source) {
         // Check discovered printers first
         let p = discovered.find(d => d.ip === ip);
         if (p) {
-            // Also fetch parse debug to extract raw PDUs
-            fetch('/parse_debug?ip=' + encodeURIComponent(ip))
-                .then(r => r.ok ? r.json() : null)
-                .then(parseDebug => window.__pm_shared_cards.showPrinterDetailsData(p, source, parseDebug))
-                .catch(() => window.__pm_shared_cards.showPrinterDetailsData(p, source, null));
+            // Previously we fetched /parse_debug and passed parseDebug into the
+            // renderer. That legacy diagnostics display is removed — the
+            // canonical renderer will render using live device data only.
+            try { window.__pm_shared_cards.showPrinterDetailsData(p, source); } catch (e) { bodyEl.textContent = 'Error rendering device: ' + e; }
             return;
         }
 
         // Not in discovered, try database - saved list returns wrapped printer_info
         fetch('/devices/list').then(r => r.json()).then(saved => {
             const item = saved.find(d => (d.printer_info && d.printer_info.ip === ip));
-                if (item && item.printer_info) {
-                window.__pm_shared_cards.showPrinterDetailsData(item.printer_info, 'saved', null);
+            if (item && item.printer_info) {
+                try {
+                    const deviceObj = item.printer_info || item;
+                    if ((!deviceObj.serial || deviceObj.serial === '') && item.serial) deviceObj.serial = item.serial;
+                    window.__pm_shared_cards.showPrinterDetailsData(deviceObj, 'saved');
+                } catch (e) { bodyEl.textContent = 'Error rendering saved device: ' + e; }
             } else {
                 bodyEl.textContent = 'Device not found';
             }
@@ -2176,8 +1479,14 @@ window.refreshMetricsChart = async function (serial) {
         }
 
         // Toner levels (show current levels from latest snapshot)
-        if (latest.toner_levels && Object.keys(latest.toner_levels).length > 0) {
-            for (const [color, level] of Object.entries(latest.toner_levels)) {
+        // Prefer the normalized buildTonerLevels helper when available, otherwise
+        // fall back to structured latest.toners / latest.toner. Avoid using the
+        // legacy top-level `toner_levels` field.
+        const latestToners = (typeof buildTonerLevels === 'function') ? buildTonerLevels({}, latest)
+            : (window.__pm_shared_cards && typeof window.__pm_shared_cards.buildTonerLevels === 'function') ? window.__pm_shared_cards.buildTonerLevels({}, latest)
+            : (latest.toners || latest.toner || {});
+        if (latestToners && Object.keys(latestToners).length > 0) {
+            for (const [color, level] of Object.entries(latestToners)) {
                 const levelNum = typeof level === 'number' ? level : parseInt(level) || 0;
                 const levelColor = levelNum < 20 ? '#d32f2f' : (levelNum < 50 ? '#f57c00' : '#388e3c');
                 statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">';
