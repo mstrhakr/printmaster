@@ -102,7 +102,7 @@ func DefaultConfig() *Config {
 			Level: "info",
 		},
 		Tenancy: TenancyConfig{
-			Enabled: false,
+			Enabled: true,
 		},
 		SMTP: SMTPConfig{
 			Enabled: false,

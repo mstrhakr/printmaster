@@ -90,6 +90,46 @@ type Session struct {
 	Username  string    `json:"username,omitempty"`
 }
 
+// OIDCProvider represents a configured OIDC identity provider
+type OIDCProvider struct {
+	ID           int64     `json:"id"`
+	Slug         string    `json:"slug"`
+	DisplayName  string    `json:"display_name"`
+	Issuer       string    `json:"issuer"`
+	ClientID     string    `json:"client_id"`
+	ClientSecret string    `json:"client_secret"`
+	Scopes       []string  `json:"scopes"`
+	Icon         string    `json:"icon,omitempty"`
+	ButtonText   string    `json:"button_text,omitempty"`
+	ButtonStyle  string    `json:"button_style,omitempty"`
+	AutoLogin    bool      `json:"auto_login"`
+	TenantID     string    `json:"tenant_id,omitempty"`
+	DefaultRole  string    `json:"default_role"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// OIDCSession represents a pending login attempt (state/nonce)
+type OIDCSession struct {
+	ID           string    `json:"id"`
+	ProviderSlug string    `json:"provider_slug"`
+	TenantID     string    `json:"tenant_id,omitempty"`
+	Nonce        string    `json:"nonce"`
+	State        string    `json:"state"`
+	RedirectURL  string    `json:"redirect_url"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// OIDCLink ties an OIDC subject to a local user
+type OIDCLink struct {
+	ID           int64     `json:"id"`
+	ProviderSlug string    `json:"provider_slug"`
+	Subject      string    `json:"subject"`
+	Email        string    `json:"email,omitempty"`
+	UserID       int64     `json:"user_id"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 // AuditEntry represents an audit log entry for agent operations
 type AuditEntry struct {
 	ID        int64     `json:"id"`
@@ -170,4 +210,18 @@ type Store interface {
 	ValidatePasswordResetToken(ctx context.Context, token string) (int64, error)
 	DeletePasswordResetToken(ctx context.Context, token string) error
 	UpdateUserPassword(ctx context.Context, userID int64, rawPassword string) error
+
+	// OIDC / SSO
+	CreateOIDCProvider(ctx context.Context, provider *OIDCProvider) error
+	UpdateOIDCProvider(ctx context.Context, provider *OIDCProvider) error
+	DeleteOIDCProvider(ctx context.Context, slug string) error
+	GetOIDCProvider(ctx context.Context, slug string) (*OIDCProvider, error)
+	ListOIDCProviders(ctx context.Context, tenantID string) ([]*OIDCProvider, error)
+	CreateOIDCSession(ctx context.Context, sess *OIDCSession) error
+	GetOIDCSession(ctx context.Context, id string) (*OIDCSession, error)
+	DeleteOIDCSession(ctx context.Context, id string) error
+	CreateOIDCLink(ctx context.Context, link *OIDCLink) error
+	GetOIDCLink(ctx context.Context, providerSlug, subject string) (*OIDCLink, error)
+	ListOIDCLinksForUser(ctx context.Context, userID int64) ([]*OIDCLink, error)
+	DeleteOIDCLink(ctx context.Context, providerSlug, subject string) error
 }

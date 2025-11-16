@@ -249,6 +249,50 @@ func (s *SQLiteStore) initSchema() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
+
+	-- OIDC providers for SSO
+	CREATE TABLE IF NOT EXISTS oidc_providers (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		slug TEXT NOT NULL UNIQUE,
+		display_name TEXT NOT NULL,
+		issuer TEXT NOT NULL,
+		client_id TEXT NOT NULL,
+		client_secret TEXT NOT NULL,
+		scopes TEXT NOT NULL DEFAULT 'openid profile email',
+		icon TEXT,
+		button_text TEXT,
+		button_style TEXT,
+		auto_login INTEGER NOT NULL DEFAULT 0,
+		tenant_id TEXT,
+		default_role TEXT NOT NULL DEFAULT 'user',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS oidc_sessions (
+		id TEXT PRIMARY KEY,
+		provider_slug TEXT NOT NULL,
+		tenant_id TEXT,
+		nonce TEXT NOT NULL,
+		state TEXT NOT NULL,
+		redirect_url TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (provider_slug) REFERENCES oidc_providers(slug) ON DELETE CASCADE,
+		FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS oidc_links (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		provider_slug TEXT NOT NULL,
+		subject TEXT NOT NULL,
+		email TEXT,
+		user_id INTEGER NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(provider_slug, subject),
+		FOREIGN KEY (provider_slug) REFERENCES oidc_providers(slug) ON DELETE CASCADE,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -265,6 +309,7 @@ func (s *SQLiteStore) initSchema() error {
 		"ALTER TABLE agents ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE devices ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE metrics_history ADD COLUMN tenant_id TEXT",
+		"ALTER TABLE oidc_providers ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE agents ADD COLUMN os_version TEXT",
 		"ALTER TABLE agents ADD COLUMN go_version TEXT",
@@ -642,6 +687,8 @@ func boolToInt(b bool) int {
 	return 0
 }
 
+func intToBool(i int) bool { return i != 0 }
+
 // ValidateJoinToken checks token validity and consumes it if one-time.
 func (s *SQLiteStore) ValidateJoinToken(ctx context.Context, token string) (*JoinToken, error) {
 	// Expect token format: id.secret
@@ -790,6 +837,171 @@ func verifyArgonHash(secret, encoded string) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// OIDC provider CRUD
+func (s *SQLiteStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProvider) error {
+	if provider == nil {
+		return fmt.Errorf("provider required")
+	}
+	if provider.CreatedAt.IsZero() {
+		provider.CreatedAt = time.Now().UTC()
+	}
+	if provider.UpdatedAt.IsZero() {
+		provider.UpdatedAt = provider.CreatedAt
+	}
+	if provider.Slug == "" {
+		return fmt.Errorf("slug required")
+	}
+
+	scopes := strings.Join(provider.Scopes, " ")
+	_, err := s.db.ExecContext(ctx, `INSERT INTO oidc_providers (
+		slug, display_name, issuer, client_id, client_secret, scopes, icon,
+		button_text, button_style, auto_login, tenant_id, default_role,
+		created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		provider.Slug, provider.DisplayName, provider.Issuer, provider.ClientID,
+		provider.ClientSecret, scopes, provider.Icon, provider.ButtonText,
+		provider.ButtonStyle, boolToInt(provider.AutoLogin), provider.TenantID,
+		provider.DefaultRole, provider.CreatedAt, provider.UpdatedAt,
+	)
+	return err
+}
+
+func (s *SQLiteStore) UpdateOIDCProvider(ctx context.Context, provider *OIDCProvider) error {
+	if provider == nil {
+		return fmt.Errorf("provider required")
+	}
+	if provider.Slug == "" {
+		return fmt.Errorf("slug required")
+	}
+	provider.UpdatedAt = time.Now().UTC()
+	scopes := strings.Join(provider.Scopes, " ")
+	_, err := s.db.ExecContext(ctx, `UPDATE oidc_providers SET display_name=?, issuer=?, client_id=?, client_secret=?, scopes=?, icon=?, button_text=?, button_style=?, auto_login=?, tenant_id=?, default_role=?, updated_at=? WHERE slug=?`,
+		provider.DisplayName, provider.Issuer, provider.ClientID, provider.ClientSecret,
+		scopes, provider.Icon, provider.ButtonText, provider.ButtonStyle,
+		boolToInt(provider.AutoLogin), provider.TenantID, provider.DefaultRole,
+		provider.UpdatedAt, provider.Slug,
+	)
+	return err
+}
+
+func (s *SQLiteStore) DeleteOIDCProvider(ctx context.Context, slug string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oidc_providers WHERE slug=?`, slug)
+	return err
+}
+
+func (s *SQLiteStore) GetOIDCProvider(ctx context.Context, slug string) (*OIDCProvider, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, slug, display_name, issuer, client_id, client_secret, scopes, icon, button_text, button_style, auto_login, tenant_id, default_role, created_at, updated_at FROM oidc_providers WHERE slug=?`, slug)
+	var p OIDCProvider
+	var scopes string
+	var autoLogin int
+	if err := row.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle, &autoLogin, &p.TenantID, &p.DefaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		return nil, err
+	}
+	p.AutoLogin = intToBool(autoLogin)
+	if scopes == "" {
+		scopes = "openid profile email"
+	}
+	p.Scopes = strings.Fields(scopes)
+	return &p, nil
+}
+
+func (s *SQLiteStore) ListOIDCProviders(ctx context.Context, tenantID string) ([]*OIDCProvider, error) {
+	query := `SELECT id, slug, display_name, issuer, client_id, client_secret, scopes, icon, button_text, button_style, auto_login, tenant_id, default_role, created_at, updated_at FROM oidc_providers`
+	args := []interface{}{}
+	if tenantID != "" {
+		query += " WHERE tenant_id IS NULL OR tenant_id = ?"
+		args = append(args, tenantID)
+	}
+	query += " ORDER BY tenant_id IS NULL DESC, display_name"
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var providers []*OIDCProvider
+	for rows.Next() {
+		var p OIDCProvider
+		var scopes string
+		var autoLogin int
+		if err := rows.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID, &p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle, &autoLogin, &p.TenantID, &p.DefaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		p.AutoLogin = intToBool(autoLogin)
+		p.Scopes = strings.Fields(scopes)
+		providers = append(providers, &p)
+	}
+	return providers, rows.Err()
+}
+
+func (s *SQLiteStore) CreateOIDCSession(ctx context.Context, sess *OIDCSession) error {
+	if sess == nil {
+		return fmt.Errorf("session required")
+	}
+	if sess.ID == "" {
+		return fmt.Errorf("session id required")
+	}
+	if sess.CreatedAt.IsZero() {
+		sess.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO oidc_sessions (id, provider_slug, tenant_id, nonce, state, redirect_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		sess.ID, sess.ProviderSlug, sess.TenantID, sess.Nonce, sess.State, sess.RedirectURL, sess.CreatedAt)
+	return err
+}
+
+func (s *SQLiteStore) GetOIDCSession(ctx context.Context, id string) (*OIDCSession, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, provider_slug, tenant_id, nonce, state, redirect_url, created_at FROM oidc_sessions WHERE id = ?`, id)
+	var sess OIDCSession
+	if err := row.Scan(&sess.ID, &sess.ProviderSlug, &sess.TenantID, &sess.Nonce, &sess.State, &sess.RedirectURL, &sess.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &sess, nil
+}
+
+func (s *SQLiteStore) DeleteOIDCSession(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oidc_sessions WHERE id = ?`, id)
+	return err
+}
+
+func (s *SQLiteStore) CreateOIDCLink(ctx context.Context, link *OIDCLink) error {
+	if link == nil {
+		return fmt.Errorf("link required")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO oidc_links (provider_slug, subject, email, user_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+		link.ProviderSlug, link.Subject, link.Email, link.UserID, time.Now().UTC())
+	return err
+}
+
+func (s *SQLiteStore) GetOIDCLink(ctx context.Context, providerSlug, subject string) (*OIDCLink, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, provider_slug, subject, email, user_id, created_at FROM oidc_links WHERE provider_slug = ? AND subject = ?`, providerSlug, subject)
+	var link OIDCLink
+	if err := row.Scan(&link.ID, &link.ProviderSlug, &link.Subject, &link.Email, &link.UserID, &link.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (s *SQLiteStore) ListOIDCLinksForUser(ctx context.Context, userID int64) ([]*OIDCLink, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, provider_slug, subject, email, user_id, created_at FROM oidc_links WHERE user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var links []*OIDCLink
+	for rows.Next() {
+		var link OIDCLink
+		if err := rows.Scan(&link.ID, &link.ProviderSlug, &link.Subject, &link.Email, &link.UserID, &link.CreatedAt); err != nil {
+			return nil, err
+		}
+		links = append(links, &link)
+	}
+	return links, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteOIDCLink(ctx context.Context, providerSlug, subject string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM oidc_links WHERE provider_slug = ? AND subject = ?`, providerSlug, subject)
+	return err
 }
 
 func subtleConstantTimeCompare(a, b []byte) bool {

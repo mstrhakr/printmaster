@@ -61,3 +61,7 @@
 [logging]
   # Log level: debug, info, warn, error
   level = "info"
+
+[tenancy]
+  # Enable tenancy (join tokens + Customers UI) by default
+  enabled = true

@@ -19,6 +19,18 @@ import (
 // the package in-memory `store` is used (keeps tests and backwards compatibility).
 var dbStore storage.Store
 
+// tenancyEnabled controls whether administrator-facing tenancy features
+// (tenant CRUD, join tokens, package generation) are active. The public
+// token registration endpoint remains reachable even when disabled so
+// agents can always onboard via the new flow.
+var tenancyEnabled bool
+
+// SetEnabled allows the main server to toggle tenancy feature flags at
+// runtime (typically at startup based on configuration).
+func SetEnabled(enabled bool) {
+	tenancyEnabled = enabled
+}
+
 // AuthMiddleware, when set by the main application, will be used to wrap
 // tenancy handlers so they can enforce authentication/authorization.
 // Set to nil to leave routes unprotected (not recommended).
@@ -49,6 +61,14 @@ var serverVersion string
 // SetServerVersion sets the server version (called from main at startup).
 func SetServerVersion(v string) {
 	serverVersion = v
+}
+
+func requireTenancyEnabled(w http.ResponseWriter, r *http.Request) bool {
+	if tenancyEnabled {
+		return true
+	}
+	http.NotFound(w, r)
+	return false
 }
 
 // RegisterRoutes registers HTTP handlers for tenancy endpoints. If a
@@ -98,6 +118,9 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 
 // handleTenants supports GET (list) and POST (create)
 func handleTenants(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		if dbStore != nil {
@@ -154,6 +177,9 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateJoinToken issues a join token. Body: {"tenant_id":"...","ttl_minutes":60,"one_time":false}
 func handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -208,6 +234,9 @@ func handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 
 // handleListJoinTokens returns a list of join tokens for a tenant. Query param: tenant_id
 func handleListJoinTokens(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -242,6 +271,9 @@ func handleListJoinTokens(w http.ResponseWriter, r *http.Request) {
 
 // handleRevokeJoinToken revokes a token by id. Body: {"id":"..."}
 func handleRevokeJoinToken(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -404,6 +436,9 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 // {"tenant_id":"...","platform":"linux|windows|darwin","installer_type":"script|archive","ttl_minutes":10}
 // Response: attachment (script) or JSON with download_url depending on request.
 func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return

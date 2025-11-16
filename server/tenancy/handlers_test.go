@@ -8,7 +8,13 @@ import (
 	"testing"
 )
 
+func enableTenancyForTest(t *testing.T) {
+	SetEnabled(true)
+	t.Cleanup(func() { SetEnabled(false) })
+}
+
 func TestHandleTenantsCreateAndList(t *testing.T) {
+	enableTenancyForTest(t)
 	// POST create
 	in := map[string]string{"id": "httpt", "name": "HTTP Tenant"}
 	b, _ := json.Marshal(in)
@@ -52,6 +58,7 @@ func TestHandleTenantsCreateAndList(t *testing.T) {
 }
 
 func TestCreateJoinTokenAndRegister(t *testing.T) {
+	enableTenancyForTest(t)
 	// Ensure tenant exists
 	_, _ = store.CreateTenant("regt", "Reg Tenant", "")
 
@@ -97,6 +104,7 @@ func TestCreateJoinTokenAndRegister(t *testing.T) {
 }
 
 func TestListAndRevokeJoinTokens(t *testing.T) {
+	enableTenancyForTest(t)
 	// Ensure tenant exists and create token
 	_, _ = store.CreateTenant("admint", "Admin Tenant", "")
 	jt, err := store.CreateJoinToken("admint", 5, false)

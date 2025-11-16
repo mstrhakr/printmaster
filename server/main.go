@@ -1041,7 +1041,7 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'")
 
 		next.ServeHTTP(w, r)
 	})
@@ -1223,26 +1223,52 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// create session for 24 hours
-	ses, err := serverStore.CreateSession(ctx, user.ID, 60*24)
+	ses, err := createSessionCookie(w, r, user.ID)
 	if err != nil {
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "token": ses.Token, "expires_at": ses.ExpiresAt.Format(time.RFC3339)})
+}
+
+func createSessionCookie(w http.ResponseWriter, r *http.Request, userID int64) (*storage.Session, error) {
+	ctx := context.Background()
+	ses, err := serverStore.CreateSession(ctx, userID, 60*24)
+	if err != nil {
+		return nil, err
+	}
+	secure := requestIsHTTPS(r)
 	cookie := &http.Cookie{
 		Name:     "pm_session",
 		Value:    ses.Token,
 		Path:     "/",
 		HttpOnly: true,
 		Expires:  ses.ExpiresAt,
-		Secure:   r.TLS != nil,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, cookie)
+	return ses, nil
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "token": ses.Token, "expires_at": ses.ExpiresAt.Format(time.RFC3339)})
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		parts := strings.Split(proto, ",")
+		if len(parts) > 0 {
+			if strings.TrimSpace(strings.ToLower(parts[0])) == "https" {
+				return true
+			}
+		}
+	}
+	if serverConfig != nil && serverConfig.Server.ProxyUseHTTPS {
+		return true
+	}
+	return false
 }
 
 // admin helper: get user from context and ensure admin role
@@ -1740,9 +1766,13 @@ func setupRoutes(cfg *Config) {
 	// Authentication (local)
 	// Login (public) - creates a session
 	http.HandleFunc("/api/v1/auth/login", handleAuthLogin)
+	http.HandleFunc("/api/v1/auth/options", handleAuthOptions)
 	// Logout (requires valid session)
 	http.HandleFunc("/api/v1/auth/logout", requireWebAuth(handleAuthLogout))
 	http.HandleFunc("/api/v1/auth/me", requireWebAuth(handleAuthMe))
+	// SSO / OIDC provider management (admin only inside handlers)
+	http.HandleFunc("/api/v1/sso/providers", requireWebAuth(handleOIDCProviders))
+	http.HandleFunc("/api/v1/sso/providers/", requireWebAuth(handleOIDCProvider))
 
 	// User management (admin only): list and create users
 	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
@@ -1767,24 +1797,29 @@ func setupRoutes(cfg *Config) {
 		handleAgentWebSocket(w, r, serverStore)
 	}))
 
-	// Tenancy & join-token routes (DB-backed when available). Protect via requireWebAuth.
-	if cfg != nil && cfg.Tenancy.Enabled {
-		tenancy.AuthMiddleware = requireWebAuth
-		// Provide runtime server version to tenancy handlers so the
-		// download redirect can select a matching agent release on GitHub.
-		tenancy.SetServerVersion(Version)
-		tenancy.RegisterRoutes(serverStore)
-		serverLogger.Info("Tenancy routes registered", "enabled", true)
-	} else {
-		serverLogger.Info("Tenancy disabled - routes not registered", "enabled", false)
+	// Tenancy & join-token routes. The register-with-token path must remain
+	// available even if admins disable tenancy, so register routes always and
+	// let the package guard admin handlers via SetEnabled.
+	featureEnabled := true
+	if cfg != nil {
+		featureEnabled = cfg.Tenancy.Enabled
 	}
+	tenancy.AuthMiddleware = requireWebAuth
+	tenancy.SetServerVersion(Version)
+	tenancy.SetEnabled(featureEnabled)
+	tenancy.RegisterRoutes(serverStore)
+	serverLogger.Info("Tenancy routes registered", "enabled", featureEnabled)
 
 	// Proxy endpoints - require login
 	http.HandleFunc("/api/v1/proxy/agent/", requireWebAuth(handleAgentProxy))   // Proxy to agent's own web UI
 	http.HandleFunc("/api/v1/proxy/device/", requireWebAuth(handleDeviceProxy)) // Proxy to device web UI through agent
 
+	// Public OIDC endpoints
+	http.HandleFunc("/auth/oidc/start/", handleOIDCStart)
+	http.HandleFunc("/auth/oidc/callback", handleOIDCCallback)
+
 	http.HandleFunc("/api/v1/devices/batch", requireAuth(handleDevicesBatch))
-	http.HandleFunc("/api/v1/devices/list", handleDevicesList) // List all devices (for UI)
+	http.HandleFunc("/api/v1/devices/list", requireWebAuth(handleDevicesList)) // List all devices (for UI)
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
 	// Web UI endpoints - keep landing/static public so login assets load
