@@ -139,16 +139,18 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
         // Default to full available range (All Time)
         const now = maxTime;
 
-        // Check if flatpickr is available
-        if (typeof flatpickr === 'undefined') {
-            try { window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('[Metrics] flatpickr library not loaded'); } catch (e) {}
+        // Await the shared flatpickr loader so we avoid race conditions where
+        // metrics initialize before the library script has executed.
+        const fpLib = await (window.__pm_shared && window.__pm_shared.flatpickrReady ? window.__pm_shared.flatpickrReady : Promise.resolve(window.flatpickr || null));
+        if (!fpLib) {
+            try { window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('[Metrics] flatpickr library not loaded after loader'); } catch (e) {}
             if (contentEl) contentEl.innerHTML = '<div style="color:#d33;padding:12px">Error: Date picker library not loaded. Please refresh the page.</div>';
             return;
         }
         try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Initializing flatpickr with full range:', minTime, 'to', maxTime); } catch (e) {}
         // Initialize flatpickr with range mode
         const targetSelector = contentElOverride ? (contentElOverride.querySelector('#metrics_datetime_range')) : document.querySelector('#metrics_datetime_range');
-        const fpInstance = flatpickr(targetSelector, {
+        const fpInstance = fpLib(targetSelector, {
             mode: 'range',
             enableTime: true,
             dateFormat: 'Y-m-d H:i',
@@ -390,18 +392,9 @@ async function refreshMetricsChart(serial) {
             statsHtml += '</tr>';
         }
 
-        // Toner levels (show current levels from latest snapshot)
-        if (latest.toner_levels && Object.keys(latest.toner_levels).length > 0) {
-            for (const [color, level] of Object.entries(latest.toner_levels)) {
-                const levelNum = typeof level === 'number' ? level : parseInt(level) || 0;
-                const levelColor = levelNum < 20 ? '#d32f2f' : (levelNum < 50 ? '#f57c00' : '#388e3c');
-                statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05)">';
-                statsHtml += '<td style="padding:6px 8px;color:var(--text)">' + color + '</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:' + levelColor + ';font-weight:600">' + levelNum + '%</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)" colspan="2">Current Level</td>';
-                statsHtml += '</tr>';
-            }
-        }
+        // Note: Consumables are rendered as their own card in the details modal.
+        // Do not inject toner/consumable rows into the metrics stats to avoid
+        // duplicate UI. The dedicated consumables card is populated elsewhere.
 
         statsHtml += '</tbody></table>';
         statsEl.innerHTML = statsHtml;

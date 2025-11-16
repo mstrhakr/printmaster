@@ -32,7 +32,7 @@
     function renderSavedCard(item) {
         const device = (item && item.printer_info) || {};
         const serial = item && item.serial ? item.serial : '';
-        const toners = device.toner_levels || {};
+    const toners = buildTonerLevels(device) || {};
         const lifeCount = device.page_count || device.total_mono_impressions || 0;
 
         const graphId = 'usage-graph-' + (serial || (device.ip||'')).toString().replace(/[^a-zA-Z0-9]/g,'_');
@@ -40,23 +40,12 @@
             '<div class="usage-graph-no-data">Loading usage data...</div>' +
             '</div>';
 
-        // Consumables
-        let consumablesHTML = '';
-        const tonerColors = { black:'#2c2c2c', cyan:'#00bcd4', magenta:'#e91e63', yellow:'#ffc107' };
-        for (const color in toners) {
-            const level = toners[color] || 0;
-            const bg = (tonerColors[color.toLowerCase()]||'#666');
-            const low = level < 20;
-            consumablesHTML += '<div class="consumable-item">' +
-                '<div class="consumable-icon" style="background:' + bg + '20">' + '</div>' +
-                '<span class="consumable-label">' + (color.charAt(0).toUpperCase()+color.slice(1)) + '</span>' +
-                '<div class="consumable-bar"><div class="consumable-bar-fill" style="width:' + level + '%;background:' + bg + (low ? ';opacity:0.5' : '') + '">' + (level>15?level+'%':'') + '</div></div>' +
-                '<span style="min-width:45px;text-align:right;font-family:monospace;color:var(--text);' + (low ? 'color:var(--highlight);font-weight:600' : '') + '">' + (level<=15?level+'%':'') + '</span>' +
-                '</div>';
-        }
-
-        const consumablesSection = consumablesHTML ? '<div class="saved-device-card-section">' +
-            '<div class="saved-device-card-section-title">Consumables</div><div class="consumable-container">' + consumablesHTML + '</div></div>' : '';
+        // Consumables - render a compact (mini) section on the saved device card
+        // so the card remains compact while the details modal shows the full UI.
+        const consumablesSection = (toners && Object.keys(toners).length > 0) ?
+            ('<div class="saved-device-card-section">' +
+                '<div class="saved-device-card-section-title">Consumables</div>' +
+                '<div class="consumable-container">' + renderMiniConsumablesSection(toners) + '</div></div>') : '';
 
         const capabilitiesHTML = (typeof renderCapabilities === 'function') ? renderCapabilities(device) : renderCapabilitiesFallback(device);
     const clipIcon = (window.__pm_shared && typeof window.__pm_shared.makeClipboardIcon === 'function') ? window.__pm_shared.makeClipboardIcon() : makeClipboardIconFallback();
@@ -89,6 +78,242 @@
     function renderCapabilities(device) {
         return renderCapabilitiesFallback(device);
     }
+
+    // Render a consumable with smart coloring/icons and progress bar.
+    // This mirrors the richer behavior from the agent bundle so both
+    // saved cards and the details modal show consistent supply UI.
+    function renderConsumable(name, value, isLevel) {
+        const nameLower = (name || '').toLowerCase();
+
+        // If it's a numeric level (0-100), show as progress bar
+        if (isLevel) {
+            const v = Number(value);
+            const pct = isNaN(v) ? '' : Math.max(0, Math.min(100, v));
+
+            // Determine color based on supply type and level
+            let color = '#6c6';
+            let icon = '';
+
+            // Toner colors
+            // Use a slightly lighter tone for black to ensure contrast in dark mode
+            if (nameLower.includes('black') || nameLower === 'k') { color = '#444'; icon = '●'; }
+            else if (nameLower.includes('cyan') || nameLower === 'c') { color = '#0097a7'; icon = '●'; }
+            else if (nameLower.includes('magenta') || nameLower === 'm') { color = '#c2185b'; icon = '●'; }
+            else if (nameLower.includes('yellow') || nameLower === 'y') { color = '#fbc02d'; icon = '●'; }
+            // Waste/Maintenance items (reverse logic - high is bad)
+            else if (nameLower.includes('waste') || nameLower.includes('maintenance')) {
+                icon = '⚠';
+                if (pct === '') color = '#888';
+                else if (pct > 80) color = '#d32f2f';
+                else if (pct > 50) color = '#f57c00';
+                else color = '#388e3c';
+            }
+            // Other supplies (low is bad)
+            else {
+                icon = '▮';
+                if (pct === '') color = '#888';
+                else if (pct < 20) color = '#d32f2f';
+                else if (pct < 50) color = '#f57c00';
+                else color = '#388e3c';
+            }
+
+            const pctTextColor = (nameLower.includes('yellow') ? '#000' : '#fff');
+            let html = '<div style="margin-top:6px">';
+            html += '<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">' + icon + ' ' + name + '</div>';
+            html += '<div style="background:#001f22;border:1px solid rgba(255,255,255,0.06);padding:6px;border-radius:8px;max-width:100%;width:100%;position:relative">';
+            html += '<div style="width:' + pct + '%;background:' + color + ';height:18px;border-radius:6px;box-shadow:inset 0 -2px 4px rgba(0,0,0,0.4)"></div>';
+            html += '<div style="position:absolute;left:8px;top:2px;font-size:12px;color:' + pctTextColor + '">' + (pct !== '' ? pct + '%' : 'n/a') + '</div>';
+            html += '</div></div>';
+            return html;
+        } else {
+            // Text description (e.g., part numbers, status messages)
+            return '<div style="margin-top:6px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px"><div style="color:var(--muted)">' + name + ':</div><div>' + value + '</div></div>';
+        }
+    }
+
+    // Render a full consumables section given a map of toner/supply levels
+    // Reused by saved cards and the details modal to avoid duplicated markup.
+    function renderConsumablesSection(tonerLevels) {
+        if (!tonerLevels || Object.keys(tonerLevels).length === 0) return '';
+        let out = '<div class="consumables-section" style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
+        out += '<div style="font-weight:600;color:var(--highlight);margin-bottom:8px;font-size:14px">Consumables</div>';
+        for (const [k, v] of Object.entries(tonerLevels)) {
+            // If value looks numeric, treat as a percentage level; otherwise render as text
+            const isNumeric = (v !== null && v !== undefined) && (typeof v === 'number' || (!isNaN(Number(v)) && String(v).trim() !== ''));
+            out += renderConsumable(k, v, !!isNumeric);
+        }
+        out += '</div>';
+        return out;
+    }
+
+    // Build a normalized toner-levels map from available sources.
+    // Sources checked (in order): explicit toner_levels/toners on object,
+    // provided metrics snapshot (latest), and legacy raw_data keys
+    // like toner_level_black / toner_desc_black. Returns an object with
+    // friendly keys (e.g. 'Black') mapped to either numeric percentage or
+    // descriptive text when a numeric level isn't available.
+    function buildTonerLevels(p, latest) {
+        const out = {};
+        try {
+            // If object already has explicit structured toners, use it
+            const explicit = p && (p.toners || p.toner);
+            if (explicit && Object.keys(explicit).length > 0) {
+                // Copy through
+                Object.entries(explicit).forEach(([k, v]) => { out[k] = v; });
+                return out;
+            }
+
+            // If latest metrics snapshot contains structured toners, prefer that
+            const latestStructured = latest && (latest.toners || latest.toner) ? (latest.toners || latest.toner) : null;
+            if (latestStructured && Object.keys(latestStructured).length > 0) {
+                Object.entries(latestStructured).forEach(([k, v]) => { out[k] = v; });
+                return out;
+            }
+
+            // Fall back to legacy raw_data keys on p.raw_data (toner_level_black etc.)
+            const raw = (p && (p.raw_data || p.raw || p.metrics)) || {};
+            // Helper to pick numeric value if present
+            const pick = (keys) => {
+                for (const k of keys) {
+                    if (raw[k] !== undefined && raw[k] !== null) return raw[k];
+                    if (latest && latest[k] !== undefined && latest[k] !== null) return latest[k];
+                    if (p && p[k] !== undefined && p[k] !== null) return p[k];
+                }
+                return undefined;
+            };
+
+            const mappings = [
+                { name: 'Black', keys: ['toner_level_black', 'toner_level_k', 'toner_level_1', 'black_level', 'black_toner'] , descKeys: ['toner_desc_black', 'toner_desc_k', 'toner_desc_1', 'toner_desc'] },
+                { name: 'Cyan', keys: ['toner_level_cyan', 'toner_level_c', 'toner_level_2', 'cyan_level'], descKeys: ['toner_desc_cyan'] },
+                { name: 'Magenta', keys: ['toner_level_magenta', 'toner_level_m', 'toner_level_3', 'magenta_level'], descKeys: ['toner_desc_magenta'] },
+                { name: 'Yellow', keys: ['toner_level_yellow', 'toner_level_y', 'toner_level_4', 'yellow_level'], descKeys: ['toner_desc_yellow'] },
+            ];
+
+            for (const m of mappings) {
+                const val = pick(m.keys);
+                if (val !== undefined) {
+                    out[m.name] = val;
+                    continue;
+                }
+                // If no numeric level, try to provide a descriptive name from descKeys
+                const desc = pick(m.descKeys);
+                if (desc) out[m.name] = desc;
+            }
+
+            // As a last resort, scan raw for any keys that look like 'toner' or 'cartridge'
+            if (Object.keys(out).length === 0) {
+                for (const [k, v] of Object.entries(raw)) {
+                    if (!k) continue;
+                    const lk = k.toLowerCase();
+                    if (lk.includes('toner') || lk.includes('cartridge') || lk.includes('supply')) {
+                        // Use a cleaned-up key name
+                        const pretty = k.replace(/_/g, ' ').replace(/toner level/i, '').trim() || k;
+                        out[pretty] = v;
+                    }
+                }
+            }
+
+            // Post-process: only include consumables the device actually has.
+            // Priority: explicit `p.consumables` list if present; otherwise infer
+            // from device metrics (color pages) and raw values.
+            if (p) {
+                // Normalize keys for comparison
+                const normalize = (s) => String(s || '').toLowerCase();
+
+                // If the device provided a consumables array, use that to limit keys
+                if (Array.isArray(p.consumables) && p.consumables.length > 0) {
+                    const present = new Set();
+                    for (const desc of p.consumables) {
+                        const d = normalize(desc);
+                        if (d.includes('black') || d.includes(' k') || d === 'k') present.add('black');
+                        else if (d.includes('cyan') || d === 'c') present.add('cyan');
+                        else if (d.includes('magenta') || d === 'm') present.add('magenta');
+                        else if (d.includes('yellow') || d === 'y') present.add('yellow');
+                        else {
+                            // If description doesn't match a color, include it by its exact text
+                            present.add(desc);
+                        }
+                    }
+                    // Filter out color keys not present
+                    for (const k of Object.keys(out)) {
+                        const lk = normalize(k);
+                        if (lk.includes('black')) {
+                            if (!present.has('black')) delete out[k];
+                        } else if (lk.includes('cyan')) {
+                            if (!present.has('cyan')) delete out[k];
+                        } else if (lk.includes('magenta')) {
+                            if (!present.has('magenta')) delete out[k];
+                        } else if (lk.includes('yellow')) {
+                            if (!present.has('yellow')) delete out[k];
+                        } else {
+                            // keep non-color keys only if explicitly present
+                            if (!present.has(k) && !present.has(normalize(k))) delete out[k];
+                        }
+                    }
+                } else {
+                    // No explicit consumables list. If device seems mono (no color usage),
+                    // drop CMY entries unless they have non-empty descriptive values.
+                    const hasColor = !!(p.color_impressions || p.color_pages || (p.meters && (p.meters.color_pages || p.meters.cyan)));
+                    if (!hasColor) {
+                        for (const k of Object.keys(out)) {
+                            const lk = normalize(k);
+                            if (lk.includes('cyan') || lk.includes('magenta') || lk.includes('yellow')) {
+                                const v = out[k];
+                                const isEmptyDesc = (v === '' || v === null || v === undefined);
+                                const isZero = (typeof v === 'number' && v === 0);
+                                if (isEmptyDesc || isZero) delete out[k];
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+        return out;
+    }
+
+        // Render a compact consumable representation suitable for display on a saved-device card
+        // Uses smaller bars and abbreviated labels to keep cards dense.
+        function renderMiniConsumable(name, value, isLevel) {
+            const nameShort = (name || '').split(' ')[0]; // take first token as short label
+            if (isLevel) {
+                const v = Number(value);
+                const pct = isNaN(v) ? 0 : Math.max(0, Math.min(100, v));
+                // color selection similar to full render but simpler
+                let color = '#6c6';
+                const nl = nameShort.toLowerCase();
+                if (nl.includes('black') || nl === 'k') color = '#444';
+                else if (nl.includes('cyan') || nl === 'c') color = '#0097a7';
+                else if (nl.includes('magenta') || nl === 'm') color = '#c2185b';
+                else if (nl.includes('yellow') || nl === 'y') color = '#fbc02d';
+
+                return '<div class="mini-consumable" style="display:flex;align-items:center;gap:8px;margin:4px 0;">'
+                    + '<div style="width:56px;font-size:12px;color:var(--muted);">' + nameShort + '</div>'
+                    + '<div style="flex:1;min-width:80px;background:#001f22;border-radius:6px;height:10px;position:relative;overflow:hidden">'
+                    + '<div style="width:' + pct + '%;background:' + color + ';height:100%"></div>'
+                    + '</div>'
+                    + '<div style="width:36px;text-align:right;font-size:12px;color:var(--muted);">' + pct + '%</div>'
+                    + '</div>';
+            }
+            // fallback textual mini entry
+            return '<div class="mini-consumable" style="display:flex;align-items:center;gap:8px;margin:4px 0;">'
+                + '<div style="width:56px;font-size:12px;color:var(--muted);">' + nameShort + '</div>'
+                + '<div style="font-size:12px;color:var(--muted);">' + (value || '') + '</div>'
+                + '</div>';
+        }
+
+        function renderMiniConsumablesSection(tonerLevels) {
+            if (!tonerLevels || Object.keys(tonerLevels).length === 0) return '';
+            // Render mini consumables inline on one row so cards remain compact
+            let out = '<div class="mini-consumables" style="display:flex;flex-direction:row;gap:8px;align-items:center;">';
+            for (const [k, v] of Object.entries(tonerLevels)) {
+                const isNumeric = (v !== null && v !== undefined) && (typeof v === 'number' || (!isNaN(Number(v)) && String(v).trim() !== ''));
+                out += renderMiniConsumable(k, v, !!isNumeric);
+            }
+            out += '</div>';
+            return out;
+        }
 
     async function checkDatabaseRotationWarning() {
         try {
@@ -146,23 +371,67 @@
             await (window.__pm_shared && window.__pm_shared.ready);
         } catch (e) {}
         try {
-            const btn = ev.target.closest && ev.target.closest('[data-action]');
-            if (!btn) return;
-            const action = btn.getAttribute('data-action');
+                // Support both data-action attributes and legacy .save-device-btn class
+                let btn = ev.target.closest && (ev.target.closest('[data-action]') || ev.target.closest('.save-device-btn'));
+                if (!btn) return;
+                // Determine action: prefer explicit data-action, fall back to class-based legacy actions
+                const action = btn.getAttribute('data-action') || (btn.classList && btn.classList.contains('save-device-btn') ? 'save' : null);
             try { window.__pm_shared && window.__pm_shared.trace && window.__pm_shared.trace('card action', action, btn.dataset); } catch (er) {}
 
             if (action === 'save' || btn.classList.contains('save-device-btn')) {
                 // Old markup migration: support both data-action="save" and .save-device-btn
                 const ip = btn.getAttribute('data-ip') || btn.getAttribute('data-device-ip');
                 if (!ip) return;
-                btn.disabled = true;
+                // Find the card element and provide a saving visual state
+                const card = btn.closest && btn.closest('.device-card');
+                try { btn.disabled = true; } catch (e) {}
                 try {
-                    await window.__pm_shared.saveDiscoveredDevice(ip, false, true);
+                    if (card) {
+                        // Indicate that the card is being saved (green flash)
+                        card.classList.add('saving');
+                        // ensure the element participates in smooth reflow
+                        card.style.willChange = 'transform, max-height, margin';
+                    }
+                } catch (e) {}
+
+                try {
+                    // Prevent the agent-side save helper from immediately calling
+                    // updatePrinters (which would re-render and remove the card
+                    // before our exit animation completes). Request the save but
+                    // ask it NOT to update the UI; we'll call updatePrinters after
+                    // the animation finishes.
+                    await window.__pm_shared.saveDiscoveredDevice(ip, false, false);
+
+                    // On success, show saved state then animate removal so other
+                    // cards slide into place smoothly (removing uses slideOut keyframes)
+                    try {
+                        if (card) {
+                            card.classList.remove('saving');
+                            card.classList.add('removing');
+                            let handled = false;
+                            const onEnd = () => {
+                                if (handled) return; handled = true;
+                                try { card.remove(); } catch (e) {}
+                                try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+                                card.removeEventListener('animationend', onEnd);
+                                card.removeEventListener('transitionend', onEnd);
+                            };
+                            card.addEventListener('animationend', onEnd);
+                            card.addEventListener('transitionend', onEnd);
+                            // safety fallback
+                            setTimeout(onEnd, 700);
+                        } else {
+                            try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+                        }
+                    } catch (e) {
+                        try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (er) {}
+                    }
+
                     btn.textContent = 'Saved ✓';
                 } catch (e) {
                     window.__pm_shared.error('Save failed:', e);
-                    btn.disabled = false;
-                    btn.textContent = 'Save';
+                    try { btn.disabled = false; } catch (er) {}
+                    try { btn.textContent = 'Save'; } catch (er) {}
                     window.__pm_shared.showToast('Save failed: ' + (e && e.message ? e.message : e), 'error');
                 }
                 return;
@@ -387,28 +656,83 @@
     networkInfo += '</div>';
     html += renderInfoCard('Network', networkInfo);
 
-        // Consumables (if present)
-        const tonerLevels = p.toner_levels || p.toners || p.toner || {};
+        // Consumables (render as its own card). If we don't have explicit
+        // consumable information yet, include a placeholder `printer_consumables_card`
+        // which can later be populated from the latest metrics snapshot.
+        const tonerLevels = buildTonerLevels(p) || {};
         if (tonerLevels && Object.keys(tonerLevels).length > 0) {
-            let consumablesHtml = '<div class="consumable-container">';
-            const tonerColors = { black:'#2c2c2c', cyan:'#00bcd4', magenta:'#e91e63', yellow:'#ffc107' };
-            Object.entries(tonerLevels).forEach(([name, val]) => {
-                const levelNum = Number(val) || 0;
-                const bg = tonerColors[name.toLowerCase()] || '#666';
-                const low = levelNum < 20;
-                consumablesHtml += '<div class="consumable-item">' +
-                    '<div class="consumable-icon" style="background:' + bg + '20"></div>' +
-                    '<span class="consumable-label">' + name + '</span>' +
-                    '<div class="consumable-bar"><div class="consumable-bar-fill" style="width:' + levelNum + '%;background:' + bg + (low ? ';opacity:0.5' : '') + '">' + (levelNum>15?levelNum+'%':'') + '</div></div>' +
-                    '<span style="min-width:45px;text-align:right;font-family:monospace;color:var(--text);' + (low ? 'color:var(--highlight);font-weight:600' : '') + '">' + (levelNum<=15?levelNum+'%':'') + '</span>' +
-                    '</div>';
-            });
-            consumablesHtml += '</div>';
-            html += '<div class="panel" style="margin-top:8px">' +
-                '<h4 style="margin-top:0;color:var(--highlight)">Consumables</h4>' +
-                consumablesHtml +
-                '</div>';
+            // Render the consumables card with an explicit id so we can
+            // detect it later and avoid duplicate insertions.
+            html += '<div id="printer_consumables_card_actual">' + renderInfoCard('Consumables', renderConsumablesSection(tonerLevels)) + '</div>';
+        } else {
+            html += '<div id="printer_consumables_card"></div>';
         }
+
+        // Interfaces: attempt to extract from parseDebug.raw_pdus (IF-MIB columns)
+        try {
+            if (parseDebug && Array.isArray(parseDebug.raw_pdus)) {
+                const ifs = {};
+                parseDebug.raw_pdus.forEach(rp => {
+                    const oid = rp.oid || rp.OID || '';
+                    if (oid.startsWith('1.3.6.1.2.1.2.2.1.')) {
+                        const parts = oid.split('.');
+                        const col = parts[parts.length - 2];
+                        const idx = parts[parts.length - 1];
+                        if (!ifs[idx]) ifs[idx] = { index: idx };
+                        const v = rp.str_value || rp.StrValue || '';
+                        switch (col) {
+                            case '2': ifs[idx].descr = v; break; // ifDescr
+                            case '3': ifs[idx].type = v; break; // ifType
+                            case '5': ifs[idx].speed = v; break; // ifSpeed
+                            case '6': ifs[idx].mac = v; break; // ifPhysAddress
+                        }
+                    }
+                });
+                const keys = Object.keys(ifs);
+                if (keys.length > 0) {
+                    html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
+                    html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px;margin-bottom:8px">Network Interfaces (' + keys.length + ')</summary>';
+                    keys.forEach(k => {
+                        const it = ifs[k];
+                        html += '<div style="background:rgba(0,0,0,0.15);border-radius:4px;padding:8px;margin-bottom:6px;font-size:13px">';
+                        html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px">';
+                        if (it.descr) html += '<div style="color:var(--muted)">Interface:</div><div>' + it.descr + '</div>';
+                        if (it.mac) html += '<div style="color:var(--muted)">MAC:</div><div style="font-family:monospace;font-size:12px">' + it.mac + '</div>';
+                        if (it.speed) html += '<div style="color:var(--muted)">Speed:</div><div>' + it.speed + '</div>';
+                        html += '</div></div>';
+                    });
+                    html += '</details>';
+                }
+            }
+        } catch (e) { /* non-critical */ }
+
+        // Paper trays - collapsible
+        try {
+            if (p.paper_tray_status && p.paper_tray_status.length) {
+                html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
+                html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px">Paper Trays (' + p.paper_tray_status.length + ')</summary>';
+                html += '<div style="margin-top:8px">';
+                p.paper_tray_status.forEach(t => html += '<div style="padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;margin-bottom:4px;font-size:13px">' + t + '</div>');
+                html += '</div></details>';
+            }
+        } catch (e) { /* ignore */ }
+
+        // Status messages and alerts - collapsible
+        try {
+            if (p.status_messages && p.status_messages.length) {
+                html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
+                html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px">Status Messages (' + p.status_messages.length + ')</summary>';
+                html += '<div style="margin-top:8px">';
+                p.status_messages.forEach(s => html += '<div style="padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;margin-bottom:4px;font-size:13px">' + s + '</div>');
+                html += '</div></details>';
+            }
+        } catch (e) { /* ignore */ }
+
+        // Parse debug link (fallback to constructed endpoint if not present)
+        try {
+            const dbgLink = p.parse_debug_path || ('/parse_debug?ip=' + encodeURIComponent(p.ip || ''));
+            html += '<div><a href="' + dbgLink + '" target="_blank">View Parse Debug</a></div>';
+        } catch (e) {}
 
         html += '</div>'; // close settings-grid
 
@@ -470,8 +794,10 @@
                     statsHtml += '</tr>';
                 }
 
-                if (latest.toner_levels && Object.keys(latest.toner_levels).length > 0) {
-                    for (const [color, level] of Object.entries(latest.toner_levels)) {
+                // Render any consumable levels we can extract from the latest snapshot
+                const latestToners = buildTonerLevels(p, latest) || {};
+                if (latestToners && Object.keys(latestToners).length > 0) {
+                    for (const [color, level] of Object.entries(latestToners)) {
                         const levelNum = typeof level === 'number' ? level : parseInt(level) || 0;
                         const levelColor = levelNum < 20 ? '#d32f2f' : (levelNum < 50 ? '#f57c00' : '#388e3c');
                         statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
@@ -490,6 +816,46 @@
                 statsHtml += '</tbody></table>';
                 const summaryElFinal = document.getElementById('printer_metrics_summary');
                 if (summaryElFinal) summaryElFinal.innerHTML = statsHtml;
+                // If the device object didn't include toner_levels (schema v7+),
+                // populate consumables UI from the latest metrics snapshot so
+                // the modal still shows toner bars for saved devices.
+                    try {
+                        // If the main render didn't include consumables, populate the
+                        // dedicated consumables card placeholder with data from the
+                        // latest metrics snapshot so consumables and metrics are
+                        // separate cards and don't duplicate bars.
+                        const injected = buildTonerLevels(p, latest);
+                        if (injected && Object.keys(injected).length > 0) {
+                            const sectionHtml = renderConsumablesSection(injected);
+                            // If a real consumables card was already rendered, don't add another
+                            const existingActual = document.getElementById('printer_consumables_card_actual');
+                            if (existingActual) {
+                                // Optionally update existing card content
+                                try { existingActual.innerHTML = renderInfoCard('Consumables', sectionHtml); } catch (e) {}
+                            } else {
+                                const consumablesPlaceholder = document.getElementById('printer_consumables_card');
+                                if (consumablesPlaceholder) {
+                                    consumablesPlaceholder.innerHTML = renderInfoCard('Consumables', sectionHtml);
+                                    // mark as actual so future attempts don't duplicate
+                                    consumablesPlaceholder.id = 'printer_consumables_card_actual';
+                                } else {
+                                    // Fallback (old behavior) if placeholder missing
+                                    const metricsSummaryEl = document.getElementById('printer_metrics_summary');
+                                    if (metricsSummaryEl && metricsSummaryEl.parentElement) {
+                                        // Avoid duplicating: ensure there's no existing actual card first
+                                        const already = document.getElementById('printer_consumables_card_actual');
+                                        if (!already) metricsSummaryEl.insertAdjacentHTML('afterend', renderInfoCard('Consumables', sectionHtml));
+                                    } else {
+                                        const be = document.getElementById('printer_details_body');
+                                        if (be) {
+                                            const already = document.getElementById('printer_consumables_card_actual');
+                                            if (!already) be.insertAdjacentHTML('afterbegin', renderInfoCard('Consumables', sectionHtml));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) { /* non-critical UI enhancement */ }
             } catch (err) {
                 try { const summaryEl = document.getElementById('printer_metrics_summary'); if (summaryEl) summaryEl.innerHTML = '<div style="color:var(--muted)">Metrics unavailable</div>'; } catch(_){ }
             }
@@ -588,8 +954,19 @@
                         if (!ur.ok) { const t = await ur.text(); if (statusEl) statusEl.textContent = ' Update failed: ' + t; return; }
                         if (statusEl) statusEl.textContent = ' Changes applied ✓';
                         await new Promise(res => setTimeout(res, 400));
-                        // Re-open via agent helper which resolves discovered vs saved
-                        if (typeof showPrinterDetails === 'function') showPrinterDetails(p.ip, source);
+                        // Re-open via agent helper which resolves discovered vs saved.
+                        // Use serial (saved-device lookup) rather than IP because the
+                        // shared wrapper now resolves by serial only.
+                        try {
+                            const serialId = p.serial || p.Serial;
+                            // Use the shared wrapper which resolves by serial/device-key.
+                            if (serialId && window.__pm_shared && typeof window.__pm_shared.showPrinterDetails === 'function') {
+                                window.__pm_shared.showPrinterDetails(serialId, source);
+                            } else if (serialId && typeof showPrinterDetails === 'function') {
+                                // Fallback to any global implementation (legacy pages)
+                                showPrinterDetails(serialId, source);
+                            }
+                        } catch (e) { /* best-effort, ignore */ }
                     });
                 } catch (err) {
                     if (statusEl) statusEl.textContent = ' Failed: ' + err;
@@ -597,6 +974,17 @@
                     btn.disabled = false;
                 }
             });
+            // Run the preview check automatically when the details modal is opened
+            // so users always see suggested fixes without needing to click Refresh.
+            try {
+                const autoRefreshBtn = document.getElementById('refresh_data_btn');
+                if (autoRefreshBtn) {
+                    // Slight defer so DOM is fully settled
+                    setTimeout(() => {
+                        try { autoRefreshBtn.click(); } catch (e) { /* best-effort */ }
+                    }, 80);
+                }
+            } catch (e) { /* ignore */ }
         } catch (e) { window.__pm_shared.warn('refresh wiring failed', e); }
 
         // Wire up metrics collection button (saved devices only)
@@ -639,11 +1027,27 @@
                         window.__pm_shared.showToast('Device deleted successfully', 'success');
                         const cardToRemove = document.querySelector('.saved-device-card[data-serial="' + (p.serial || p.Serial) + '"]');
                         if (cardToRemove) {
-                            cardToRemove.classList.add('removing');
-                            setTimeout(() => { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; updatePrinters(); }, 400);
-                        } else {
-                            overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; updatePrinters();
-                        }
+                                    try {
+                                        cardToRemove.classList.add('removing');
+                                        let handledRem = false;
+                                        const onEndRem = () => {
+                                            if (handledRem) return; handledRem = true;
+                                            try { cardToRemove.remove(); } catch (e) {}
+                                            try { overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; } catch (e) {}
+                                            try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+                                            cardToRemove.removeEventListener('animationend', onEndRem);
+                                            cardToRemove.removeEventListener('transitionend', onEndRem);
+                                        };
+                                        cardToRemove.addEventListener('animationend', onEndRem);
+                                        cardToRemove.addEventListener('transitionend', onEndRem);
+                                        // safety fallback
+                                        setTimeout(onEndRem, 800);
+                                    } catch (e) {
+                                        overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (er) {}
+                                    }
+                                } else {
+                                    overlay.style.display = 'none'; document.body.style.overflow = ''; delete overlay.dataset.currentPrinterIp; updatePrinters();
+                                }
                     } catch (e) { window.__pm_shared.error('Delete failed:', e); window.__pm_shared.showToast('Delete failed: ' + e.message, 'error'); }
                 };
                 actionsEl.appendChild(deleteBtn);

@@ -88,139 +88,207 @@ try {
         } catch (e) { /* best-effort: don't break the page */ }
     })();
 } catch (e) { /* defensive */ }
-(function __pm_shared_bootstrap(){
-    const s = window.__pm_shared;
-    // readiness promise (resolves when shared initialization completes)
-    if (!s.ready) {
-        let resolveReady;
-        s.ready = new Promise((resolve) => { resolveReady = resolve; });
-        s.__resolveReady = resolveReady;
-    }
-
-    // lightweight SHARED logger (used by UI bundles for diagnostics)
-
-    // Safety: resolve ready after short timeout if not already resolved. This
-    // prevents callers awaiting forever in unusual environments where the
-    // vendor script events didn't fire. We keep timeout short (250ms) to allow
-    // normal onload to complete but avoid long delays.
-    setTimeout(() => {
-        try {
-            if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') {
-                window.__pm_shared.debug && window.__pm_shared.debug('Resolving shared.ready (safety timeout)');
-                window.__pm_shared.__resolveReady();
-                // remove resolver to prevent double-resolve
-                window.__pm_shared.__resolveReady = null;
-            }
-        } catch (e) { window.__pm_shared.warn('shared ready safety resolve failed', e); }
-    }, 250);
-    // These forward to console with a consistent prefix. Consumers may
-    // override these with a fancier implementation if needed.
-    s.debug = s.debug || function(...args) { window.__pm_shared.debug('[SHARED]', ...args); };
-    s.trace = s.trace || function(...args) { window.__pm_shared.trace('[SHARED]', ...args); };
-    s.info = s.info || function(...args) { window.__pm_shared.info('[SHARED]', ...args); };
-    s.warn = s.warn || function(...args) { window.__pm_shared.warn('[SHARED]', ...args); };
-    s.error = s.error || function(...args) { window.__pm_shared.error('[SHARED]', ...args); };
-    s.log = s.log || function(...args) { window.__pm_shared.log('[SHARED]', ...args); };
-})();
-
-// Ensure a minimal globalSettings object exists for legacy UI code that may
-// reference `globalSettings` without awaiting shared initializers. Also expose
-// an async initializer so callers can explicitly await any future async
-// population logic. Centralizing this in `shared.js` keeps global bootstrapping
-// consistent across agent and server UIs.
-try {
-    window.globalSettings = window.globalSettings || {};
-    window.__pm_shared.initGlobalSettings = window.__pm_shared.initGlobalSettings || (async function() {
-        // Placeholder for potential future asynchronous loading; currently
-        // ensures the object exists and resolves immediately.
-        window.globalSettings = window.globalSettings || {};
-        return window.globalSettings;
-    });
-} catch (e) {
-    // Defensive: if window is not available for some reason, don't throw.
-}
-
-// Load shared vendor assets (flatpickr) from server-hosted copy if available,
-// otherwise fall back to CDN. This centralizes the import so agent and server
-// UIs get the same vendor script without duplicating <script> tags in each
-// HTML file.
-// Load flatpickr from the CDN (simpler, reliable). If you prefer vendoring,
-// reintroduce local files and update the server embed accordingly.
-(function loadFlatpickrFromStatic() {
-    // Prefer a locally hosted copy of flatpickr under /static/flatpickr/
-    // This avoids Content-Security-Policy violations when pages forbid loading
-    // remote resources. If the static files are missing, we silently skip
-    // loading the vendor (flatpickr is optional for the basic UI).
+function showPrinterDetails(identifier, source) {
+    // Always resolve devices by serial/device key only. IP-based lookup is
+    // intentionally disabled to avoid mismatches and inconsistent UI data.
     try {
-        const cssPath = '/static/flatpickr/flatpickr.min.css';
-        const jsPath = '/static/flatpickr/flatpickr.min.js';
-
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = cssPath;
-        document.head.appendChild(link);
-
-        const script = document.createElement('script');
-        script.src = jsPath;
-        script.defer = true;
-        // Resolve readiness once the vendor script loads (or errors).
-        script.addEventListener('load', () => {
-            try { window.__pm_shared.debug && window.__pm_shared.debug('flatpickr loaded from static'); } catch (e) {}
-            if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') window.__pm_shared.__resolveReady();
-        });
-        script.addEventListener('error', (e) => {
-            try { window.__pm_shared.warn && window.__pm_shared.warn('flatpickr failed to load from static', e); } catch (er) {}
-            if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') window.__pm_shared.__resolveReady();
-        });
-        document.head.appendChild(script);
-    } catch (e) {
-        // If injection fails for any reason, don't break the page.
-        window.__pm_shared.warn('flatpickr static injection failed', e);
-        if (window.__pm_shared && typeof window.__pm_shared.__resolveReady === 'function') window.__pm_shared.__resolveReady();
-    }
-})();
-
-// ============================================================================
-// TOAST NOTIFICATION SYSTEM
-// ============================================================================
-
-/**
- * Display a toast notification
- * @param {string} message - Message to display
- * @param {string} type - 'success', 'error', or 'info'
- * @param {number} duration - Duration in milliseconds (default 3000)
- */
-function showToast(message, type = 'success', duration = 3000) {
-    const container = document.getElementById('toast_container');
-    if (!container) return;
-    
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    
-    const icons = {
-        success: '✓',
-        error: '✗',
-        info: 'ℹ'
-    };
-    
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type] || icons.info}</span>
-        <span class="toast-message">${message}</span>
-    `;
-    
-    container.appendChild(toast);
-
-    // Auto-remove after duration
-    setTimeout(() => {
-        toast.classList.add('toast-hiding');
-        setTimeout(() => {
-            if (toast.parentNode) {
-                toast.parentNode.removeChild(toast);
+        if (window.__pm_shared_cards && typeof window.__pm_shared_cards.showPrinterDetailsData === 'function') {
+            if (!identifier) {
+                window.__pm_shared.showToast('Printer identifier not provided', 'error');
+                return;
             }
-        }, 300); // Match CSS animation duration
-    }, duration);
-}
 
+            // Treat the identifier strictly as a serial/device-key and search
+            // the saved devices list. Prefer the central server API when
+            // available (server is canonical). Fall back to the agent-local
+            // endpoint if the server endpoint is unreachable or returns an
+            // unexpected response.
+            // Try to resolve a canonical server base in this order:
+            // 1. <base href="..."> element (proxied pages inject an absolute base)
+            // 2. meta[name="printmaster-server-base"] or meta[http-equiv="X-PrintMaster-Server-Base"]
+            // 3. window.__pm_shared.serverBase (JS-injected global)
+            // If none found, fall back to a relative fetch which targets the current origin.
+            function resolveServerBase() {
+                try {
+                    // 1) base element
+                    const baseEl = document.querySelector('base');
+                    if (baseEl && baseEl.href) {
+                        try {
+                            const u = new URL(baseEl.href, window.location.href);
+                            // Keep origin+pathname (proxyBase may include path)
+                            return (u.origin || '') + (u.pathname || '') .replace(/\/$/, '') ;
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    // 2) meta tag (explicit server base)
+                    const meta = document.querySelector('meta[name="printmaster-server-base"]') || document.querySelector('meta[http-equiv="X-PrintMaster-Server-Base"]');
+                    if (meta && (meta.content || meta.getAttribute('content'))) {
+                        try { return (new URL(meta.content, window.location.href)).origin; } catch (e) { /* ignore */ }
+                    }
+
+                    // 3) shared global
+                    if (window.__pm_shared && window.__pm_shared.serverBase) {
+                        try { return (new URL(window.__pm_shared.serverBase, window.location.href)).origin; } catch (e) { /* ignore */ }
+                    }
+                } catch (e) { /* defensive */ }
+                return null;
+            }
+
+            const _serverBase = resolveServerBase();
+            const tryServer = (_serverBase ? fetch((_serverBase.replace(/\/$/, '')) + '/api/v1/devices/list') : fetch('/api/v1/devices/list')).then(r => r.ok ? r.json() : null).catch(() => null);
+            const tryAgent = fetch('/devices/list').then(r => r.ok ? r.json() : []).catch(() => []);
+
+            // Race: prefer server result when it yields a list, otherwise use agent
+            Promise.all([tryServer, tryAgent]).then(([serverList, agentList]) => {
+                const list = (Array.isArray(serverList) && serverList.length > 0) ? serverList : (agentList || []);
+                const arr = list || [];
+                const match = arr.find(it => {
+                    // Top-level saved item may have `serial` property
+                    if (it && it.serial && String(it.serial) === String(identifier)) return true;
+                    const p = it.printer_info || it;
+                    if (p && (p.serial && String(p.serial) === String(identifier))) return true;
+                    // Some items may include serial under different casing
+                    if (p && (p.Serial && String(p.Serial) === String(identifier))) return true;
+                    return false;
+                });
+                if (match) {
+                    try {
+                        // Prefer embedded printer_info but merge top-level saved fields
+                        // into the object so UI helpers (which expect p.asset_number
+                        // and p.location) can pick them up regardless of where they
+                        // were stored by the server/agent.
+                        const deviceObj = match.printer_info ? Object.assign({}, match.printer_info) : Object.assign({}, match);
+                        // If server saved asset_number/location at top-level, copy them
+                        if ((!deviceObj.asset_number || deviceObj.asset_number === '') && match.asset_number) deviceObj.asset_number = match.asset_number;
+                        if ((!deviceObj.location || deviceObj.location === '') && match.location) deviceObj.location = match.location;
+                        if ((!deviceObj.serial || deviceObj.serial === '') && match.serial) deviceObj.serial = match.serial;
+                        // Also accept alternate casing used in some records
+                        if ((!deviceObj.asset_number || deviceObj.asset_number === '') && match.AssetNumber) deviceObj.asset_number = match.AssetNumber;
+                        if ((!deviceObj.location || deviceObj.location === '') && match.Location) deviceObj.location = match.Location;
+                        if ((!deviceObj.serial || deviceObj.serial === '') && match.Serial) deviceObj.serial = match.Serial;
+
+                        window.__pm_shared_cards.showPrinterDetailsData(deviceObj, source || 'saved', null);
+                    } catch (e) { window.__pm_shared.warn('showPrinterDetails render failed', e); }
+                } else {
+                    window.__pm_shared.showToast('Printer details not found for serial: ' + identifier, 'error');
+                }
+            }).catch(() => { window.__pm_shared.showToast('Failed to fetch device list', 'error'); });
+        }
+    } catch (e) {
+        window.__pm_shared.error('showPrinterDetails wrapper failed', e);
+        throw e;
+    }
+}
+    function showToast(message, type = 'info', duration = 3000) {
+        const container = document.getElementById('toast_container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+
+        const icons = {
+            success: '✓',
+            error: '✗',
+            info: 'ℹ'
+        };
+
+        toast.innerHTML = `
+            <span class="toast-icon">${icons[type] || icons.info}</span>
+            <span class="toast-message">${message}</span>
+        `;
+
+        container.appendChild(toast);
+
+        // Auto-remove after duration
+        setTimeout(() => {
+            toast.classList.add('toast-hiding');
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 300); // Match CSS animation duration
+        }, duration);
+    }
+
+    // Ensure the shared namespace exposes showToast
+    window.__pm_shared.showToast = window.__pm_shared.showToast || showToast;
+
+    // Ensure flatpickr is available on pages that need it (metrics modal, etc.).
+    // This will inject the CSS and JS from the server's static path when the
+    // document is ready. It is idempotent and exposes a Promise
+    // `window.__pm_shared.flatpickrReady` that resolves to the `flatpickr`
+    // global (or `null` if loading failed).
+    (function ensureFlatpickrLoaded() {
+        try {
+            if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+            // If flatpickr is already present, expose a resolved promise.
+            if (window.flatpickr) {
+                window.__pm_shared.flatpickrReady = window.__pm_shared.flatpickrReady || Promise.resolve(window.flatpickr);
+                return;
+            }
+
+            // Avoid creating multiple loaders
+            if (window.__pm_shared && window.__pm_shared.flatpickrReady) return;
+
+            window.__pm_shared.flatpickrReady = new Promise((resolve, reject) => {
+                const cssId = 'pm-flatpickr-css';
+                const jsId = 'pm-flatpickr-js';
+                const cssHref = '/static/flatpickr/flatpickr.min.css';
+                const jsSrc = '/static/flatpickr/flatpickr.min.js';
+
+                function createLink() {
+                    if (!document.getElementById(cssId)) {
+                        try {
+                            const link = document.createElement('link');
+                            link.id = cssId;
+                            link.rel = 'stylesheet';
+                            link.href = cssHref;
+                            document.head.appendChild(link);
+                        } catch (e) { /* non-fatal */ }
+                    }
+                }
+
+                function createScript() {
+                    if (document.getElementById(jsId)) {
+                        // If script exists but flatpickr still undefined, wait a bit
+                        const existing = document.getElementById(jsId);
+                        existing.addEventListener && existing.addEventListener('load', () => resolve(window.flatpickr || null));
+                        existing.addEventListener && existing.addEventListener('error', () => resolve(null));
+                        return;
+                    }
+                    try {
+                        const script = document.createElement('script');
+                        script.id = jsId;
+                        script.src = jsSrc;
+                        script.async = false; // preserve execution order
+                        script.onload = function() { resolve(window.flatpickr || null); };
+                        script.onerror = function() { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('[SHARED] flatpickr load failed'); resolve(null); };
+                        document.head.appendChild(script);
+                    } catch (e) { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('[SHARED] flatpickr injection failed', e); resolve(null); }
+                }
+
+                // Create CSS immediately and the script once DOM ready; if DOMContentLoaded
+                // already fired, inject immediately.
+                try { createLink(); } catch (e) {}
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', createScript);
+                } else {
+                    // Small defer to ensure head exists in edge cases
+                    setTimeout(createScript, 0);
+                }
+
+                // Safety timeout: if nothing resolves within 5s, resolve with null
+                setTimeout(() => {
+                    if (window.flatpickr) return; // already there
+                    // If promise still pending, resolve with null to avoid hung awaits
+                    resolve(window.flatpickr || null);
+                }, 5000);
+            });
+        } catch (e) {
+            try { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('ensureFlatpickrLoaded failed', e); } catch (ex) {}
+        }
+    })();
 // ============================================================================
 // MODAL SYSTEM
 // ============================================================================
@@ -671,25 +739,7 @@ function showWebUIModal(webUIURL, serial) {
     try { window.open(webUIURL, '_blank'); } catch (e) { window.__pm_shared.warn('showWebUIModal fallback failed', e); }
 }
 
-function showPrinterDetails(ip, source) {
-    // Delegate to shared cards renderer if present
-    try {
-        if (window.__pm_shared_cards && typeof window.__pm_shared_cards.showPrinterDetailsData === 'function') {
-            // If only IP is available, try to resolve via /devices/list
-            if (ip && ip.indexOf('.') !== -1) {
-                fetch('/devices/list').then(r => r.ok ? r.json() : []).then(list => {
-                    const match = (list || []).find(it => (it.printer_info && (it.printer_info.ip === ip || it.printer_info.IP === ip)) || (it.ip === ip));
-                    if (match) window.__pm_shared_cards.showPrinterDetailsData(match.printer_info || match, source || 'discovered');
-                    else window.__pm_shared.showToast('Printer details not found for IP: ' + ip, 'error');
-                }).catch(() => { window.__pm_shared.showToast('Failed to fetch device list', 'error'); });
-            } else {
-                window.__pm_shared.showToast('Printer IP not provided', 'error');
-            }
-        } else {
-            window.__pm_shared.showToast('Printer details UI unavailable', 'error');
-        }
-    } catch (e) { window.__pm_shared.warn('showPrinterDetails fallback failed', e); }
-}
+
 
 async function deleteSavedDevice(serial) {
     if (!serial) return;
@@ -699,7 +749,36 @@ async function deleteSavedDevice(serial) {
         const r = await fetch('/devices/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial }) });
         if (!r.ok) throw new Error(await r.text());
         window.__pm_shared.showToast('Device deleted successfully', 'success');
-        if (typeof updatePrinters === 'function') try { updatePrinters(); } catch (e) {}
+        // Animate removal of the corresponding card (if present) to avoid
+        // an instant snap. The CSS class 'removing' triggers the exit
+        // animation; wait for animationend before updating the UI.
+        try {
+            // Try to find by explicit data-serial or fallback to data-device-key
+            const esc = (s) => (s || '').replace(/"/g, '\\"').replace(/\\/g, '\\\\');
+            let card = document.querySelector('.saved-device-card[data-serial="' + esc(serial) + '"]');
+            if (!card) card = document.querySelector('.saved-device-card[data-device-key="' + esc(serial) + '"]');
+            if (card) {
+                card.classList.add('removing');
+                // Use animationend to detect completion; fall back to timeout
+                let handled = false;
+                const onEnd = (ev) => {
+                    if (handled) return;
+                    handled = true;
+                    try { card.remove(); } catch (e) {}
+                    try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (e) {}
+                    card.removeEventListener('animationend', onEnd);
+                    card.removeEventListener('transitionend', onEnd);
+                };
+                card.addEventListener('animationend', onEnd);
+                card.addEventListener('transitionend', onEnd);
+                // safety fallback in case events don't fire
+                setTimeout(onEnd, 600);
+            } else {
+                if (typeof updatePrinters === 'function') try { updatePrinters(); } catch (e) {}
+            }
+        } catch (e) {
+            try { if (typeof updatePrinters === 'function') updatePrinters(); } catch (er) {}
+        }
     } catch (e) {
         window.__pm_shared.error('deleteSavedDevice failed', e);
         window.__pm_shared.showToast('Failed to delete device', 'error');
