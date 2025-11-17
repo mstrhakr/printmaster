@@ -21,7 +21,7 @@
         style="display: flex; align-items: center; margin-bottom: 12px; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 12px;">
             <h1 style="margin: 0;">PrintMaster Agent UI</h1>
-            <button id="join_token_btn" class="modal-button modal-button-primary" title="Join a server using a join token">Join Server</button>
+            <button id="join_token_btn" data-role="admin" style="display:none" class="modal-button modal-button-primary" title="Join a server using a join token">Join Server</button>
         </div>
         <label class="theme-toggle">
             <input type="checkbox" id="theme-toggle-checkbox">
@@ -47,13 +47,13 @@
             </div>
             <div class="mobile-nav" id="mobile_nav">
                 <button class="tab active" data-target="devices">Devices</button>
-                <button class="tab" data-target="settings">Settings</button>
-                <button class="tab" data-target="logs">Logs</button>
+                <button class="tab" data-target="settings" data-role="admin" style="display:none">Settings</button>
+                <button class="tab" data-target="logs" data-role="admin" style="display:none">Logs</button>
             </div>
             <!-- Desktop tabs -->
             <button class="tab active" data-target="devices">Devices</button>
-            <button class="tab" data-target="settings">Settings</button>
-            <button class="tab" data-target="logs">Logs</button>
+            <button class="tab" data-target="settings" data-role="admin" style="display:none">Settings</button>
+            <button class="tab" data-target="logs" data-role="admin" style="display:none">Logs</button>
         </div>
 
         <div style="margin-top:12px;" data-tab="devices">
@@ -61,7 +61,7 @@
 
             <!-- Discover controls -->
             <div style="display:flex;gap:12px;align-items:flex-start;margin-top:6px;margin-bottom:12px;flex-wrap:wrap">
-                <button class="primary" id="discover_now_btn">Discover Now</button>
+                <button class="primary" id="discover_now_btn" data-role="admin" style="display:none">Discover Now</button>
             </div>
 
             <!-- Discovered Printers Section -->
@@ -92,9 +92,9 @@
                 <div id="discovered_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
                 <div class="device-cards-container" id="discovered_devices_cards"></div>
                 <div style="margin-top:16px;display:flex;gap:12px;align-items:center;">
-                    <button data-action="save-all-discovered">Save All</button>
+                    <button data-action="save-all-discovered" data-role="admin" style="display:none">Save All</button>
                     <span style="color:var(--muted)">|</span>
-                    <button data-action="clear-discovered">Clear</button>
+                    <button data-action="clear-discovered" data-role="admin" style="display:none">Clear</button>
                 </div>
             </div>
 
@@ -112,7 +112,7 @@
                 <div id="saved_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
                 <div class="saved-device-cards-container" id="saved_devices_cards"></div>
                 <div style="margin-top:16px;display:flex;gap:8px;">
-                    <button class="delete" style="margin-left:auto;" data-action="delete-all-saved">Delete All Saved
+                    <button class="delete" style="margin-left:auto;" data-action="delete-all-saved" data-role="admin" style="display:none">Delete All Saved
                         Devices</button>
                 </div>
             </div>
@@ -120,7 +120,7 @@
 
         <!-- Sandbox UI removed -->
 
-        <div style="margin-top:12px;" data-tab="settings" class="hidden">
+        <div style="margin-top:12px;" data-tab="settings" class="hidden" data-role="admin" style="display:none">
             <h3>Settings</h3>
 
             <!-- Settings Controls (Sticky) -->

@@ -44,6 +44,65 @@ window.__pm_shared = window.__pm_shared || {};
 })();
 
 // ============================================================================
+// Shared Auth Utilities (client-side)
+// ============================================================================
+// Provides a unified way for server and agent UIs to fetch the current
+// principal and toggle visibility of elements marked with data-role
+// (e.g. data-role="admin"). This keeps role logic centralized.
+try {
+    window.__pm_auth = window.__pm_auth || {
+        currentUser: null,
+        fetching: null,
+        ensureAuth: async function() {
+            // Reuse in-flight request
+            if (this.fetching) return this.fetching;
+            const self = this;
+            this.fetching = (async () => {
+                try {
+                    const resp = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+                    if (resp.ok) {
+                        self.currentUser = await resp.json();
+                    } else {
+                        self.currentUser = null;
+                    }
+                } catch (e) {
+                    self.currentUser = null;
+                } finally {
+                    const cu = self.currentUser;
+                    self.fetching = null;
+                    self.applyRBAC();
+                    return cu;
+                }
+            })();
+            return this.fetching;
+        },
+        hasRole: function(minRole) {
+            if (!this.currentUser) return false;
+            const order = { admin: 3, operator: 2, viewer: 1 };
+            const cur = order[(this.currentUser.role||'').toLowerCase()] || 0;
+            const req = order[(minRole||'').toLowerCase()] || 0;
+            return cur >= req;
+        },
+        applyRBAC: function(){
+            const cu = this.currentUser;
+            const self = this;
+            const nodes = document.querySelectorAll('[data-role]');
+            // Use Array.prototype.forEach for broad browser compatibility
+            Array.prototype.forEach.call(nodes, function(el){
+                const need = (el.getAttribute('data-role')||'').toLowerCase();
+                if (!need) return;
+                if (need === 'admin') {
+                    el.style.display = (cu && (cu.role||'').toLowerCase() === 'admin') ? '' : 'none';
+                } else {
+                    // Future roles: operator/viewer gating
+                    el.style.display = (cu && self.hasRole(need)) ? '' : 'none';
+                }
+            });
+        }
+    };
+} catch (e) { /* non-fatal */ }
+
+// ============================================================================
 // Debug controls and unload guard
 // ============================================================================
 // Provide a simple debugMode flag and an isUnloading guard so verbose

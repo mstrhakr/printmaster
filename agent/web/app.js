@@ -2117,8 +2117,10 @@ function applyMasonryLayout(targetGrid) {
 // Load theme preference when page loads
 // Global state: check if UI is being accessed through server proxy
 let isProxiedFromServer = false;
+// Shared auth utilities now manage currentUser and role-based visibility.
 
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', async function () {
+    await window.__pm_auth.ensureAuth();
     loadThemePreference();
     window.__pm_shared.toggleDatabaseFields();
 

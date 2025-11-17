@@ -44,9 +44,23 @@ type ServerConnectionConfig struct {
 
 // WebConfig holds web UI settings
 type WebConfig struct {
-	HTTPPort  int  `toml:"http_port"`
-	HTTPSPort int  `toml:"https_port"`
-	EnableTLS bool `toml:"enable_tls"`
+	HTTPPort  int           `toml:"http_port"`
+	HTTPSPort int           `toml:"https_port"`
+	EnableTLS bool          `toml:"enable_tls"`
+	Auth      WebAuthConfig `toml:"auth"`
+}
+
+// WebAuthConfig controls agent UI authentication behavior
+// Mode:
+//
+//	"local"    -> only local bypass (loopback treated as admin if allow_local_admin=true)
+//	"server"   -> expects server-auth callback flow (future implementation)
+//	"disabled" -> no auth at all (legacy behavior)
+//
+// AllowLocalAdmin: if true, loopback requests get admin principal without login
+type WebAuthConfig struct {
+	Mode            string `toml:"mode"`
+	AllowLocalAdmin bool   `toml:"allow_local_admin"`
 }
 
 // DefaultAgentConfig returns agent configuration with sensible defaults
@@ -80,6 +94,7 @@ func DefaultAgentConfig() *AgentConfig {
 			HTTPPort:  8080,
 			HTTPSPort: 8443,
 			EnableTLS: false,
+			Auth:      WebAuthConfig{Mode: "local", AllowLocalAdmin: true},
 		},
 	}
 }
@@ -146,6 +161,13 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 		if port, err := strconv.Atoi(val); err == nil {
 			cfg.Web.HTTPSPort = port
 		}
+	}
+	if val := os.Getenv("WEB_AUTH_MODE"); val != "" {
+		cfg.Web.Auth.Mode = strings.ToLower(val)
+	}
+	if val := os.Getenv("WEB_ALLOW_LOCAL_ADMIN"); val != "" {
+		lower := strings.ToLower(val)
+		cfg.Web.Auth.AllowLocalAdmin = (lower == "1" || lower == "true" || lower == "yes")
 	}
 
 	// Apply common environment variable overrides (component-specific prefixed env var supported)

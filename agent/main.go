@@ -96,6 +96,19 @@ func basicAuth(userpass string) string {
 // Global session cache for form-based logins
 var proxySessionCache = proxy.NewSessionCache()
 
+// context key for agent principal
+// NOTE: Placeholder principal context key left commented until middleware uses it
+// const agentPrincipalContextKey contextKey = "agent_principal"
+
+// AgentPrincipal represents an authenticated identity for agent UI
+// AgentPrincipal and related helpers will be introduced when full auth flow lands.
+// Keeping minimal stub to avoid unused warnings while documenting future extension.
+type AgentPrincipal struct {
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	Source   string `json:"source"`
+}
+
 // Context key for storing whether the original request was HTTPS
 type contextKey string
 
@@ -4207,6 +4220,76 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+	})
+
+	// Auth endpoints (lightweight placeholder; future server-callback/HMAC verification)
+	http.HandleFunc("/api/v1/auth/me", func(w http.ResponseWriter, r *http.Request) {
+		// Loopback bypass when enabled
+		isLoopback := func() bool {
+			h := r.RemoteAddr
+			host, _, err := net.SplitHostPort(h)
+			if err != nil {
+				host = h
+			}
+			ip := net.ParseIP(host)
+			if ip != nil && ip.IsLoopback() {
+				return true
+			}
+			// Trust X-Forwarded-For first value if present (avoid spoof in future by proxy trust list)
+			xff := r.Header.Get("X-Forwarded-For")
+			if xff != "" {
+				parts := strings.Split(xff, ",")
+				fhost := strings.TrimSpace(parts[0])
+				ip2 := net.ParseIP(fhost)
+				if ip2 != nil && ip2.IsLoopback() {
+					return true
+				}
+			}
+			return false
+		}()
+		mode := "local"
+		allowLocal := true
+		if agentConfig != nil {
+			mode = agentConfig.Web.Auth.Mode
+			allowLocal = agentConfig.Web.Auth.AllowLocalAdmin
+		}
+		if mode == "disabled" {
+			http.Error(w, "auth disabled", http.StatusUnauthorized)
+			return
+		}
+		if isLoopback && allowLocal {
+			p := &AgentPrincipal{Username: "local-admin", Role: "admin", Source: "local-bypass"}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(p)
+			return
+		}
+		// Future: validate server-provided session/callback here
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+	})
+
+	http.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	http.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		// Placeholder: in local mode we rely on bypass; in server mode we will redirect
+		mode := "local"
+		if agentConfig != nil {
+			mode = agentConfig.Web.Auth.Mode
+		}
+		if mode == "server" {
+			// Redirect to server login (requires configured Server.URL)
+			if agentConfig != nil && agentConfig.Server.URL != "" {
+				ret := r.URL.Query().Get("return_to")
+				if ret == "" {
+					ret = "/"
+				}
+				serverLogin := strings.TrimRight(agentConfig.Server.URL, "/") + "/login?return_to=" + url.QueryEscape(ret)
+				http.Redirect(w, r, serverLogin, http.StatusFound)
+				return
+			}
+		}
+		http.Error(w, "login not implemented", http.StatusNotImplemented)
 	})
 
 	// Version endpoint

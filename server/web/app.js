@@ -147,8 +147,8 @@ function getTabLabel(targetTab) {
 document.addEventListener('DOMContentLoaded', function () {
     window.__pm_shared.log('PrintMaster Server UI loaded');
 
-    // Before initializing the UI, ensure user is authenticated (local login)
-    ensureAuthenticated().then(user => {
+    // Before initializing the UI, ensure user is authenticated (shared auth util)
+    window.__pm_auth.ensureAuth().then(user => {
         if (!user) {
             // ensureAuthenticated will redirect to login for us
             return;
@@ -186,26 +186,7 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // Ensure user is authenticated, show login modal if not. Resolves true once authenticated.
-async function ensureAuthenticated(){
-    try{
-        const res = await fetch('/api/v1/auth/me');
-        if(res.ok){
-            return await res.json();
-        }
-        if(res.status===401){
-            // Redirect to dedicated login page for better separation
-            window.location = '/login';
-            return null;
-        }
-        // Other errors: still show login modal (server may be misconfigured)
-        window.location = '/login';
-        return null;
-    }catch(err){
-        window.__pm_shared.warn('Auth check failed, showing login modal', err);
-        window.location = '/login';
-        return null;
-    }
-}
+// ensureAuthenticated replaced by shared utility window.__pm_auth.ensureAuth()
 
 function showLoginModal(){
     const modal = document.getElementById('login_modal');
