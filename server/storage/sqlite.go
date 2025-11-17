@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -63,12 +62,7 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Use structured logger if set, otherwise fallback to stdlog
-	if Log != nil {
-		Log.Info("Opened SQLite database", "path", dbPath)
-	} else {
-		log.Printf("Opened SQLite database at %s", dbPath)
-	}
+	logInfo("Opened SQLite database", "path", dbPath)
 
 	store := &SQLiteStore{
 		db:     db,
@@ -340,17 +334,9 @@ func (s *SQLiteStore) initSchema() error {
 	for _, stmt := range altStmts {
 		if _, err := s.db.Exec(stmt); err != nil {
 			// Ignore errors, but log them for visibility during migration
-			if Log != nil {
-				Log.Warn("SQLite migration statement (ignored error)", "stmt", stmt, "error", err)
-			} else {
-				log.Printf("SQLite migration statement (ignored error): %s -> %v", stmt, err)
-			}
+			logWarn("SQLite migration statement (ignored error)", "stmt", stmt, "error", err)
 		} else {
-			if Log != nil {
-				Log.Debug("SQLite migration statement applied (or already present)", "stmt", stmt)
-			} else {
-				log.Printf("SQLite migration statement applied (or already present): %s", stmt)
-			}
+			logDebug("SQLite migration statement applied (or already present)", "stmt", stmt)
 		}
 	}
 
@@ -379,25 +365,13 @@ func (s *SQLiteStore) initSchema() error {
 	var nonHashedCount int
 	err = s.db.QueryRow("SELECT COALESCE(COUNT(1),0) FROM sessions WHERE LENGTH(token) != 64").Scan(&nonHashedCount)
 	if err == nil && nonHashedCount > 0 {
-		if Log != nil {
-			Log.Info("Clearing legacy sessions (security migration)", "non_hashed_count", nonHashedCount)
-		} else {
-			log.Printf("Clearing %d legacy sessions (security migration)", nonHashedCount)
-		}
+		logInfo("Clearing legacy sessions (security migration)", "non_hashed_count", nonHashedCount)
 		if _, derr := s.db.Exec("DELETE FROM sessions"); derr != nil {
-			if Log != nil {
-				Log.Warn("Failed to clear legacy sessions", "error", derr)
-			} else {
-				log.Printf("Failed to clear legacy sessions: %v", derr)
-			}
+			logWarn("Failed to clear legacy sessions", "error", derr)
 		}
 	}
 
-	if Log != nil {
-		Log.Info("Schema initialized for DB", "path", s.dbPath, "schemaVersion", schemaVersion)
-	} else {
-		log.Printf("Schema initialized for DB %s (schemaVersion=%d)", s.dbPath, schemaVersion)
-	}
+	logInfo("Schema initialized for DB", "path", s.dbPath, "schemaVersion", schemaVersion)
 
 	return nil
 }
@@ -710,11 +684,7 @@ func (s *SQLiteStore) backfillUserTenantMappings() {
 		SELECT id, tenant_id FROM users
 		WHERE tenant_id IS NOT NULL AND tenant_id != ''`
 	if _, err := s.db.Exec(stmt); err != nil {
-		if Log != nil {
-			Log.Warn("Failed to backfill user_tenants", "error", err)
-		} else {
-			log.Printf("Failed to backfill user_tenants: %v", err)
-		}
+		logError("Failed to backfill user_tenants", "error", err)
 	}
 }
 
@@ -726,11 +696,7 @@ func (s *SQLiteStore) migrateLegacyRoles() {
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
-			if Log != nil {
-				Log.Warn("Legacy role migration failed", "stmt", stmt, "error", err)
-			} else {
-				log.Printf("Legacy role migration failed (%s): %v", stmt, err)
-			}
+			logError("Legacy role migration failed", "stmt", stmt, "error", err)
 		}
 	}
 }

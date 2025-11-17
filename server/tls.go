@@ -150,9 +150,7 @@ func (cfg *TLSConfig) getSelfSignedConfig() (*tls.Config, error) {
 	if _, err := os.Stat(certPath); err == nil {
 		if _, err := os.Stat(keyPath); err == nil {
 			// Both files exist, try to load them
-			if serverLogger != nil {
-				serverLogger.Debug("Loading existing self-signed certificate", "cert", certPath, "key", keyPath)
-			}
+			logDebug("Loading existing self-signed certificate", "cert", certPath, "key", keyPath)
 			cfg.CertPath = certPath
 			cfg.KeyPath = keyPath
 			return cfg.getCustomCertConfig()
@@ -160,17 +158,13 @@ func (cfg *TLSConfig) getSelfSignedConfig() (*tls.Config, error) {
 	}
 
 	// Generate new self-signed certificate
-	if serverLogger != nil {
-		serverLogger.Info("Generating self-signed TLS certificate", "domain", cfg.Domain, "cert", certPath, "key", keyPath)
-	}
+	logInfo("Generating self-signed TLS certificate", "domain", cfg.Domain, "cert", certPath, "key", keyPath)
 
 	if err := generateSelfSignedCert(certPath, keyPath, cfg.Domain); err != nil {
 		return nil, fmt.Errorf("failed to generate self-signed certificate: %w", err)
 	}
 
-	if serverLogger != nil {
-		serverLogger.Info("Self-signed certificate generated successfully", "cert", certPath, "key", keyPath)
-	}
+	logInfo("Self-signed certificate generated successfully", "cert", certPath, "key", keyPath)
 
 	cfg.CertPath = certPath
 	cfg.KeyPath = keyPath
@@ -246,9 +240,7 @@ func generateSelfSignedCert(certPath, keyPath, domain string) error {
 		return fmt.Errorf("failed to write key: %w", err)
 	}
 
-	if serverLogger != nil {
-		serverLogger.Info("Generated self-signed certificate", "cert", certPath, "key", keyPath, "domain", domain)
-	}
+	logInfo("Generated self-signed certificate", "cert", certPath, "key", keyPath, "domain", domain)
 
 	return nil
 }

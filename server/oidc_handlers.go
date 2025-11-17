@@ -308,17 +308,13 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	user, err := resolveOIDCUser(ctx, provider, &claims)
 	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("OIDC user resolution failed", "error", err, "provider", provider.Slug)
-		}
+		logError("OIDC user resolution failed", "error", err, "provider", provider.Slug)
 		http.Redirect(w, r, "/login?error=oidc_user", http.StatusFound)
 		return
 	}
 
 	if _, err := createSessionCookie(w, r, user.ID); err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("OIDC session creation failed", "error", err)
-		}
+		logError("OIDC session creation failed", "error", err)
 		http.Redirect(w, r, "/login?error=oidc_session", http.StatusFound)
 		return
 	}
@@ -616,9 +612,7 @@ func resolveOIDCUser(ctx context.Context, provider *storage.OIDCProvider, claims
 		return nil, err
 	}
 
-	if serverLogger != nil {
-		serverLogger.Info("OIDC auto-provisioned user", "username", user.Username, "provider", provider.Slug, "tenant_id", user.TenantID)
-	}
+	logInfo("OIDC auto-provisioned user", "username", user.Username, "provider", provider.Slug, "tenant_id", user.TenantID)
 
 	return user, nil
 }

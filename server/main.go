@@ -307,9 +307,9 @@ func main() {
 	// Generate default config if requested
 	if *generateConfig {
 		if err := WriteDefaultConfig(*configPath); err != nil {
-			log.Fatalf("Failed to generate config: %v", err)
+			logFatal("Failed to generate config", "error", err)
 		}
-		log.Printf("Generated default configuration at %s", *configPath)
+		logInfo("Generated default configuration", "path", *configPath)
 		return
 	}
 
@@ -325,10 +325,10 @@ func main() {
 		prg := &program{}
 		s, err := service.New(prg, getServiceConfig())
 		if err != nil {
-			log.Fatal(err)
+			logFatal("Failed to create service", "error", err)
 		}
 		if err = s.Run(); err != nil {
-			log.Fatal(err)
+			logFatal("Service execution failed", "error", err)
 		}
 		return
 	}
@@ -357,14 +357,14 @@ func runServer(ctx context.Context, configFlag string) {
 				cfg = loadedCfg
 				loadedConfigPath = resolved
 				configLoaded = true
-				log.Printf("Loaded configuration from: %s", resolved)
+				logInfo("Loaded configuration", "path", resolved)
 			} else {
 				errMsg := fmt.Sprintf("Config file exists but failed to load: %s - Error: %v", resolved, err)
 				configLoadErrors = append(configLoadErrors, errMsg)
-				log.Printf("WARNING: %s", errMsg)
+				logWarn("Config file load failed", "path", resolved, "error", err)
 			}
 		} else {
-			log.Printf("Config path set but file not found: %s", resolved)
+			logWarn("Config path set but file not found", "path", resolved)
 		}
 	}
 
@@ -394,25 +394,22 @@ func runServer(ctx context.Context, configFlag string) {
 				cfg = loadedCfg
 				loadedConfigPath = configPath
 				configLoaded = true
-				log.Printf("Loaded configuration from: %s", configPath)
+				logInfo("Loaded configuration", "path", configPath)
 				break
 			} else {
 				// Config file exists but failed to parse
 				errMsg := fmt.Sprintf("Config file exists but failed to load: %s - Error: %v", configPath, err)
 				configLoadErrors = append(configLoadErrors, errMsg)
-				log.Printf("WARNING: %s", errMsg)
+				logWarn("Config file load failed", "path", configPath, "error", err)
 			}
 		}
 	}
 
 	if !configLoaded {
 		if len(configLoadErrors) > 0 {
-			log.Printf("ERROR: Configuration files found but failed to parse. Using defaults. Errors:")
-			for _, errMsg := range configLoadErrors {
-				log.Printf("  - %s", errMsg)
-			}
+			logError("Configuration files found but failed to parse; using defaults", "errors", strings.Join(configLoadErrors, "; "))
 		} else {
-			log.Printf("No config.toml found in any location, using defaults")
+			logWarn("No config.toml found; using defaults")
 		}
 		cfg = DefaultConfig()
 		loadedConfigPath = "defaults"
@@ -440,26 +437,26 @@ func runServer(ctx context.Context, configFlag string) {
 		// Ensure parent directory exists
 		parent := filepath.Dir(dbPath)
 		if err := os.MkdirAll(parent, 0755); err != nil {
-			log.Printf("WARNING: could not create DB parent directory %s: %v; falling back to default", parent, err)
+			logWarn("Could not create DB parent directory; falling back to default", "path", parent, "error", err)
 			// clear to allow fallback logic to run
 			cfg.Database.Path = ""
 		} else {
 			// Try to open or create the DB file to ensure we have write access
 			f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0644)
 			if err != nil {
-				log.Printf("WARNING: cannot write to DB path %s: %v; falling back to default", dbPath, err)
+				logWarn("Cannot write to DB path; falling back to default", "path", dbPath, "error", err)
 				cfg.Database.Path = ""
 			} else {
 				f.Close()
 				cfg.Database.Path = dbPath
-				log.Printf("Database path overridden by environment: %s", cfg.Database.Path)
+				logInfo("Database path overridden by environment", "path", cfg.Database.Path)
 			}
 		}
 	}
 
-	log.Printf("PrintMaster Server %s (protocol v%s)", Version, ProtocolVersion)
-	log.Printf("Build: %s, Commit: %s, Type: %s", BuildTime, GitCommit, BuildType)
-	log.Printf("Go: %s, OS: %s, Arch: %s", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+	logInfo("PrintMaster Server starting", "version", Version, "protocol_version", ProtocolVersion)
+	logInfo("Build metadata", "build_time", BuildTime, "git_commit", GitCommit, "build_type", BuildType)
+	logDebug("Runtime", "go", runtime.Version(), "os", runtime.GOOS, "arch", runtime.GOARCH)
 
 	// Initialize logger
 	if cfg.Database.Path == "" {
@@ -478,22 +475,14 @@ func runServer(ctx context.Context, configFlag string) {
 				parent := filepath.Dir(defaultPath)
 				if err := os.MkdirAll(parent, 0755); err != nil {
 					// Can't create ProgramData path — fall back to per-user data dir
-					if serverLogger != nil {
-						serverLogger.Info("Falling back to user data directory because ProgramData is not writable", "programdata", pd, "error", err)
-					} else {
-						log.Printf("Falling back to user data directory because ProgramData is not writable: %v", err)
-					}
+					logInfo("Falling back to user data directory because ProgramData is not writable", "programdata", pd, "error", err)
 					if userDir, derr := config.GetDataDirectory("server", false); derr == nil {
 						// Ensure directory exists
 						if err := os.MkdirAll(userDir, 0755); err == nil {
 							cfg.Database.Path = filepath.Join(userDir, "server.db")
 						} else {
 							// If we still can't create, keep default and hope for the best
-							if serverLogger != nil {
-								serverLogger.Warn("Failed to create user data directory, using default DB path", "userDir", userDir, "error", err)
-							} else {
-								log.Printf("Failed to create user data directory %s: %v", userDir, err)
-							}
+							logWarn("Failed to create user data directory; using default DB path", "user_dir", userDir, "error", err)
 						}
 					}
 				}
@@ -504,29 +493,28 @@ func runServer(ctx context.Context, configFlag string) {
 	// Determine log directory based on whether we're running as a service
 	logDir, err := config.GetLogDirectory("server", isService)
 	if err != nil {
-		log.Fatalf("Failed to get log directory: %v", err)
+		logFatal("Failed to get log directory", "error", err)
 	}
 
 	serverLogger = logger.NewWithComponent(logger.LevelFromString(cfg.Logging.Level), logDir, "server", 1000)
-	serverLogger.Info("Server starting", "version", Version, "protocol", ProtocolVersion, "config", loadedConfigPath)
+	logInfo("Server starting", "version", Version, "protocol", ProtocolVersion, "config", loadedConfigPath)
 
 	// Save loaded config globally for handlers
 	serverConfig = cfg
 
 	// Initialize database
-	log.Printf("Database: %s", cfg.Database.Path)
-	serverLogger.Info("Initializing database", "path", cfg.Database.Path)
+	logInfo("Using database", "path", cfg.Database.Path)
+	logInfo("Initializing database", "path", cfg.Database.Path)
 
 	// Inject structured logger into storage package so DB initialization logs are structured
 	storage.SetLogger(serverLogger)
 	serverStore, err = storage.NewSQLiteStore(cfg.Database.Path)
 	if err != nil {
-		serverLogger.Error("Failed to initialize database", "error", err)
-		log.Fatal(err)
+		logFatal("Failed to initialize database", "error", err)
 	}
 	defer serverStore.Close()
 
-	serverLogger.Info("Database initialized successfully")
+	logInfo("Database initialized successfully")
 
 	// Bootstrap initial admin user. Default to ADMIN_USER=admin and ADMIN_PASSWORD=printmaster
 	adminUser := os.Getenv("ADMIN_USER")
@@ -543,9 +531,9 @@ func runServer(ctx context.Context, configFlag string) {
 		// create admin user
 		u := &storage.User{Username: adminUser, Role: storage.RoleAdmin}
 		if err := serverStore.CreateUser(bctx, u, adminPass); err != nil {
-			serverLogger.Warn("Failed to create initial admin user", "user", adminUser, "error", err)
+			logWarn("Failed to create initial admin user", "user", adminUser, "error", err)
 		} else {
-			serverLogger.Info("Initial admin user created (default)", "user", adminUser)
+			logInfo("Initial admin user created (default)", "user", adminUser)
 		}
 	}
 
@@ -574,7 +562,7 @@ func runServer(ctx context.Context, configFlag string) {
 			}
 		}()
 	}
-	serverLogger.Info("SSE hub initialized")
+	logInfo("SSE hub initialized")
 
 	// Initialize authentication rate limiter if enabled
 	if cfg.Security.RateLimitEnabled {
@@ -583,13 +571,13 @@ func runServer(ctx context.Context, configFlag string) {
 		attemptsWindow := time.Duration(cfg.Security.RateLimitWindowMinutes) * time.Minute
 
 		authRateLimiter = NewAuthRateLimiter(maxAttempts, blockDuration, attemptsWindow)
-		serverLogger.Info("Authentication rate limiter initialized",
+		logInfo("Authentication rate limiter initialized",
 			"enabled", true,
 			"max_attempts", maxAttempts,
 			"block_duration", cfg.Security.RateLimitBlockMinutes,
 			"window_minutes", cfg.Security.RateLimitWindowMinutes)
 	} else {
-		serverLogger.Info("Authentication rate limiter disabled")
+		logInfo("Authentication rate limiter disabled")
 	}
 
 	// Setup HTTP routes
@@ -866,11 +854,11 @@ func handleServiceCommand(cmd string) {
 	case "run":
 		// This is called by the service manager when starting the service
 		if err := s.Run(); err != nil {
-			log.Fatal(err)
+			logFatal("Service run failed", "error", err)
 		}
 
 	default:
-		log.Fatalf("Invalid service command: %s (valid: install, uninstall, start, stop, restart, update, status, run)", cmd)
+		logFatal("Invalid service command", "command", cmd)
 	}
 }
 
@@ -894,29 +882,27 @@ func startReverseProxyMode(ctx context.Context, tlsConfig *TLSConfig) {
 		// Get TLS configuration
 		tlsCfg, err := tlsConfig.GetTLSConfig()
 		if err != nil {
-			serverLogger.Error("Failed to setup TLS for reverse proxy mode", "error", err)
-			log.Fatal(err)
+			logFatal("Failed to setup TLS for reverse proxy mode", "error", err)
 		}
 
-		serverLogger.Info("Starting in reverse proxy mode with HTTPS (end-to-end encryption)",
+		logInfo("Starting in reverse proxy mode with HTTPS (end-to-end encryption)",
 			"bind", addr,
 			"tls_mode", tlsConfig.Mode,
 			"trust_proxy", true)
 
-		log.Printf("HTTPS server listening on %s (reverse proxy mode with TLS)", addr)
-		log.Printf("TLS mode: %s", tlsConfig.Mode)
-		log.Printf("Reverse proxy terminates outer TLS, server uses inner TLS")
-		log.Printf("Server ready to accept agent connections")
+		logInfo("HTTPS server listening (reverse proxy mode)", "addr", addr, "tls_mode", tlsConfig.Mode)
+		logInfo("Reverse proxy terminates outer TLS, server uses inner TLS")
+		logInfo("Server ready to accept agent connections")
 
 		// Create HTTPS server
 		httpsServer := &http.Server{
 			Addr:      addr,
 			TLSConfig: tlsCfg,
 			Handler:   handler,
-			ErrorLog:  log.New(log.Writer(), "[HTTPS] ", log.LstdFlags),
+			ErrorLog:  log.New(logBridgeWriter{level: logger.ERROR}, "[HTTPS] ", 0),
 			ConnState: func(conn net.Conn, state http.ConnState) {
 				if state == http.StateNew {
-					serverLogger.Debug("New connection", "remote_addr", conn.RemoteAddr().String())
+					logDebug("New connection", "remote_addr", conn.RemoteAddr().String())
 				}
 			},
 		}
@@ -924,66 +910,65 @@ func startReverseProxyMode(ctx context.Context, tlsConfig *TLSConfig) {
 		// Start server in goroutine
 		go func() {
 			if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-				serverLogger.Error("HTTPS server failed", "error", err)
-				log.Fatal(err)
+				logFatal("HTTPS server failed", "error", err)
 			}
 		}()
 
-		serverLogger.Info("HTTPS server started", "addr", addr)
+		logInfo("HTTPS server started", "addr", addr)
 
 		// Wait for shutdown signal
 		<-ctx.Done()
-		serverLogger.Info("Shutdown signal received, stopping HTTPS server...")
+		logInfo("Shutdown signal received, stopping HTTPS server...")
 
 		// Graceful shutdown with 30 second timeout
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		if err := httpsServer.Shutdown(shutdownCtx); err != nil {
-			serverLogger.Error("HTTPS server shutdown error", "error", err)
+			logError("HTTPS server shutdown error", "error", err)
 		} else {
-			serverLogger.Info("HTTPS server stopped gracefully")
+			logInfo("HTTPS server stopped gracefully")
 		}
 	} else {
 		// HTTP mode: reverse proxy handles all TLS
 		addr := fmt.Sprintf("%s:%d", bindAddr, tlsConfig.HTTPPort)
 
-		serverLogger.Info("Starting in reverse proxy mode with HTTP (HTTPS terminated by proxy)",
+		logInfo("Starting in reverse proxy mode with HTTP (HTTPS terminated by proxy)",
 			"bind", addr,
 			"trust_proxy", true)
 
-		log.Printf("HTTP server listening on %s (reverse proxy mode)", addr)
-		log.Printf("HTTPS termination handled by nginx/reverse proxy")
-		log.Printf("Server ready to accept agent connections")
+		logInfo("HTTP server listening (reverse proxy mode)", "addr", addr)
+		logInfo("HTTPS termination handled by nginx/reverse proxy")
+		logInfo("Server ready to accept agent connections")
 
 		// Create HTTP server
 		httpServer := &http.Server{
-			Addr:    addr,
-			Handler: handler,
+			Addr:     addr,
+			Handler:  handler,
+			ErrorLog: log.New(logBridgeWriter{level: logger.ERROR}, "[HTTP] ", 0),
 		}
 
 		// Start server in goroutine
 		go func() {
 			if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				serverLogger.Error("HTTP server failed", "error", err)
-				log.Fatal(err)
+				logFatal("HTTP server failed", "error", err)
 			}
 		}()
 
-		serverLogger.Info("HTTP server started", "addr", addr)
+		logInfo("HTTP server started", "addr", addr)
 
 		// Wait for shutdown signal
 		<-ctx.Done()
-		serverLogger.Info("Shutdown signal received, stopping HTTP server...")
+		logInfo("Shutdown signal received, stopping HTTP server...")
 
 		// Graceful shutdown with 30 second timeout
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			serverLogger.Error("HTTP server shutdown error", "error", err)
+			logError("HTTP server shutdown error", "error", err)
 		} else {
-			serverLogger.Info("HTTP server stopped gracefully")
+			logInfo("HTTP server stopped gracefully")
 		}
 	}
 }
@@ -993,8 +978,7 @@ func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
 	// Get TLS configuration
 	tlsCfg, err := tlsConfig.GetTLSConfig()
 	if err != nil {
-		serverLogger.Error("Failed to setup TLS", "error", err, "mode", tlsConfig.Mode)
-		log.Fatal(err)
+		logFatal("Failed to setup TLS", "error", err, "mode", tlsConfig.Mode)
 	}
 
 	// Use configured bind address, default to all interfaces if not set
@@ -1004,67 +988,65 @@ func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
 	}
 	httpsAddr := fmt.Sprintf("%s:%d", bindAddr, tlsConfig.HTTPSPort)
 
-	serverLogger.Info("Starting in standalone HTTPS mode",
+	logInfo("Starting in standalone HTTPS mode",
 		"port", tlsConfig.HTTPSPort,
 		"tls_mode", tlsConfig.Mode,
 		"bind_address", httpsAddr)
 
-	serverLogger.Debug("TLS configuration loaded",
+	logDebug("TLS configuration loaded",
 		"min_version", "TLS 1.2",
 		"has_certificates", len(tlsCfg.Certificates) > 0,
 		"cert_count", len(tlsCfg.Certificates))
 
-	log.Printf("HTTPS server listening on %s", httpsAddr)
-	log.Printf("TLS mode: %s", tlsConfig.Mode)
+	logInfo("HTTPS server listening", "addr", httpsAddr)
+	logInfo("TLS mode", "mode", tlsConfig.Mode)
 
 	if tlsConfig.Mode == TLSModeLetsEncrypt {
-		log.Printf("Let's Encrypt domain: %s", tlsConfig.LetsEncryptDomain)
-		log.Printf("Let's Encrypt email: %s", tlsConfig.LetsEncryptEmail)
+		logInfo("Let's Encrypt configuration", "domain", tlsConfig.LetsEncryptDomain, "email", tlsConfig.LetsEncryptEmail)
 
 		// Start HTTP server for ACME challenges
 		go startACMEChallengeServer(tlsConfig)
 	}
 
-	log.Printf("Server ready to accept agent connections (HTTPS only)")
+	logInfo("Server ready to accept agent connections (HTTPS only)")
 
 	// Create HTTPS server with security headers
 	httpsServer := &http.Server{
 		Addr:      httpsAddr,
 		TLSConfig: tlsCfg,
 		Handler:   loggingMiddleware(securityHeadersMiddleware(http.DefaultServeMux)),
-		ErrorLog:  log.New(log.Writer(), "[HTTPS] ", log.LstdFlags),
+		ErrorLog:  log.New(logBridgeWriter{level: logger.ERROR}, "[HTTPS] ", 0),
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			if state == http.StateNew {
-				serverLogger.Debug("New connection", "remote_addr", conn.RemoteAddr().String())
+				logDebug("New connection", "remote_addr", conn.RemoteAddr().String())
 			}
 		},
 	}
 
-	serverLogger.Info("HTTPS server starting", "addr", httpsAddr)
-	serverLogger.Debug("Calling ListenAndServeTLS", "cert_empty", "", "key_empty", "")
+	logInfo("HTTPS server starting", "addr", httpsAddr)
+	logDebug("Calling ListenAndServeTLS", "cert_empty", "", "key_empty", "")
 
 	// Start server in goroutine
 	go func() {
 		if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-			serverLogger.Error("HTTPS server failed", "error", err, "addr", httpsAddr)
-			log.Fatal(err)
+			logFatal("HTTPS server failed", "error", err, "addr", httpsAddr)
 		}
 	}()
 
-	serverLogger.Info("HTTPS server started successfully", "addr", httpsAddr)
+	logInfo("HTTPS server started successfully", "addr", httpsAddr)
 
 	// Wait for shutdown signal
 	<-ctx.Done()
-	serverLogger.Info("Shutdown signal received, stopping HTTPS server...")
+	logInfo("Shutdown signal received, stopping HTTPS server...")
 
 	// Graceful shutdown with 30 second timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := httpsServer.Shutdown(shutdownCtx); err != nil {
-		serverLogger.Error("HTTPS server shutdown error", "error", err)
+		logError("HTTPS server shutdown error", "error", err)
 	} else {
-		serverLogger.Info("HTTPS server stopped gracefully")
+		logInfo("HTTPS server stopped gracefully")
 	}
 }
 
@@ -1075,7 +1057,7 @@ func startACMEChallengeServer(tlsConfig *TLSConfig) {
 	// Get ACME handler
 	acmeManager, err := tlsConfig.GetACMEHTTPHandler()
 	if err != nil {
-		serverLogger.Error("Failed to setup ACME handler", "error", err)
+		logError("Failed to setup ACME handler", "error", err)
 		return
 	}
 
@@ -1087,11 +1069,11 @@ func startACMEChallengeServer(tlsConfig *TLSConfig) {
 		http.Error(w, "HTTPS required - This port only serves ACME challenges", http.StatusBadRequest)
 	})
 
-	serverLogger.Info("Starting ACME HTTP-01 challenge server", "port", 80)
-	log.Printf("ACME challenge server listening on :80 (Let's Encrypt verification only)")
+	logInfo("Starting ACME HTTP-01 challenge server", "port", 80)
+	logInfo("ACME challenge server listening", "addr", ":80")
 
 	if err := http.ListenAndServe(":80", mux); err != nil {
-		serverLogger.Error("ACME challenge server failed", "error", err)
+		logError("ACME challenge server failed", "error", err)
 	}
 }
 
@@ -1099,7 +1081,7 @@ func startACMEChallengeServer(tlsConfig *TLSConfig) {
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Log the incoming request at debug level
-		serverLogger.Debug("Incoming request",
+		logDebug("Incoming request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"remote_addr", r.RemoteAddr,
@@ -1182,13 +1164,11 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 		// Check if this IP+token is currently blocked
 		if authRateLimiter != nil {
 			if isBlocked, blockedUntil := authRateLimiter.IsBlocked(clientIP, tokenPrefix); isBlocked {
-				if serverLogger != nil {
-					serverLogger.Warn("Blocked authentication attempt",
-						"ip", clientIP,
-						"token", tokenPrefix+"...",
-						"blocked_until", blockedUntil.Format(time.RFC3339),
-						"user_agent", r.Header.Get("User-Agent"))
-				}
+				logWarn("Blocked authentication attempt",
+					"ip", clientIP,
+					"token", tokenPrefix+"...",
+					"blocked_until", blockedUntil.Format(time.RFC3339),
+					"user_agent", r.Header.Get("User-Agent"))
 				http.Error(w, "Too many failed attempts. Try again later.", http.StatusTooManyRequests)
 				return
 			}
@@ -1207,7 +1187,7 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 				isBlocked, shouldLog = false, true // Always log if rate limiter not initialized
 			}
 
-			if serverLogger != nil && shouldLog {
+			if shouldLog {
 				fields := []interface{}{
 					"ip", clientIP,
 					"token", tokenPrefix + "...",
@@ -1218,7 +1198,7 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 				if isBlocked {
 					fields = append(fields, "status", "BLOCKED")
-					serverLogger.Error("Authentication failed - IP blocked", fields...)
+					logError("Authentication failed - IP blocked", fields...)
 
 					// Log to audit trail when blocking occurs
 					logAuditEntry(ctx, "UNKNOWN", "auth_blocked",
@@ -1226,9 +1206,9 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 							attemptCount, tokenPrefix, err.Error()),
 						clientIP)
 				} else if attemptCount >= 3 {
-					serverLogger.Warn("Repeated authentication failures", fields...)
+					logWarn("Repeated authentication failures", fields...)
 				} else {
-					serverLogger.Warn("Invalid authentication attempt", fields...)
+					logWarn("Invalid authentication attempt", fields...)
 				}
 			}
 
@@ -1863,9 +1843,7 @@ func logAuditEntry(ctx context.Context, agentID, action, details, ipAddress stri
 	}
 
 	if err := serverStore.SaveAuditEntry(ctx, entry); err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to save audit entry", "agent_id", agentID, "action", action, "error", err)
-		}
+		logError("Failed to save audit entry", "agent_id", agentID, "action", action, "error", err)
 	}
 }
 
@@ -1949,7 +1927,7 @@ func setupRoutes(cfg *Config) {
 	tenancy.SetServerVersion(Version)
 	tenancy.SetEnabled(featureEnabled)
 	tenancy.RegisterRoutes(serverStore)
-	serverLogger.Info("Tenancy routes registered", "enabled", featureEnabled)
+	logInfo("Tenancy routes registered", "enabled", featureEnabled)
 
 	// Proxy endpoints - require login
 	http.HandleFunc("/api/v1/proxy/agent/", requireWebAuth(handleAgentProxy))   // Proxy to agent's own web UI
@@ -1969,7 +1947,7 @@ func setupRoutes(cfg *Config) {
 		// Serve the dedicated login page from embedded web assets
 		content, err := webFS.ReadFile("web/login.html")
 		if err != nil {
-			serverLogger.Warn("Login page not found", "err", err)
+			logWarn("Login page not found", "err", err)
 			http.NotFound(w, r)
 			return
 		}
@@ -2050,9 +2028,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 	client := sseHub.NewClient()
 	defer sseHub.RemoveClient(client)
 
-	if serverLogger != nil {
-		serverLogger.Debug("SSE client connected", "client_id", client.id)
-	}
+	logDebug("SSE client connected", "client_id", client.id)
 
 	// Send initial connection event
 	fmt.Fprintf(w, "event: connected\ndata: {\"message\":\"Connected to event stream\"}\n\n")
@@ -2074,9 +2050,7 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 
 		case <-r.Context().Done():
 			// Client disconnected
-			if serverLogger != nil {
-				serverLogger.Debug("SSE client disconnected", "client_id", client.id)
-			}
+			logDebug("SSE client disconnected", "client_id", client.id)
 			return
 		}
 	}
@@ -2089,9 +2063,7 @@ func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Upgrade HTTP to WS using shared wrapper
 	conn, err := wscommon.UpgradeHTTP(w, r)
 	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Warn("Failed to upgrade UI WebSocket", "error", err)
-		}
+		logWarn("Failed to upgrade UI WebSocket", "error", err)
 		return
 	}
 
@@ -2260,9 +2232,7 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Update agent last_seen
 	ctx := context.Background()
 	if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, req.Status); err != nil {
-		if serverLogger != nil {
-			serverLogger.Warn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
-		}
+		logWarn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
 		// Don't fail the request, just log it
 	}
 
@@ -2280,9 +2250,7 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	if serverLogger != nil {
-		serverLogger.Debug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
-	}
+	logDebug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2311,9 +2279,7 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	agents, err := serverStore.ListAgents(ctx)
 	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to list agents", "error", err)
-		}
+		logError("Failed to list agents", "error", err)
 		http.Error(w, "Failed to list agents", http.StatusInternalServerError)
 		return
 	}
@@ -2389,9 +2355,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 		{
 			agent, err := serverStore.GetAgent(ctx, agentID)
 			if err != nil {
-				if serverLogger != nil {
-					serverLogger.Error("Failed to get agent", "agent_id", agentID, "error", err)
-				}
+				logError("Failed to get agent", "agent_id", agentID, "error", err)
 				http.Error(w, "Agent not found", http.StatusNotFound)
 				return
 			}
@@ -2448,9 +2412,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 
 			agent, err := serverStore.GetAgent(ctx, agentID)
 			if err != nil {
-				if serverLogger != nil {
-					serverLogger.Error("Failed to load agent for update", "agent_id", agentID, "error", err)
-				}
+				logError("Failed to load agent for update", "agent_id", agentID, "error", err)
 				http.Error(w, "Agent not found", http.StatusNotFound)
 				return
 			}
@@ -2459,9 +2421,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := serverStore.UpdateAgentName(ctx, agentID, req.Name); err != nil {
-				if serverLogger != nil {
-					serverLogger.Error("Failed to update agent name", "agent_id", agentID, "error", err)
-				}
+				logError("Failed to update agent name", "agent_id", agentID, "error", err)
 				http.Error(w, "Failed to update agent", http.StatusInternalServerError)
 				return
 			}
@@ -2469,9 +2429,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			// Return updated agent object (same shape as GET)
 			agent, err = serverStore.GetAgent(ctx, agentID)
 			if err != nil {
-				if serverLogger != nil {
-					serverLogger.Error("Failed to get agent after update", "agent_id", agentID, "error", err)
-				}
+				logError("Failed to get agent after update", "agent_id", agentID, "error", err)
 				http.Error(w, "Agent not found", http.StatusNotFound)
 				return
 			}
@@ -2502,9 +2460,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 		{
 			agent, err := serverStore.GetAgent(ctx, agentID)
 			if err != nil {
-				if serverLogger != nil {
-					serverLogger.Error("Failed to get agent before delete", "agent_id", agentID, "error", err)
-				}
+				logError("Failed to get agent before delete", "agent_id", agentID, "error", err)
 				if errors.Is(err, sql.ErrNoRows) || strings.Contains(strings.ToLower(err.Error()), "not found") {
 					http.Error(w, "Agent not found", http.StatusNotFound)
 				} else {
@@ -2519,9 +2475,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			// Delete agent and all associated data
 			err = serverStore.DeleteAgent(ctx, agentID)
 			if err != nil {
-				if serverLogger != nil {
-					serverLogger.Error("Failed to delete agent", "agent_id", agentID, "error", err)
-				}
+				logError("Failed to delete agent", "agent_id", agentID, "error", err)
 				if err.Error() == "agent not found" {
 					http.Error(w, "Agent not found", http.StatusNotFound)
 				} else {
@@ -2533,9 +2487,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			// Close WebSocket connection if active
 			closeAgentWebSocket(agentID)
 
-			if serverLogger != nil {
-				serverLogger.Info("Agent deleted", "agent_id", agentID)
-			}
+			logInfo("Agent deleted", "agent_id", agentID)
 
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{
@@ -2738,9 +2690,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 
 	// Send proxy request to agent via WebSocket
 	if err := sendProxyRequest(agentID, requestID, targetURL, r.Method, headers, bodyStr); err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to send proxy request", "agent_id", agentID, "error", err)
-		}
+		logError("Failed to send proxy request", "agent_id", agentID, "error", err)
 		http.Error(w, "Failed to send proxy request", http.StatusInternalServerError)
 		return
 	}
@@ -2907,9 +2857,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 
 	case <-time.After(30 * time.Second):
 		http.Error(w, "Proxy request timeout", http.StatusGatewayTimeout)
-		if serverLogger != nil {
-			serverLogger.Warn("Proxy request timeout", "agent_id", agentID, "url", targetURL)
-		}
+		logWarn("Proxy request timeout", "agent_id", agentID, "url", targetURL)
 	}
 }
 
@@ -3061,16 +3009,12 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		if serverLogger != nil {
-			serverLogger.Warn("Invalid JSON in devices batch", "error", err)
-		}
+		logWarn("Invalid JSON in devices batch", "error", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if serverLogger != nil {
-		serverLogger.Info("Devices batch received", "agent_id", req.AgentID, "count", len(req.Devices))
-	}
+	logInfo("Devices batch received", "agent_id", req.AgentID, "count", len(req.Devices))
 
 	// Store each device
 	ctx := context.Background()
@@ -3108,16 +3052,12 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		device.RawData = deviceMap
 
 		if device.Serial == "" {
-			if serverLogger != nil {
-				serverLogger.Warn("Device missing serial, skipping", "ip", device.IP)
-			}
+			logWarn("Device missing serial, skipping", "ip", device.IP)
 			continue
 		}
 
 		if err := serverStore.UpsertDevice(ctx, device); err != nil {
-			if serverLogger != nil {
-				serverLogger.Error("Failed to store device", "serial", device.Serial, "error", err)
-			}
+			logError("Failed to store device", "serial", device.Serial, "error", err)
 			continue
 		}
 		stored++
@@ -3139,9 +3079,7 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated agent from context
 	agent := r.Context().Value(agentContextKey).(*storage.Agent)
 
-	if serverLogger != nil {
-		serverLogger.Info("Devices stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Devices))
-	}
+	logInfo("Devices stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Devices))
 
 	// Log audit entry for device upload
 	clientIP := extractClientIP(r)
@@ -3179,9 +3117,7 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 	// Get all devices across all agents (will filter below for tenant users)
 	devices, err := serverStore.ListAllDevices(ctx)
 	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to list devices", "error", err)
-		}
+		logError("Failed to list devices", "error", err)
 		http.Error(w, "Failed to list devices", http.StatusInternalServerError)
 		return
 	}
@@ -3247,9 +3183,7 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 	// Count agents (may be filtered below for non-admins)
 	agents, err := serverStore.ListAgents(ctx)
 	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to list agents for metrics summary", "error", err)
-		}
+		logError("Failed to list agents for metrics summary", "error", err)
 		http.Error(w, "Failed to fetch metrics summary", http.StatusInternalServerError)
 		return
 	}
@@ -3257,9 +3191,7 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 	// Count devices
 	devices, err := serverStore.ListAllDevices(ctx)
 	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to list devices for metrics summary", "error", err)
-		}
+		logError("Failed to list devices for metrics summary", "error", err)
 		http.Error(w, "Failed to fetch metrics summary", http.StatusInternalServerError)
 		return
 	}
@@ -3407,9 +3339,7 @@ func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	history, err := serverStore.GetMetricsHistory(ctx, serial, since)
 	if err != nil {
-		if serverLogger != nil {
-			serverLogger.Error("Failed to get metrics history", "serial", serial, "error", err)
-		}
+		logError("Failed to get metrics history", "serial", serial, "error", err)
 		http.Error(w, "failed to get metrics history", http.StatusInternalServerError)
 		return
 	}
@@ -3432,16 +3362,12 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		if serverLogger != nil {
-			serverLogger.Warn("Invalid JSON in metrics batch", "error", err)
-		}
+		logWarn("Invalid JSON in metrics batch", "error", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	if serverLogger != nil {
-		serverLogger.Info("Metrics batch received", "agent_id", req.AgentID, "count", len(req.Metrics))
-	}
+	logInfo("Metrics batch received", "agent_id", req.AgentID, "count", len(req.Metrics))
 
 	// Store each metric snapshot
 	ctx := context.Background()
@@ -3476,9 +3402,7 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := serverStore.SaveMetrics(ctx, metric); err != nil {
-			if serverLogger != nil {
-				serverLogger.Error("Failed to store metrics", "serial", metric.Serial, "error", err)
-			}
+			logError("Failed to store metrics", "serial", metric.Serial, "error", err)
 			continue
 		}
 		stored++
@@ -3487,9 +3411,7 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated agent from context
 	agent := r.Context().Value(agentContextKey).(*storage.Agent)
 
-	if serverLogger != nil {
-		serverLogger.Info("Metrics stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Metrics))
-	}
+	logInfo("Metrics stored", "agent_id", agent.AgentID, "stored", stored, "total", len(req.Metrics))
 
 	// Log audit entry for metrics upload
 	clientIP := extractClientIP(r)
@@ -3515,14 +3437,14 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	// Parse and execute index.html template
 	tmpl, err := template.ParseFS(webFS, "web/index.html")
 	if err != nil {
-		serverLogger.Error("Failed to parse index.html template", "error", err)
+		logError("Failed to parse index.html template", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.Execute(w, nil); err != nil {
-		serverLogger.Error("Failed to execute index.html template", "error", err)
+		logError("Failed to execute index.html template", "error", err)
 	}
 }
 
@@ -3580,7 +3502,7 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 	filePath := "web/" + fileName
 	content, err := webFS.ReadFile(filePath)
 	if err != nil {
-		serverLogger.Warn("Static file not found", "fileName", fileName)
+		logWarn("Static file not found", "fileName", fileName)
 		http.NotFound(w, r)
 		return
 	}
