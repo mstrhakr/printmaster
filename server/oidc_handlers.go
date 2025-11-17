@@ -86,8 +86,8 @@ func handleAuthOptions(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
-	cur := getUserFromContext(r)
-	if cur == nil || cur.Role != storage.RoleAdmin {
+	principal := getPrincipal(r)
+	if principal == nil || !principal.HasRole(storage.RoleAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -131,8 +131,8 @@ func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOIDCProvider(w http.ResponseWriter, r *http.Request) {
-	cur := getUserFromContext(r)
-	if cur == nil || cur.Role != storage.RoleAdmin {
+	principal := getPrincipal(r)
+	if principal == nil || !principal.HasRole(storage.RoleAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

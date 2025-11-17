@@ -7,9 +7,11 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
@@ -115,6 +117,32 @@ func rolePriority(role storage.Role) int {
 	default:
 		return 0
 	}
+}
+
+func tenantScope(principal *Principal) (map[string]struct{}, bool) {
+	if principal == nil {
+		return nil, false
+	}
+	if principal.IsAdmin() {
+		return nil, true
+	}
+	allowed := principal.AllowedTenantIDs()
+	if len(allowed) == 0 {
+		return nil, false
+	}
+	set := make(map[string]struct{}, len(allowed))
+	for _, id := range allowed {
+		set[id] = struct{}{}
+	}
+	return set, true
+}
+
+func tenantAllowed(scope map[string]struct{}, tenantID string) bool {
+	if scope == nil {
+		return true
+	}
+	_, ok := scope[tenantID]
+	return ok
 }
 
 //go:embed web
@@ -1384,27 +1412,14 @@ func contextWithPrincipal(ctx context.Context, user *storage.User) context.Conte
 	return context.WithValue(ctx, principalContextKey, principal)
 }
 
-// getUserAndPrivileges returns the current user (from context), whether they
-// are a global admin, and the tenant id they belong to (empty for global).
-func getUserAndPrivileges(r *http.Request) (*storage.User, bool, string) {
-	u := getUserFromContext(r)
-	if u == nil {
-		return nil, false, ""
-	}
-	isAdmin := u.Role == storage.RoleAdmin
-	return u, isAdmin, u.TenantID
-}
-
 // handleUsers handles GET (list users) and POST (create user) for admin UI
 func handleUsers(w http.ResponseWriter, r *http.Request) {
-	// Must be authenticated
-	cur := getUserFromContext(r)
-	if cur == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	// Only admins may manage users
-	if cur.Role != storage.RoleAdmin {
+	if !principal.HasRole(storage.RoleAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1438,16 +1453,21 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		role := storage.NormalizeRole(req.Role)
-		tenantIDs := req.TenantIDs
-		if len(tenantIDs) == 0 && strings.TrimSpace(req.TenantID) != "" {
-			tenantIDs = []string{strings.TrimSpace(req.TenantID)}
+		tenantIDs := storage.SortTenantIDs(req.TenantIDs)
+		if len(tenantIDs) == 0 {
+			if tid := strings.TrimSpace(req.TenantID); tid != "" {
+				tenantIDs = []string{tid}
+			}
 		}
 		u := &storage.User{
 			Username:  req.Username,
 			Role:      role,
 			TenantIDs: tenantIDs,
-			TenantID:  strings.TrimSpace(req.TenantID),
+			TenantID:  "",
 			Email:     req.Email,
+		}
+		if len(tenantIDs) > 0 {
+			u.TenantID = tenantIDs[0]
 		}
 		if err := serverStore.CreateUser(ctx, u, req.Password); err != nil {
 			http.Error(w, fmt.Sprintf("failed to create user: %v", err), http.StatusInternalServerError)
@@ -1506,17 +1526,19 @@ func handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 
 // handleAuthMe returns current user info from context
 func handleAuthMe(w http.ResponseWriter, r *http.Request) {
-	u, ok := r.Context().Value(userContextKey).(*storage.User)
-	if !ok || u == nil {
+	principal := getPrincipal(r)
+	if principal == nil || principal.User == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
+	u := principal.User
 	// don't expose password hash
 	out := map[string]interface{}{
 		"id":         u.ID,
 		"username":   u.Username,
 		"role":       u.Role,
 		"tenant_id":  u.TenantID,
+		"tenant_ids": principal.TenantIDs,
 		"created_at": u.CreatedAt.Format(time.RFC3339),
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1525,12 +1547,12 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 
 // handleUser handles single-user operations: GET, PUT, DELETE (admin only)
 func handleUser(w http.ResponseWriter, r *http.Request) {
-	cur := getUserFromContext(r)
-	if cur == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	if cur.Role != storage.RoleAdmin {
+	if !principal.HasRole(storage.RoleAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1588,15 +1610,16 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			u.Role = storage.NormalizeRole(req.Role)
 		}
 		if len(req.TenantIDs) > 0 {
-			u.TenantIDs = req.TenantIDs
-			u.TenantID = req.TenantIDs[0]
+			u.TenantIDs = storage.SortTenantIDs(req.TenantIDs)
+		} else if tid := strings.TrimSpace(req.TenantID); tid != "" {
+			u.TenantIDs = []string{tid}
 		} else {
-			u.TenantID = req.TenantID
-			if req.TenantID != "" {
-				u.TenantIDs = []string{req.TenantID}
-			} else {
-				u.TenantIDs = nil
-			}
+			u.TenantIDs = nil
+		}
+		if len(u.TenantIDs) > 0 {
+			u.TenantID = u.TenantIDs[0]
+		} else {
+			u.TenantID = ""
 		}
 		if req.Email != "" {
 			u.Email = req.Email
@@ -1626,12 +1649,12 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	cur := getUserFromContext(r)
-	if cur == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	if cur.Role != storage.RoleAdmin {
+	if !principal.HasRole(storage.RoleAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1664,12 +1687,12 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	cur := getUserFromContext(r)
-	if cur == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
 		return
 	}
-	if cur.Role != storage.RoleAdmin {
+	if !principal.HasRole(storage.RoleAdmin) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1889,15 +1912,15 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/v1/auth/logout", requireWebAuth(handleAuthLogout))
 	http.HandleFunc("/api/v1/auth/me", requireWebAuth(handleAuthMe))
 	// SSO / OIDC provider management (admin only inside handlers)
-	http.HandleFunc("/api/v1/sso/providers", requireWebAuth(handleOIDCProviders))
-	http.HandleFunc("/api/v1/sso/providers/", requireWebAuth(handleOIDCProvider))
+	http.HandleFunc("/api/v1/sso/providers", requireRole(storage.RoleAdmin, handleOIDCProviders))
+	http.HandleFunc("/api/v1/sso/providers/", requireRole(storage.RoleAdmin, handleOIDCProvider))
 
 	// User management (admin only): list and create users
-	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
-	http.HandleFunc("/api/v1/users/", requireWebAuth(handleUser))
+	http.HandleFunc("/api/v1/users", requireRole(storage.RoleAdmin, handleUsers))
+	http.HandleFunc("/api/v1/users/", requireRole(storage.RoleAdmin, handleUser))
 	// Sessions management (admin): list and revoke sessions
-	http.HandleFunc("/api/v1/sessions", requireWebAuth(handleListSessions))
-	http.HandleFunc("/api/v1/sessions/", requireWebAuth(handleDeleteSession))
+	http.HandleFunc("/api/v1/sessions", requireRole(storage.RoleAdmin, handleListSessions))
+	http.HandleFunc("/api/v1/sessions/", requireRole(storage.RoleAdmin, handleDeleteSession))
 
 	// Password reset endpoints (public)
 	http.HandleFunc("/api/v1/users/reset/request", handlePasswordResetRequest)
@@ -2267,17 +2290,21 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// List all agents - for UI display (no auth required for now)
+// List all agents - for UI display
 func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Enforce tenant scoping for non-admin users
-	user, isAdmin, tenantID := getUserAndPrivileges(r)
-	if user == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -2290,11 +2317,14 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to list agents", http.StatusInternalServerError)
 		return
 	}
-	// If not an admin, filter agents to only those in the user's tenant
-	if !isAdmin && tenantID != "" {
+	// If scoped, filter agents to only those the user may access
+	if scope != nil {
 		filtered := make([]*storage.Agent, 0, len(agents))
 		for _, a := range agents {
-			if a != nil && a.TenantID == tenantID {
+			if a == nil {
+				continue
+			}
+			if tenantAllowed(scope, a.TenantID) {
 				filtered = append(filtered, a)
 			}
 		}
@@ -2328,7 +2358,7 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 }
 
 // Get agent details by ID - for UI display (no auth required for now)
-// Also handles DELETE for removing agents
+// Get agent details and perform management operations scoped by role/tenant.
 func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 	// Extract agent ID from URL path: /api/v1/agents/{agentID}
 	path := r.URL.Path
@@ -2338,138 +2368,181 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require authenticated web user for tenant-scoped access
-	user, isAdmin, tenantID := getUserAndPrivileges(r)
-	if user == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if r.Method != http.MethodGet && !principal.HasRole(storage.RoleOperator) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
 	ctx := context.Background()
 	switch r.Method { //nolint:exhaustive
 	case http.MethodGet:
-		agent, err := serverStore.GetAgent(ctx, agentID)
-		if err != nil {
-			if serverLogger != nil {
-				serverLogger.Error("Failed to get agent", "agent_id", agentID, "error", err)
+		{
+			agent, err := serverStore.GetAgent(ctx, agentID)
+			if err != nil {
+				if serverLogger != nil {
+					serverLogger.Error("Failed to get agent", "agent_id", agentID, "error", err)
+				}
+				http.Error(w, "Agent not found", http.StatusNotFound)
+				return
 			}
-			http.Error(w, "Agent not found", http.StatusNotFound)
+
+			if !tenantAllowed(scope, agent.TenantID) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+
+			// Get device count for this agent
+			devices, err := serverStore.ListDevices(ctx, agentID)
+			if err == nil {
+				agent.DeviceCount = len(devices)
+			}
+
+			// Remove sensitive token from response
+			agent.Token = ""
+
+			// Include WS diagnostic counters (per-agent) in the response
+			var pf int64
+			var de int64
+			wsDiagLock.RLock()
+			pf = wsPingFailuresPerAgent[agent.AgentID]
+			de = wsDisconnectEventsPerAgent[agent.AgentID]
+			wsDiagLock.RUnlock()
+
+			// Convert agent to a generic map so we can add extra fields without changing storage.Agent
+			var obj map[string]interface{}
+			buf, _ := json.Marshal(agent)
+			_ = json.Unmarshal(buf, &obj)
+			obj["ws_ping_failures"] = pf
+			obj["ws_disconnect_events"] = de
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(obj)
 			return
 		}
-
-		// Enforce tenant boundary for non-admin users
-		if !isAdmin && tenantID != "" && agent.TenantID != tenantID {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-
-		// Get device count for this agent
-		devices, err := serverStore.ListDevices(ctx, agentID)
-		if err == nil {
-			agent.DeviceCount = len(devices)
-		}
-
-		// Remove sensitive token from response
-		agent.Token = ""
-
-		// Include WS diagnostic counters (per-agent) in the response
-		var pf int64
-		var de int64
-		wsDiagLock.RLock()
-		pf = wsPingFailuresPerAgent[agent.AgentID]
-		de = wsDisconnectEventsPerAgent[agent.AgentID]
-		wsDiagLock.RUnlock()
-
-		// Convert agent to a generic map so we can add extra fields without changing storage.Agent
-		var obj map[string]interface{}
-		buf, _ := json.Marshal(agent)
-		_ = json.Unmarshal(buf, &obj)
-		obj["ws_ping_failures"] = pf
-		obj["ws_disconnect_events"] = de
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(obj)
 
 	case http.MethodPost:
-		// Allow updating mutable agent fields (currently only 'name') from the UI
-		var req struct {
-			Name string `json:"name"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
-		// Validate name length (basic)
-		if len(req.Name) > 512 {
-			http.Error(w, "Name too long", http.StatusBadRequest)
-			return
-		}
-
-		if err := serverStore.UpdateAgentName(ctx, agentID, req.Name); err != nil {
-			if serverLogger != nil {
-				serverLogger.Error("Failed to update agent name", "agent_id", agentID, "error", err)
+		{
+			// Allow updating mutable agent fields (currently only 'name') from the UI
+			var req struct {
+				Name string `json:"name"`
 			}
-			http.Error(w, "Failed to update agent", http.StatusInternalServerError)
-			return
-		}
-
-		// Return updated agent object (same shape as GET)
-		agent, err := serverStore.GetAgent(ctx, agentID)
-		if err != nil {
-			if serverLogger != nil {
-				serverLogger.Error("Failed to get agent after update", "agent_id", agentID, "error", err)
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "Invalid JSON", http.StatusBadRequest)
+				return
 			}
-			http.Error(w, "Agent not found", http.StatusNotFound)
+			// Validate name length (basic)
+			if len(req.Name) > 512 {
+				http.Error(w, "Name too long", http.StatusBadRequest)
+				return
+			}
+
+			agent, err := serverStore.GetAgent(ctx, agentID)
+			if err != nil {
+				if serverLogger != nil {
+					serverLogger.Error("Failed to load agent for update", "agent_id", agentID, "error", err)
+				}
+				http.Error(w, "Agent not found", http.StatusNotFound)
+				return
+			}
+			if !tenantAllowed(scope, agent.TenantID) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if err := serverStore.UpdateAgentName(ctx, agentID, req.Name); err != nil {
+				if serverLogger != nil {
+					serverLogger.Error("Failed to update agent name", "agent_id", agentID, "error", err)
+				}
+				http.Error(w, "Failed to update agent", http.StatusInternalServerError)
+				return
+			}
+
+			// Return updated agent object (same shape as GET)
+			agent, err = serverStore.GetAgent(ctx, agentID)
+			if err != nil {
+				if serverLogger != nil {
+					serverLogger.Error("Failed to get agent after update", "agent_id", agentID, "error", err)
+				}
+				http.Error(w, "Agent not found", http.StatusNotFound)
+				return
+			}
+
+			// Remove sensitive token from response
+			agent.Token = ""
+
+			// Include WS diagnostic counters
+			var pf int64
+			var de int64
+			wsDiagLock.RLock()
+			pf = wsPingFailuresPerAgent[agent.AgentID]
+			de = wsDisconnectEventsPerAgent[agent.AgentID]
+			wsDiagLock.RUnlock()
+
+			var obj map[string]interface{}
+			buf, _ := json.Marshal(agent)
+			_ = json.Unmarshal(buf, &obj)
+			obj["ws_ping_failures"] = pf
+			obj["ws_disconnect_events"] = de
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(obj)
 			return
 		}
-
-		// Remove sensitive token from response
-		agent.Token = ""
-
-		// Include WS diagnostic counters
-		var pf int64
-		var de int64
-		wsDiagLock.RLock()
-		pf = wsPingFailuresPerAgent[agent.AgentID]
-		de = wsDisconnectEventsPerAgent[agent.AgentID]
-		wsDiagLock.RUnlock()
-
-		var obj map[string]interface{}
-		buf, _ := json.Marshal(agent)
-		_ = json.Unmarshal(buf, &obj)
-		obj["ws_ping_failures"] = pf
-		obj["ws_disconnect_events"] = de
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(obj)
-		return
 
 	case http.MethodDelete:
-		// Delete agent and all associated data
-		err := serverStore.DeleteAgent(ctx, agentID)
-		if err != nil {
+		{
+			agent, err := serverStore.GetAgent(ctx, agentID)
+			if err != nil {
+				if serverLogger != nil {
+					serverLogger.Error("Failed to get agent before delete", "agent_id", agentID, "error", err)
+				}
+				if errors.Is(err, sql.ErrNoRows) || strings.Contains(strings.ToLower(err.Error()), "not found") {
+					http.Error(w, "Agent not found", http.StatusNotFound)
+				} else {
+					http.Error(w, "Failed to delete agent", http.StatusInternalServerError)
+				}
+				return
+			}
+			if !tenantAllowed(scope, agent.TenantID) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			// Delete agent and all associated data
+			err = serverStore.DeleteAgent(ctx, agentID)
+			if err != nil {
+				if serverLogger != nil {
+					serverLogger.Error("Failed to delete agent", "agent_id", agentID, "error", err)
+				}
+				if err.Error() == "agent not found" {
+					http.Error(w, "Agent not found", http.StatusNotFound)
+				} else {
+					http.Error(w, "Failed to delete agent", http.StatusInternalServerError)
+				}
+				return
+			}
+
+			// Close WebSocket connection if active
+			closeAgentWebSocket(agentID)
+
 			if serverLogger != nil {
-				serverLogger.Error("Failed to delete agent", "agent_id", agentID, "error", err)
+				serverLogger.Info("Agent deleted", "agent_id", agentID)
 			}
-			if err.Error() == "agent not found" {
-				http.Error(w, "Agent not found", http.StatusNotFound)
-			} else {
-				http.Error(w, "Failed to delete agent", http.StatusInternalServerError)
-			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{
+				"message": "Agent deleted successfully",
+			})
 			return
 		}
-
-		// Close WebSocket connection if active
-		closeAgentWebSocket(agentID)
-
-		if serverLogger != nil {
-			serverLogger.Info("Agent deleted", "agent_id", agentID)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"message": "Agent deleted successfully",
-		})
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -2483,6 +2556,17 @@ func handleAgentProxy(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) < 1 || parts[0] == "" {
 		http.Error(w, "Agent ID required", http.StatusBadRequest)
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -2505,9 +2589,13 @@ func handleAgentProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Get agent to determine local port (default 8080)
 	ctx := context.Background()
-	_, err := serverStore.GetAgent(ctx, agentID)
+	agent, err := serverStore.GetAgent(ctx, agentID)
 	if err != nil {
 		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+	if !tenantAllowed(scope, agent.TenantID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -2528,6 +2616,17 @@ func handleDeviceProxy(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(path, "/", 2)
 	if len(parts) < 1 || parts[0] == "" {
 		http.Error(w, "Device serial required", http.StatusBadRequest)
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -2578,6 +2677,17 @@ func handleDeviceProxy(w http.ResponseWriter, r *http.Request) {
 	// Check if agent is connected via WebSocket
 	if !isAgentConnectedWS(device.AgentID) {
 		http.Error(w, "Device's agent not connected via WebSocket", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Fetch agent for tenant enforcement and downstream proxy metadata
+	agent, err := serverStore.GetAgent(ctx, device.AgentID)
+	if err != nil {
+		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+	if !tenantAllowed(scope, agent.TenantID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -3053,10 +3163,14 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require authenticated web user for tenant-scoped device listing
-	user, isAdmin, tenantID := getUserAndPrivileges(r)
-	if user == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -3072,18 +3186,20 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If not admin, filter devices to those owned by agents in the user's tenant
-	if !isAdmin && tenantID != "" {
-		// Build agent->tenant map
+	// If scoped, filter devices to those owned by agents in the user's tenants
+	if scope != nil {
 		agents, aerr := serverStore.ListAgents(ctx)
 		if aerr != nil {
 			http.Error(w, "Failed to list agents for filtering", http.StatusInternalServerError)
 			return
 		}
-		agentTenant := make(map[string]string, len(agents))
+		agentAllowed := make(map[string]struct{}, len(agents))
 		for _, a := range agents {
-			if a != nil {
-				agentTenant[a.AgentID] = a.TenantID
+			if a == nil {
+				continue
+			}
+			if tenantAllowed(scope, a.TenantID) {
+				agentAllowed[a.AgentID] = struct{}{}
 			}
 		}
 
@@ -3092,8 +3208,7 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 			if d == nil {
 				continue
 			}
-			// Use AgentID on device to determine tenant (could be empty)
-			if at, ok := agentTenant[d.AgentID]; ok && at == tenantID {
+			if _, ok := agentAllowed[d.AgentID]; ok {
 				filtered = append(filtered, d)
 			}
 		}
@@ -3116,10 +3231,14 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Require authenticated web user for tenant-scoped summary
-	user, isAdmin, tenantID := getUserAndPrivileges(r)
-	if user == nil {
+	principal := getPrincipal(r)
+	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -3145,21 +3264,20 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If not admin, filter agents/devices to tenant scope
-	if !isAdmin && tenantID != "" {
+	// If scoped, filter agents/devices to tenant scope
+	if scope != nil {
 		fAgents := make([]*storage.Agent, 0)
 		for _, a := range agents {
-			if a != nil && a.TenantID == tenantID {
+			if a != nil && tenantAllowed(scope, a.TenantID) {
 				fAgents = append(fAgents, a)
 			}
 		}
 		agents = fAgents
 
-		// Build agent->tenant map and filter devices via AgentID
-		agentTenant := make(map[string]string, len(agents))
+		agentAllowed := make(map[string]struct{}, len(agents))
 		for _, a := range agents {
 			if a != nil {
-				agentTenant[a.AgentID] = a.TenantID
+				agentAllowed[a.AgentID] = struct{}{}
 			}
 		}
 		fDevices := make([]*storage.Device, 0)
@@ -3167,7 +3285,7 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 			if d == nil {
 				continue
 			}
-			if at, ok := agentTenant[d.AgentID]; ok && at == tenantID {
+			if _, ok := agentAllowed[d.AgentID]; ok {
 				fDevices = append(fDevices, d)
 			}
 		}
@@ -3221,6 +3339,17 @@ func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	serial := r.URL.Query().Get("serial")
 	if serial == "" {
 		http.Error(w, "serial parameter required", http.StatusBadRequest)
@@ -3260,6 +3389,22 @@ func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
+	if scope != nil {
+		device, err := serverStore.GetDevice(ctx, serial)
+		if err != nil || device == nil || device.AgentID == "" {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
+		agent, err := serverStore.GetAgent(ctx, device.AgentID)
+		if err != nil {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
+		if !tenantAllowed(scope, agent.TenantID) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
 	history, err := serverStore.GetMetricsHistory(ctx, serial, since)
 	if err != nil {
 		if serverLogger != nil {

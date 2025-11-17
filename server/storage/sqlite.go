@@ -526,7 +526,7 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, agentID string) (*Agent, err
 func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	query := `
 		SELECT id, agent_id, name, hostname, ip, platform, version, protocol_version,
-		       token, registered_at, last_seen, status,
+		       token, tenant_id, registered_at, last_seen, status,
 		       os_version, go_version, architecture, num_cpu, total_memory_mb,
 		       build_type, git_commit, last_heartbeat, device_count,
 		       last_device_sync, last_metrics_sync
@@ -547,11 +547,12 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 		var numCPU, deviceCount sql.NullInt64
 		var totalMemoryMB sql.NullInt64
 		var lastHeartbeat, lastDeviceSync, lastMetricsSync sql.NullTime
+		var tenantID sql.NullString
 
 		err := rows.Scan(
 			&agent.ID, &agent.AgentID, &name, &agent.Hostname, &agent.IP,
 			&agent.Platform, &agent.Version, &agent.ProtocolVersion,
-			&agent.Token, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
+			&agent.Token, &tenantID, &agent.RegisteredAt, &agent.LastSeen, &agent.Status,
 			&osVersion, &goVersion, &architecture, &numCPU, &totalMemoryMB,
 			&buildType, &gitCommit, &lastHeartbeat, &deviceCount,
 			&lastDeviceSync, &lastMetricsSync,
@@ -596,6 +597,9 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 		}
 		if lastMetricsSync.Valid {
 			agent.LastMetricsSync = lastMetricsSync.Time
+		}
+		if tenantID.Valid {
+			agent.TenantID = tenantID.String
 		}
 
 		agents = append(agents, &agent)
