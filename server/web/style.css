@@ -397,6 +397,22 @@ h1 {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.table-primary {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.table-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.table-actions button {
+  flex: none;
+}
+
 /* Badge styles for provider metadata */
 .badge {
   display: inline-flex;

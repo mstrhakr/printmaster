@@ -586,6 +586,8 @@ function invokeSSOMethod(method, ...args) {
 }
 
 function initSSOAdmin() {
+    if (ssoAdminInitialized) return;
+    ssoAdminInitialized = true;
     invokeSSOMethod('init');
 }
 
@@ -662,12 +664,12 @@ function initTenantsUI(){
         });
     }
     loadTenants();
-            if (usersUIInitialized) return;
-            usersUIInitialized = true;
 }
 
 // ====== Users UI ======
 function initUsersUI(){
+    if (usersUIInitialized) return;
+    usersUIInitialized = true;
     const btn = document.getElementById('new_user_btn');
     if(btn){
         btn.addEventListener('click', ()=>{
@@ -684,8 +686,6 @@ function initUsersUI(){
 
     loadUsers();
 }
-    if (ssoAdminInitialized) return;
-    ssoAdminInitialized = true;
 
 async function loadUsers(){
     const el = document.getElementById('users_list');
@@ -705,27 +705,53 @@ function renderUsers(list){
     const el = document.getElementById('users_list');
     if(!el) return;
     if(!Array.isArray(list) || list.length===0){
-        el.innerHTML = '<div style="color:var(--muted);">No users found.</div>';
+        el.innerHTML = '<div class="muted-text">No users found.</div>';
         return;
     }
+
     const rows = list.map(u=>{
+        const username = escapeHtml(u.username || '—');
+        const email = escapeHtml(u.email || '(no email)');
+        const role = escapeHtml(u.role || 'user');
+        const tenantMarkup = u.tenant_id ? escapeHtml(u.tenant_id) : '<span class="muted-text">(global)</span>';
+        const idAttr = escapeHtml(u.id || '');
+        const usernameAttr = escapeHtml(u.username || '');
         return `
-            <div class="card" style="margin-bottom:8px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <div style="font-weight:600">${escapeHtml(u.username||'—')}</div>
-                        <div style="color:var(--muted);font-size:12px">Role: ${escapeHtml(u.role||'user')} &nbsp; Tenant: ${escapeHtml(u.tenant_id||'(global)')} &nbsp; Email: ${escapeHtml(u.email||'(none)')}</div>
+            <tr>
+                <td>
+                    <div class="table-primary">${username}</div>
+                    <div class="muted-text">${email}</div>
+                </td>
+                <td>${role}</td>
+                <td>${tenantMarkup}</td>
+                <td>
+                    <div class="table-actions">
+                        <button data-action="user-sessions" data-id="${idAttr}" data-username="${usernameAttr}">Sessions</button>
+                        <button data-action="edit-user" data-id="${idAttr}">Edit</button>
+                        <button data-action="delete-user" data-id="${idAttr}">Delete</button>
                     </div>
-                    <div style="display:flex;gap:8px;">
-                        <button data-action="user-sessions" data-id="${u.id}" data-username="${escapeHtml(u.username||'')}">Sessions</button>
-                        <button data-action="edit-user" data-id="${u.id}">Edit</button>
-                        <button data-action="delete-user" data-id="${u.id}">Delete</button>
-                    </div>
-                </div>
-            </div>
+                </td>
+            </tr>
         `;
     }).join('\n');
-    el.innerHTML = rows;
+
+    el.innerHTML = `
+        <div class="table-wrapper">
+            <table class="simple-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Tenant</th>
+                        <th style="width:1%">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
+    `;
 
     // Attach handlers for edit/delete
     el.querySelectorAll('button[data-action="edit-user"]').forEach(b=>{
@@ -931,27 +957,45 @@ function renderTenants(list){
     const el = document.getElementById('tenants_list');
     if(!el) return;
     if(!Array.isArray(list) || list.length===0){
-        el.innerHTML = '<div style="color:var(--muted);">No tenants yet. Click New Tenant to add one.</div>';
+        el.innerHTML = '<div class="muted-text">No tenants yet. Click New Tenant to add one.</div>';
         return;
     }
     const rows = list.map(t => {
-        const id = t.id || t.uuid || '';
+        const rawId = t.id || t.uuid || '';
+        const idAttr = escapeHtml(rawId);
+        const idCell = rawId ? idAttr : '<span class="muted-text">(none)</span>';
         return `
-            <div class="card" style="margin-bottom:8px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                        <div style="font-weight:600">${escapeHtml(t.name||'—')}</div>
-                        <div style="color:var(--muted);font-size:12px">${escapeHtml(id)}</div>
+            <tr>
+                <td>
+                    <div class="table-primary">${escapeHtml(t.name||'—')}</div>
+                </td>
+                <td>${idCell}</td>
+                <td>
+                    <div class="table-actions">
+                        <button data-action="create-token" data-tenant="${idAttr}">Create Token</button>
+                        <button data-action="view-tokens" data-tenant="${idAttr}">Tokens</button>
                     </div>
-                    <div style="display:flex;gap:8px;">
-                        <button data-action="create-token" data-tenant="${id}">Create Token</button>
-                        <button data-action="view-tokens" data-tenant="${id}">Tokens</button>
-                    </div>
-                </div>
-            </div>
+                </td>
+            </tr>
         `;
     }).join('\n');
-    el.innerHTML = rows;
+
+    el.innerHTML = `
+        <div class="table-wrapper">
+            <table class="simple-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Tenant ID</th>
+                        <th style="width:1%">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
+    `;
 
     el.querySelectorAll('button[data-action="create-token"]').forEach(b=>{
         b.addEventListener('click', async ()=>{
@@ -1025,6 +1069,38 @@ async function revokeToken(id){
 function escapeHtml(s){
     if(!s) return '';
     return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':"&#39;"})[m]; });
+}
+
+function formatDateTime(value){
+    if(!value) return '—';
+    const d = new Date(value);
+    if(isNaN(d.getTime())) return '—';
+    return d.toLocaleString();
+}
+
+function formatRelativeTime(value){
+    if(!value) return '—';
+    const d = new Date(value);
+    if(isNaN(d.getTime())) return '—';
+    const diffMs = Date.now() - d.getTime();
+    if(diffMs < 0) return 'just now';
+    const minutes = Math.floor(diffMs / 60000);
+    if(minutes < 1) return 'just now';
+    if(minutes < 60) return minutes + 'm ago';
+    const hours = Math.floor(minutes / 60);
+    if(hours < 24) return hours + 'h ago';
+    const days = Math.floor(hours / 24);
+    return days + 'd ago';
+}
+
+function formatNumber(value){
+    if(typeof value === 'number' && isFinite(value)){
+        return value.toLocaleString();
+    }
+    if(typeof value === 'string' && value.trim() !== ''){
+        return value;
+    }
+    return '—';
 }
 
 function renderAgents(agents) {
@@ -2076,17 +2152,42 @@ async function loadMetrics() {
         }
 
         if (contentEl) {
-            // Simple rendering: list latest metrics timestamps for sampled devices
             if (data.recent && Array.isArray(data.recent) && data.recent.length > 0) {
-                let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
-                data.recent.forEach(r => {
-                    const t = r.timestamp ? new Date(r.timestamp).toLocaleString() : 'N/A';
-                    html += `<div style="padding:8px;background:rgba(0,0,0,0.03);border-radius:6px;"><strong>${r.serial}</strong> — ${t} — pages: ${r.page_count || 'n/a'}</div>`;
-                });
-                html += '</div>';
-                contentEl.innerHTML = html;
+                const rows = data.recent.map(entry => {
+                    const serial = escapeHtml(entry.serial || '—');
+                    const timestamp = escapeHtml(formatDateTime(entry.timestamp));
+                    const relative = escapeHtml(formatRelativeTime(entry.timestamp));
+                    const pageCount = escapeHtml(formatNumber(entry.page_count));
+                    return `
+                        <tr>
+                            <td>${serial}</td>
+                            <td>
+                                <div class="table-primary">${timestamp}</div>
+                                <div class="muted-text">${relative}</div>
+                            </td>
+                            <td>${pageCount}</td>
+                        </tr>
+                    `;
+                }).join('\n');
+
+                contentEl.innerHTML = `
+                    <div class="table-wrapper">
+                        <table class="simple-table">
+                            <thead>
+                                <tr>
+                                    <th>Device Serial</th>
+                                    <th>Last Metric</th>
+                                    <th>Page Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
             } else {
-                contentEl.innerHTML = '<div style="color:var(--muted);padding:12px">No recent metrics available.</div>';
+                contentEl.innerHTML = '<div class="muted-text" style="padding:12px">No recent metrics available.</div>';
             }
         }
     } catch (err) {
