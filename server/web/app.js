@@ -37,6 +37,8 @@ let usersUIInitialized = false;
 let tenantsUIInitialized = false;
 let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
+let logSubtabsInitialized = false;
+let activeLogView = 'system';
 
 function normalizeRole(role) {
     return (role || '').toString().toLowerCase();
@@ -162,6 +164,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Initialize tabs (after dynamic tabs injected)
         initTabs();
+        initLogSubTabs();
 
         // Check config status and show warning if needed
         checkConfigStatus();
@@ -501,6 +504,69 @@ function initTabs() {
     }
 }
 
+function initLogSubTabs() {
+    if (logSubtabsInitialized) {
+        return;
+    }
+    logSubtabsInitialized = true;
+
+    const subtabButtons = document.querySelectorAll('.log-subtab');
+    subtabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.logview || 'system';
+            switchLogView(target);
+        });
+    });
+
+    const refreshBtn = document.getElementById('refresh_audit_logs_btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => loadAuditLogs());
+    }
+
+    const timeFilter = document.getElementById('audit_time_filter');
+    if (timeFilter) {
+        timeFilter.addEventListener('change', () => loadAuditLogs());
+    }
+
+    const agentFilter = document.getElementById('audit_agent_filter');
+    if (agentFilter) {
+        agentFilter.addEventListener('keyup', (ev) => {
+            if (ev.key === 'Enter') {
+                loadAuditLogs();
+            }
+        });
+    }
+}
+
+function switchLogView(view) {
+    const desired = view === 'audit' && userHasRole('admin') ? 'audit' : 'system';
+    activeLogView = desired;
+
+    document.querySelectorAll('.log-subtab').forEach(btn => {
+        const target = btn.dataset.logview || 'system';
+        if (target === desired) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    document.querySelectorAll('[data-logview-panel]').forEach(panel => {
+        const target = panel.dataset.logviewPanel || 'system';
+        if (target === desired) {
+            panel.classList.remove('hidden');
+        } else {
+            panel.classList.add('hidden');
+        }
+    });
+
+    if (desired === 'audit') {
+        loadAuditLogs();
+    } else {
+        loadLogs();
+    }
+}
+
 function switchTab(targetTab) {
     // Hide all tabs
     document.querySelectorAll('[data-tab]').forEach(tab => {
@@ -538,8 +604,8 @@ function switchTab(targetTab) {
         loadSettings();
         refreshSSOProviders();
     } else if (targetTab === 'logs') {
-        // Previously called connectLogStream() which no longer exists - use loadLogs()
-        loadLogs();
+        initLogSubTabs();
+        switchLogView(activeLogView || 'system');
     } else if (targetTab === 'tenants') {
         loadTenants();
     } else if (targetTab === 'users') {
@@ -2114,6 +2180,56 @@ async function loadLogs() {
     }
 }
 
+async function loadAuditLogs() {
+    if (!userHasRole('admin')) {
+        return;
+    }
+
+    const container = document.getElementById('audit_logs_table');
+    if (!container) {
+        window.__pm_shared.warn('loadAuditLogs: container not found');
+        return;
+    }
+
+    const params = new URLSearchParams();
+    const timeFilter = document.getElementById('audit_time_filter');
+    const hours = timeFilter ? parseInt(timeFilter.value, 10) : 24;
+    if (hours && hours > 0) {
+        params.set('hours', String(hours));
+    }
+
+    const agentFilter = document.getElementById('audit_agent_filter');
+    const agentValue = agentFilter ? agentFilter.value.trim() : '';
+    if (agentValue) {
+        params.set('agent_id', agentValue);
+    }
+
+    container.innerHTML = '<div class="muted-text">Loading audit log...</div>';
+
+    const queryString = params.toString();
+    const endpoint = queryString ? `/api/audit/logs?${queryString}` : '/api/audit/logs';
+
+    try {
+        const response = await fetch(endpoint);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        let entries = [];
+        if (payload && Array.isArray(payload.entries)) {
+            entries = payload.entries;
+        } else if (Array.isArray(payload)) {
+            entries = payload;
+        }
+        renderAuditLogs(entries);
+    } catch (error) {
+        window.__pm_shared.error('Failed to load audit logs:', error);
+        const message = escapeHtml(error && error.message ? error.message : String(error));
+        container.innerHTML = `<div class="error-text">Failed to load audit logs: ${message}</div>`;
+    }
+}
+
 // ====== Metrics ======
 async function loadMetrics() {
     try {
@@ -2201,6 +2317,57 @@ function renderLogs(logs) {
     } else {
         container.textContent = JSON.stringify(logs, null, 2);
     }
+}
+
+function renderAuditLogs(entries) {
+    const container = document.getElementById('audit_logs_table');
+    if (!container) {
+        window.__pm_shared.warn('renderAuditLogs: container not found');
+        return;
+    }
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+        container.innerHTML = '<div class="muted-text" style="padding:12px;">No audit entries in this window.</div>';
+        return;
+    }
+
+    const rows = entries.map(entry => {
+        const ts = escapeHtml(formatDateTime(entry.timestamp));
+        const rel = escapeHtml(formatRelativeTime(entry.timestamp));
+        const agent = escapeHtml(entry.agent_id || '—');
+        const action = escapeHtml(entry.action || '—');
+        const ip = escapeHtml(entry.ip_address || '—');
+        const details = escapeHtml(entry.details || '—');
+        return `
+            <tr>
+                <td>
+                    <div class="table-primary">${ts}</div>
+                    <div class="muted-text">${rel}</div>
+                </td>
+                <td>${agent}</td>
+                <td>${action}</td>
+                <td>${ip}</td>
+                <td><div class="audit-details">${details}</div></td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="simple-table">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Agent</th>
+                    <th>Action</th>
+                    <th>IP</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+    `;
 }
 
 // ====== Modal Handlers ======

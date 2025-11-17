@@ -283,26 +283,51 @@
 
         <!-- Logs Tab -->
         <div class="hidden" style="margin-top:12px;" data-tab="logs">
-            <h3>Server Log</h3>
-            <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap;">
-                <label style="font-size:13px;color:var(--muted)"><input type="checkbox" id="pause_autoscroll" /> Pause
-                    auto-scroll</label>
-                <select id="log_level_filter" style="padding:4px 8px;font-size:13px;">
-                    <option value="">All Levels</option>
-                    <option value="ERROR">ERROR</option>
-                    <option value="WARN">WARN</option>
-                    <option value="INFO">INFO</option>
-                    <option value="DEBUG">DEBUG</option>
-                    <option value="TRACE">TRACE</option>
-                </select>
-                <input type="text" id="log_search_filter" placeholder="Search logs..." 
-                    style="padding:4px 8px;font-size:13px;width:150px;" />
-                <button id="copy_logs_btn">Copy Logs</button>
-                <button id="download_logs_btn">Download Logs</button>
-                <button id="clear_log_btn">Clear Log</button>
+            <h3>Logs</h3>
+            <div class="subtab-bar" id="logs_subtab_bar">
+                <button class="subtab log-subtab active" data-logview="system">System Logs</button>
+                <button class="subtab log-subtab" data-logview="audit" data-role="admin" style="display:none">Audit Logs</button>
             </div>
-            <pre id="log"
-                style="max-height:360px; overflow:auto; background:#073642; color:var(--text); padding:10px; border-radius:6px; border:1px solid #002b36; font-family:monospace; white-space:pre-wrap;"></pre>
+
+            <div class="panel log-panel" data-logview-panel="system">
+                <div class="log-controls">
+                    <label class="log-control"><input type="checkbox" id="pause_autoscroll" /> Pause auto-scroll</label>
+                    <select id="log_level_filter">
+                        <option value="">All Levels</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="WARN">WARN</option>
+                        <option value="INFO">INFO</option>
+                        <option value="DEBUG">DEBUG</option>
+                        <option value="TRACE">TRACE</option>
+                    </select>
+                    <input type="text" id="log_search_filter" placeholder="Search logs..." />
+                    <button id="copy_logs_btn">Copy Logs</button>
+                    <button id="download_logs_btn">Download Logs</button>
+                    <button id="clear_log_btn">Clear Log</button>
+                </div>
+                <pre id="log"></pre>
+            </div>
+
+            <div class="panel log-panel hidden" data-logview-panel="audit" data-role="admin" style="display:none">
+                <div class="log-controls audit-controls">
+                    <label class="log-control">
+                        <span>Time Range</span>
+                        <select id="audit_time_filter">
+                            <option value="24">Last 24h</option>
+                            <option value="168">Last 7 days</option>
+                            <option value="720">Last 30 days</option>
+                        </select>
+                    </label>
+                    <label class="log-control">
+                        <span>Agent ID</span>
+                        <input type="text" id="audit_agent_filter" placeholder="Optional agent UUID" />
+                    </label>
+                    <button id="refresh_audit_logs_btn">Refresh</button>
+                </div>
+                <div id="audit_logs_table" class="table-wrapper">
+                    <div class="muted-text">Audit entries load here for admins.</div>
+                </div>
+            </div>
         </div>
 
     </div> <!-- End content-container -->

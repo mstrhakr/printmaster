@@ -948,6 +948,65 @@ select:focus {
   transition: var(--transition-fast);
 }
 
+.subtab-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.subtab {
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: var(--transition-fast);
+}
+
+.subtab.active {
+  background: var(--panel);
+  border-color: var(--highlight);
+  color: var(--highlight);
+  box-shadow: var(--shadow-sm);
+}
+
+.log-panel {
+  margin-bottom: 16px;
+}
+
+.log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.log-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.log-controls select,
+.log-controls input[type="text"] {
+  padding: 4px 8px;
+  font-size: 13px;
+  min-width: 140px;
+}
+
+.audit-details {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  white-space: pre-wrap;
+  color: var(--text);
+  font-size: 12px;
+}
+
 .tab:hover {
   background: rgba(38, 139, 210, 0.1);
 }

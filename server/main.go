@@ -1970,6 +1970,7 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/settings", requireWebAuth(handleSettings))
 	http.HandleFunc("/api/settings/test-email", requireWebAuth(handleSettingsTestEmail))
 	http.HandleFunc("/api/logs", requireWebAuth(handleLogs))
+	http.HandleFunc("/api/audit/logs", requireRole(storage.RoleAdmin, handleAuditLogs))
 
 	// Provide a lightweight proxy/compat endpoint for web UI credentials so the
 	// server UI doesn't 404 when the shared cards call /device/webui-credentials.
@@ -3668,6 +3669,63 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"logs": lines})
+}
+
+// handleAuditLogs exposes persisted agent/server audit trail entries to admins.
+// Supports optional query parameters:
+//   - hours: lookback window (default 24)
+//   - since: RFC3339 timestamp overriding hours
+//   - agent_id: filter entries for a specific agent UUID
+func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil || !principal.HasRole(storage.RoleAdmin) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	query := r.URL.Query()
+	agentID := strings.TrimSpace(query.Get("agent_id"))
+	lookback := 24 * time.Hour
+	if hoursStr := strings.TrimSpace(query.Get("hours")); hoursStr != "" {
+		if hrs, err := strconv.Atoi(hoursStr); err == nil && hrs > 0 {
+			lookback = time.Duration(hrs) * time.Hour
+		} else {
+			http.Error(w, "invalid hours parameter", http.StatusBadRequest)
+			return
+		}
+	}
+	since := time.Now().Add(-lookback)
+	if sinceStr := strings.TrimSpace(query.Get("since")); sinceStr != "" {
+		parsed, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			http.Error(w, "invalid since parameter", http.StatusBadRequest)
+			return
+		}
+		since = parsed
+	}
+
+	entries, err := serverStore.GetAuditLog(r.Context(), agentID, since)
+	if err != nil {
+		logError("Failed to load audit log", "agent_id", agentID, "error", err)
+		http.Error(w, "failed to load audit log", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"entries":  entries,
+		"agent_id": agentID,
+		"since":    since.UTC(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		logError("Failed to encode audit log response", "error", err)
+	}
 }
 
 // writeEnvFile updates or creates a simple KEY=VALUE env file at path with
