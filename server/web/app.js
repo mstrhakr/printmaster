@@ -1,20 +1,166 @@
 // PrintMaster Server - Web UI JavaScript
 
+const ROLE_PRIORITY = { admin: 3, operator: 2, viewer: 1 };
+const BASE_TAB_LABELS = {
+    agents: 'Agents',
+    devices: 'Devices',
+    metrics: 'Metrics',
+    logs: 'Logs'
+};
+const TAB_DEFINITIONS = {
+    tenants: {
+        label: 'Customers',
+        minRole: 'admin',
+        templateId: 'tab-template-tenants',
+        onMount: () => initTenantsUI()
+    },
+    users: {
+        label: 'Users',
+        minRole: 'admin',
+        templateId: 'tab-template-users',
+        onMount: () => initUsersUI()
+    },
+    settings: {
+        label: 'Settings',
+        minRole: 'admin',
+        templateId: 'tab-template-settings',
+        onMount: () => {
+            initSettingsButtons();
+            initSSOAdmin();
+        }
+    }
+};
+
+let currentUser = null;
+const mountedTabs = new Set();
+let usersUIInitialized = false;
+let tenantsUIInitialized = false;
+let addAgentUIInitialized = false;
+let ssoAdminInitialized = false;
+
+function normalizeRole(role) {
+    return (role || '').toString().toLowerCase();
+}
+
+function userHasRole(minRole) {
+    if (!currentUser) return false;
+    const current = ROLE_PRIORITY[normalizeRole(currentUser.role)] || 0;
+    const required = ROLE_PRIORITY[normalizeRole(minRole)] || 0;
+    return current >= required;
+}
+
+function buildDynamicTabs() {
+    Object.entries(TAB_DEFINITIONS).forEach(([tabId, config]) => {
+        if (userHasRole(config.minRole)) {
+            mountTab(tabId, config);
+        }
+    });
+}
+
+function mountTab(tabId, config) {
+    if (mountedTabs.has(tabId)) {
+        return;
+    }
+    createTabButtons(tabId, config.label);
+    ensureTabPanel(tabId, config.templateId);
+    mountedTabs.add(tabId);
+    if (typeof config.onMount === 'function') {
+        config.onMount();
+    }
+}
+
+function createTabButtons(tabId, label) {
+    const desktop = document.getElementById('desktop_tabs');
+    if (desktop && !desktop.querySelector(`.tab[data-target="${tabId}"]`)) {
+        const btn = document.createElement('button');
+        btn.className = 'tab';
+        btn.dataset.target = tabId;
+        btn.textContent = label;
+        desktop.appendChild(btn);
+        registerTabButton(btn);
+    }
+    const mobile = document.getElementById('mobile_nav');
+    if (mobile && !mobile.querySelector(`.tab[data-target="${tabId}"]`)) {
+        const btn = document.createElement('button');
+        btn.className = 'tab';
+        btn.dataset.target = tabId;
+        btn.textContent = label;
+        mobile.appendChild(btn);
+        registerTabButton(btn);
+    }
+}
+
+function ensureTabPanel(tabId, templateId) {
+    if (document.querySelector(`[data-tab="${tabId}"]`)) {
+        return;
+    }
+    const tpl = document.getElementById(templateId);
+    if (!tpl || !tpl.content) {
+        return;
+    }
+    const container = document.querySelector('.content-container');
+    if (!container) {
+        return;
+    }
+    container.appendChild(tpl.content.cloneNode(true));
+}
+
+function applyRBACVisibility() {
+    buildDynamicTabs();
+    configureRBACActions();
+}
+
+function configureRBACActions() {
+    const joinBtn = document.getElementById('join_token_btn');
+    if (joinBtn) {
+        if (userHasRole('admin')) {
+            joinBtn.style.display = '';
+            initAddAgentUI();
+        } else {
+            joinBtn.style.display = 'none';
+        }
+    }
+}
+
+function registerTabButton(tab) {
+    if (!tab || tab.dataset.tabRegistered === 'true') {
+        return;
+    }
+    tab.dataset.tabRegistered = 'true';
+    tab.addEventListener('click', () => {
+        switchTab(tab.dataset.target);
+        const mobileNav = document.getElementById('mobile_nav');
+        if (mobileNav) {
+            mobileNav.classList.remove('active');
+        }
+    });
+}
+
+function getTabLabel(targetTab) {
+    if (TAB_DEFINITIONS[targetTab]) {
+        return TAB_DEFINITIONS[targetTab].label;
+    }
+    return BASE_TAB_LABELS[targetTab] || targetTab;
+}
+
 // ====== Initialization ======
 document.addEventListener('DOMContentLoaded', function () {
     window.__pm_shared.log('PrintMaster Server UI loaded');
 
     // Before initializing the UI, ensure user is authenticated (local login)
-    ensureAuthenticated().then(authenticated => {
-        if (!authenticated) {
-            // ensureAuthenticated will show the login modal and resolve when logged in
+    ensureAuthenticated().then(user => {
+        if (!user) {
+            // ensureAuthenticated will redirect to login for us
             return;
         }
+
+        currentUser = user;
+        applyRBACVisibility();
 
         // Initialize theme toggle
         initThemeToggle();
 
-        // Initialize tabs
+        // Initialize tabs (after dynamic tabs injected)
         initTabs();
 
         // Check config status and show warning if needed
@@ -23,13 +169,6 @@ document.addEventListener('DOMContentLoaded', function () {
         // Load initial data
         loadServerStatus();
         loadAgents();
-        // Tenants UI
-        initTenantsUI();
-        initUsersUI();
-        // Add-agent UI
-        // (Added helper and add-agent modal code)
-        initAddAgentUI();
-        initSSOAdmin();
 
         // Set up periodic refresh for server status only
         // Keep the interval ID so we can cancel polling when WebSocket is active
@@ -51,20 +190,20 @@ async function ensureAuthenticated(){
     try{
         const res = await fetch('/api/v1/auth/me');
         if(res.ok){
-            return true;
+            return await res.json();
         }
         if(res.status===401){
             // Redirect to dedicated login page for better separation
             window.location = '/login';
-            return false;
+            return null;
         }
         // Other errors: still show login modal (server may be misconfigured)
         window.location = '/login';
-        return false;
+        return null;
     }catch(err){
         window.__pm_shared.warn('Auth check failed, showing login modal', err);
         window.location = '/login';
-        return false;
+        return null;
     }
 }
 
@@ -92,8 +231,7 @@ function showLoginModal(){
             }
             // success - hide modal and re-init UI
             modal.style.display='none';
-            // re-run initialization once authenticated
-            initThemeToggle(); initTabs(); checkConfigStatus(); loadServerStatus(); loadAgents(); initTenantsUI(); initUsersUI(); initAddAgentUI(); connectWS(); connectSSE();
+            window.location.reload();
         }catch(ex){
             errEl.textContent = ex && ex.message ? ex.message : 'Login failed';
             errEl.style.display='block';
@@ -126,21 +264,14 @@ async function logout() {
 }
 
 // Show or hide logout button based on current auth state
-async function updateAuthUI() {
-    try {
-        const r = await fetch('/api/v1/auth/me');
-        const btn = document.getElementById('logout_btn');
-        if (!btn) return;
-        if (r.ok) {
-            btn.style.display = 'inline-block';
-            btn.onclick = logout;
-        } else {
-            btn.style.display = 'none';
-        }
-    } catch (err) {
-        // If the auth check fails, hide logout button
-        const btn = document.getElementById('logout_btn');
-        if (btn) btn.style.display = 'none';
+function updateAuthUI() {
+    const btn = document.getElementById('logout_btn');
+    if (!btn) return;
+    if (currentUser) {
+        btn.style.display = 'inline-block';
+        btn.onclick = logout;
+    } else {
+        btn.style.display = 'none';
     }
 }
 
@@ -375,23 +506,11 @@ function initThemeToggle() {
 
 // ====== Tab Management ======
 function initTabs() {
-    const tabs = document.querySelectorAll('.tab');
-    const mobileTabs = document.querySelectorAll('.mobile-nav .tab');
+    const allTabs = document.querySelectorAll('.tabbar .tab');
     const hamburger = document.querySelector('.hamburger-icon');
     const mobileNav = document.getElementById('mobile_nav');
     
-    // Desktop tabs
-    tabs.forEach(tab => {
-        tab.addEventListener('click', () => switchTab(tab.dataset.target));
-    });
-    
-    // Mobile tabs
-    mobileTabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-            switchTab(tab.dataset.target);
-            mobileNav.classList.remove('active');
-        });
-    });
+    allTabs.forEach(registerTabButton);
     
     // Hamburger menu
     if (hamburger) {
@@ -399,57 +518,51 @@ function initTabs() {
             mobileNav.classList.toggle('active');
         });
     }
+}
+
+function switchTab(targetTab) {
+    // Hide all tabs
+    document.querySelectorAll('[data-tab]').forEach(tab => {
+        tab.classList.add('hidden');
+    });
     
-    function switchTab(targetTab) {
-        // Hide all tabs
-        document.querySelectorAll('[data-tab]').forEach(tab => {
-            tab.classList.add('hidden');
-        });
-        
-        // Remove active class from all tab buttons
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.classList.remove('active');
-        });
-        
-        // Show target tab
-        const target = document.querySelector(`[data-tab="${targetTab}"]`);
-        if (target) {
-            target.classList.remove('hidden');
-        }
-        
-        // Add active class to clicked tab buttons
-        document.querySelectorAll(`.tab[data-target="${targetTab}"]`).forEach(tab => {
-            tab.classList.add('active');
-        });
-        
-        // Update mobile menu label
-        const label = document.getElementById('current_tab_label');
-        if (label) {
-            const tabNames = {
-                'agents': 'Agents',
-                'tenants': 'Customers',
-                'devices': 'Devices',
-                'metrics': 'Metrics',
-                'settings': 'Settings',
-                'logs': 'Logs'
-            };
-            label.textContent = 'Menu - ' + (tabNames[targetTab] || targetTab);
-        }
-        
-        // Load data for specific tabs
-        if (targetTab === 'devices') {
-            loadDevices();
-        } else if (targetTab === 'metrics') {
-            loadMetrics();
-        } else if (targetTab === 'settings') {
-            loadSettings();
-            // initialize settings buttons and autosave wiring
-            initSettingsButtons();
-            refreshSSOProviders();
-        } else if (targetTab === 'logs') {
-            // Previously called connectLogStream() which no longer exists - use loadLogs()
-            loadLogs();
-        }
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Show target tab
+    const target = document.querySelector(`[data-tab="${targetTab}"]`);
+    if (target) {
+        target.classList.remove('hidden');
+    }
+    
+    // Add active class to clicked tab buttons
+    document.querySelectorAll(`.tab[data-target="${targetTab}"]`).forEach(tab => {
+        tab.classList.add('active');
+    });
+    
+    // Update mobile menu label
+    const label = document.getElementById('current_tab_label');
+    if (label) {
+        label.textContent = 'Menu - ' + getTabLabel(targetTab);
+    }
+    
+    // Load data for specific tabs
+    if (targetTab === 'devices') {
+        loadDevices();
+    } else if (targetTab === 'metrics') {
+        loadMetrics();
+    } else if (targetTab === 'settings') {
+        loadSettings();
+        refreshSSOProviders();
+    } else if (targetTab === 'logs') {
+        // Previously called connectLogStream() which no longer exists - use loadLogs()
+        loadLogs();
+    } else if (targetTab === 'tenants') {
+        loadTenants();
+    } else if (targetTab === 'users') {
+        loadUsers();
     }
 }
 
@@ -533,6 +646,8 @@ async function loadAgents() {
 
 // ====== Tenants / Customers UI ======
 function initTenantsUI(){
+    if (tenantsUIInitialized) return;
+    tenantsUIInitialized = true;
     const btn = document.getElementById('new_tenant_btn');
     if(btn){
         btn.addEventListener('click', async ()=>{
@@ -547,6 +662,8 @@ function initTenantsUI(){
         });
     }
     loadTenants();
+            if (usersUIInitialized) return;
+            usersUIInitialized = true;
 }
 
 // ====== Users UI ======
@@ -567,6 +684,8 @@ function initUsersUI(){
 
     loadUsers();
 }
+    if (ssoAdminInitialized) return;
+    ssoAdminInitialized = true;
 
 async function loadUsers(){
     const el = document.getElementById('users_list');
@@ -2053,6 +2172,8 @@ function toggleAdvancedSettings() {
 
 // ====== Add Agent Modal UI ======
 function initAddAgentUI(){
+    if (addAgentUIInitialized) return;
+    addAgentUIInitialized = true;
     // Wire header Join button if present
     const joinBtn = document.getElementById('join_token_btn');
     if(joinBtn) joinBtn.addEventListener('click', ()=> openAddAgentModal({}));
