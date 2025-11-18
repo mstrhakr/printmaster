@@ -18,6 +18,8 @@ import (
 	wscommon "printmaster/common/ws"
 )
 
+const proxySlowLogThreshold = 5 * time.Second
+
 // maskTokenForLog returns a copy of the URL string with the token query parameter masked
 func maskTokenForLog(u *url.URL) string {
 	if u == nil {
@@ -471,7 +473,7 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	}
 
 	method, ok := msg.Data["method"].(string)
-	if !ok {
+	if !ok || method == "" {
 		method = "GET"
 	}
 
@@ -494,7 +496,13 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		}
 	}
 
-	DebugCtx("Proxying request", "method", method, "url", targetURL)
+	maskedURL := targetURL
+	if parsed, err := url.Parse(targetURL); err == nil {
+		maskedURL = maskTokenForLog(parsed)
+	}
+
+	start := time.Now()
+	InfoCtx("Proxy request dispatched", "request_id", requestID, "method", method, "url", maskedURL, "body_bytes", len(bodyBytes))
 
 	// If stop requested, bail early
 	select {
@@ -526,7 +534,9 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	}
 
 	if err != nil {
+		duration := time.Since(start)
 		ws.sendProxyError(requestID, fmt.Sprintf("Failed to create request: %v", err))
+		WarnCtx("Proxy request build failed", "request_id", requestID, "error", err, "duration", duration)
 		return
 	}
 
@@ -545,7 +555,8 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	// Execute request
 	resp, err := client.Do(req)
 	if err != nil {
-		WarnCtx("handleProxyRequest client.Do error", "request_id", requestID, "error", err)
+		duration := time.Since(start)
+		WarnCtx("Proxy request failed", "request_id", requestID, "error", err, "duration", duration)
 		ws.sendProxyError(requestID, fmt.Sprintf("Request failed: %v", err))
 		return
 	}
@@ -554,6 +565,8 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	// Read response body
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		duration := time.Since(start)
+		WarnCtx("Proxy response read failed", "request_id", requestID, "error", err, "duration", duration)
 		ws.sendProxyError(requestID, fmt.Sprintf("Failed to read response: %v", err))
 		return
 	}
@@ -564,6 +577,12 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		if len(v) > 0 {
 			respHeaders[k] = v[0]
 		}
+	}
+
+	duration := time.Since(start)
+	InfoCtx("Proxy response completed", "request_id", requestID, "status", resp.StatusCode, "duration", duration, "bytes", len(respBody))
+	if duration > proxySlowLogThreshold {
+		WarnCtx("Proxy response slow", "request_id", requestID, "duration", duration, "threshold", proxySlowLogThreshold, "url", maskedURL)
 	}
 
 	// Send proxy response back to server
