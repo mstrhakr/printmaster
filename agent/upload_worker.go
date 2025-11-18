@@ -20,9 +20,10 @@ type Logger interface {
 
 // UploadWorker handles periodic uploads of device and metrics data to the server
 type UploadWorker struct {
-	client *agent.ServerClient
-	store  storage.DeviceStore
-	logger Logger
+	client  *agent.ServerClient
+	store   storage.DeviceStore
+	logger  Logger
+	dataDir string
 
 	// WebSocket client (optional, falls back to HTTP if unavailable)
 	wsClient     *agent.WSClient
@@ -56,7 +57,7 @@ type UploadWorkerConfig struct {
 }
 
 // NewUploadWorker creates a new upload worker instance
-func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logger Logger, config UploadWorkerConfig) *UploadWorker {
+func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logger Logger, config UploadWorkerConfig, dataDir string) *UploadWorker {
 	// Apply defaults
 	if config.HeartbeatInterval == 0 {
 		config.HeartbeatInterval = 60 * time.Second
@@ -75,6 +76,7 @@ func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logg
 		client:            client,
 		store:             store,
 		logger:            logger,
+		dataDir:           dataDir,
 		heartbeatInterval: config.HeartbeatInterval,
 		uploadInterval:    config.UploadInterval,
 		retryAttempts:     config.RetryAttempts,
@@ -165,17 +167,36 @@ func (w *UploadWorker) ensureRegistered(ctx context.Context, version string) err
 		w.client.SetToken("")
 	}
 
-	// Register and get new token
-	w.logger.Info("Registering agent with server")
+	joinToken := ""
+	if w.dataDir != "" {
+		joinToken = LoadServerJoinToken(w.dataDir)
+	}
+
+	if joinToken == "" {
+		return fmt.Errorf("no join token found; re-run agent onboarding to provision a new join token")
+	}
+
+	w.logger.Info("Registering agent with server using join token")
 	regCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	token, err := w.client.Register(regCtx, version)
+	agentToken, tenantID, err := w.client.RegisterWithToken(regCtx, joinToken, version)
 	if err != nil {
-		return fmt.Errorf("registration failed: %w", err)
+		return fmt.Errorf("register-with-token failed: %w", err)
 	}
 
-	w.logger.Info("Agent registered successfully", "token", token[:8]+"...")
+	if w.dataDir != "" && agentToken != "" {
+		if err := SaveServerToken(w.dataDir, agentToken); err != nil {
+			w.logger.Warn("Failed to persist agent token", "error", err)
+		}
+	}
+
+	masked := agentToken
+	if len(masked) > 8 {
+		masked = agentToken[:8] + "..."
+	}
+
+	w.logger.Info("Agent registered successfully", "token", masked, "tenant_id", tenantID)
 	return nil
 }
 
