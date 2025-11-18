@@ -30,6 +30,7 @@ import (
 	commonutil "printmaster/common/util"
 	sharedweb "printmaster/common/web"
 	wscommon "printmaster/common/ws"
+	authz "printmaster/server/authz"
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
 	"runtime"
@@ -1452,6 +1453,19 @@ func contextWithPrincipal(ctx context.Context, user *storage.User) context.Conte
 	return context.WithValue(ctx, principalContextKey, principal)
 }
 
+func authorizeRequest(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
+	principal := getPrincipal(r)
+	if principal == nil {
+		return authz.ErrUnauthorized
+	}
+	subject := authz.Subject{
+		Role:             principal.Role,
+		AllowedTenantIDs: principal.AllowedTenantIDs(),
+		IsAdmin:          principal.IsAdmin(),
+	}
+	return authz.Authorize(subject, action, resource)
+}
+
 // handleUsers handles GET (list users) and POST (create user) for admin UI
 func handleUsers(w http.ResponseWriter, r *http.Request) {
 	principal := getPrincipal(r)
@@ -1985,6 +1999,9 @@ func setupRoutes(cfg *Config) {
 		featureEnabled = cfg.Tenancy.Enabled
 	}
 	tenancy.AuthMiddleware = requireWebAuth
+	tenancy.SetAuthorizer(func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
+		return authorizeRequest(r, action, resource)
+	})
 	tenancy.SetServerVersion(Version)
 	tenancy.SetEnabled(featureEnabled)
 	tenancy.SetAgentEventSink(func(eventType string, data map[string]interface{}) {

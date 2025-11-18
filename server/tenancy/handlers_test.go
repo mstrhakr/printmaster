@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	authz "printmaster/server/authz"
 )
 
 func enableTenancyForTest(t *testing.T) {
@@ -13,8 +15,16 @@ func enableTenancyForTest(t *testing.T) {
 	t.Cleanup(func() { SetEnabled(false) })
 }
 
+func allowAllAuthorizer(t *testing.T) {
+	SetAuthorizer(func(_ *http.Request, _ authz.Action, _ authz.ResourceRef) error {
+		return nil
+	})
+	t.Cleanup(func() { SetAuthorizer(nil) })
+}
+
 func TestHandleTenantsCreateAndList(t *testing.T) {
 	enableTenancyForTest(t)
+	allowAllAuthorizer(t)
 	// POST create
 	in := map[string]string{
 		"id":            "httpt",
@@ -67,6 +77,7 @@ func TestHandleTenantsCreateAndList(t *testing.T) {
 
 func TestHandleTenantUpdate(t *testing.T) {
 	enableTenancyForTest(t)
+	allowAllAuthorizer(t)
 	_, _ = store.CreateTenant(Tenant{ID: "update1", Name: "Original", ContactPhone: "123"})
 	payload := map[string]string{
 		"name":          "Updated Tenant",
@@ -91,6 +102,7 @@ func TestHandleTenantUpdate(t *testing.T) {
 
 func TestCreateJoinTokenAndRegister(t *testing.T) {
 	enableTenancyForTest(t)
+	allowAllAuthorizer(t)
 	// Ensure tenant exists
 	_, _ = store.CreateTenant(Tenant{ID: "regt", Name: "Reg Tenant"})
 
@@ -186,6 +198,7 @@ func TestRegisterWithTokenEmitsEvent(t *testing.T) {
 
 func TestListAndRevokeJoinTokens(t *testing.T) {
 	enableTenancyForTest(t)
+	allowAllAuthorizer(t)
 	// Ensure tenant exists and create token
 	_, _ = store.CreateTenant(Tenant{ID: "admint", Name: "Admin Tenant"})
 	jt, err := store.CreateJoinToken("admint", 5, false)

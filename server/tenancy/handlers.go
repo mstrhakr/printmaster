@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	authz "printmaster/server/authz"
 	"printmaster/server/storage"
 )
 
@@ -145,6 +146,9 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		if !authorizeOrReject(w, r, authz.ActionTenantsRead, authz.ResourceRef{}) {
+			return
+		}
 		if dbStore != nil {
 			list, err := dbStore.ListTenants(r.Context())
 			if err != nil {
@@ -160,6 +164,9 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
+		if !authorizeOrReject(w, r, authz.ActionTenantsWrite, authz.ResourceRef{}) {
+			return
+		}
 		var in tenantPayload
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -230,6 +237,9 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 	if id == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"error":"tenant id required"}`))
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionTenantsWrite, authz.ResourceRef{TenantIDs: []string{id}}) {
 		return
 	}
 	var in tenantPayload
@@ -317,6 +327,13 @@ func handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	if in.TTLMinutes <= 0 {
 		in.TTLMinutes = 60
 	}
+	resource := authz.ResourceRef{}
+	if strings.TrimSpace(in.TenantID) != "" {
+		resource.TenantIDs = []string{strings.TrimSpace(in.TenantID)}
+	}
+	if !authorizeOrReject(w, r, authz.ActionJoinTokensWrite, resource) {
+		return
+	}
 	if dbStore != nil {
 		jt, raw, err := dbStore.CreateJoinToken(r.Context(), in.TenantID, in.TTLMinutes, in.OneTime)
 		if err != nil {
@@ -367,6 +384,9 @@ func handleListJoinTokens(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"tenant_id required"}`))
 		return
 	}
+	if !authorizeOrReject(w, r, authz.ActionJoinTokensRead, authz.ResourceRef{TenantIDs: []string{tenantID}}) {
+		return
+	}
 	if dbStore != nil {
 		list, err := dbStore.ListJoinTokens(r.Context(), tenantID)
 		if err != nil {
@@ -396,6 +416,9 @@ func handleRevokeJoinToken(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionJoinTokensWrite, authz.ResourceRef{}) {
 		return
 	}
 	var in struct {
@@ -651,6 +674,9 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.TTLMinutes <= 0 {
 		in.TTLMinutes = 10
+	}
+	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{strings.TrimSpace(in.TenantID)}}) {
+		return
 	}
 	// Ensure tenant exists
 	if dbStore != nil {
