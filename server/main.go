@@ -3594,11 +3594,9 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := ensureInteractiveSession(w, r)
-	if !ok {
+	if _, ok := ensureInteractiveSession(w, r); !ok {
 		return
 	}
-	r = r.WithContext(contextWithPrincipal(r.Context(), user))
 
 	tmpl, err := template.ParseFS(webFS, "web/index.html")
 	if err != nil {

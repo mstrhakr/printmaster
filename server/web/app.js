@@ -1,6 +1,7 @@
 // PrintMaster Server - Web UI JavaScript
 
-const ROLE_PRIORITY = { admin: 3, operator: 2, viewer: 1 };
+const RBAC = (typeof window !== 'undefined' && window.__pm_rbac) ? window.__pm_rbac : null;
+const ROLE_PRIORITY = RBAC && RBAC.ROLE_PRIORITY ? RBAC.ROLE_PRIORITY : { admin: 3, operator: 2, viewer: 1 };
 const BASE_TAB_LABELS = {
     agents: 'Agents',
     devices: 'Devices',
@@ -42,11 +43,17 @@ let logSubtabsInitialized = false;
 let activeLogView = 'system';
 
 function normalizeRole(role) {
+    if (RBAC && typeof RBAC.normalizeRole === 'function') {
+        return RBAC.normalizeRole(role);
+    }
     return (role || '').toString().toLowerCase();
 }
 
 function userHasRole(minRole) {
     if (!currentUser) return false;
+    if (RBAC && typeof RBAC.userHasRequiredRole === 'function') {
+        return RBAC.userHasRequiredRole(currentUser.role, minRole);
+    }
     const current = ROLE_PRIORITY[normalizeRole(currentUser.role)] || 0;
     const required = ROLE_PRIORITY[normalizeRole(minRole)] || 0;
     return current >= required;

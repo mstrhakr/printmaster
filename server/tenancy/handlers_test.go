@@ -22,6 +22,74 @@ func allowAllAuthorizer(t *testing.T) {
 	t.Cleanup(func() { SetAuthorizer(nil) })
 }
 
+func setupTenancyServer(t *testing.T) *httptest.Server {
+	enableTenancyForTest(t)
+	store = NewInMemoryStore()
+	AuthMiddleware = func(next http.HandlerFunc) http.HandlerFunc {
+		return next
+	}
+	mux := http.NewServeMux()
+	RegisterRoutesOnMux(mux, nil)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(func() {
+		ts.Close()
+		AuthMiddleware = nil
+		SetAuthorizer(nil)
+	})
+	return ts
+}
+
+func TestHandleTenantsAuthorizationFailures(t *testing.T) {
+	enableTenancyForTest(t)
+	SetAuthorizer(func(_ *http.Request, _ authz.Action, _ authz.ResourceRef) error {
+		return authz.ErrForbidden
+	})
+	t.Cleanup(func() { SetAuthorizer(nil) })
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants", nil)
+	rw := httptest.NewRecorder()
+	handleTenants(rw, req)
+	if rw.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 got %d", rw.Code)
+	}
+
+	SetAuthorizer(func(_ *http.Request, _ authz.Action, _ authz.ResourceRef) error {
+		return authz.ErrUnauthorized
+	})
+	rw = httptest.NewRecorder()
+	handleTenants(rw, req)
+	if rw.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 got %d", rw.Code)
+	}
+}
+
+func TestHandleTenantUpdateScopesAuthorization(t *testing.T) {
+	enableTenancyForTest(t)
+	_, _ = store.CreateTenant(Tenant{ID: "scope-tenant", Name: "Scope"})
+	called := false
+	SetAuthorizer(func(_ *http.Request, action authz.Action, resource authz.ResourceRef) error {
+		if action != authz.ActionTenantsWrite {
+			t.Fatalf("unexpected action: %s", action)
+		}
+		if len(resource.TenantIDs) != 1 || resource.TenantIDs[0] != "scope-tenant" {
+			t.Fatalf("unexpected tenant scope: %+v", resource.TenantIDs)
+		}
+		called = true
+		return nil
+	})
+	t.Cleanup(func() { SetAuthorizer(nil) })
+	payload := map[string]string{"name": "Scoped"}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/tenants/scope-tenant", bytes.NewReader(body))
+	rw := httptest.NewRecorder()
+	handleTenantByID(rw, req)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d", rw.Code)
+	}
+	if !called {
+		t.Fatalf("authorizer not invoked")
+	}
+}
+
 func TestHandleTenantsCreateAndList(t *testing.T) {
 	enableTenancyForTest(t)
 	allowAllAuthorizer(t)
@@ -72,6 +140,67 @@ func TestHandleTenantsCreateAndList(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("created tenant not found in list")
+	}
+}
+
+func TestHTTPRoutesEnforceAuthorization(t *testing.T) {
+	ts := setupTenancyServer(t)
+	SetAuthorizer(func(_ *http.Request, _ authz.Action, _ authz.ResourceRef) error {
+		return authz.ErrForbidden
+	})
+	resp, err := http.Get(ts.URL + "/api/v1/tenants")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403 got %d", resp.StatusCode)
+	}
+
+	SetAuthorizer(func(_ *http.Request, _ authz.Action, _ authz.ResourceRef) error {
+		return nil
+	})
+	resp, err = http.Get(ts.URL + "/api/v1/tenants")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 got %d", resp.StatusCode)
+	}
+}
+
+func TestHTTPRoutesTenantScopedWrite(t *testing.T) {
+	ts := setupTenancyServer(t)
+	_, _ = store.CreateTenant(Tenant{ID: "route-scope", Name: "Route"})
+	called := false
+	SetAuthorizer(func(_ *http.Request, action authz.Action, resource authz.ResourceRef) error {
+		if action != authz.ActionTenantsWrite {
+			t.Fatalf("unexpected action: %s", action)
+		}
+		if len(resource.TenantIDs) != 1 || resource.TenantIDs[0] != "route-scope" {
+			t.Fatalf("unexpected resource scope: %+v", resource.TenantIDs)
+		}
+		called = true
+		return nil
+	})
+	payload := map[string]string{"name": "Updated"}
+	body, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPut, ts.URL+"/api/v1/tenants/route-scope", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 got %d", resp.StatusCode)
+	}
+	if !called {
+		t.Fatalf("authorizer not invoked")
 	}
 }
 
