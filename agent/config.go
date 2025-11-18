@@ -207,6 +207,37 @@ func SaveServerToken(dataDir, token string) error {
 	return os.WriteFile(tokenPath, []byte(token), 0600)
 }
 
+// LoadServerJoinToken loads the stored server join token from disk (if any).
+func LoadServerJoinToken(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	tokenPath := filepath.Join(dataDir, "server_join_token")
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// SaveServerJoinToken persists the join token so the agent can re-register later.
+func SaveServerJoinToken(dataDir, token string) error {
+	if dataDir == "" {
+		return fmt.Errorf("data directory not specified for join token storage")
+	}
+	tokenPath := filepath.Join(dataDir, "server_join_token")
+	if token == "" {
+		if err := os.Remove(tokenPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(tokenPath, []byte(token), 0600)
+}
+
 // LoadOrGenerateAgentID loads the agent ID from file or generates a new UUID
 func LoadOrGenerateAgentID(dataDir string) (string, error) {
 	idPath := filepath.Join(dataDir, "agent_id")
