@@ -418,6 +418,53 @@ func TestSaveServerTokenCreatesDirectory(t *testing.T) {
 	}
 }
 
+func TestLoadServerJoinToken(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+
+	if token := LoadServerJoinToken(tempDir); token != "" {
+		t.Fatalf("expected empty token for missing file, got %s", token)
+	}
+
+	expected := "join-token-abc"
+	path := filepath.Join(tempDir, "server_join_token")
+	if err := os.WriteFile(path, []byte("  "+expected+"  \n"), 0600); err != nil {
+		t.Fatalf("failed to write join token: %v", err)
+	}
+
+	if token := LoadServerJoinToken(tempDir); token != expected {
+		t.Fatalf("expected %s, got %s", expected, token)
+	}
+}
+
+func TestSaveServerJoinToken(t *testing.T) {
+	t.Parallel()
+
+	if err := SaveServerJoinToken("", "abc"); err == nil {
+		t.Fatal("expected error when data directory is empty")
+	}
+
+	tempDir := t.TempDir()
+	joinToken := "join-token-xyz"
+	if err := SaveServerJoinToken(tempDir, joinToken); err != nil {
+		t.Fatalf("failed to save join token: %v", err)
+	}
+
+	if token := LoadServerJoinToken(tempDir); token != joinToken {
+		t.Fatalf("expected %s, got %s", joinToken, token)
+	}
+
+	if err := SaveServerJoinToken(tempDir, ""); err != nil {
+		t.Fatalf("expected nil error when clearing join token, got %v", err)
+	}
+
+	path := filepath.Join(tempDir, "server_join_token")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected join token file to be removed, err=%v", err)
+	}
+}
+
 func TestAgentConfigTOMLRoundTrip(t *testing.T) {
 	t.Parallel()
 
