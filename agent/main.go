@@ -2322,7 +2322,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 				UseWebSocket:      true, // Enable WebSocket for live heartbeat
 			}
 
-			uploadWorker = NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig)
+			uploadWorker = NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig, dataDir)
 
 			// Start worker (will register if needed)
 			if err := uploadWorker.Start(ctx, Version); err != nil {
@@ -4883,9 +4883,14 @@ window.top.location.href = '/proxy/%s/';
 
 		// Save the agent token to disk
 		if err := SaveServerToken(dataDir, agentToken); err != nil {
-			// non-fatal, but report
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to save server token"}`))
+			return
+		}
+
+		if err := SaveServerJoinToken(dataDir, in.Token); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to save join token"}`))
 			return
 		}
 
