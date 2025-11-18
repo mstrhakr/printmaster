@@ -55,6 +55,64 @@ func setupTestServer(t *testing.T) (*httptest.Server, storage.Store) {
 	return server, store
 }
 
+func TestHandleWebUI_RedirectsWhenUnauthenticated(t *testing.T) {
+	// Note: not parallel due to global serverStore mutation
+	prevStore := serverStore
+	serverStore = nil
+	t.Cleanup(func() { serverStore = prevStore })
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	resp := httptest.NewRecorder()
+
+	handleWebUI(resp, req)
+
+	result := resp.Result()
+	if result.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302 redirect, got %d", result.StatusCode)
+	}
+	location := result.Header.Get("Location")
+	if location != "/login?redirect=%2F" {
+		t.Fatalf("expected redirect to /login with redirect param, got %s", location)
+	}
+}
+
+func TestHandleWebUI_ServesForAuthenticatedUser(t *testing.T) {
+	// Note: not parallel due to global serverStore mutation
+	store, err := storage.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	prevStore := serverStore
+	serverStore = store
+	t.Cleanup(func() { serverStore = prevStore })
+
+	ctx := context.Background()
+	user := &storage.User{Username: "admin", Role: storage.RoleAdmin}
+	if err := store.CreateUser(ctx, user, "password"); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+	session, err := store.CreateSession(ctx, user.ID, 1)
+	if err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	req.AddCookie(&http.Cookie{Name: "pm_session", Value: session.Token})
+	resp := httptest.NewRecorder()
+
+	handleWebUI(resp, req)
+
+	result := resp.Result()
+	if result.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", result.StatusCode)
+	}
+	if ct := result.Header.Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Fatalf("expected text/html response, got %s", ct)
+	}
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -528,6 +586,68 @@ func TestExtractClientIP(t *testing.T) {
 			ip := extractClientIP(req)
 			if ip != tt.expectedIP {
 				t.Errorf("Expected IP %s, got %s", tt.expectedIP, ip)
+			}
+		})
+	}
+}
+
+func TestParseDeviceProxyPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		prefix     string
+		serial     string
+		targetPath string
+		err        bool
+	}{
+		{
+			name:       "API path root",
+			path:       "/api/v1/proxy/device/X7GT003032/",
+			prefix:     "/api/v1/proxy/device/",
+			serial:     "X7GT003032",
+			targetPath: "/",
+		},
+		{
+			name:       "Legacy device prefix",
+			path:       "/proxy/device/X7GT003032/info/panel",
+			prefix:     "/proxy/",
+			serial:     "X7GT003032",
+			targetPath: "/info/panel",
+		},
+		{
+			name:       "Legacy root",
+			path:       "/proxy/X7GT003032/status",
+			prefix:     "/proxy/",
+			serial:     "X7GT003032",
+			targetPath: "/status",
+		},
+		{
+			name:   "Missing serial",
+			path:   "/proxy/",
+			prefix: "/proxy/",
+			err:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serial, target, err := parseDeviceProxyPath(tt.path, tt.prefix)
+			if tt.err {
+				if err == nil {
+					t.Fatalf("Expected error but got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if serial != tt.serial {
+				t.Fatalf("Serial mismatch: want %s got %s", tt.serial, serial)
+			}
+			if target != tt.targetPath {
+				t.Fatalf("Target mismatch: want %s got %s", tt.targetPath, target)
 			}
 		})
 	}

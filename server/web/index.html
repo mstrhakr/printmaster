@@ -552,6 +552,55 @@
         </div>
     </div>
 
+    <!-- Tenant Modal -->
+    <div class="modal" id="tenant_modal" style="display:none;">
+        <div class="modal-content" style="max-width:520px;">
+            <div class="modal-header">
+                <span class="modal-title" id="tenant_modal_title">New Customer</span>
+                <button class="modal-close-x" id="tenant_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:10px;">
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Customer Name
+                    <input id="tenant_name" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="Acme Corp" />
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Business Unit / Site
+                    <input id="tenant_business_unit" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="North Campus" />
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Contact Name
+                    <input id="tenant_contact_name" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="Jane Smith" />
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Contact Email
+                    <input id="tenant_contact_email" type="email" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="jane@example.com" />
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Contact Phone
+                    <input id="tenant_contact_phone" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="+1 800 555 1234" />
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Billing / Reference Code
+                    <input id="tenant_billing_code" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="ACME-OPS-01" />
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Address
+                    <textarea id="tenant_address" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;"></textarea>
+                </label>
+                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
+                    Notes
+                    <textarea id="tenant_description" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;"></textarea>
+                </label>
+                <div id="tenant_error" style="color:var(--danger);display:none;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="tenant_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="tenant_save">Create</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/sso-admin.js"></script>
     <script src="/static/app.js"></script>
 

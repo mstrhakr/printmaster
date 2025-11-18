@@ -12,7 +12,7 @@ func TestCreateAndValidateJoinToken(t *testing.T) {
 	}
 
 	// Create a tenant
-	tnt, err := store.CreateTenant("testt", "Test Tenant", "")
+	tnt, err := store.CreateTenant(Tenant{ID: "testt", Name: "Test Tenant", ContactEmail: "ops@example.com"})
 	if err != nil {
 		t.Fatalf("CreateTenant failed: %v", err)
 	}
@@ -47,11 +47,11 @@ func TestCreateAndValidateJoinToken(t *testing.T) {
 
 func TestListTenants(t *testing.T) {
 	// Create a couple tenants
-	_, err := store.CreateTenant("t1", "One", "")
+	_, err := store.CreateTenant(Tenant{ID: "t1", Name: "One"})
 	if err != nil {
 		t.Fatalf("CreateTenant t1: %v", err)
 	}
-	_, err = store.CreateTenant("t2", "Two", "")
+	_, err = store.CreateTenant(Tenant{ID: "t2", Name: "Two"})
 	if err != nil {
 		t.Fatalf("CreateTenant t2: %v", err)
 	}
@@ -66,5 +66,22 @@ func TestListTenants(t *testing.T) {
 		if time.Since(tnt.CreatedAt) < 0 {
 			t.Fatalf("tenant has future created_at")
 		}
+	}
+}
+
+func TestUpdateTenant(t *testing.T) {
+	original, err := store.CreateTenant(Tenant{Name: "UpdateMe"})
+	if err != nil {
+		t.Fatalf("CreateTenant failed: %v", err)
+	}
+	original.ContactName = "Jane Doe"
+	original.ContactEmail = "jane@example.com"
+	original.BusinessUnit = "Healthcare"
+	updated, err := store.UpdateTenant(original)
+	if err != nil {
+		t.Fatalf("UpdateTenant failed: %v", err)
+	}
+	if updated.ContactEmail != "jane@example.com" {
+		t.Fatalf("contact email not updated")
 	}
 }

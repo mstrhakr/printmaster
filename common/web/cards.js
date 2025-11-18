@@ -452,7 +452,7 @@
 
             if (action === 'open-proxy') {
                 const serial = btn.getAttribute('data-serial');
-                window.open('/proxy/' + encodeURIComponent(serial) + '/', '_blank');
+                window.__pm_shared.openDeviceUI(serial);
                 return;
             }
 

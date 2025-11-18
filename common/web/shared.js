@@ -716,33 +716,54 @@ function showPrompt(message, defaultValue = '', title = 'Input') {
             `;
             document.body.appendChild(modal);
 
-            // Close handlers
-            modal.querySelector('#prompt_modal_close_x').addEventListener('click', () => { modal.style.display = 'none'; resolve(null); });
-            modal.querySelector('#prompt_modal_cancel').addEventListener('click', () => { modal.style.display = 'none'; resolve(null); });
-            modal.addEventListener('click', (e) => { if (e.target === modal) { modal.style.display = 'none'; resolve(null); } });
         }
 
         const titleEl = document.getElementById('prompt_modal_title');
         const messageEl = document.getElementById('prompt_modal_message');
         const inputEl = document.getElementById('prompt_modal_input');
         const okBtn = document.getElementById('prompt_modal_ok');
+        const closeBtn = document.getElementById('prompt_modal_close_x');
+        const cancelBtn = document.getElementById('prompt_modal_cancel');
 
         titleEl.textContent = title;
         messageEl.textContent = message;
         inputEl.value = defaultValue || '';
 
-        // OK handler
-        const onOk = () => {
-            const val = inputEl.value;
+        let closed = false;
+        const finalize = (result) => {
+            if (closed) return;
+            closed = true;
+            modal.style.display = 'none';
             cleanup();
-            resolve(val);
+            resolve(result);
         };
+        const onBackdropClick = (event) => {
+            if (event.target === modal) {
+                finalize(null);
+            }
+        };
+        const onOk = () => finalize(inputEl.value);
+        const onKeyDown = (event) => {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                onOk();
+            }
+        };
+        const onDismiss = () => finalize(null);
 
         function cleanup() {
             try { okBtn.removeEventListener('click', onOk); } catch (e) {}
+            try { inputEl.removeEventListener('keydown', onKeyDown); } catch (e) {}
+            try { modal.removeEventListener('click', onBackdropClick); } catch (e) {}
+            if (closeBtn) { try { closeBtn.removeEventListener('click', onDismiss); } catch (e) {} }
+            if (cancelBtn) { try { cancelBtn.removeEventListener('click', onDismiss); } catch (e) {} }
         }
 
         okBtn.addEventListener('click', onOk);
+        inputEl.addEventListener('keydown', onKeyDown);
+        modal.addEventListener('click', onBackdropClick);
+        if (closeBtn) closeBtn.addEventListener('click', onDismiss);
+        if (cancelBtn) cancelBtn.addEventListener('click', onDismiss);
 
         // Show modal and focus input
         modal.style.display = 'flex';

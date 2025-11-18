@@ -163,29 +163,26 @@ type ServerConfig struct {
 ```go
 func (w *UploadWorker) ensureRegistered(ctx context.Context) error {
     if w.config.Token != "" {
-        // Already have token, validate it
         if err := w.client.Heartbeat(ctx); err == nil {
-            return nil // Token is valid
+            return nil
         }
-        // Token invalid, re-register
+        // Token invalid, request a new one using the stored join token
         w.config.Token = ""
     }
-    
-    // Register and get token
-    token, err := w.client.Register(ctx, Version)
-    if err != nil {
-        return fmt.Errorf("registration failed: %w", err)
+
+    joinToken := loadJoinTokenFromDisk()
+    if joinToken == "" {
+        return fmt.Errorf("join token missing; agent must be re-onboarded")
     }
-    
+
+    token, _, err := w.client.RegisterWithToken(ctx, joinToken, Version)
+    if err != nil {
+        return fmt.Errorf("register-with-token failed: %w", err)
+    }
+
     w.config.Token = token
     w.client.SetToken(token)
-    
-    // Persist token for future restarts
-    if err := agentConfigStore.SetConfigValue("server_config", w.config); err != nil {
-        log.Warn("Failed to persist token", "error", err)
-        // Non-fatal, token still in memory
-    }
-    
+    persistToken(token)
     return nil
 }
 ```

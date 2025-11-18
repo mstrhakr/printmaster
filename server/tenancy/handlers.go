@@ -31,6 +31,15 @@ func SetEnabled(enabled bool) {
 	tenancyEnabled = enabled
 }
 
+// agentEventSink, when configured, receives lifecycle events so the server can fan out
+// updates (e.g., via SSE) to the UI without this package importing higher layers.
+var agentEventSink func(eventType string, data map[string]interface{})
+
+// SetAgentEventSink registers a callback invoked for agent lifecycle events.
+func SetAgentEventSink(sink func(eventType string, data map[string]interface{})) {
+	agentEventSink = sink
+}
+
 // AuthMiddleware, when set by the main application, will be used to wrap
 // tenancy handlers so they can enforce authentication/authorization.
 // Set to nil to leave routes unprotected (not recommended).
@@ -42,6 +51,18 @@ type installEntry struct {
 	Filename  string
 	ExpiresAt time.Time
 	OneTime   bool
+}
+
+type tenantPayload struct {
+	ID           string `json:"id,omitempty"`
+	Name         string `json:"name"`
+	Description  string `json:"description,omitempty"`
+	ContactName  string `json:"contact_name,omitempty"`
+	ContactEmail string `json:"contact_email,omitempty"`
+	ContactPhone string `json:"contact_phone,omitempty"`
+	BusinessUnit string `json:"business_unit,omitempty"`
+	BillingCode  string `json:"billing_code,omitempty"`
+	Address      string `json:"address,omitempty"`
 }
 
 var installStore = struct {
@@ -98,6 +119,7 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	}
 
 	mux.HandleFunc("/api/v1/tenants", wrap(handleTenants))
+	mux.HandleFunc("/api/v1/tenants/", wrap(handleTenantByID))
 	mux.HandleFunc("/api/v1/join-token", wrap(handleCreateJoinToken))
 	mux.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken) // registration must remain public
 	mux.HandleFunc("/api/v1/join-tokens", wrap(handleListJoinTokens))             // GET (admin)
@@ -138,18 +160,29 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
-		var in struct {
-			ID          string `json:"id,omitempty"`
-			Name        string `json:"name"`
-			Description string `json:"description,omitempty"`
-		}
+		var in tenantPayload
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(`{"error":"invalid json"}`))
 			return
 		}
+		if strings.TrimSpace(in.Name) == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"name required"}`))
+			return
+		}
 		if dbStore != nil {
-			tn := &storage.Tenant{ID: in.ID, Name: in.Name, Description: in.Description}
+			tn := &storage.Tenant{
+				ID:           in.ID,
+				Name:         in.Name,
+				Description:  in.Description,
+				ContactName:  in.ContactName,
+				ContactEmail: in.ContactEmail,
+				ContactPhone: in.ContactPhone,
+				BusinessUnit: in.BusinessUnit,
+				BillingCode:  in.BillingCode,
+				Address:      in.Address,
+			}
 			if tn.ID == "" {
 				// Let storage layer generate ID via SQL default
 			}
@@ -162,7 +195,17 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(tn)
 			return
 		}
-		t, err := store.CreateTenant(in.ID, in.Name, in.Description)
+		t, err := store.CreateTenant(Tenant{
+			ID:           in.ID,
+			Name:         in.Name,
+			Description:  in.Description,
+			ContactName:  in.ContactName,
+			ContactEmail: in.ContactEmail,
+			ContactPhone: in.ContactPhone,
+			BusinessUnit: in.BusinessUnit,
+			BillingCode:  in.BillingCode,
+			Address:      in.Address,
+		})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to create tenant"}`))
@@ -173,6 +216,83 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func handleTenantByID(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
+	if r.Method != http.MethodPut {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/")
+	if id == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"tenant id required"}`))
+		return
+	}
+	var in tenantPayload
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"invalid json"}`))
+		return
+	}
+	if strings.TrimSpace(in.Name) == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"name required"}`))
+		return
+	}
+	if dbStore != nil {
+		tn, err := dbStore.GetTenant(r.Context(), id)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":"tenant not found"}`))
+			return
+		}
+		tn.Name = in.Name
+		tn.Description = in.Description
+		tn.ContactName = in.ContactName
+		tn.ContactEmail = in.ContactEmail
+		tn.ContactPhone = in.ContactPhone
+		tn.BusinessUnit = in.BusinessUnit
+		tn.BillingCode = in.BillingCode
+		tn.Address = in.Address
+		if err := dbStore.UpdateTenant(r.Context(), tn); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to update tenant"}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tn)
+		return
+	}
+	existing, ok := store.tenants[id]
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error":"tenant not found"}`))
+		return
+	}
+	updated := Tenant{
+		ID:           existing.ID,
+		Name:         in.Name,
+		Description:  in.Description,
+		ContactName:  in.ContactName,
+		ContactEmail: in.ContactEmail,
+		ContactPhone: in.ContactPhone,
+		BusinessUnit: in.BusinessUnit,
+		BillingCode:  in.BillingCode,
+		Address:      in.Address,
+		CreatedAt:    existing.CreatedAt,
+	}
+	res, err := store.UpdateTenant(updated)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"failed to update tenant"}`))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(res)
 }
 
 // handleCreateJoinToken issues a join token. Body: {"tenant_id":"...","ttl_minutes":60,"one_time":false}
@@ -394,6 +514,8 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		emitAgentEvent("agent_registered", ag)
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success":     true,
@@ -423,12 +545,85 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	placeholder := base64.URLEncoding.EncodeToString(b)
+	now := time.Now().UTC()
+	emitAgentEvent("agent_registered", &storage.Agent{
+		AgentID:         in.AgentID,
+		Name:            in.Name,
+		Hostname:        in.Hostname,
+		IP:              in.IP,
+		Platform:        in.Platform,
+		Version:         in.AgentVersion,
+		ProtocolVersion: in.ProtocolVersion,
+		Status:          "active",
+		RegisteredAt:    now,
+		LastSeen:        now,
+		OSVersion:       in.OSVersion,
+		GoVersion:       in.GoVersion,
+		Architecture:    in.Architecture,
+		NumCPU:          in.NumCPU,
+		TotalMemoryMB:   in.TotalMemoryMB,
+		BuildType:       in.BuildType,
+		GitCommit:       in.GitCommit,
+		TenantID:        jt.TenantID,
+	})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":     true,
 		"tenant_id":   jt.TenantID,
 		"agent_token": placeholder,
 	})
+}
+
+func emitAgentEvent(eventType string, agent *storage.Agent) {
+	if agentEventSink == nil || agent == nil {
+		return
+	}
+	registeredAt := agent.RegisteredAt
+	if registeredAt.IsZero() {
+		registeredAt = time.Now().UTC()
+	}
+	lastSeen := agent.LastSeen
+	if lastSeen.IsZero() {
+		lastSeen = registeredAt
+	}
+	payload := map[string]interface{}{
+		"agent_id":         agent.AgentID,
+		"name":             agent.Name,
+		"hostname":         agent.Hostname,
+		"ip":               agent.IP,
+		"platform":         agent.Platform,
+		"version":          agent.Version,
+		"protocol_version": agent.ProtocolVersion,
+		"status":           agent.Status,
+		"registered_at":    registeredAt,
+		"last_seen":        lastSeen,
+		"connection_type":  "none",
+	}
+	if agent.TenantID != "" {
+		payload["tenant_id"] = agent.TenantID
+	}
+	if agent.OSVersion != "" {
+		payload["os_version"] = agent.OSVersion
+	}
+	if agent.Architecture != "" {
+		payload["architecture"] = agent.Architecture
+	}
+	if agent.BuildType != "" {
+		payload["build_type"] = agent.BuildType
+	}
+	if agent.GitCommit != "" {
+		payload["git_commit"] = agent.GitCommit
+	}
+	if agent.GoVersion != "" {
+		payload["go_version"] = agent.GoVersion
+	}
+	if agent.NumCPU > 0 {
+		payload["num_cpu"] = agent.NumCPU
+	}
+	if agent.TotalMemoryMB > 0 {
+		payload["total_memory_mb"] = agent.TotalMemoryMB
+	}
+	agentEventSink(eventType, payload)
 }
 
 // handleGeneratePackage creates a bootstrap package/script for an agent to
@@ -517,21 +712,118 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		case "windows", "win", "windows_nt":
 			filename = "install.ps1"
 			pwTemplate := `# PowerShell bootstrap for PrintMaster
-$server = "%s"
-$token = "%s"
-Write-Host "Downloading agent..."
-Invoke-WebRequest -Uri "$server/api/v1/agents/download/latest" -OutFile "C:\\Program Files\\PrintMaster\\pm-agent.exe" -UseBasicParsing
-# Create config and launch agent
-New-Item -ItemType Directory -Force -Path 'C:\\ProgramData\\PrintMaster' | Out-Null
-$conf = '{"server_url":"' + $server + '","join_token":"' + $token + '"}'
-Set-Content -Path 'C:\\ProgramData\\PrintMaster\\pm-config.json' -Value $conf
-# Try to start the agent (best-effort)
-try {
-	Start-Process -FilePath "C:\\Program Files\\PrintMaster\\pm-agent.exe" -ArgumentList "--config C:\\ProgramData\\PrintMaster\\pm-config.json" -NoNewWindow
-} catch {
-	Write-Host "Failed to start agent: $_"
-}
-`
+	$ErrorActionPreference = "Stop"
+	$server = "%s"
+	$token = "%s"
+
+	function Assert-Administrator {
+		$current = [Security.Principal.WindowsIdentity]::GetCurrent()
+		$principal = New-Object Security.Principal.WindowsPrincipal($current)
+		if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+			Write-Error "This installer must be run from an elevated PowerShell session."
+			exit 1
+		}
+	}
+
+	function Set-RelaxedCertificatePolicy {
+		try {
+			[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+			[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+		} catch {
+			Write-Warning "Unable to relax certificate validation: $_"
+		}
+	}
+
+	Assert-Administrator
+	Set-RelaxedCertificatePolicy
+
+	$programFiles = ${env:ProgramFiles}
+	if ([string]::IsNullOrWhiteSpace($programFiles)) {
+		$programFiles = "C:\\Program Files"
+	}
+	$programData = ${env:ProgramData}
+	if ([string]::IsNullOrWhiteSpace($programData)) {
+		$programData = "C:\\ProgramData"
+	}
+
+	$agentDir = Join-Path $programFiles "PrintMaster"
+	$agentExe = Join-Path $agentDir "printmaster-agent.exe"
+	$dataRoot = Join-Path $programData "PrintMaster"
+	$configDir = Join-Path $dataRoot "agent"
+	$configPath = Join-Path $configDir "config.toml"
+
+	Write-Host "Preparing directories..."
+	New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
+	New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+
+	Write-Host "Downloading agent binary..."
+	try {
+		$downloadParams = @{
+			Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64"
+			OutFile = $agentExe
+			ErrorAction = 'Stop'
+		}
+		try {
+			$invokeCmd = Get-Command Invoke-WebRequest -ErrorAction Stop
+			if ($invokeCmd.Parameters.Keys -contains 'UseBasicParsing') {
+				$downloadParams.UseBasicParsing = $true
+			}
+			if ($invokeCmd.Parameters.Keys -contains 'SkipCertificateCheck') {
+				$downloadParams.SkipCertificateCheck = $true
+			}
+		} catch {
+			# Fall back to relaxed certificate policy only
+		}
+		Invoke-WebRequest @downloadParams
+	} catch {
+		Write-Error "Failed to download agent: $_"
+		exit 1
+	}
+
+	if (-not (Test-Path $agentExe)) {
+		Write-Error "Agent binary missing after download."
+		exit 1
+	}
+
+	try {
+		Unblock-File -Path $agentExe -ErrorAction SilentlyContinue
+	} catch {
+		# Ignore if Unblock-File is unavailable
+	}
+
+	$agentName = $env:COMPUTERNAME
+	if ([string]::IsNullOrWhiteSpace($agentName)) {
+		$agentName = "windows-agent"
+	}
+
+	Write-Host "Writing configuration to $configPath"
+	$configContent = @"
+	[server]
+	enabled = true
+	url = "$server"
+	name = "$agentName"
+	token = "$token"
+	insecure_skip_verify = true
+	"@
+	Set-Content -Path $configPath -Value $configContent -Encoding UTF8
+
+	Write-Host "Installing PrintMaster Agent service..."
+	& $agentExe --service install
+	if ($LASTEXITCODE -ne 0) {
+		Write-Error "Service installation failed with exit code $LASTEXITCODE"
+		exit $LASTEXITCODE
+	}
+
+	Write-Host "Starting PrintMaster Agent service..."
+	& $agentExe --service start
+	if ($LASTEXITCODE -ne 0) {
+		Write-Warning "Service installed but failed to start (exit code $LASTEXITCODE). Use 'Get-Service PrintMasterAgent' for status."
+	} else {
+		Write-Host "PrintMaster Agent service is running."
+		Write-Host "Configuration: $configPath"
+		Write-Host "Logs:        $(Join-Path $configDir 'logs')"
+	}
+	`
 			script = fmt.Sprintf(pwTemplate, serverURL, rawToken)
 		default:
 			// linux / darwin

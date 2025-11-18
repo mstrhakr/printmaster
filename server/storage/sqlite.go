@@ -28,7 +28,7 @@ type SQLiteStore struct {
 	dbPath string
 }
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Optional package-level logger that can be set by the application (server)
 var Log *logger.Logger
@@ -187,6 +187,12 @@ func (s *SQLiteStore) initSchema() error {
 		id TEXT PRIMARY KEY,
 		name TEXT NOT NULL,
 		description TEXT,
+		contact_name TEXT,
+		contact_email TEXT,
+		contact_phone TEXT,
+		business_unit TEXT,
+		billing_code TEXT,
+		address TEXT,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 
@@ -314,6 +320,12 @@ func (s *SQLiteStore) initSchema() error {
 		"ALTER TABLE devices ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE metrics_history ADD COLUMN tenant_id TEXT",
 		"ALTER TABLE oidc_providers ADD COLUMN tenant_id TEXT",
+		"ALTER TABLE tenants ADD COLUMN contact_name TEXT",
+		"ALTER TABLE tenants ADD COLUMN contact_email TEXT",
+		"ALTER TABLE tenants ADD COLUMN contact_phone TEXT",
+		"ALTER TABLE tenants ADD COLUMN business_unit TEXT",
+		"ALTER TABLE tenants ADD COLUMN billing_code TEXT",
+		"ALTER TABLE tenants ADD COLUMN address TEXT",
 		"ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
 		"ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE agents ADD COLUMN os_version TEXT",
@@ -599,15 +611,52 @@ func (s *SQLiteStore) CreateTenant(ctx context.Context, tenant *Tenant) error {
 		tenant.CreatedAt = time.Now().UTC()
 	}
 
-	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO tenants (id, name, description, created_at) VALUES (?, ?, ?, ?)`,
-		tenant.ID, tenant.Name, tenant.Description, tenant.CreatedAt)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO tenants (
+		id, name, description, contact_name, contact_email, contact_phone,
+		business_unit, billing_code, address, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		tenant.ID, tenant.Name, tenant.Description, tenant.ContactName, tenant.ContactEmail,
+		tenant.ContactPhone, tenant.BusinessUnit, tenant.BillingCode, tenant.Address, tenant.CreatedAt)
 	return err
 }
 
+func (s *SQLiteStore) UpdateTenant(ctx context.Context, tenant *Tenant) error {
+	if tenant == nil {
+		return fmt.Errorf("tenant required")
+	}
+	if tenant.ID == "" {
+		return fmt.Errorf("tenant id required")
+	}
+
+	res, err := s.db.ExecContext(ctx, `UPDATE tenants SET
+		name = ?,
+		description = ?,
+		contact_name = ?,
+		contact_email = ?,
+		contact_phone = ?,
+		business_unit = ?,
+		billing_code = ?,
+		address = ?
+	WHERE id = ?`,
+		tenant.Name, tenant.Description, tenant.ContactName, tenant.ContactEmail, tenant.ContactPhone,
+		tenant.BusinessUnit, tenant.BillingCode, tenant.Address, tenant.ID)
+	if err != nil {
+		return err
+	}
+	if rows, err := res.RowsAffected(); err == nil {
+		if rows == 0 {
+			return sql.ErrNoRows
+		}
+	} else {
+		return err
+	}
+	return nil
+}
+
 func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, created_at FROM tenants WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, created_at FROM tenants WHERE id = ?`, id)
 	var t Tenant
-	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.CreatedAt)
+	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -615,7 +664,7 @@ func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error)
 }
 
 func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, created_at FROM tenants ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, created_at FROM tenants ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +672,7 @@ func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
 	var res []*Tenant
 	for rows.Next() {
 		var t Tenant
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		res = append(res, &t)

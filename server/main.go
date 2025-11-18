@@ -1231,43 +1231,103 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+var (
+	errSessionMissing = errors.New("session token missing")
+	errSessionInvalid = errors.New("session invalid")
+	errSessionUser    = errors.New("session user invalid")
+)
+
+func sessionTokenFromRequest(r *http.Request) string {
+	if ah := r.Header.Get("Authorization"); ah != "" {
+		parts := strings.SplitN(ah, " ", 2)
+		if len(parts) == 2 && parts[0] == "Bearer" {
+			return parts[1]
+		}
+	}
+	if c, err := r.Cookie("pm_session"); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+func loadUserForSessionToken(token string) (*storage.User, error) {
+	if token == "" {
+		return nil, errSessionMissing
+	}
+	ctx := context.Background()
+	ses, err := serverStore.GetSessionByToken(ctx, token)
+	if err != nil {
+		return nil, errSessionInvalid
+	}
+	user, err := serverStore.GetUserByID(ctx, ses.UserID)
+	if err != nil {
+		return nil, errSessionUser
+	}
+	return user, nil
+}
+
 // requireWebAuth validates a session token from cookie or Authorization header
 func requireWebAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := ""
-		if ah := r.Header.Get("Authorization"); ah != "" {
-			parts := strings.SplitN(ah, " ", 2)
-			if len(parts) == 2 && parts[0] == "Bearer" {
-				token = parts[1]
-			}
-		}
-		if token == "" {
-			if c, err := r.Cookie("pm_session"); err == nil {
-				token = c.Value
-			}
-		}
+		token := sessionTokenFromRequest(r)
 		if token == "" {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
 
-		ctx := context.Background()
-		ses, err := serverStore.GetSessionByToken(ctx, token)
+		user, err := loadUserForSessionToken(token)
 		if err != nil {
-			http.Error(w, "invalid session", http.StatusUnauthorized)
+			switch err {
+			case errSessionInvalid:
+				http.Error(w, "invalid session", http.StatusUnauthorized)
+			case errSessionUser:
+				http.Error(w, "invalid session user", http.StatusUnauthorized)
+			default:
+				http.Error(w, "unauthenticated", http.StatusUnauthorized)
+			}
 			return
 		}
 
-		user, err := serverStore.GetUserByID(ctx, ses.UserID)
-		if err != nil {
-			http.Error(w, "invalid session user", http.StatusUnauthorized)
-			return
-		}
-
-		// attach user + principal to request context for downstream RBAC
 		ctx2 := contextWithPrincipal(r.Context(), user)
 		next.ServeHTTP(w, r.WithContext(ctx2))
 	}
+}
+
+func ensureInteractiveSession(w http.ResponseWriter, r *http.Request) (*storage.User, bool) {
+	user, err := loadUserForSessionToken(sessionTokenFromRequest(r))
+	if err != nil {
+		if err != errSessionMissing {
+			clearSessionCookie(w, r)
+		}
+		redirectToLogin(w, r)
+		return nil, false
+	}
+	return user, true
+}
+
+func redirectToLogin(w http.ResponseWriter, r *http.Request) {
+	target := "/login"
+	if r.URL != nil {
+		requestURI := r.URL.RequestURI()
+		if requestURI != "" && r.URL.Path != "/login" {
+			target = fmt.Sprintf("/login?redirect=%s", url.QueryEscape(requestURI))
+		}
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	secure := requestIsHTTPS(r)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "pm_session",
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // requireRole ensures the authenticated user meets the provided role requirement.
@@ -1910,11 +1970,12 @@ func setupRoutes(cfg *Config) {
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
-	http.HandleFunc("/api/v1/agents/list", requireWebAuth(handleAgentsList))                           // List all agents (for UI)
-	http.HandleFunc("/api/v1/agents/", requireWebAuth(handleAgentDetails))                             // Get single agent details (for UI)
-	http.HandleFunc("/api/v1/agents/ws", requireWebAuth(func(w http.ResponseWriter, r *http.Request) { // WebSocket endpoint
+	http.HandleFunc("/api/v1/agents/list", requireWebAuth(handleAgentsList)) // List all agents (for UI)
+	http.HandleFunc("/api/v1/agents/", requireWebAuth(handleAgentDetails))   // Get single agent details (for UI)
+	// Agent WebSocket channel uses its own token handshake; do not require UI auth here.
+	http.HandleFunc("/api/v1/agents/ws", func(w http.ResponseWriter, r *http.Request) { // WebSocket endpoint
 		handleAgentWebSocket(w, r, serverStore)
-	}))
+	})
 
 	// Tenancy & join-token routes. The register-with-token path must remain
 	// available even if admins disable tenancy, so register routes always and
@@ -1926,12 +1987,16 @@ func setupRoutes(cfg *Config) {
 	tenancy.AuthMiddleware = requireWebAuth
 	tenancy.SetServerVersion(Version)
 	tenancy.SetEnabled(featureEnabled)
+	tenancy.SetAgentEventSink(func(eventType string, data map[string]interface{}) {
+		sseHub.Broadcast(SSEEvent{Type: eventType, Data: data})
+	})
 	tenancy.RegisterRoutes(serverStore)
 	logInfo("Tenancy routes registered", "enabled", featureEnabled)
 
 	// Proxy endpoints - require login
 	http.HandleFunc("/api/v1/proxy/agent/", requireWebAuth(handleAgentProxy))   // Proxy to agent's own web UI
 	http.HandleFunc("/api/v1/proxy/device/", requireWebAuth(handleDeviceProxy)) // Proxy to device web UI through agent
+	http.HandleFunc("/proxy/", requireWebAuth(handleLegacyDeviceProxy))         // Legacy compatibility for shared UI links
 
 	// Public OIDC endpoints
 	http.HandleFunc("/auth/oidc/start/", handleOIDCStart)
@@ -2564,14 +2629,30 @@ func handleAgentProxy(w http.ResponseWriter, r *http.Request) {
 
 // handleDeviceProxy proxies HTTP requests to device web UIs through agent WebSocket
 func handleDeviceProxy(w http.ResponseWriter, r *http.Request) {
-	// Extract device serial from path: /api/v1/proxy/device/{serial}/{path...}
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/proxy/device/")
-	parts := strings.SplitN(path, "/", 2)
-	if len(parts) < 1 || parts[0] == "" {
-		http.Error(w, "Device serial required", http.StatusBadRequest)
+	serial, targetPath, err := parseDeviceProxyPath(r.URL.Path, "/api/v1/proxy/device/")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	targetPath = appendQueryToPath(targetPath, r.URL.RawQuery)
+	proxyDeviceRequest(w, r, serial, targetPath)
+}
+
+// handleLegacyDeviceProxy keeps historical /proxy/{serial}/ URLs working by routing
+// them through the same device proxy implementation as the modern API endpoint.
+func handleLegacyDeviceProxy(w http.ResponseWriter, r *http.Request) {
+	serial, targetPath, err := parseDeviceProxyPath(r.URL.Path, "/proxy/")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	targetPath = appendQueryToPath(targetPath, r.URL.RawQuery)
+	proxyDeviceRequest(w, r, serial, targetPath)
+}
+
+func proxyDeviceRequest(w http.ResponseWriter, r *http.Request, serial string, targetPath string) {
 	principal := getPrincipal(r)
 	if principal == nil {
 		http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -2583,78 +2664,106 @@ func handleDeviceProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	serial := parts[0]
-	targetPath := "/"
-	if len(parts) > 1 {
-		targetPath = "/" + parts[1]
+	ctx := r.Context()
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	// Add query string if present
-	if r.URL.RawQuery != "" {
-		targetPath += "?" + r.URL.RawQuery
-	}
+	logInfo("Device proxy request", "serial", serial, "target_path", targetPath)
 
-	// Get device to find its IP and associated agent
-	// Use ListAllDevices to search across all agents (passing an empty agent id
-	// to ListDevices would incorrectly filter for agent_id = '')
-	ctx := context.Background()
-	devices, err := serverStore.ListAllDevices(ctx)
+	device, err := serverStore.GetDevice(ctx, serial)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) || strings.Contains(strings.ToLower(err.Error()), "not found") {
+			logWarn("Device proxy lookup miss", "serial", serial)
+			http.Error(w, "Device not found", http.StatusNotFound)
+			return
+		}
+
+		logError("Failed to load device for proxy", "serial", serial, "error", err)
 		http.Error(w, "Failed to query devices", http.StatusInternalServerError)
 		return
 	}
-
-	var device *storage.Device
-	for _, dev := range devices {
-		if dev.Serial == serial {
-			device = dev
-			break
-		}
-	}
-
 	if device == nil {
+		logWarn("Device proxy lookup returned nil", "serial", serial)
 		http.Error(w, "Device not found", http.StatusNotFound)
 		return
 	}
 
 	if device.IP == "" {
+		logWarn("Device proxy missing IP", "serial", serial)
 		http.Error(w, "Device has no IP address", http.StatusBadRequest)
 		return
 	}
 
 	if device.AgentID == "" {
+		logWarn("Device proxy missing agent", "serial", serial)
 		http.Error(w, "Device has no associated agent", http.StatusBadRequest)
 		return
 	}
 
-	// Check if agent is connected via WebSocket
 	if !isAgentConnectedWS(device.AgentID) {
+		logWarn("Device proxy agent offline", "serial", serial, "agent_id", device.AgentID)
 		http.Error(w, "Device's agent not connected via WebSocket", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Fetch agent for tenant enforcement and downstream proxy metadata
 	agent, err := serverStore.GetAgent(ctx, device.AgentID)
 	if err != nil {
+		logWarn("Device proxy agent lookup failed", "serial", serial, "agent_id", device.AgentID, "error", err)
 		http.Error(w, "Agent not found", http.StatusNotFound)
 		return
 	}
 	if !tenantAllowed(scope, agent.TenantID) {
+		logWarn("Device proxy forbidden", "serial", serial, "agent_id", device.AgentID, "tenant_id", agent.TenantID)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
-	// Build target URL for device's web UI
 	targetURL := fmt.Sprintf("http://%s%s", device.IP, targetPath)
-
-	// Proxy the request through WebSocket
 	proxyThroughWebSocket(w, r, device.AgentID, targetURL)
+}
+
+func parseDeviceProxyPath(fullPath, prefix string) (string, string, error) {
+	if !strings.HasPrefix(fullPath, prefix) {
+		return "", "", fmt.Errorf("invalid proxy prefix")
+	}
+
+	trimmed := strings.TrimPrefix(fullPath, prefix)
+	trimmed = strings.TrimLeft(trimmed, "/")
+	if strings.HasPrefix(trimmed, "device/") {
+		trimmed = strings.TrimPrefix(trimmed, "device/")
+		trimmed = strings.TrimLeft(trimmed, "/")
+	}
+	if trimmed == "" {
+		return "", "", fmt.Errorf("device serial required")
+	}
+
+	parts := strings.SplitN(trimmed, "/", 2)
+	serial := parts[0]
+	targetPath := "/"
+	if len(parts) > 1 && parts[1] != "" {
+		targetPath = "/" + parts[1]
+	}
+
+	return serial, targetPath, nil
+}
+
+func appendQueryToPath(path, rawQuery string) string {
+	if rawQuery == "" {
+		return path
+	}
+	separator := "?"
+	if strings.Contains(path, "?") {
+		separator = "&"
+	}
+	return path + separator + rawQuery
 }
 
 // proxyThroughWebSocket sends an HTTP request through WebSocket and returns the response
 func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID string, targetURL string) {
 	// Generate unique request ID
 	requestID := fmt.Sprintf("%s-%d", agentID, time.Now().UnixNano())
+	start := time.Now()
 
 	// Create response channel
 	respChan := make(chan wscommon.Message, 1)
@@ -2689,9 +2798,19 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		}
 	}
 
+	logInfo("Proxy request dispatched",
+		"agent_id", agentID,
+		"request_id", requestID,
+		"method", r.Method,
+		"url", targetURL)
+
 	// Send proxy request to agent via WebSocket
 	if err := sendProxyRequest(agentID, requestID, targetURL, r.Method, headers, bodyStr); err != nil {
-		logError("Failed to send proxy request", "agent_id", agentID, "error", err)
+		logError("Failed to send proxy request",
+			"agent_id", agentID,
+			"request_id", requestID,
+			"url", targetURL,
+			"error", err)
 		http.Error(w, "Failed to send proxy request", http.StatusInternalServerError)
 		return
 	}
@@ -2699,10 +2818,25 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 	// Wait for response with timeout
 	select {
 	case resp := <-respChan:
+		duration := time.Since(start)
 		// Got response from agent
 		statusCode := 200
 		if code, ok := resp.Data["status_code"].(float64); ok {
 			statusCode = int(code)
+		}
+
+		logInfo("Proxy response received",
+			"agent_id", agentID,
+			"request_id", requestID,
+			"status", statusCode,
+			"url", targetURL,
+			"duration_ms", duration.Milliseconds())
+		if duration > 5*time.Second {
+			logWarn("Proxy response slow",
+				"agent_id", agentID,
+				"request_id", requestID,
+				"url", targetURL,
+				"duration_ms", duration.Milliseconds())
 		}
 
 		// Set response headers
@@ -2857,8 +2991,13 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		}
 
 	case <-time.After(30 * time.Second):
+		duration := time.Since(start)
 		http.Error(w, "Proxy request timeout", http.StatusGatewayTimeout)
-		logWarn("Proxy request timeout", "agent_id", agentID, "url", targetURL)
+		logWarn("Proxy request timeout",
+			"agent_id", agentID,
+			"request_id", requestID,
+			"url", targetURL,
+			"duration_ms", duration.Milliseconds())
 	}
 }
 
@@ -3429,13 +3568,21 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 
 // Web UI handlers
 func handleWebUI(w http.ResponseWriter, r *http.Request) {
-	// Only serve index.html for root path
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "only GET allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-	// Parse and execute index.html template
+	user, ok := ensureInteractiveSession(w, r)
+	if !ok {
+		return
+	}
+	r = r.WithContext(contextWithPrincipal(r.Context(), user))
+
 	tmpl, err := template.ParseFS(webFS, "web/index.html")
 	if err != nil {
 		logError("Failed to parse index.html template", "error", err)

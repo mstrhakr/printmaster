@@ -35,16 +35,35 @@ func init() {
 	store = NewInMemoryStore()
 }
 
-// CreateTenant registers a new tenant. If id is empty a random one is generated.
-func (s *InMemoryStore) CreateTenant(id, name, description string) (Tenant, error) {
-	if id == "" {
-		id = randomHex(8)
+// CreateTenant registers a new tenant. If ID is empty a random one is generated.
+func (s *InMemoryStore) CreateTenant(t Tenant) (Tenant, error) {
+	if t.ID == "" {
+		t.ID = randomHex(8)
 	}
-	now := time.Now().UTC()
-	t := Tenant{ID: id, Name: name, Description: description, CreatedAt: now}
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now().UTC()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tenants[id] = t
+	s.tenants[t.ID] = t
+	return t, nil
+}
+
+// UpdateTenant updates an existing tenant's metadata.
+func (s *InMemoryStore) UpdateTenant(t Tenant) (Tenant, error) {
+	if t.ID == "" {
+		return Tenant{}, ErrTenantNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing, ok := s.tenants[t.ID]
+	if !ok {
+		return Tenant{}, ErrTenantNotFound
+	}
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = existing.CreatedAt
+	}
+	s.tenants[t.ID] = t
 	return t, nil
 }
 

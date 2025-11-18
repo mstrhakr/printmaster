@@ -35,6 +35,7 @@ let currentUser = null;
 const mountedTabs = new Set();
 let usersUIInitialized = false;
 let tenantsUIInitialized = false;
+let tenantModalInitialized = false;
 let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
@@ -697,20 +698,110 @@ async function loadAgents() {
 function initTenantsUI(){
     if (tenantsUIInitialized) return;
     tenantsUIInitialized = true;
+    initTenantModal();
     const btn = document.getElementById('new_tenant_btn');
     if(btn){
-        btn.addEventListener('click', async ()=>{
-            try {
-                const name = await showInputModal('Create tenant', 'Tenant display name', '');
-                if (!name) return;
-                await createTenant({name, description: ''});
-                loadTenants();
-            } catch (err) {
-                window.__pm_shared.showAlert('Failed to create tenant: ' + (err && err.message ? err.message : err), 'Error', true, false);
-            }
-        });
+        btn.addEventListener('click', ()=> openTenantModal());
     }
     loadTenants();
+}
+
+function initTenantModal(){
+    const modal = document.getElementById('tenant_modal');
+    if (!modal || tenantModalInitialized) return;
+    tenantModalInitialized = true;
+    const closeBtn = document.getElementById('tenant_modal_close_x');
+    const cancelBtn = document.getElementById('tenant_cancel');
+    const saveBtn = document.getElementById('tenant_save');
+    if (closeBtn) closeBtn.addEventListener('click', closeTenantModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeTenantModal);
+    if (saveBtn) saveBtn.addEventListener('click', submitTenantForm);
+    modal.addEventListener('click', (e)=>{
+        if (e.target === modal) closeTenantModal();
+    });
+}
+
+function openTenantModal(tenant){
+    const modal = document.getElementById('tenant_modal');
+    if (!modal) return;
+    if (tenant && tenant.id) {
+        modal.setAttribute('data-edit-id', tenant.id);
+        document.getElementById('tenant_modal_title').textContent = 'Edit Customer';
+        document.getElementById('tenant_save').textContent = 'Save';
+    } else {
+        modal.removeAttribute('data-edit-id');
+        document.getElementById('tenant_modal_title').textContent = 'New Customer';
+        document.getElementById('tenant_save').textContent = 'Create';
+    }
+    const safe = (key) => (tenant && tenant[key]) ? tenant[key] : '';
+    document.getElementById('tenant_name').value = safe('name');
+    document.getElementById('tenant_business_unit').value = safe('business_unit');
+    document.getElementById('tenant_contact_name').value = safe('contact_name');
+    document.getElementById('tenant_contact_email').value = safe('contact_email');
+    document.getElementById('tenant_contact_phone').value = safe('contact_phone');
+    document.getElementById('tenant_billing_code').value = safe('billing_code');
+    document.getElementById('tenant_address').value = safe('address');
+    document.getElementById('tenant_description').value = safe('description');
+    const errEl = document.getElementById('tenant_error');
+    if (errEl) errEl.style.display = 'none';
+    modal.style.display = 'flex';
+    setTimeout(()=>{
+        try { document.getElementById('tenant_name').focus(); } catch (e) {}
+    }, 10);
+}
+
+function closeTenantModal(){
+    const modal = document.getElementById('tenant_modal');
+    if (!modal) return;
+    modal.style.display = 'none';
+    modal.removeAttribute('data-edit-id');
+    const errEl = document.getElementById('tenant_error');
+    if (errEl) errEl.style.display = 'none';
+}
+
+function collectTenantFormData(){
+    return {
+        name: (document.getElementById('tenant_name').value || '').trim(),
+        description: (document.getElementById('tenant_description').value || '').trim(),
+        business_unit: (document.getElementById('tenant_business_unit').value || '').trim(),
+        contact_name: (document.getElementById('tenant_contact_name').value || '').trim(),
+        contact_email: (document.getElementById('tenant_contact_email').value || '').trim(),
+        contact_phone: (document.getElementById('tenant_contact_phone').value || '').trim(),
+        billing_code: (document.getElementById('tenant_billing_code').value || '').trim(),
+        address: (document.getElementById('tenant_address').value || '').trim()
+    };
+}
+
+async function submitTenantForm(){
+    const modal = document.getElementById('tenant_modal');
+    const errEl = document.getElementById('tenant_error');
+    if (errEl) errEl.style.display = 'none';
+    const payload = collectTenantFormData();
+    if (!payload.name) {
+        if (errEl) {
+            errEl.textContent = 'Name is required';
+            errEl.style.display = 'block';
+        }
+        return;
+    }
+    const editId = modal ? modal.getAttribute('data-edit-id') : '';
+    try {
+        if (editId) {
+            await updateTenant(editId, payload);
+            window.__pm_shared.showToast('Customer updated', 'success');
+        } else {
+            await createTenant(payload);
+            window.__pm_shared.showToast('Customer created', 'success');
+        }
+        closeTenantModal();
+        loadTenants();
+    } catch (err) {
+        const message = (err && err.message) ? err.message : 'Failed to save tenant';
+        if (errEl) {
+            errEl.textContent = message;
+            errEl.style.display = 'block';
+        }
+    }
 }
 
 // ====== Users UI ======
@@ -1010,17 +1101,34 @@ function renderTenants(list){
     const rows = list.map(t => {
         const rawId = t.id || t.uuid || '';
         const idAttr = escapeHtml(rawId);
-        const idCell = rawId ? idAttr : '<span class="muted-text">(none)</span>';
+        const idDisplay = rawId ? idAttr : '<span class="muted-text">(none)</span>';
+        const businessLines = [
+            `<div class="table-primary">${escapeHtml(t.name || '—')}</div>`,
+            t.business_unit ? `<div class="muted-text">${escapeHtml(t.business_unit)}</div>` : '',
+            t.description ? `<div class="muted-text">${escapeHtml(t.description)}</div>` : ''
+        ].join('');
+        const contactEmail = t.contact_email ? `<a href="mailto:${encodeURIComponent(t.contact_email)}">${escapeHtml(t.contact_email)}</a>` : '';
+        const contactLines = [
+            t.contact_name ? `<div>${escapeHtml(t.contact_name)}</div>` : '',
+            contactEmail ? `<div>${contactEmail}</div>` : '',
+            t.contact_phone ? `<div class="muted-text">${escapeHtml(t.contact_phone)}</div>` : ''
+        ].join('');
+        const metaLines = [
+            `<div>Tenant ID: ${idDisplay}</div>`,
+            t.billing_code ? `<div class="muted-text">Billing: ${escapeHtml(t.billing_code)}</div>` : '',
+            t.address ? `<div class="muted-text" style="white-space:pre-line;">${escapeHtml(t.address)}</div>` : '',
+            t.created_at ? `<div class="muted-text">Created ${escapeHtml(formatDateTime(t.created_at))}</div>` : ''
+        ].join('');
         return `
             <tr>
-                <td>
-                    <div class="table-primary">${escapeHtml(t.name||'—')}</div>
-                </td>
-                <td>${idCell}</td>
+                <td>${businessLines}</td>
+                <td>${contactLines || '<span class="muted-text">No contact info</span>'}</td>
+                <td>${metaLines}</td>
                 <td>
                     <div class="table-actions">
                         <button data-action="create-token" data-tenant="${idAttr}">Create Token</button>
                         <button data-action="view-tokens" data-tenant="${idAttr}">Tokens</button>
+                        <button data-action="edit-tenant" data-tenant="${idAttr}">Edit</button>
                     </div>
                 </td>
             </tr>
@@ -1032,8 +1140,9 @@ function renderTenants(list){
             <table class="simple-table">
                 <thead>
                     <tr>
-                        <th>Name</th>
-                        <th>Tenant ID</th>
+                        <th>Customer</th>
+                        <th>Contact</th>
+                        <th>Details</th>
                         <th style="width:1%">Actions</th>
                     </tr>
                 </thead>
@@ -1056,10 +1165,23 @@ function renderTenants(list){
             await showTokensList(tenant);
         });
     });
+    el.querySelectorAll('button[data-action="edit-tenant"]').forEach(b=>{
+        b.addEventListener('click', ()=>{
+            const tenantId = b.getAttribute('data-tenant') || '';
+            const tenant = (window._tenants || []).find(t => (t.id || t.uuid || '') === tenantId);
+            openTenantModal(tenant || null);
+        });
+    });
 }
 
 async function createTenant(body){
     const r = await fetch('/api/v1/tenants', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
+    if(!r.ok) throw new Error(await r.text());
+    return r.json();
+}
+
+async function updateTenant(id, body){
+    const r = await fetch('/api/v1/tenants/'+encodeURIComponent(id), {method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
     if(!r.ok) throw new Error(await r.text());
     return r.json();
 }
@@ -1435,33 +1557,7 @@ function addOrUpdateDeviceCard(device) {
         return;
     }
     const existing = container.querySelector(`[data-serial="${serial}"]`);
-    const cardHtml = (function(d) {
-        return `
-        <div class="device-card" data-serial="${d.serial || ''}" data-agent-id="${d.agent_id || ''}">
-            <div class="device-card-header">
-                <div>
-                    <div class="device-card-title">${d.manufacturer || 'Unknown'} ${d.model || ''}</div>
-                    <div class="device-card-subtitle">${d.ip || 'N/A'}</div>
-                </div>
-            </div>
-            <div class="device-card-info">
-                <div class="device-card-row">
-                    <span class="device-card-label">Serial</span>
-                    <span class="device-card-value device-serial">${d.serial || 'N/A'}</span>
-                </div>
-                <div class="device-card-row">
-                    <span class="device-card-label">Agent</span>
-                    <span class="device-card-value device-agent-id">${d.agent_id || 'N/A'}</span>
-                </div>
-            </div>
-            <div class="device-card-actions">
-                <button data-action="open-device" data-serial="${d.serial}" data-agent-id="${d.agent_id}" ${!d.ip || !d.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
-                    Open Web UI
-                </button>
-            </div>
-        </div>
-        `;
-    })(device);
+    const cardHtml = renderServerDeviceCard(device);
     if (existing) {
         existing.outerHTML = cardHtml;
     } else {
@@ -1794,6 +1890,9 @@ try {
     // Also expose delete/open helpers if present so shared callers use server implementations
     window.__pm_shared.deleteAgent = window.__pm_shared.deleteAgent || deleteAgent;
     window.__pm_shared.openAgentUI = window.__pm_shared.openAgentUI || openAgentUI;
+    // Always override device helpers so cards and shared UI use the server proxy endpoint
+    window.__pm_shared.openDeviceUI = openDeviceUI;
+    window.__pm_shared.openDeviceMetrics = window.__pm_shared.openDeviceMetrics || openDeviceMetrics;
 } catch (e) { console.warn('Failed to expose server UI helpers to shared namespace', e); }
 
 // ====== Delete Agent ======
@@ -1870,6 +1969,46 @@ async function loadDevices() {
     }
 }
 
+function renderServerDeviceCard(device) {
+    const serial = device.serial || '';
+    const agentId = device.agent_id || '';
+    const hasIp = !!device.ip;
+    const hasAgent = !!agentId;
+    const hasSerial = !!serial;
+
+    return `
+    <div class="device-card" data-serial="${serial}" data-agent-id="${agentId}">
+        <div class="device-card-header">
+            <div>
+                <div class="device-card-title">${device.manufacturer || 'Unknown'} ${device.model || ''}</div>
+                <div class="device-card-subtitle">${device.ip || 'N/A'}</div>
+            </div>
+        </div>
+        <div class="device-card-info">
+            <div class="device-card-row">
+                <span class="device-card-label">Serial</span>
+                <span class="device-card-value device-serial">${serial || 'N/A'}</span>
+            </div>
+            <div class="device-card-row">
+                <span class="device-card-label">Agent</span>
+                <span class="device-card-value device-agent-id">${agentId || 'N/A'}</span>
+            </div>
+        </div>
+        <div class="device-card-actions">
+            <button data-action="open-device" data-serial="${serial}" data-agent-id="${agentId}" ${!hasIp || !hasAgent ? 'disabled title="Device has no IP or agent"' : ''}>
+                Open Web UI
+            </button>
+            <button data-action="view-metrics" data-serial="${serial}" ${!hasSerial ? 'disabled title="No serial"' : ''}>
+                View Metrics
+            </button>
+            <button data-action="show-printer-details" data-ip="${device.ip||''}" data-serial="${serial}" data-source="saved" ${!hasIp ? 'disabled title="No IP"' : ''}>
+                Details
+            </button>
+        </div>
+    </div>
+    `;
+}
+
 function renderDevices(devices) {
     const container = document.getElementById('devices_cards');
     const statsContainer = document.getElementById('devices_stats');
@@ -1892,42 +2031,7 @@ function renderDevices(devices) {
     `;
     }
     
-    // Render device cards (simplified for now) with data-serial for targeted updates
-    function renderDeviceCard(device) {
-        return `
-        <div class="device-card" data-serial="${device.serial || ''}" data-agent-id="${device.agent_id || ''}">
-            <div class="device-card-header">
-                <div>
-                    <div class="device-card-title">${device.manufacturer || 'Unknown'} ${device.model || ''}</div>
-                    <div class="device-card-subtitle">${device.ip || 'N/A'}</div>
-                </div>
-            </div>
-            <div class="device-card-info">
-                <div class="device-card-row">
-                    <span class="device-card-label">Serial</span>
-                    <span class="device-card-value device-serial">${device.serial || 'N/A'}</span>
-                </div>
-                <div class="device-card-row">
-                    <span class="device-card-label">Agent</span>
-                    <span class="device-card-value device-agent-id">${device.agent_id || 'N/A'}</span>
-                </div>
-            </div>
-            <div class="device-card-actions">
-                <button data-action="open-device" data-serial="${device.serial}" data-agent-id="${device.agent_id}" ${!device.ip || !device.agent_id ? 'disabled title="Device has no IP or agent"' : ''}>
-                    Open Web UI
-                </button>
-                <button data-action="view-metrics" data-serial="${device.serial}" ${!device.serial ? 'disabled title="No serial"' : ''}>
-                    View Metrics
-                </button>
-                <button data-action="show-printer-details" data-ip="${device.ip||''}" data-serial="${device.serial||''}" data-source="saved" ${!device.ip ? 'disabled title="No IP"' : ''}>
-                    Details
-                </button>
-            </div>
-        </div>
-        `;
-    }
-
-    container.innerHTML = devices.map(device => renderDeviceCard(device)).join('');
+    container.innerHTML = devices.map(device => renderServerDeviceCard(device)).join('');
 }
 
 // Show printer details modal by finding the device in the server device list

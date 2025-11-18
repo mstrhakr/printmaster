@@ -102,10 +102,16 @@ type MetricsSnapshot struct {
 
 // Tenant represents a customer/tenant stored in server DB
 type Tenant struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description,omitempty"`
+	ContactName  string    `json:"contact_name,omitempty"`
+	ContactEmail string    `json:"contact_email,omitempty"`
+	ContactPhone string    `json:"contact_phone,omitempty"`
+	BusinessUnit string    `json:"business_unit,omitempty"`
+	BillingCode  string    `json:"billing_code,omitempty"`
+	Address      string    `json:"address,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // JoinToken represents an opaque join token record stored in DB (token value not stored raw)
@@ -223,6 +229,7 @@ type Store interface {
 
 	// Tenancy
 	CreateTenant(ctx context.Context, tenant *Tenant) error
+	UpdateTenant(ctx context.Context, tenant *Tenant) error
 	GetTenant(ctx context.Context, id string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]*Tenant, error)
 
