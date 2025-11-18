@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-func TestServerClient_Register(t *testing.T) {
+func TestServerClient_RegisterWithToken(t *testing.T) {
 	t.Parallel()
 
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/agents/register" {
-			t.Errorf("Expected path /api/v1/agents/register, got %s", r.URL.Path)
+		if r.URL.Path != "/api/v1/agents/register-with-token" {
+			t.Errorf("Expected path /api/v1/agents/register-with-token, got %s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {
 			t.Errorf("Expected POST, got %s", r.Method)
@@ -34,13 +34,16 @@ func TestServerClient_Register(t *testing.T) {
 		if req["name"] != "Test Agent" {
 			t.Errorf("Expected name='Test Agent', got %v", req["name"])
 		}
+		if req["token"] != "join-token" {
+			t.Errorf("Expected join token, got %v", req["token"])
+		}
 
 		// Return token
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":  true,
-			"agent_id": "test-agent",
-			"token":    "test-token-123",
+			"success":     true,
+			"tenant_id":   "tenant-1",
+			"agent_token": "test-token-123",
 		})
 	}))
 	defer server.Close()
@@ -52,13 +55,16 @@ func TestServerClient_Register(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	token, err := client.Register(ctx, "v0.2.0")
+	token, tenantID, err := client.RegisterWithToken(ctx, "join-token", "v0.2.0")
 	if err != nil {
-		t.Fatalf("Register failed: %v", err)
+		t.Fatalf("RegisterWithToken failed: %v", err)
 	}
 
 	if token != "test-token-123" {
 		t.Errorf("Expected token=test-token-123, got %s", token)
+	}
+	if tenantID != "tenant-1" {
+		t.Errorf("Expected tenant-1, got %s", tenantID)
 	}
 
 	// Verify token was stored
