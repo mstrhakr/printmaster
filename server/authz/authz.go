@@ -22,6 +22,37 @@ const (
 	ActionJoinTokensRead   Action = "join_tokens.read"
 	ActionJoinTokensWrite  Action = "join_tokens.write"
 	ActionPackagesGenerate Action = "packages.generate"
+
+	ActionConfigRead         Action = "config.read"
+	ActionEventsSubscribe    Action = "events.subscribe"
+	ActionUIWebsocketConnect Action = "ui.websocket.connect"
+
+	ActionSSOProvidersRead  Action = "sso.providers.read"
+	ActionSSOProvidersWrite Action = "sso.providers.write"
+
+	ActionUsersRead     Action = "users.read"
+	ActionUsersWrite    Action = "users.write"
+	ActionSessionsRead  Action = "sessions.read"
+	ActionSessionsWrite Action = "sessions.write"
+
+	ActionAgentsRead   Action = "agents.read"
+	ActionAgentsWrite  Action = "agents.write"
+	ActionAgentsDelete Action = "agents.delete"
+
+	ActionDevicesRead Action = "devices.read"
+
+	ActionMetricsSummaryRead Action = "metrics.summary.read"
+	ActionMetricsHistoryRead Action = "metrics.history.read"
+
+	ActionProxyAgentConnect  Action = "proxy.agent"
+	ActionProxyDeviceConnect Action = "proxy.device"
+
+	ActionSettingsRead      Action = "settings.read"
+	ActionSettingsWrite     Action = "settings.write"
+	ActionSettingsTestEmail Action = "settings.test_email"
+
+	ActionLogsRead      Action = "logs.read"
+	ActionAuditLogsRead Action = "audit.logs.read"
 )
 
 // ResourceRef carries contextual identifiers relevant for authorization checks.
@@ -62,9 +93,29 @@ func Authorize(subject Subject, action Action, resource ResourceRef) error {
 }
 
 var rolePolicies = map[storage.Role][]string{
-	storage.RoleAdmin:    {"*"},
-	storage.RoleOperator: {},
-	storage.RoleViewer:   {},
+	storage.RoleAdmin: {"*"},
+	storage.RoleOperator: {
+		"config.read",
+		"events.subscribe",
+		"ui.websocket.connect",
+		"agents.*",
+		"devices.read",
+		"metrics.summary.read",
+		"metrics.history.read",
+		"proxy.agent",
+		"proxy.device",
+		"logs.read",
+	},
+	storage.RoleViewer: {
+		"config.read",
+		"events.subscribe",
+		"ui.websocket.connect",
+		"agents.read",
+		"devices.read",
+		"metrics.summary.read",
+		"metrics.history.read",
+		"logs.read",
+	},
 }
 
 func roleAllows(role storage.Role, action Action) bool {

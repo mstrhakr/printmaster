@@ -1331,18 +1331,6 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// requireRole ensures the authenticated user meets the provided role requirement.
-func requireRole(minRole storage.Role, next http.HandlerFunc) http.HandlerFunc {
-	return requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
-		principal := getPrincipal(r)
-		if principal == nil || !principal.HasRole(minRole) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // handleAuthLogin handles local username/password login and returns a session token
 func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1466,21 +1454,29 @@ func authorizeRequest(r *http.Request, action authz.Action, resource authz.Resou
 	return authz.Authorize(subject, action, resource)
 }
 
+func authorizeOrReject(w http.ResponseWriter, r *http.Request, action authz.Action, resource authz.ResourceRef) bool {
+	if err := authorizeRequest(r, action, resource); err != nil {
+		status := http.StatusForbidden
+		if errors.Is(err, authz.ErrUnauthorized) {
+			status = http.StatusUnauthorized
+		}
+		http.Error(w, http.StatusText(status), status)
+		return false
+	}
+	return true
+}
+
 // handleUsers handles GET (list users) and POST (create user) for admin UI
 func handleUsers(w http.ResponseWriter, r *http.Request) {
-	principal := getPrincipal(r)
-	if principal == nil {
-		http.Error(w, "unauthenticated", http.StatusUnauthorized)
-		return
-	}
-	if !principal.HasRole(storage.RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
 	ctx := context.Background()
 	switch r.Method {
 	case http.MethodGet:
+		if !authorizeOrReject(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+			return
+		}
+		if !authorizeOrReject(w, r, authz.ActionUsersRead, authz.ResourceRef{}) {
+			return
+		}
 		users, err := serverStore.ListUsers(ctx)
 		if err != nil {
 			http.Error(w, "failed to list users", http.StatusInternalServerError)
@@ -1490,6 +1486,12 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(users)
 		return
 	case http.MethodPost:
+		if !authorizeOrReject(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+			return
+		}
+		if !authorizeOrReject(w, r, authz.ActionUsersWrite, authz.ResourceRef{}) {
+			return
+		}
 		var req struct {
 			Username  string   `json:"username"`
 			Password  string   `json:"password"`
@@ -1601,16 +1603,6 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 
 // handleUser handles single-user operations: GET, PUT, DELETE (admin only)
 func handleUser(w http.ResponseWriter, r *http.Request) {
-	principal := getPrincipal(r)
-	if principal == nil {
-		http.Error(w, "unauthenticated", http.StatusUnauthorized)
-		return
-	}
-	if !principal.HasRole(storage.RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
 	// Extract ID from path /api/v1/users/{id}
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
 	if idStr == "" {
@@ -1626,6 +1618,9 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	switch r.Method {
 	case http.MethodGet:
+		if !authorizeOrReject(w, r, authz.ActionUsersRead, authz.ResourceRef{}) {
+			return
+		}
 		u, err := serverStore.GetUserByID(ctx, id)
 		if err != nil {
 			http.Error(w, "user not found", http.StatusNotFound)
@@ -1636,6 +1631,9 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(u)
 		return
 	case http.MethodDelete:
+		if !authorizeOrReject(w, r, authz.ActionUsersWrite, authz.ResourceRef{}) {
+			return
+		}
 		if err := serverStore.DeleteUser(ctx, id); err != nil {
 			http.Error(w, "failed to delete user", http.StatusInternalServerError)
 			return
@@ -1644,6 +1642,9 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 		return
 	case http.MethodPut, http.MethodPatch:
+		if !authorizeOrReject(w, r, authz.ActionUsersWrite, authz.ResourceRef{}) {
+			return
+		}
 		var req struct {
 			Role      string   `json:"role"`
 			TenantID  string   `json:"tenant_id"`
@@ -1703,13 +1704,7 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	principal := getPrincipal(r)
-	if principal == nil {
-		http.Error(w, "unauthenticated", http.StatusUnauthorized)
-		return
-	}
-	if !principal.HasRole(storage.RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if !authorizeOrReject(w, r, authz.ActionSessionsRead, authz.ResourceRef{}) {
 		return
 	}
 	ctx := context.Background()
@@ -1741,13 +1736,7 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	principal := getPrincipal(r)
-	if principal == nil {
-		http.Error(w, "unauthenticated", http.StatusUnauthorized)
-		return
-	}
-	if !principal.HasRole(storage.RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if !authorizeOrReject(w, r, authz.ActionSessionsWrite, authz.ResourceRef{}) {
 		return
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/api/v1/sessions/")
@@ -1963,16 +1952,16 @@ func setupRoutes(cfg *Config) {
 	// Logout (requires valid session)
 	http.HandleFunc("/api/v1/auth/logout", requireWebAuth(handleAuthLogout))
 	http.HandleFunc("/api/v1/auth/me", requireWebAuth(handleAuthMe))
-	// SSO / OIDC provider management (admin only inside handlers)
-	http.HandleFunc("/api/v1/sso/providers", requireRole(storage.RoleAdmin, handleOIDCProviders))
-	http.HandleFunc("/api/v1/sso/providers/", requireRole(storage.RoleAdmin, handleOIDCProvider))
+	// SSO / OIDC provider management
+	http.HandleFunc("/api/v1/sso/providers", requireWebAuth(handleOIDCProviders))
+	http.HandleFunc("/api/v1/sso/providers/", requireWebAuth(handleOIDCProvider))
 
-	// User management (admin only): list and create users
-	http.HandleFunc("/api/v1/users", requireRole(storage.RoleAdmin, handleUsers))
-	http.HandleFunc("/api/v1/users/", requireRole(storage.RoleAdmin, handleUser))
-	// Sessions management (admin): list and revoke sessions
-	http.HandleFunc("/api/v1/sessions", requireRole(storage.RoleAdmin, handleListSessions))
-	http.HandleFunc("/api/v1/sessions/", requireRole(storage.RoleAdmin, handleDeleteSession))
+	// User management: list/create/update/delete users
+	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
+	http.HandleFunc("/api/v1/users/", requireWebAuth(handleUser))
+	// Sessions management: list and revoke sessions
+	http.HandleFunc("/api/v1/sessions", requireWebAuth(handleListSessions))
+	http.HandleFunc("/api/v1/sessions/", requireWebAuth(handleDeleteSession))
 
 	// Password reset endpoints (public)
 	http.HandleFunc("/api/v1/users/reset/request", handlePasswordResetRequest)
@@ -2052,7 +2041,7 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/settings", requireWebAuth(handleSettings))
 	http.HandleFunc("/api/settings/test-email", requireWebAuth(handleSettingsTestEmail))
 	http.HandleFunc("/api/logs", requireWebAuth(handleLogs))
-	http.HandleFunc("/api/audit/logs", requireRole(storage.RoleAdmin, handleAuditLogs))
+	http.HandleFunc("/api/audit/logs", requireWebAuth(handleAuditLogs))
 
 	// Provide a lightweight proxy/compat endpoint for web UI credentials so the
 	// server UI doesn't 404 when the shared cards call /device/webui-credentials.
@@ -2095,6 +2084,9 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleSSE streams server-sent events to UI clients for real-time updates
 func handleSSE(w http.ResponseWriter, r *http.Request) {
+	if !authorizeOrReject(w, r, authz.ActionEventsSubscribe, authz.ResourceRef{}) {
+		return
+	}
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -2143,6 +2135,9 @@ func handleSSE(w http.ResponseWriter, r *http.Request) {
 // SSE hub events to the connected UI client. This provides a low-latency
 // liveness/status channel for the web UI.
 func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
+	if !authorizeOrReject(w, r, authz.ActionUIWebsocketConnect, authz.ResourceRef{}) {
+		return
+	}
 	// Upgrade HTTP to WS using shared wrapper
 	conn, err := wscommon.UpgradeHTTP(w, r)
 	if err != nil {
@@ -2238,6 +2233,9 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleConfigStatus(w http.ResponseWriter, r *http.Request) {
+	if !authorizeOrReject(w, r, authz.ActionConfigRead, authz.ResourceRef{}) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	// Build list of searched config paths based on run mode
@@ -2347,6 +2345,9 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
+	if !authorizeOrReject(w, r, authz.ActionAgentsRead, authz.ResourceRef{}) {
+		return
+	}
 
 	principal := getPrincipal(r)
 	if principal == nil {
@@ -2427,10 +2428,6 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if r.Method != http.MethodGet && !principal.HasRole(storage.RoleOperator) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 
 	ctx := context.Background()
 	switch r.Method { //nolint:exhaustive
@@ -2445,6 +2442,9 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 
 			if !tenantAllowed(scope, agent.TenantID) {
 				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if !authorizeOrReject(w, r, authz.ActionAgentsRead, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
 				return
 			}
 
@@ -2503,6 +2503,9 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
+			if !authorizeOrReject(w, r, authz.ActionAgentsWrite, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
+				return
+			}
 			if err := serverStore.UpdateAgentName(ctx, agentID, req.Name); err != nil {
 				logError("Failed to update agent name", "agent_id", agentID, "error", err)
 				http.Error(w, "Failed to update agent", http.StatusInternalServerError)
@@ -2553,6 +2556,9 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			}
 			if !tenantAllowed(scope, agent.TenantID) {
 				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if !authorizeOrReject(w, r, authz.ActionAgentsDelete, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
 				return
 			}
 			// Delete agent and all associated data
@@ -2631,6 +2637,9 @@ func handleAgentProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if !tenantAllowed(scope, agent.TenantID) {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionProxyAgentConnect, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
 		return
 	}
 
@@ -2733,6 +2742,9 @@ func proxyDeviceRequest(w http.ResponseWriter, r *http.Request, serial string, t
 	if !tenantAllowed(scope, agent.TenantID) {
 		logWarn("Device proxy forbidden", "serial", serial, "agent_id", device.AgentID, "tenant_id", agent.TenantID)
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionProxyDeviceConnect, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
 		return
 	}
 
@@ -3257,6 +3269,9 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
+	if !authorizeOrReject(w, r, authz.ActionDevicesRead, authz.ResourceRef{}) {
+		return
+	}
 
 	principal := getPrincipal(r)
 	if principal == nil {
@@ -3321,6 +3336,9 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionMetricsSummaryRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -3427,6 +3445,9 @@ func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
+	if !authorizeOrReject(w, r, authz.ActionMetricsHistoryRead, authz.ResourceRef{}) {
+		return
+	}
 
 	principal := getPrincipal(r)
 	if principal == nil {
@@ -3491,6 +3512,9 @@ func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		if !tenantAllowed(scope, agent.TenantID) {
 			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if !authorizeOrReject(w, r, authz.ActionMetricsHistoryRead, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
 			return
 		}
 	}
@@ -3811,6 +3835,9 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
+	if !authorizeOrReject(w, r, authz.ActionLogsRead, authz.ResourceRef{}) {
+		return
+	}
 
 	// Try to read a logs file if present in the workspace (best-effort); otherwise return empty list
 	var lines []string
@@ -3843,10 +3870,7 @@ func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-
-	principal := getPrincipal(r)
-	if principal == nil || !principal.HasRole(storage.RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if !authorizeOrReject(w, r, authz.ActionAuditLogsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -3931,6 +3955,9 @@ func writeEnvFile(path string, vars map[string]string) error {
 func handleSettingsTestEmail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionSettingsTestEmail, authz.ResourceRef{}) {
 		return
 	}
 

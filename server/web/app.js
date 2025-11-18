@@ -11,23 +11,32 @@ const BASE_TAB_LABELS = {
 const TAB_DEFINITIONS = {
     tenants: {
         label: 'Customers',
-        minRole: 'admin',
+        requiredAction: 'tenants.read',
         templateId: 'tab-template-tenants',
         onMount: () => initTenantsUI()
     },
     users: {
         label: 'Users',
-        minRole: 'admin',
+        requiredAction: 'users.read',
         templateId: 'tab-template-users',
         onMount: () => initUsersUI()
     },
     settings: {
         label: 'Settings',
-        minRole: 'admin',
+        requiredAction: 'settings.read',
         templateId: 'tab-template-settings',
         onMount: () => {
             initSettingsButtons();
             initSSOAdmin();
+        }
+    },
+    logs: {
+        label: 'Logs',
+        requiredAction: 'logs.read',
+        templateId: 'tab-template-logs',
+        onMount: () => {
+            initLogSubTabs();
+            switchLogView(activeLogView || 'system');
         }
     }
 };
@@ -59,9 +68,24 @@ function userHasRole(minRole) {
     return current >= required;
 }
 
+function userCan(action) {
+    if (!currentUser || !action) {
+        return false;
+    }
+    if (RBAC && typeof RBAC.canPerformAction === 'function') {
+        return RBAC.canPerformAction(currentUser.role, action);
+    }
+    if (RBAC && RBAC.ACTION_MIN_ROLE && RBAC.ACTION_MIN_ROLE[action]) {
+        return userHasRole(RBAC.ACTION_MIN_ROLE[action]);
+    }
+    return false;
+}
+
 function buildDynamicTabs() {
     Object.entries(TAB_DEFINITIONS).forEach(([tabId, config]) => {
-        if (userHasRole(config.minRole)) {
+        const requiredAction = config && config.requiredAction;
+        const canShow = requiredAction ? userCan(requiredAction) : userHasRole((config && config.minRole) || 'viewer');
+        if (canShow) {
             mountTab(tabId, config);
         }
     });
@@ -123,7 +147,7 @@ function applyRBACVisibility() {
 function configureRBACActions() {
     const joinBtn = document.getElementById('join_token_btn');
     if (joinBtn) {
-        if (userHasRole('admin')) {
+        if (userCan('join_tokens.write')) {
             joinBtn.style.display = '';
             initAddAgentUI();
         } else {
@@ -547,11 +571,16 @@ function initLogSubTabs() {
 }
 
 function switchLogView(view) {
-    const desired = view === 'audit' && userHasRole('admin') ? 'audit' : 'system';
+    const canViewAudit = userCan('audit.logs.read');
+    const desired = view === 'audit' && canViewAudit ? 'audit' : 'system';
     activeLogView = desired;
 
     document.querySelectorAll('.log-subtab').forEach(btn => {
         const target = btn.dataset.logview || 'system';
+        const isAudit = target === 'audit';
+        if (isAudit) {
+            btn.style.display = canViewAudit ? '' : 'none';
+        }
         if (target === desired) {
             btn.classList.add('active');
         } else {
@@ -2292,7 +2321,7 @@ async function loadLogs() {
 }
 
 async function loadAuditLogs() {
-    if (!userHasRole('admin')) {
+    if (!userCan('audit.logs.read')) {
         return;
     }
 

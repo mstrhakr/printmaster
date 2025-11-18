@@ -30,4 +30,12 @@ describe('RBAC helper module', () => {
     expect(rbac.canAccessTenancy('admin')).toBe(true);
     expect(rbac.canAccessTenancy('operator')).toBe(false);
   });
+
+  test('canPerformAction mirrors action-role matrix', () => {
+    expect(rbac.canPerformAction('viewer', 'config.read')).toBe(true);
+    expect(rbac.canPerformAction('viewer', 'agents.write')).toBe(false);
+    expect(rbac.canPerformAction('operator', 'agents.write')).toBe(true);
+    expect(rbac.canPerformAction('operator', 'audit.logs.read')).toBe(false);
+    expect(rbac.canPerformAction('admin', 'audit.logs.read')).toBe(true);
+  });
 });

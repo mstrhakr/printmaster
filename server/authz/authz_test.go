@@ -58,6 +58,55 @@ func TestAuthorizeRolePolicies(t *testing.T) {
 			resource: ResourceRef{TenantIDs: []string{"tenant-b"}},
 			wantErr:  ErrForbidden,
 		},
+		{
+			name: "viewer allowed to read in-scope agent",
+			subject: Subject{
+				Role:             storage.RoleViewer,
+				AllowedTenantIDs: []string{"tenant-a"},
+			},
+			action:   ActionAgentsRead,
+			resource: ResourceRef{TenantIDs: []string{"tenant-a"}},
+			wantErr:  nil,
+		},
+		{
+			name: "viewer denied agent write",
+			subject: Subject{
+				Role:             storage.RoleViewer,
+				AllowedTenantIDs: []string{"tenant-a"},
+			},
+			action:   ActionAgentsWrite,
+			resource: ResourceRef{TenantIDs: []string{"tenant-a"}},
+			wantErr:  ErrForbidden,
+		},
+		{
+			name: "operator allowed via wildcard",
+			subject: Subject{
+				Role:             storage.RoleOperator,
+				AllowedTenantIDs: []string{"tenant-a"},
+			},
+			action:   ActionAgentsDelete,
+			resource: ResourceRef{TenantIDs: []string{"tenant-a"}},
+			wantErr:  nil,
+		},
+		{
+			name: "operator denied admin action",
+			subject: Subject{
+				Role:             storage.RoleOperator,
+				AllowedTenantIDs: []string{"tenant-a"},
+			},
+			action:   ActionUsersRead,
+			resource: ResourceRef{},
+			wantErr:  ErrForbidden,
+		},
+		{
+			name: "viewer allowed logs",
+			subject: Subject{
+				Role: storage.RoleViewer,
+			},
+			action:   ActionLogsRead,
+			resource: ResourceRef{},
+			wantErr:  nil,
+		},
 	}
 
 	for _, tc := range cases {

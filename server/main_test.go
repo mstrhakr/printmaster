@@ -338,6 +338,75 @@ func TestHeartbeatWithInvalidToken(t *testing.T) {
 	}
 }
 
+func TestHandleUsersEnforcesAdmin(t *testing.T) {
+	store := SetupTestStore(t)
+	ctx := context.Background()
+	admin := NewTestAdminUser()
+	if err := store.CreateUser(ctx, admin, "secret"); err != nil {
+		t.Fatalf("failed to seed admin user: %v", err)
+	}
+
+	viewerReq := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	viewerReq = InjectTestUser(viewerReq, NewTestUser(storage.RoleViewer))
+	viewerRec := httptest.NewRecorder()
+	handleUsers(viewerRec, viewerReq)
+	if viewerRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer, got %d", viewerRec.Code)
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	adminReq = InjectTestUser(adminReq, admin)
+	adminRec := httptest.NewRecorder()
+	handleUsers(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for admin, got %d", adminRec.Code)
+	}
+}
+
+func TestHandleLogsAuthorization(t *testing.T) {
+	t.Parallel()
+
+	unauthedReq := httptest.NewRequest(http.MethodGet, "/api/logs", nil)
+	unauthedRec := httptest.NewRecorder()
+	handleLogs(unauthedRec, unauthedReq)
+	if unauthedRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for anonymous request, got %d", unauthedRec.Code)
+	}
+
+	viewerReq := httptest.NewRequest(http.MethodGet, "/api/logs", nil)
+	viewerReq = InjectTestUser(viewerReq, NewTestUser(storage.RoleViewer))
+	viewerRec := httptest.NewRecorder()
+	handleLogs(viewerRec, viewerReq)
+	if viewerRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for viewer, got %d", viewerRec.Code)
+	}
+}
+
+func TestHandleAuditLogsAdminOnly(t *testing.T) {
+	store := SetupTestStore(t)
+	ctx := context.Background()
+	entry := &storage.AuditEntry{Timestamp: time.Now(), AgentID: "agent-1", Action: "test", Details: ""}
+	if err := store.SaveAuditEntry(ctx, entry); err != nil {
+		t.Fatalf("failed to seed audit entry: %v", err)
+	}
+
+	operatorReq := httptest.NewRequest(http.MethodGet, "/api/audit/logs", nil)
+	operatorReq = InjectTestUser(operatorReq, NewTestUser(storage.RoleOperator))
+	operatorRec := httptest.NewRecorder()
+	handleAuditLogs(operatorRec, operatorReq)
+	if operatorRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for operator, got %d", operatorRec.Code)
+	}
+
+	adminReq := httptest.NewRequest(http.MethodGet, "/api/audit/logs", nil)
+	adminReq = InjectTestUser(adminReq, NewTestAdminUser())
+	adminRec := httptest.NewRecorder()
+	handleAuditLogs(adminRec, adminReq)
+	if adminRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for admin, got %d", adminRec.Code)
+	}
+}
+
 func TestDevicesBatchUpload(t *testing.T) {
 	// Note: Not parallel due to shared global serverStore
 	server, store := setupTestServer(t)

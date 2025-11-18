@@ -130,3 +130,17 @@ test('viewer cannot see add agent button', async ({ page }) => {
   await loadApp(page, viewerUser);
   await expect(page.locator('#join_token_btn')).toBeHidden();
 });
+
+test('admin can view audit log subtab', async ({ page }) => {
+  await loadApp(page, adminUser);
+  await page.locator('#desktop_tabs [data-target="logs"]').click();
+  const auditSubtab = page.locator('.log-subtab[data-logview="audit"]');
+  await expect(auditSubtab).toBeVisible();
+});
+
+test('viewer does not see audit log subtab', async ({ page }) => {
+  await loadApp(page, viewerUser);
+  await page.locator('#desktop_tabs [data-target="logs"]').click();
+  const auditSubtab = page.locator('.log-subtab[data-logview="audit"]');
+  await expect(auditSubtab).toBeHidden();
+});

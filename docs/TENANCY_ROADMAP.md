@@ -70,6 +70,17 @@ Short-term milestones (2-week slices)
 - Week 3: Add auth middleware + local login flow; session support and simple tenant mapping UI.
 - Week 4: Finalize OIDC provider support, add RBAC enforcement, and tests. (SAML support will come after the initial multi-tenant GA.)
 
+### 0.9.0 Tenancy Release Checklist (in progress)
+
+- **Data & migrations** – verify tenant/join-token schema migrations on a copied 0.3.x database, ensure backups occur, and confirm default-tenant backfill/code paths in `server/tenancy/store.go` behave for upgraded installs.
+- **Server/backend** – exercise every tenancy API, join-token CRUD, SSE/log streaming, proxy handlers, and device/metrics queries to confirm `authorizeOrReject` calls use the proper actions and tenant scopes; add coverage for join-token expiry/revocation and cross-tenant isolation.
+- **Agent changes** – guarantee the agent persists `tenant_id`, refreshes tokens, and refuses uploads when tenancy is disabled; add unit tests around `agent/config.go` and `agent/upload_worker.go` plus manual validation of the settings UI once the current regression is understood.
+- **UI / web gating** – expand Playwright specs under `common/web/__tests__/playwright` to include tenant creation, join-token modals, agent list filtering, and role-based visibility for audit/log subtabs; double-check RBAC helpers in `server/web/rbac.js` and tab definitions in `server/web/app.js` for each role (admin/operator/viewer).
+- **Authentication & security** – test OIDC + local login flows, logout/session expiration, rate limits, and join-token threat mitigations (short lifetimes, audit events, revocation) per this roadmap and `auth_ratelimit.go`.
+- **Automated testing** – keep `go test ./...` (agent + server), `npm run test:js`, `npm run test:playwright`, and `cd tests; go test -v ./...` green; extend the `tests/` E2E suite to spin real binaries for at least one join-token onboarding path instead of only mocked handlers.
+- **Manual verification** – run the full UI workflow (tenant CRUD, join-token onboarding, role changes, cross-tenant isolation, audit/log visibility) and an upgrade test from a 0.3.x backup into a tenancy build.
+- **Docs & release ops** – update configuration/onboarding docs with the finalized flows, capture a CHANGELOG entry, and once all checks pass run `./release.ps1 both` with the appropriate semver bump to tag 0.9.0.
+
 Rollout plan
 
 - Beta: enable tenancy behind feature flag and test on staging with real-ish datasets (copy DB) and multiple tenants.

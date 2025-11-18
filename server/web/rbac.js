@@ -12,6 +12,36 @@
         viewer: 1,
     });
 
+    const ACTION_MIN_ROLE = Object.freeze({
+        'tenants.read': 'admin',
+        'tenants.write': 'admin',
+        'join_tokens.read': 'admin',
+        'join_tokens.write': 'admin',
+        'packages.generate': 'admin',
+        'config.read': 'viewer',
+        'events.subscribe': 'viewer',
+        'ui.websocket.connect': 'viewer',
+        'sso.providers.read': 'admin',
+        'sso.providers.write': 'admin',
+        'users.read': 'admin',
+        'users.write': 'admin',
+        'sessions.read': 'admin',
+        'sessions.write': 'admin',
+        'agents.read': 'viewer',
+        'agents.write': 'operator',
+        'agents.delete': 'operator',
+        'devices.read': 'viewer',
+        'metrics.summary.read': 'viewer',
+        'metrics.history.read': 'viewer',
+        'proxy.agent': 'operator',
+        'proxy.device': 'operator',
+        'settings.read': 'admin',
+        'settings.write': 'admin',
+        'settings.test_email': 'admin',
+        'logs.read': 'viewer',
+        'audit.logs.read': 'admin',
+    });
+
     function normalizeRole(role) {
         return (role || '').toString().trim().toLowerCase();
     }
@@ -34,15 +64,33 @@
     }
 
     function canAccessTenancy(role) {
-        return userHasRequiredRole(role, 'admin');
+        return canPerformAction(role, 'tenants.read');
+    }
+
+    function requiredRoleForAction(action) {
+        if (!action) {
+            return null;
+        }
+        return ACTION_MIN_ROLE[action] || null;
+    }
+
+    function canPerformAction(role, action) {
+        const minRole = requiredRoleForAction(action);
+        if (!minRole) {
+            return false;
+        }
+        return userHasRequiredRole(role, minRole);
     }
 
     return {
         ROLE_PRIORITY,
+        ACTION_MIN_ROLE,
         normalizeRole,
         roleRank,
         userHasRequiredRole,
         visibleTabsForRole,
         canAccessTenancy,
+        canPerformAction,
+        requiredRoleForAction,
     };
 });

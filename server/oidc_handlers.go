@@ -18,6 +18,7 @@ import (
 	oidclib "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
+	authz "printmaster/server/authz"
 	"printmaster/server/storage"
 )
 
@@ -86,14 +87,11 @@ func handleAuthOptions(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
-	principal := getPrincipal(r)
-	if principal == nil || !principal.HasRole(storage.RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
 	switch r.Method {
 	case http.MethodGet:
+		if !authorizeOrReject(w, r, authz.ActionSSOProvidersRead, authz.ResourceRef{}) {
+			return
+		}
 		ctx := context.Background()
 		tenantID := strings.TrimSpace(r.URL.Query().Get("tenant"))
 		providers, err := serverStore.ListOIDCProviders(ctx, tenantID)
@@ -108,6 +106,9 @@ func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
+		if !authorizeOrReject(w, r, authz.ActionSSOProvidersWrite, authz.ResourceRef{}) {
+			return
+		}
 		var payload oidcProviderPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -131,12 +132,6 @@ func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleOIDCProvider(w http.ResponseWriter, r *http.Request) {
-	principal := getPrincipal(r)
-	if principal == nil || !principal.HasRole(storage.RoleAdmin) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
 	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/sso/providers/")
 	slug := strings.Trim(rest, "/")
 	if slug == "" {
@@ -153,9 +148,15 @@ func handleOIDCProvider(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		if !authorizeOrReject(w, r, authz.ActionSSOProvidersRead, authz.ResourceRef{}) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(adminProviderDTO(existing))
 	case http.MethodPut:
+		if !authorizeOrReject(w, r, authz.ActionSSOProvidersWrite, authz.ResourceRef{}) {
+			return
+		}
 		var payload oidcProviderPayload
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
@@ -173,6 +174,9 @@ func handleOIDCProvider(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(adminProviderDTO(updated))
 	case http.MethodDelete:
+		if !authorizeOrReject(w, r, authz.ActionSSOProvidersWrite, authz.ResourceRef{}) {
+			return
+		}
 		if err := serverStore.DeleteOIDCProvider(ctx, slug); err != nil {
 			http.Error(w, fmt.Sprintf("failed to delete provider: %v", err), http.StatusInternalServerError)
 			return
