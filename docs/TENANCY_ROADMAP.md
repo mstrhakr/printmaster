@@ -83,7 +83,6 @@ Short-term milestones (2-week slices)
 
 Rollout plan
 
-- Beta: enable tenancy behind feature flag and test on staging with real-ish datasets (copy DB) and multiple tenants.
 - Migration: provide migration CLI that backs up DB and runs migrations.
 - GA: enable tenancy by default in new installs; provide migration docs and an assisted migration tool for customers.
 

@@ -170,6 +170,26 @@ func TestHTTPRoutesEnforceAuthorization(t *testing.T) {
 	}
 }
 
+func TestTenantSubresourceDispatch(t *testing.T) {
+	enableTenancyForTest(t)
+	RegisterTenantSubresource("settings", func(w http.ResponseWriter, r *http.Request, tenantID string, rest string) {
+		if tenantID != "sub-tenant" {
+			t.Fatalf("unexpected tenant id: %s", tenantID)
+		}
+		if rest != "" {
+			t.Fatalf("unexpected remainder path: %s", rest)
+		}
+		w.WriteHeader(http.StatusTeapot)
+	})
+	t.Cleanup(func() { RegisterTenantSubresource("settings", nil) })
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/sub-tenant/settings", nil)
+	rw := httptest.NewRecorder()
+	handleTenantRoute(rw, req)
+	if rw.Code != http.StatusTeapot {
+		t.Fatalf("expected 418 got %d", rw.Code)
+	}
+}
+
 func TestHTTPRoutesTenantScopedWrite(t *testing.T) {
 	ts := setupTenancyServer(t)
 	_, _ = store.CreateTenant(Tenant{ID: "route-scope", Name: "Route"})

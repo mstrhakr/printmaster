@@ -1,6 +1,7 @@
 package tenancy
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -36,9 +37,28 @@ func SetEnabled(enabled bool) {
 // updates (e.g., via SSE) to the UI without this package importing higher layers.
 var agentEventSink func(eventType string, data map[string]interface{})
 
+var agentSettingsBuilder func(context.Context, string) (string, interface{}, error)
+
 // SetAgentEventSink registers a callback invoked for agent lifecycle events.
 func SetAgentEventSink(sink func(eventType string, data map[string]interface{})) {
 	agentEventSink = sink
+}
+
+// SetAgentSettingsBuilder wires the callback that produces resolved settings snapshots for agents.
+func SetAgentSettingsBuilder(builder func(context.Context, string) (string, interface{}, error)) {
+	agentSettingsBuilder = builder
+}
+
+func attachAgentSettings(resp map[string]interface{}, ctx context.Context, tenantID string) {
+	if agentSettingsBuilder == nil || resp == nil {
+		return
+	}
+	version, snapshot, err := agentSettingsBuilder(ctx, tenantID)
+	if err != nil || version == "" || snapshot == nil {
+		return
+	}
+	resp["settings_version"] = version
+	resp["settings_snapshot"] = snapshot
 }
 
 // AuthMiddleware, when set by the main application, will be used to wrap
@@ -120,7 +140,7 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	}
 
 	mux.HandleFunc("/api/v1/tenants", wrap(handleTenants))
-	mux.HandleFunc("/api/v1/tenants/", wrap(handleTenantByID))
+	mux.HandleFunc("/api/v1/tenants/", wrap(handleTenantRoute))
 	mux.HandleFunc("/api/v1/join-token", wrap(handleCreateJoinToken))
 	mux.HandleFunc("/api/v1/agents/register-with-token", handleRegisterWithToken) // registration must remain public
 	mux.HandleFunc("/api/v1/join-tokens", wrap(handleListJoinTokens))             // GET (admin)
@@ -223,6 +243,45 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+// handleTenantRoute dispatches /api/v1/tenants/{id} and nested subresources like /settings.
+func handleTenantRoute(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/")
+	rest = strings.Trim(rest, "/")
+	if rest == "" {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.SplitN(rest, "/", 2)
+	tenantID := strings.TrimSpace(parts[0])
+	if tenantID == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if len(parts) == 1 {
+		handleTenantByID(w, r)
+		return
+	}
+	subPath := strings.Trim(parts[1], "/")
+	if subPath == "" {
+		handleTenantByID(w, r)
+		return
+	}
+	subParts := strings.SplitN(subPath, "/", 2)
+	resource := subParts[0]
+	remainder := ""
+	if len(subParts) == 2 {
+		remainder = subParts[1]
+	}
+	if handler := getTenantSubresourceHandler(resource); handler != nil {
+		handler(w, r, tenantID, remainder)
+		return
+	}
+	http.NotFound(w, r)
 }
 
 func handleTenantByID(w http.ResponseWriter, r *http.Request) {
@@ -539,12 +598,14 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 
 		emitAgentEvent("agent_registered", ag)
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		resp := map[string]interface{}{
 			"success":     true,
 			"tenant_id":   jt.TenantID,
 			"agent_token": token,
-		})
+		}
+		attachAgentSettings(resp, r.Context(), jt.TenantID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 		return
 	}
 
@@ -589,12 +650,14 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		GitCommit:       in.GitCommit,
 		TenantID:        jt.TenantID,
 	})
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	resp := map[string]interface{}{
 		"success":     true,
 		"tenant_id":   jt.TenantID,
 		"agent_token": placeholder,
-	})
+	}
+	attachAgentSettings(resp, r.Context(), jt.TenantID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func emitAgentEvent(eventType string, agent *storage.Agent) {

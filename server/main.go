@@ -31,6 +31,7 @@ import (
 	sharedweb "printmaster/common/web"
 	wscommon "printmaster/common/ws"
 	authz "printmaster/server/authz"
+	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
 	"runtime"
@@ -255,6 +256,7 @@ func (h *SSEHub) RemoveClient(client *SSEClient) {
 var (
 	serverLogger       *logger.Logger
 	serverStore        storage.Store
+	settingsResolver   *serversettings.Resolver
 	authRateLimiter    *AuthRateLimiter // Rate limiter for failed auth attempts
 	configLoadErrors   []string         // Track config loading errors for display in UI
 	usingDefaultConfig bool             // Flag to indicate if using defaults vs loaded config
@@ -514,6 +516,17 @@ func runServer(ctx context.Context, configFlag string) {
 		logFatal("Failed to initialize database", "error", err)
 	}
 	defer serverStore.Close()
+	settingsResolver = serversettings.NewResolver(serverStore)
+	tenancy.SetAgentSettingsBuilder(func(ctx context.Context, tenantID string) (string, interface{}, error) {
+		snapshot, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, tenantID)
+		if err != nil {
+			return "", nil, err
+		}
+		if snapshot.Version == "" {
+			return "", nil, nil
+		}
+		return snapshot.Version, snapshot, nil
+	})
 
 	logInfo("Database initialized successfully")
 
@@ -1999,6 +2012,25 @@ func setupRoutes(cfg *Config) {
 	tenancy.RegisterRoutes(serverStore)
 	logInfo("Tenancy routes registered", "enabled", featureEnabled)
 
+	settingsAPI := serversettings.NewAPI(serverStore, settingsResolver, serversettings.APIOptions{
+		AuthMiddleware: requireWebAuth,
+		Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
+			return authorizeRequest(r, action, resource)
+		},
+		ActorResolver: func(r *http.Request) string {
+			if principal := getPrincipal(r); principal != nil && principal.User != nil {
+				return principal.User.Username
+			}
+			return ""
+		},
+	})
+	settingsAPI.RegisterRoutes(serversettings.RouteConfig{
+		Mux:                 http.DefaultServeMux,
+		FeatureEnabled:      featureEnabled,
+		RegisterTenantAlias: true,
+	})
+	logInfo("Settings routes registered", "enabled", featureEnabled)
+
 	// Proxy endpoints - require login
 	http.HandleFunc("/api/v1/proxy/agent/", requireWebAuth(handleAgentProxy))   // Proxy to agent's own web UI
 	http.HandleFunc("/api/v1/proxy/device/", requireWebAuth(handleDeviceProxy)) // Proxy to device web UI through agent
@@ -2038,8 +2070,6 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/devices/metrics/history", requireWebAuth(handleMetricsHistory))
 
 	// Minimal settings & logs endpoints for the UI (placeholders)
-	http.HandleFunc("/api/settings", requireWebAuth(handleSettings))
-	http.HandleFunc("/api/settings/test-email", requireWebAuth(handleSettingsTestEmail))
 	http.HandleFunc("/api/logs", requireWebAuth(handleLogs))
 	http.HandleFunc("/api/audit/logs", requireWebAuth(handleAuditLogs))
 
@@ -2297,9 +2327,10 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		AgentID   string    `json:"agent_id"`
-		Timestamp time.Time `json:"timestamp"`
-		Status    string    `json:"status"`
+		AgentID         string    `json:"agent_id"`
+		Timestamp       time.Time `json:"timestamp"`
+		Status          string    `json:"status"`
+		SettingsVersion string    `json:"settings_version,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -2315,6 +2346,15 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, req.Status); err != nil {
 		logWarn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
 		// Don't fail the request, just log it
+	}
+
+	var snapshot serversettings.AgentSnapshot
+	if settingsResolver != nil {
+		if snap, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, agent.TenantID); err != nil {
+			logWarn("Failed to build settings snapshot", "agent_id", agent.AgentID, "error", err)
+		} else {
+			snapshot = snap
+		}
 	}
 
 	// Log audit entry for heartbeat (only occasionally to reduce log volume)
@@ -2333,10 +2373,18 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 	logDebug("Heartbeat received", "agent_id", agent.AgentID, "status", req.Status)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	resp := map[string]interface{}{
 		"success": true,
-	})
+	}
+	if snapshot.Version != "" {
+		resp["settings_version"] = snapshot.Version
+		if req.SettingsVersion != snapshot.Version {
+			resp["settings_snapshot"] = snapshot
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // List all agents - for UI display
@@ -3711,124 +3759,6 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 	w.Write(content)
 }
 
-// Minimal settings handler - returns a small placeholder payload and accepts POST
-func handleSettings(w http.ResponseWriter, r *http.Request) {
-	if serverConfig == nil {
-		http.Error(w, "server config not loaded", http.StatusInternalServerError)
-		return
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		// Return relevant settings for the UI
-		out := map[string]interface{}{
-			"server_http_port":       serverConfig.Server.HTTPPort,
-			"server_db_path":         serverConfig.Database.Path,
-			"server_https_port":      serverConfig.Server.HTTPSPort,
-			"metrics_retention_days": 365,
-			"audit_retention_days":   90,
-			"smtp": map[string]interface{}{
-				"enabled": serverConfig.SMTP.Enabled,
-				"host":    serverConfig.SMTP.Host,
-				"port":    serverConfig.SMTP.Port,
-				"user":    serverConfig.SMTP.User,
-				"from":    serverConfig.SMTP.From,
-			},
-			"auto_approve_agents": serverConfig.Server.AutoApproveAgents,
-			"agent_timeout":       serverConfig.Server.AgentTimeoutMinutes,
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(out)
-		return
-	case http.MethodPost:
-		// Accept settings updates from UI and persist to config file if possible
-		var payload struct {
-			ServerHTTPPort  int    `json:"server_http_port,omitempty"`
-			ServerHTTPSPort int    `json:"server_https_port,omitempty"`
-			ServerDBPath    string `json:"server_db_path,omitempty"`
-			SMTP            struct {
-				Enabled bool   `json:"enabled"`
-				Host    string `json:"host"`
-				Port    int    `json:"port"`
-				User    string `json:"user"`
-				Pass    string `json:"pass"`
-				From    string `json:"from"`
-			} `json:"smtp"`
-			AutoApproveAgents bool `json:"auto_approve_agents"`
-			AgentTimeout      int  `json:"agent_timeout"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
-
-		// Apply to in-memory config
-		if payload.ServerHTTPPort != 0 {
-			serverConfig.Server.HTTPPort = payload.ServerHTTPPort
-		}
-		if payload.ServerHTTPSPort != 0 {
-			serverConfig.Server.HTTPSPort = payload.ServerHTTPSPort
-		}
-		if payload.ServerDBPath != "" {
-			serverConfig.Database.Path = payload.ServerDBPath
-		}
-		// Agent management
-		serverConfig.Server.AutoApproveAgents = payload.AutoApproveAgents
-		if payload.AgentTimeout != 0 {
-			serverConfig.Server.AgentTimeoutMinutes = payload.AgentTimeout
-		}
-		serverConfig.SMTP.Enabled = payload.SMTP.Enabled
-		if payload.SMTP.Host != "" {
-			serverConfig.SMTP.Host = payload.SMTP.Host
-		}
-		if payload.SMTP.Port != 0 {
-			serverConfig.SMTP.Port = payload.SMTP.Port
-		}
-		if payload.SMTP.User != "" {
-			serverConfig.SMTP.User = payload.SMTP.User
-		}
-		if payload.SMTP.Pass != "" {
-			// Keep SMTP password env-only: set in-memory and update process env.
-			serverConfig.SMTP.Pass = payload.SMTP.Pass
-			// Update process env so immediate operations can use it
-			_ = os.Setenv("SMTP_PASS", payload.SMTP.Pass)
-			// Persist to a .env file next to the loaded config (fallback to cwd) so
-			// operators can pick it up for future restarts without storing it in
-			// the main config TOML.
-			go func(pass string) {
-				envPath := ".env"
-				if loadedConfigPath != "" && loadedConfigPath != "defaults" {
-					dir := filepath.Dir(loadedConfigPath)
-					envPath = filepath.Join(dir, ".env")
-				}
-				_ = writeEnvFile(envPath, map[string]string{"SMTP_PASS": pass})
-			}(payload.SMTP.Pass)
-		}
-		if payload.SMTP.From != "" {
-			serverConfig.SMTP.From = payload.SMTP.From
-		}
-
-		// Persist to config file if we loaded a real file. When persisting, scrub
-		// sensitive secrets (like SMTP.Pass) from the main TOML so secrets remain
-		// env-only. Use a temporary copy to avoid mutating in-memory serverConfig.
-		if loadedConfigPath != "defaults" && loadedConfigPath != "" {
-			copyCfg := *serverConfig
-			copyCfg.SMTP.Pass = ""
-			if err := config.WriteTOML(loadedConfigPath, &copyCfg); err != nil {
-				http.Error(w, fmt.Sprintf("failed to save config: %v", err), http.StatusInternalServerError)
-				return
-			}
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]bool{"success": true})
-		return
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-}
-
 // Minimal logs handler - returns an array of recent server log lines (best-effort)
 func handleLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -3912,91 +3842,4 @@ func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logError("Failed to encode audit log response", "error", err)
 	}
-}
-
-// writeEnvFile updates or creates a simple KEY=VALUE env file at path with
-// the provided vars. Existing keys are updated; other lines are preserved.
-func writeEnvFile(path string, vars map[string]string) error {
-	// Read existing file if present
-	existing := map[string]string{}
-	if b, err := os.ReadFile(path); err == nil {
-		lines := strings.Split(string(b), "\n")
-		for _, l := range lines {
-			l = strings.TrimSpace(l)
-			if l == "" || strings.HasPrefix(l, "#") {
-				continue
-			}
-			parts := strings.SplitN(l, "=", 2)
-			if len(parts) == 2 {
-				k := strings.TrimSpace(parts[0])
-				v := strings.TrimSpace(parts[1])
-				existing[k] = v
-			}
-		}
-	}
-
-	// Merge updates
-	for k, v := range vars {
-		existing[k] = v
-	}
-
-	// Build output content
-	var buf bytes.Buffer
-	for k, v := range existing {
-		fmt.Fprintf(&buf, "%s=%s\n", k, v)
-	}
-
-	// Write file with owner-only perms when possible
-	return os.WriteFile(path, buf.Bytes(), 0600)
-}
-
-// handleSettingsTestEmail accepts POST { to: "recipient@example.com" }
-// and sends a short test email using the configured SMTP settings.
-func handleSettingsTestEmail(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !authorizeOrReject(w, r, authz.ActionSettingsTestEmail, authz.ResourceRef{}) {
-		return
-	}
-
-	var req struct {
-		To string `json:"to"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-
-	to := strings.TrimSpace(req.To)
-	if to == "" {
-		// fallback to configured From address
-		if serverConfig != nil && serverConfig.SMTP.From != "" {
-			to = serverConfig.SMTP.From
-		}
-	}
-	if to == "" {
-		http.Error(w, "no recipient specified", http.StatusBadRequest)
-		return
-	}
-
-	// rate limiting to avoid SMTP abuse (count attempts by IP)
-	clientIP := extractIPFromAddr(r.RemoteAddr)
-	if authRateLimiter != nil {
-		if isBlocked, _ := authRateLimiter.IsBlocked(clientIP, "settings-test-email"); isBlocked {
-			http.Error(w, "Too many requests. Try again later.", http.StatusTooManyRequests)
-			return
-		}
-		authRateLimiter.RecordFailure(clientIP, "settings-test-email")
-	}
-
-	body := fmt.Sprintf("This is a test email from PrintMaster sent at %s\n\nIf you received this message, SMTP settings are working.", time.Now().Format(time.RFC3339))
-	if err := sendEmail(to, "PrintMaster: Test Email", body); err != nil {
-		http.Error(w, fmt.Sprintf("failed to send test email: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"sent": true})
 }

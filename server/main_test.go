@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	pmsettings "printmaster/common/settings"
+	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	"printmaster/server/tenancy"
 	"testing"
@@ -308,6 +310,97 @@ func TestHeartbeatWithValidToken(t *testing.T) {
 
 	if result["success"] != true {
 		t.Errorf("Expected success=true, got %v", result["success"])
+	}
+}
+
+func TestHeartbeatReturnsSettingsSnapshotWhenVersionDiffers(t *testing.T) {
+	// Note: not parallel because globals mutated
+	server, store := setupTestServer(t)
+	ctx := context.Background()
+
+	agent := &storage.Agent{
+		AgentID:         "settings-agent",
+		Hostname:        "snap-host",
+		IP:              "10.0.0.5",
+		Platform:        "linux",
+		Version:         "v0.3.0",
+		ProtocolVersion: "1",
+		Token:           "snap-token",
+		RegisteredAt:    time.Now(),
+		LastSeen:        time.Now(),
+		Status:          "active",
+	}
+	if err := store.RegisterAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to seed agent: %v", err)
+	}
+
+	settingsResolver = serversettings.NewResolver(store)
+	t.Cleanup(func() { settingsResolver = nil })
+
+	cfg := pmsettings.DefaultSettings()
+	cfg.Discovery.AutoDiscoverEnabled = true
+	rec := &storage.SettingsRecord{SchemaVersion: "schema-x", Settings: cfg, UpdatedAt: time.Unix(1000, 0)}
+	if err := store.UpsertGlobalSettings(ctx, rec); err != nil {
+		t.Fatalf("failed to persist global settings: %v", err)
+	}
+
+	snapshot, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, agent.TenantID)
+	if err != nil {
+		t.Fatalf("build snapshot failed: %v", err)
+	}
+	if snapshot.Version == "" {
+		t.Fatalf("expected snapshot version")
+	}
+
+	body := map[string]interface{}{
+		"agent_id":  agent.AgentID,
+		"timestamp": time.Now(),
+		"status":    "active",
+	}
+	payload, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/agents/heartbeat", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+agent.Token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("heartbeat request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if result["settings_version"] != snapshot.Version {
+		t.Fatalf("expected settings_version %s, got %v", snapshot.Version, result["settings_version"])
+	}
+	if _, ok := result["settings_snapshot"]; !ok {
+		t.Fatalf("expected settings snapshot in response")
+	}
+
+	body["settings_version"] = snapshot.Version
+	payload, _ = json.Marshal(body)
+	req2, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/agents/heartbeat", bytes.NewReader(payload))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Authorization", "Bearer "+agent.Token)
+
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("heartbeat request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+	var second map[string]interface{}
+	if err := json.NewDecoder(resp2.Body).Decode(&second); err != nil {
+		t.Fatalf("decode second response failed: %v", err)
+	}
+	if _, ok := second["settings_snapshot"]; ok {
+		t.Fatalf("expected snapshot to be omitted when agent is up-to-date")
 	}
 }
 
