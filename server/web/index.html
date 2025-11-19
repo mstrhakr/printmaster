@@ -116,151 +116,58 @@
         <!-- Settings Tab (rendered dynamically) -->
         <template id="tab-template-settings">
             <div style="margin-top:12px;" data-tab="settings" class="hidden">
-                <h3>Server Settings</h3>
+                <h3>Fleet Settings</h3>
 
-                <!-- Settings Controls (Sticky) -->
-                <div class="settings-sticky-bar">
-                    <label id="autosave_label">
-                        <input type="checkbox" id="settings_autosave" />
-                        <span style="font-weight:500;font-size:14px;">Auto-save</span>
-                    </label>
-                    <div id="settings_buttons" class="settings-buttons">
-                        <button id="settings_apply_btn">Apply</button>
-                        <button id="settings_revert_btn">Revert</button>
-                        <button id="settings_reset_btn">Reset</button>
+                <div class="managed-settings-grid">
+                    <div class="panel" id="managed_settings_panel">
+                        <div class="settings-scope-bar">
+                            <div class="settings-scope-buttons">
+                                <button class="settings-scope-btn active" data-scope="global">Global Defaults</button>
+                                <button class="settings-scope-btn" data-scope="tenant">Tenant Overrides</button>
+                            </div>
+                            <div class="settings-tenant-controls hidden" id="settings_tenant_controls">
+                                <label>
+                                    <span>Tenant</span>
+                                    <select id="settings_tenant_select"></select>
+                                </label>
+                                <button id="settings_reset_overrides_btn" class="ghost-btn">Clear Overrides</button>
+                            </div>
+                            <div class="settings-updated" id="settings_last_updated"></div>
+                        </div>
+
+                        <div id="settings_form_root" class="settings-form-root">
+                            <div class="muted-text">Loading managed settings…</div>
+                        </div>
+
+                        <div class="settings-actions">
+                            <div class="settings-status" id="settings_status"></div>
+                            <div class="settings-action-buttons">
+                                <button id="settings_discard_btn" class="ghost-btn">Discard Changes</button>
+                                <button id="settings_save_btn" class="primary">Save Changes</button>
+                            </div>
+                        </div>
                     </div>
-                    <div id="autosave_feedback" class="autosave-feedback">✓ Settings saved</div>
+
+                    <div class="panel" id="settings_summary_panel">
+                        <h4 style="margin-top:0;color:var(--highlight);">Override Summary</h4>
+                        <div id="settings_override_list" class="muted-text">Select a tenant to view overrides.</div>
+                    </div>
                 </div>
 
-                <!-- Settings Grid Container -->
-                <div class="settings-grid">
-
-                    <!-- Server Configuration -->
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Server Configuration</h4>
-                        <div style="display:flex;flex-direction:column;gap:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">HTTP Port:</span>
-                                <input id="server_http_port" type="number" style="width:120px" value="9090" />
-                                <span style="color:var(--muted);font-size:12px;">Agent API port</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">HTTPS Port:</span>
-                                <input id="server_https_port" type="number" style="width:120px" value="9443" />
-                                <span style="color:var(--muted);font-size:12px;">Web UI port</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Database Path:</span>
-                                <input id="server_db_path" type="text" style="width:320px" placeholder="Auto-detected" />
-                                <span style="color:var(--muted);font-size:12px;">SQLite database location</span>
-                            </label>
+                <div class="panel" style="margin-top:16px;">
+                    <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                        <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                            Connect identity providers for the hosted login page. Providers can be tenant-specific or global.
+                        </div>
+                        <div>
+                            <button id="sso_add_provider_btn">Add Provider</button>
                         </div>
                     </div>
-
-                    <!-- Single Sign-On -->
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                                Connect identity providers for the hosted login page. Providers can be tenant-specific or global.
-                            </div>
-                            <div>
-                                <button id="sso_add_provider_btn">Add Provider</button>
-                            </div>
-                        </div>
-                        <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
-                            <div class="muted-text">Loading identity providers…</div>
-                        </div>
+                    <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
+                        <div class="muted-text">Loading identity providers…</div>
                     </div>
-
-                    <!-- Email / SMTP -->
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Email (SMTP)</h4>
-                        <div style="display:flex;flex-direction:column;gap:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="smtp_enabled" />
-                                <span style="font-weight:500;font-size:14px;">Enable SMTP</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">SMTP Host:</span>
-                                <input id="smtp_host" type="text" style="width:320px" placeholder="smtp.example.com" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">SMTP Port:</span>
-                                <input id="smtp_port" type="number" style="width:120px" value="587" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">SMTP User:</span>
-                                <input id="smtp_user" type="text" style="width:320px" placeholder="user@example.com" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">SMTP Password:</span>
-                                <input id="smtp_pass" type="password" style="width:320px" placeholder="secret" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">From Address:</span>
-                                <input id="smtp_from" type="text" style="width:320px" placeholder="no-reply@example.com" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Test Recipient:</span>
-                                <input id="smtp_test_to" type="text" style="width:320px" placeholder="your-email@example.com" />
-                                <button type="button" class="btn" onclick="sendTestEmail()">Send test email</button>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Agent Management -->
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Agent Management</h4>
-                        <div style="display:flex;flex-direction:column;gap:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="auto_approve_agents" />
-                                <span>Auto-approve new agents</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Allow without manual approval</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Agent timeout (minutes):</span>
-                                <input id="agent_timeout" type="number" style="width:120px" min="5" max="60" value="15" />
-                                <span style="color:var(--muted);font-size:12px;">Mark offline after N minutes</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Data Retention -->
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Data Retention</h4>
-                        <div style="display:flex;flex-direction:column;gap:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Metrics retention (days):</span>
-                                <input id="metrics_retention_days" type="number" style="width:120px" min="30" max="1825" value="365" />
-                                <span style="color:var(--muted);font-size:12px;">Keep metrics history</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Audit log retention (days):</span>
-                                <input id="audit_retention_days" type="number" style="width:120px" min="30" max="1825" value="90" />
-                                <span style="color:var(--muted);font-size:12px;">Keep audit entries</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Logging Settings -->
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Logging Settings</h4>
-                        <div style="display:flex;flex-direction:column;gap:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Log Level:</span>
-                                <select id="log_level" style="width:180px;">
-                                    <option value="error">ERROR - Only errors</option>
-                                    <option value="warn">WARN - Warnings and errors</option>
-                                    <option value="info" selected>INFO - Normal operations</option>
-                                    <option value="debug">DEBUG - Detailed debugging</option>
-                                    <option value="trace">TRACE - Very verbose</option>
-                                </select>
-                            </label>
-                        </div>
-                    </div>
-
-                </div> <!-- End settings-grid -->
+                </div>
             </div>
         </template>
 

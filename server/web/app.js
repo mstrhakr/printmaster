@@ -26,7 +26,6 @@ const TAB_DEFINITIONS = {
         requiredAction: 'settings.read',
         templateId: 'tab-template-settings',
         onMount: () => {
-            initSettingsButtons();
             initSSOAdmin();
         }
     },
@@ -638,7 +637,7 @@ function switchTab(targetTab) {
     } else if (targetTab === 'metrics') {
         loadMetrics();
     } else if (targetTab === 'settings') {
-        loadSettings();
+        initSettingsUI();
         refreshSSOProviders();
     } else if (targetTab === 'logs') {
         initLogSubTabs();
@@ -1122,6 +1121,7 @@ async function loadTenants(){
         window._tenants = data;
         syncSSOTenants(data);
         renderTenants(data);
+        notifyManagedSettingsTenantDirectory(data);
     }catch(err){
         el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
     }
@@ -2136,169 +2136,835 @@ function openDeviceMetrics(serial) {
     }
 }
 
-// ====== Settings Management ======
-async function loadSettings() {
-    try {
-        const response = await fetch('/api/settings');
-        if (!response.ok) {
-            window.__pm_shared.showToast('Failed to load settings', 'error');
+// ====== Managed Settings UI ======
+const SETTINGS_SECTION_LABELS = {
+    discovery: 'Discovery',
+    developer: 'Developer',
+    security: 'Security'
+};
+const SETTINGS_SECTION_ORDER = ['discovery', 'developer', 'security'];
+
+const settingsUIState = {
+    initialized: false,
+    loading: false,
+    loadingPromise: null,
+    scope: 'global',
+    schema: null,
+    groupedFields: {},
+    globalSnapshot: null,
+    globalDraft: null,
+    globalDirty: false,
+    tenantList: [],
+    selectedTenantId: '',
+    tenantSnapshot: null,
+    tenantDraft: null,
+    tenantOverridesDraft: {},
+    tenantDirty: false,
+    saving: false,
+    eventsBound: false
+};
+
+function resolveTenantId(record) {
+    if (!record) return '';
+    return record.id || record.uuid || record.tenant_id || '';
+}
+
+function normalizeTenantList(list) {
+    if (!Array.isArray(list)) return [];
+    const normalized = [];
+    list.forEach(item => {
+        const id = resolveTenantId(item);
+        if (!id) {
             return;
         }
-        const settings = await response.json();
-        window.__pm_shared.log('Settings loaded:', settings);
+        normalized.push({ ...item, id });
+    });
+    return normalized;
+}
 
-        // populate server settings
-        if (settings.server_http_port) document.getElementById('server_http_port').value = settings.server_http_port;
-        if (settings.server_https_port) document.getElementById('server_https_port').value = settings.server_https_port;
-        if (settings.server_db_path) document.getElementById('server_db_path').value = settings.server_db_path;
-        // populate SMTP
-        if (settings.smtp) {
-            document.getElementById('smtp_enabled').checked = !!settings.smtp.enabled;
-            if (settings.smtp.host) document.getElementById('smtp_host').value = settings.smtp.host;
-            if (settings.smtp.port) document.getElementById('smtp_port').value = settings.smtp.port;
-            if (settings.smtp.user) document.getElementById('smtp_user').value = settings.smtp.user;
-            if (settings.smtp.from) document.getElementById('smtp_from').value = settings.smtp.from;
+function updateSettingsTenantDirectory(rawList) {
+    const normalized = normalizeTenantList(rawList);
+    const previousSelection = settingsUIState.selectedTenantId;
+    settingsUIState.tenantList = normalized;
+    const selectionStillValid = previousSelection && normalized.some(t => t.id === previousSelection);
+    if (!selectionStillValid) {
+        settingsUIState.selectedTenantId = normalized.length ? normalized[0].id : '';
+    }
+    if (!settingsUIState.selectedTenantId) {
+        settingsUIState.tenantSnapshot = null;
+        settingsUIState.tenantDraft = null;
+        settingsUIState.tenantOverridesDraft = {};
+        settingsUIState.tenantDirty = false;
+    }
+    if (!settingsUIState.initialized) {
+        return;
+    }
+    if (settingsUIState.scope === 'tenant' && !selectionStillValid && settingsUIState.selectedTenantId) {
+        loadTenantSnapshot(settingsUIState.selectedTenantId)
+            .then(() => renderSettingsUI())
+            .catch(err => reportSettingsError('Failed to refresh tenant overrides', err));
+        return;
+    }
+    renderSettingsUI();
+}
+
+function notifyManagedSettingsTenantDirectory(list) {
+    updateSettingsTenantDirectory(list);
+}
+
+async function initSettingsUI() {
+    const panel = document.getElementById('managed_settings_panel');
+    if (!panel) return;
+    if (settingsUIState.loading) {
+        return settingsUIState.loadingPromise;
+    }
+    if (settingsUIState.initialized) {
+        renderSettingsUI();
+        return;
+    }
+    settingsUIState.loading = true;
+    settingsUIState.loadingPromise = (async () => {
+        try {
+            await bootstrapSettingsUI();
+            settingsUIState.initialized = true;
+            renderSettingsUI();
+        } catch (err) {
+            renderSettingsError(err);
+        } finally {
+            settingsUIState.loading = false;
         }
+    })();
+    return settingsUIState.loadingPromise;
+}
 
-        // populate agent settings
-        if (typeof settings.auto_approve_agents !== 'undefined') document.getElementById('auto_approve_agents').checked = !!settings.auto_approve_agents;
-        if (settings.agent_timeout) document.getElementById('agent_timeout').value = settings.agent_timeout;
-
-        // Show printer details modal by delegating to the shared renderer.
-    } catch (error) {
-        window.__pm_shared.error('Failed to load settings:', error);
-        window.__pm_shared.showToast('Failed to load settings', 'error');
+async function bootstrapSettingsUI() {
+    await loadSettingsSchema();
+    await loadGlobalSettingsSnapshot();
+    await loadTenantDirectory();
+    if (settingsUIState.tenantList.length > 0) {
+        settingsUIState.selectedTenantId = settingsUIState.tenantList[0].id;
+        if (settingsUIState.selectedTenantId) {
+            await loadTenantSnapshot(settingsUIState.selectedTenantId);
+        }
     }
 }
 
-async function saveSettings() {
+async function loadSettingsSchema() {
     try {
-        const settings = {
-            server_http_port: parseInt(document.getElementById('server_http_port').value, 10) || undefined,
-            server_https_port: parseInt(document.getElementById('server_https_port').value, 10) || undefined,
-            server_db_path: document.getElementById('server_db_path').value || "",
-            smtp: {
-                enabled: !!document.getElementById('smtp_enabled').checked,
-                host: document.getElementById('smtp_host').value || "",
-                port: parseInt(document.getElementById('smtp_port').value, 10) || 0,
-                user: document.getElementById('smtp_user').value || "",
-                pass: document.getElementById('smtp_pass').value || "",
-                from: document.getElementById('smtp_from').value || "",
+        const schema = await fetchJSON('/api/v1/settings/schema');
+        settingsUIState.schema = schema;
+        settingsUIState.groupedFields = groupSchemaFields(schema && Array.isArray(schema.fields) ? schema.fields : []);
+    } catch (err) {
+        if (err && err.status === 404) {
+            throw new Error('Managed settings are disabled on this server build. Enable tenancy/features to use this tab.');
+        }
+        throw err;
+    }
+}
+
+function groupSchemaFields(fields) {
+    const groups = {};
+    fields.forEach(field => {
+        if (!field || !field.path) return;
+        const scope = (field.scope || '').toLowerCase();
+        if (scope === 'agent') {
+            return;
+        }
+        const section = field.path.split('.')[0];
+        if (!groups[section]) {
+            groups[section] = [];
+        }
+        groups[section].push(field);
+    });
+    return groups;
+}
+
+function orderedSettingsSections() {
+    const sections = [];
+    const seen = new Set();
+    SETTINGS_SECTION_ORDER.forEach(sectionKey => {
+        const group = settingsUIState.groupedFields[sectionKey];
+        if (group && group.length) {
+            sections.push(sectionKey);
+            seen.add(sectionKey);
+        }
+    });
+    Object.keys(settingsUIState.groupedFields).sort().forEach(sectionKey => {
+        const group = settingsUIState.groupedFields[sectionKey];
+        if (!seen.has(sectionKey) && group && group.length) {
+            sections.push(sectionKey);
+        }
+    });
+    return sections;
+}
+
+async function loadGlobalSettingsSnapshot() {
+    const snapshot = await fetchJSON('/api/v1/settings/global');
+    settingsUIState.globalSnapshot = snapshot;
+    settingsUIState.globalDraft = cloneSettings(snapshot ? snapshot.Settings : {});
+    settingsUIState.globalDirty = false;
+}
+
+async function loadTenantDirectory() {
+    try {
+        const tenants = await fetchJSON('/api/v1/tenants');
+        updateSettingsTenantDirectory(tenants);
+    } catch (err) {
+        if (err && (err.status === 403 || err.status === 404)) {
+            settingsUIState.tenantList = [];
+            return;
+        }
+        throw err;
+    }
+}
+
+async function loadTenantSnapshot(tenantId) {
+    if (!tenantId) {
+        settingsUIState.tenantSnapshot = null;
+        settingsUIState.tenantDraft = null;
+        settingsUIState.tenantOverridesDraft = {};
+        settingsUIState.tenantDirty = false;
+        return;
+    }
+    const snapshot = await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`);
+    settingsUIState.tenantSnapshot = snapshot;
+    settingsUIState.tenantDraft = cloneSettings(snapshot ? snapshot.Settings : settingsUIState.globalSnapshot.Settings);
+    settingsUIState.tenantOverridesDraft = cloneSettings(snapshot && snapshot.Overrides ? snapshot.Overrides : {});
+    settingsUIState.tenantDirty = false;
+}
+
+function renderSettingsUI() {
+    bindSettingsEvents();
+    renderScopeButtons();
+    updateTenantSelect();
+    renderSettingsForm();
+    renderOverrideSummary();
+    updateActionButtons();
+    updateLastUpdatedMeta();
+}
+
+function renderSettingsError(err) {
+    const root = document.getElementById('settings_form_root');
+    if (root) {
+        let message = 'Managed settings are unavailable.';
+        if (err) {
+            if (err.status === 403) {
+                message = 'You do not have permission to view managed settings.';
+            } else if (err.status === 404) {
+                message = 'Managed settings are disabled on this server build.';
+            } else if (err.message) {
+                message = err.message;
             }
-        };
-
-        // agent settings
-        settings.auto_approve_agents = !!document.getElementById('auto_approve_agents').checked;
-        settings.agent_timeout = parseInt(document.getElementById('agent_timeout').value, 10) || 0;
-
-        const response = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settings)
-        });
-        
-        if (!response.ok) {
-            window.__pm_shared.showToast('Failed to save settings', 'error');
-            return;
         }
-
-        window.__pm_shared.showToast('Settings saved successfully', 'success');
-        // show autosave feedback if enabled
-        const fb = document.getElementById('autosave_feedback');
-        if (fb) {
-            fb.classList.add('show');
-            setTimeout(()=> fb.classList.remove('show'), 2000);
-        }
-    } catch (error) {
-        window.__pm_shared.error('Failed to save settings:', error);
-    window.__pm_shared.showToast('Failed to save settings', 'error');
+        root.innerHTML = `<div class="error-text">${escapeHtml(message)}</div>`;
+        window.__pm_shared.showToast(message, 'error', 5000);
+    }
+    const actions = document.querySelector('.settings-actions');
+    if (actions) {
+        actions.style.display = 'none';
     }
 }
 
-// Revert UI fields to last-saved settings from server
-async function revertSettings() {
-    await loadSettings();
-    window.__pm_shared.showToast('Settings reverted', 'info');
+function bindSettingsEvents() {
+    if (settingsUIState.eventsBound) return;
+    const formRoot = document.getElementById('settings_form_root');
+    if (formRoot) {
+        formRoot.addEventListener('input', handleSettingsFieldChange);
+        formRoot.addEventListener('change', handleSettingsFieldChange);
+        formRoot.addEventListener('click', handleSettingsFieldClick);
+    }
+    const saveBtn = document.getElementById('settings_save_btn');
+    if (saveBtn) saveBtn.addEventListener('click', handleSettingsSave);
+    const discardBtn = document.getElementById('settings_discard_btn');
+    if (discardBtn) discardBtn.addEventListener('click', handleDiscardChanges);
+    const resetBtn = document.getElementById('settings_reset_overrides_btn');
+    if (resetBtn) resetBtn.addEventListener('click', resetTenantOverrides);
+    document.querySelectorAll('.settings-scope-btn').forEach(btn => {
+        btn.addEventListener('click', () => handleSettingsScopeChange(btn.dataset.scope));
+    });
+    const tenantSelect = document.getElementById('settings_tenant_select');
+    if (tenantSelect) tenantSelect.addEventListener('change', handleTenantSelect);
+    settingsUIState.eventsBound = true;
 }
 
-// Reset UI fields to reasonable defaults (client-side) — does not persist until Apply pressed
-function resetSettings() {
-    document.getElementById('server_http_port').value = 9090;
-    document.getElementById('server_https_port').value = 9443;
-    document.getElementById('server_db_path').value = '';
-    document.getElementById('smtp_enabled').checked = false;
-    document.getElementById('smtp_host').value = '';
-    document.getElementById('smtp_port').value = 587;
-    document.getElementById('smtp_user').value = '';
-    document.getElementById('smtp_pass').value = '';
-    document.getElementById('smtp_from').value = '';
-    document.getElementById('auto_approve_agents').checked = false;
-    document.getElementById('agent_timeout').value = 15;
-    window.__pm_shared.showToast('Settings reset to defaults (not saved)', 'info');
-}
-
-// Debounce helper
-function debounce(fn, ms){
-    let t;
-    return (...args)=>{ clearTimeout(t); t = setTimeout(()=> fn(...args), ms); };
-}
-
-// Autosave setup — when enabled, auto-save on input change (debounced)
-function setupAutosave() {
-    const autosaveCheckbox = document.getElementById('settings_autosave');
-    if (!autosaveCheckbox) return;
-    const inputs = document.querySelectorAll('.settings-grid input, .settings-grid select');
-    const debouncedSave = debounce(()=>{ if (autosaveCheckbox.checked) saveSettings(); }, 800);
-    inputs.forEach(i=> i.addEventListener('input', debouncedSave));
-    // Also toggle visibility of Apply/Revert/Reset buttons when autosave enabled
-    autosaveCheckbox.addEventListener('change', ()=>{
-        const btns = document.getElementById('settings_buttons');
-        if (btns) btns.style.display = autosaveCheckbox.checked ? 'none' : 'block';
+function renderScopeButtons() {
+    document.querySelectorAll('.settings-scope-btn').forEach(btn => {
+        const scope = btn.dataset.scope || 'global';
+        btn.classList.toggle('active', scope === settingsUIState.scope);
     });
 }
 
-// Wire settings buttons (call on init)
-function initSettingsButtons(){
-    const apply = document.getElementById('settings_apply_btn');
-    const revert = document.getElementById('settings_revert_btn');
-    const reset = document.getElementById('settings_reset_btn');
-    if (apply) apply.addEventListener('click', saveSettings);
-    if (revert) revert.addEventListener('click', revertSettings);
-    if (reset) reset.addEventListener('click', resetSettings);
-    setupAutosave();
+function updateTenantSelect() {
+    const select = document.getElementById('settings_tenant_select');
+    if (!select) return;
+    select.innerHTML = '';
+    if (!settingsUIState.tenantList.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No tenants available';
+        select.appendChild(opt);
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    settingsUIState.tenantList.forEach(tenant => {
+        const opt = document.createElement('option');
+        const tenantId = resolveTenantId(tenant);
+        opt.value = tenantId;
+        opt.textContent = tenant.name || tenantId;
+        if (tenantId === settingsUIState.selectedTenantId) {
+            opt.selected = true;
+        }
+        select.appendChild(opt);
+    });
 }
 
-// Send a test email using current SMTP settings. Prompts for recipient if not provided.
-async function sendTestEmail() {
-    try {
-        let to = document.getElementById('smtp_test_to').value || '';
-        if (!to) {
-            to = prompt('Enter an email address to send the test message to:');
-            if (!to) return;
-        }
-
-        const response = await fetch('/api/settings/test-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ to })
-        });
-
-        if (!response.ok) {
-            const txt = await response.text();
-            window.__pm_shared.showToast('Failed to send test email: ' + txt, 'error', 5000);
+function renderSettingsForm() {
+    const root = document.getElementById('settings_form_root');
+    if (!root) return;
+    if (!settingsUIState.schema || !settingsUIState.globalDraft) {
+        root.innerHTML = '<div class="muted-text">Managed settings are initializing…</div>';
+        return;
+    }
+    const scope = settingsUIState.scope;
+    const draft = scope === 'global'
+        ? settingsUIState.globalDraft
+        : (settingsUIState.tenantDraft || settingsUIState.globalDraft);
+    root.innerHTML = '';
+    orderedSettingsSections().forEach(sectionKey => {
+        const fields = settingsUIState.groupedFields[sectionKey];
+        if (!fields || !fields.length) {
             return;
         }
+        const sectionEl = document.createElement('div');
+        sectionEl.className = 'settings-section-panel';
+        const header = document.createElement('div');
+        header.className = 'settings-section-header';
+        header.innerHTML = `<h4>${escapeHtml(SETTINGS_SECTION_LABELS[sectionKey] || sectionKey)}</h4>`;
+        sectionEl.appendChild(header);
 
-        const data = await response.json();
-        if (data && data.sent) {
-            window.__pm_shared.showToast('Test email sent', 'success', 4000);
+        const list = document.createElement('div');
+        list.className = 'settings-field-list';
+        fields.forEach(field => {
+            const value = getValueByPath(draft, field.path);
+            const row = renderSettingsFieldRow(field, value, scope);
+            if (row) {
+                list.appendChild(row);
+            }
+        });
+        sectionEl.appendChild(list);
+        root.appendChild(sectionEl);
+    });
+    if (!root.children.length) {
+        root.innerHTML = '<div class="muted-text">No server-managed settings are available in this build.</div>';
+    }
+}
+
+function renderSettingsFieldRow(field, value, scope) {
+    const row = document.createElement('div');
+    row.className = 'settings-field-row';
+    row.dataset.fieldType = (field.type || 'text').toLowerCase();
+    const label = document.createElement('div');
+    label.className = 'settings-field-label';
+    label.innerHTML = `
+        <div class="field-title">${escapeHtml(field.title || field.path)}</div>
+        <div class="field-description">${escapeHtml(field.description || '')}</div>
+    `;
+
+    const control = document.createElement('div');
+    control.className = 'settings-field-control';
+    const inputFragment = createInputForField(field, value);
+    if (!inputFragment || !inputFragment.input || !inputFragment.element) {
+        return null;
+    }
+    const { input, element } = inputFragment;
+    const canEdit = userCan('settings.write');
+    input.disabled = !canEdit || (scope === 'tenant' && !settingsUIState.selectedTenantId);
+    control.appendChild(element);
+
+    if (scope === 'tenant') {
+        const isOverride = hasOverride(pathToArray(field.path));
+        const badge = document.createElement('span');
+        badge.className = `settings-badge ${isOverride ? 'override' : 'inherited'}`;
+        badge.textContent = isOverride ? 'Override' : 'Inherited';
+        control.appendChild(badge);
+        if (isOverride && canEdit) {
+            const inheritBtn = document.createElement('button');
+            inheritBtn.type = 'button';
+            inheritBtn.className = 'ghost-btn inherit-btn';
+            inheritBtn.textContent = 'Inherit';
+            inheritBtn.dataset.inheritPath = field.path;
+            control.appendChild(inheritBtn);
+        }
+    }
+
+    row.appendChild(label);
+    row.appendChild(control);
+    return row;
+}
+
+function createInputForField(field, value) {
+    const type = (field.type || 'text').toLowerCase();
+    let input;
+    let element;
+    if (type === 'bool') {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = !!value;
+        const toggle = document.createElement('label');
+        toggle.className = 'mini-toggle-container settings-toggle';
+        toggle.title = field.title || field.path;
+        const state = document.createElement('span');
+        state.className = 'settings-toggle-state';
+        state.textContent = input.checked ? 'Enabled' : 'Disabled';
+        input.addEventListener('change', () => {
+            state.textContent = input.checked ? 'Enabled' : 'Disabled';
+        });
+        toggle.appendChild(input);
+        toggle.appendChild(state);
+        element = toggle;
+    } else if (type === 'number') {
+        input = document.createElement('input');
+        input.type = 'number';
+        input.value = value === null || value === undefined ? '' : value;
+        if (field.min !== undefined) input.min = field.min;
+        if (field.max !== undefined) input.max = field.max;
+        element = input;
+    } else if (type === 'select' && Array.isArray(field.enum)) {
+        input = document.createElement('select');
+        field.enum.forEach(optionValue => {
+            const opt = document.createElement('option');
+            opt.value = optionValue;
+            opt.textContent = optionValue;
+            if (optionValue === value) {
+                opt.selected = true;
+            }
+            input.appendChild(opt);
+        });
+        element = input;
+    } else {
+        input = document.createElement('input');
+        input.type = 'text';
+        input.value = value === null || value === undefined ? '' : value;
+        element = input;
+    }
+    input.dataset.settingsPath = field.path;
+    input.dataset.fieldType = (field.type || 'text').toLowerCase();
+    return { input, element };
+}
+
+function handleSettingsFieldChange(event) {
+    const target = event.target;
+    if (!target || !target.dataset || !target.dataset.settingsPath) {
+        return;
+    }
+    const path = target.dataset.settingsPath;
+    const fieldType = target.dataset.fieldType || 'text';
+    const newValue = readInputValue(target, fieldType);
+    if (settingsUIState.scope === 'global') {
+        updateGlobalDraft(path, newValue);
+    } else {
+        updateTenantDraft(path, newValue);
+    }
+}
+
+function handleSettingsFieldClick(event) {
+    const target = event.target;
+    if (target && target.dataset && target.dataset.inheritPath) {
+        event.preventDefault();
+        clearTenantOverride(target.dataset.inheritPath);
+    }
+}
+
+function readInputValue(input, fieldType) {
+    switch (fieldType) {
+        case 'bool':
+            return !!input.checked;
+        case 'number':
+            return input.value === '' ? null : Number(input.value);
+        default:
+            return input.value;
+    }
+}
+
+function updateGlobalDraft(path, value) {
+    setNestedValue(settingsUIState.globalDraft, path, value);
+    const baseline = settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {};
+    settingsUIState.globalDirty = !deepEqual(settingsUIState.globalDraft, baseline);
+    updateActionButtons();
+}
+
+function updateTenantDraft(path, value) {
+    if (!settingsUIState.tenantDraft) {
+        settingsUIState.tenantDraft = cloneSettings(settingsUIState.globalDraft);
+    }
+    setNestedValue(settingsUIState.tenantDraft, path, value);
+    const baseValue = getValueByPath(settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {}, path);
+    if (valuesEqual(value, baseValue)) {
+        deleteNestedValue(settingsUIState.tenantOverridesDraft, path);
+    } else {
+        setNestedValue(settingsUIState.tenantOverridesDraft, path, value);
+    }
+    const originalOverrides = settingsUIState.tenantSnapshot && settingsUIState.tenantSnapshot.Overrides
+        ? settingsUIState.tenantSnapshot.Overrides
+        : {};
+    settingsUIState.tenantDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
+    renderOverrideSummary();
+    updateActionButtons();
+}
+
+function clearTenantOverride(path) {
+    if (!settingsUIState.tenantDraft) return;
+    deleteNestedValue(settingsUIState.tenantOverridesDraft, path);
+    const baseValue = getValueByPath(settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {}, path);
+    setNestedValue(settingsUIState.tenantDraft, path, baseValue);
+    const originalOverrides = settingsUIState.tenantSnapshot && settingsUIState.tenantSnapshot.Overrides
+        ? settingsUIState.tenantSnapshot.Overrides
+        : {};
+    settingsUIState.tenantDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
+    renderSettingsForm();
+    renderOverrideSummary();
+    updateActionButtons();
+}
+
+function handleSettingsScopeChange(scope) {
+    if (!scope || scope === settingsUIState.scope) {
+        return;
+    }
+    settingsUIState.scope = scope;
+    renderSettingsUI();
+}
+
+function handleTenantSelect(event) {
+    const tenantId = event.target.value;
+    settingsUIState.selectedTenantId = tenantId;
+    loadTenantSnapshot(tenantId).then(() => {
+        renderSettingsUI();
+    }).catch(err => {
+        reportSettingsError('Failed to load tenant settings', err);
+    });
+}
+
+async function handleSettingsSave(event) {
+    event.preventDefault();
+    if (!userCan('settings.write')) {
+        window.__pm_shared.showToast('You do not have permission to update settings', 'error');
+        return;
+    }
+    settingsUIState.saving = true;
+    updateActionButtons();
+    try {
+        if (settingsUIState.scope === 'global') {
+            await saveGlobalSettings();
         } else {
-            window.__pm_shared.showToast('Test email request completed', 'success', 3000);
+            await saveTenantSettings();
         }
     } catch (err) {
-        window.__pm_shared.error('sendTestEmail failed', err);
-        window.__pm_shared.showToast('Failed to send test email', 'error');
+        reportSettingsError('Failed to save settings', err);
+    } finally {
+        settingsUIState.saving = false;
+        updateActionButtons();
     }
+}
+
+async function saveGlobalSettings() {
+    if (!settingsUIState.globalDirty) {
+        return;
+    }
+    await fetchJSON('/api/v1/settings/global', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsUIState.globalDraft)
+    });
+    await loadGlobalSettingsSnapshot();
+    if (settingsUIState.selectedTenantId) {
+        await loadTenantSnapshot(settingsUIState.selectedTenantId);
+    }
+    renderSettingsUI();
+    window.__pm_shared.showToast('Global settings saved', 'success');
+}
+
+async function saveTenantSettings() {
+    if (!settingsUIState.selectedTenantId) {
+        window.__pm_shared.showToast('Select a tenant to edit overrides', 'error');
+        return;
+    }
+    const tenantId = settingsUIState.selectedTenantId;
+    const overrides = cloneSettings(settingsUIState.tenantOverridesDraft);
+    if (flattenOverrides(overrides).length === 0) {
+        await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, { method: 'DELETE' });
+    } else {
+        await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(overrides)
+        });
+    }
+    await loadTenantSnapshot(tenantId);
+    renderSettingsUI();
+    window.__pm_shared.showToast('Tenant overrides saved', 'success');
+}
+
+function handleDiscardChanges(event) {
+    event.preventDefault();
+    if (settingsUIState.scope === 'global') {
+        settingsUIState.globalDraft = cloneSettings(settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {});
+        settingsUIState.globalDirty = false;
+    } else {
+        settingsUIState.tenantDraft = cloneSettings(settingsUIState.tenantSnapshot ? settingsUIState.tenantSnapshot.Settings : settingsUIState.globalSnapshot.Settings);
+        settingsUIState.tenantOverridesDraft = cloneSettings(settingsUIState.tenantSnapshot && settingsUIState.tenantSnapshot.Overrides ? settingsUIState.tenantSnapshot.Overrides : {});
+        settingsUIState.tenantDirty = false;
+    }
+    renderSettingsUI();
+}
+
+async function resetTenantOverrides(event) {
+    event.preventDefault();
+    if (!settingsUIState.selectedTenantId) {
+        return;
+    }
+    if (!confirm('Clear all overrides for this tenant?')) {
+        return;
+    }
+    try {
+        await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(settingsUIState.selectedTenantId)}`, { method: 'DELETE' });
+        await loadTenantSnapshot(settingsUIState.selectedTenantId);
+        renderSettingsUI();
+        window.__pm_shared.showToast('Tenant now inherits global defaults', 'success');
+    } catch (err) {
+        reportSettingsError('Failed to clear tenant overrides', err);
+    }
+}
+
+function renderOverrideSummary() {
+    const container = document.getElementById('settings_override_list');
+    if (!container) return;
+    if (settingsUIState.scope !== 'tenant' || !settingsUIState.selectedTenantId) {
+        container.textContent = 'Select a tenant to view override details.';
+        return;
+    }
+    const overrides = flattenOverrides(settingsUIState.tenantOverridesDraft);
+    if (!overrides.length) {
+        container.innerHTML = '<div class="muted-text">No overrides. This tenant inherits all global defaults.</div>';
+        return;
+    }
+    const list = overrides.map(item => {
+        return `<li><strong>${escapeHtml(item.path)}</strong><div>${escapeHtml(String(item.value))}</div></li>`;
+    }).join('');
+    container.innerHTML = `<ul class="settings-override-list">${list}</ul>`;
+}
+
+function updateActionButtons() {
+    const saveBtn = document.getElementById('settings_save_btn');
+    const discardBtn = document.getElementById('settings_discard_btn');
+    const resetBtn = document.getElementById('settings_reset_overrides_btn');
+    const status = document.getElementById('settings_status');
+    const canEdit = userCan('settings.write');
+    const dirty = settingsUIState.scope === 'global' ? settingsUIState.globalDirty : settingsUIState.tenantDirty;
+    if (saveBtn) {
+        saveBtn.disabled = !canEdit || settingsUIState.saving || !dirty;
+    }
+    if (discardBtn) {
+        discardBtn.disabled = !dirty;
+    }
+    if (resetBtn) {
+        const hasOverrides = flattenOverrides(settingsUIState.tenantOverridesDraft).length > 0;
+        resetBtn.classList.toggle('hidden', settingsUIState.scope !== 'tenant');
+        resetBtn.disabled = !canEdit || !hasOverrides || settingsUIState.saving;
+    }
+    const tenantControls = document.getElementById('settings_tenant_controls');
+    if (tenantControls) {
+        tenantControls.classList.toggle('hidden', settingsUIState.scope !== 'tenant' || settingsUIState.tenantList.length === 0);
+    }
+    if (status) {
+        if (settingsUIState.saving) {
+            status.textContent = 'Saving…';
+        } else if (dirty) {
+            status.textContent = 'Unsaved changes';
+        } else {
+            status.textContent = '';
+        }
+    }
+}
+
+function updateLastUpdatedMeta() {
+    const el = document.getElementById('settings_last_updated');
+    if (!el) return;
+    let text = '';
+    if (settingsUIState.scope === 'global' && settingsUIState.globalSnapshot) {
+        const snap = settingsUIState.globalSnapshot;
+        if (snap.UpdatedAt) {
+            text = `Updated ${formatRelativeTime(snap.UpdatedAt)} by ${escapeHtml(snap.UpdatedBy || 'system')}`;
+        }
+    } else if (settingsUIState.scope === 'tenant' && settingsUIState.tenantSnapshot) {
+        const snap = settingsUIState.tenantSnapshot;
+        if (snap.OverridesUpdatedAt) {
+            text = `Overrides updated ${formatRelativeTime(snap.OverridesUpdatedAt)} by ${escapeHtml(snap.OverridesUpdatedBy || 'system')}`;
+        } else {
+            text = 'Inheriting global defaults';
+        }
+    }
+    el.textContent = text;
+}
+
+function flattenOverrides(overrides, prefix = '', acc = []) {
+    if (!overrides || typeof overrides !== 'object') {
+        return acc;
+    }
+    Object.keys(overrides).forEach(key => {
+        const path = prefix ? `${prefix}.${key}` : key;
+        const value = overrides[key];
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            flattenOverrides(value, path, acc);
+        } else {
+            acc.push({ path, value });
+        }
+    });
+    return acc;
+}
+
+function hasOverride(pathParts) {
+    let cursor = settingsUIState.tenantOverridesDraft;
+    for (let i = 0; i < pathParts.length; i++) {
+        const part = pathParts[i];
+        if (!cursor || typeof cursor !== 'object' || !(part in cursor)) {
+            return false;
+        }
+        cursor = cursor[part];
+    }
+    return true;
+}
+
+function pathToArray(path) {
+    return (path || '').split('.');
+}
+
+function readNested(obj, parts) {
+    let cursor = obj;
+    for (let i = 0; i < parts.length; i++) {
+        if (!cursor) return undefined;
+        cursor = cursor[parts[i]];
+    }
+    return cursor;
+}
+
+function setNestedValue(obj, path, value) {
+    if (!obj) return;
+    const parts = pathToArray(path);
+    let cursor = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+        const key = parts[i];
+        if (typeof cursor[key] !== 'object' || cursor[key] === null) {
+            cursor[key] = {};
+        }
+        cursor = cursor[key];
+    }
+    cursor[parts[parts.length - 1]] = value;
+}
+
+function deleteNestedValue(obj, path) {
+    if (!obj) return;
+    const parts = pathToArray(path);
+    const stack = [];
+    let cursor = obj;
+    for (let i = 0; i < parts.length - 1; i++) {
+        const key = parts[i];
+        if (typeof cursor[key] !== 'object' || cursor[key] === null) {
+            return;
+        }
+        stack.push([cursor, key]);
+        cursor = cursor[key];
+    }
+    delete cursor[parts[parts.length - 1]];
+    for (let i = stack.length - 1; i >= 0; i--) {
+        const [parent, key] = stack[i];
+        if (parent[key] && Object.keys(parent[key]).length === 0) {
+            delete parent[key];
+        }
+    }
+}
+
+function getValueByPath(obj, path) {
+    return readNested(obj, pathToArray(path));
+}
+
+function valuesEqual(a, b) {
+    if (typeof a === 'number' && typeof b === 'number') {
+        return Number(a) === Number(b);
+    }
+    if (typeof a === 'boolean' || typeof b === 'boolean') {
+        return !!a === !!b;
+    }
+    return a === b;
+}
+
+function cloneSettings(obj) {
+    return obj ? JSON.parse(JSON.stringify(obj)) : {};
+}
+
+function deepEqual(a, b) {
+    if (a === b) {
+        return true;
+    }
+    if (Number.isNaN(a) && Number.isNaN(b)) {
+        return true;
+    }
+    if (Array.isArray(a) || Array.isArray(b)) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+            return false;
+        }
+        for (let i = 0; i < a.length; i++) {
+            if (!deepEqual(a[i], b[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    if (a && b && typeof a === 'object' && typeof b === 'object') {
+        const keysA = Object.keys(a);
+        const keysB = Object.keys(b);
+        if (keysA.length !== keysB.length) {
+            return false;
+        }
+        for (const key of keysA) {
+            if (!deepEqual(a[key], b[key])) {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+async function fetchJSON(url, options = {}) {
+    const response = await fetch(url, options);
+    if (!response.ok) {
+        const err = new Error(`HTTP ${response.status}`);
+        err.status = response.status;
+        try {
+            err.body = await response.text();
+        } catch (_) {
+            err.body = '';
+        }
+        throw err;
+    }
+    if (response.status === 204) {
+        return null;
+    }
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+}
+
+function reportSettingsError(message, err) {
+    window.__pm_shared.error(message, err);
+    let detail = '';
+    if (err) {
+        const extra = err.body || err.message;
+        if (extra) {
+            detail = ': ' + String(extra).slice(0, 200);
+        }
+    }
+    window.__pm_shared.showToast(message + detail, 'error', 5000);
 }
 
 // ====== Logs Management ======
