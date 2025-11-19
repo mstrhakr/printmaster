@@ -1,0 +1,365 @@
+package settings
+
+// FieldType describes the UI/control type for a setting.
+type FieldType string
+
+const (
+	FieldTypeBool   FieldType = "bool"
+	FieldTypeText   FieldType = "text"
+	FieldTypeNumber FieldType = "number"
+	FieldTypeSelect FieldType = "select"
+)
+
+// FieldMeta captures descriptive information about a configuration field for UIs and RBAC.
+type FieldMeta struct {
+	Path        string         `json:"path"`
+	Type        FieldType      `json:"type"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Scope       Scope          `json:"scope"`
+	EditableBy  []EditableRole `json:"editable_by"`
+	Default     interface{}    `json:"default"`
+	Min         *float64       `json:"min,omitempty"`
+	Max         *float64       `json:"max,omitempty"`
+	Enum        []string       `json:"enum,omitempty"`
+}
+
+// Schema describes all available fields and their metadata.
+type Schema struct {
+	Version string      `json:"version"`
+	Fields  []FieldMeta `json:"fields"`
+}
+
+// DefaultSchema returns metadata describing every supported field.
+func DefaultSchema() Schema {
+	defaults := DefaultSettings()
+	fields := []FieldMeta{
+		{
+			Path:        "discovery.subnet_scan",
+			Type:        FieldTypeBool,
+			Title:       "Scan Local Subnet",
+			Description: "When enabled, automatically include the agent's directly-connected subnet in periodic discovery runs.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.SubnetScan,
+		},
+		{
+			Path:        "discovery.manual_ranges",
+			Type:        FieldTypeBool,
+			Title:       "Manual Ranges Enabled",
+			Description: "Allow administrators to define explicit IP/CIDR ranges to scan instead of only using autodetected subnets.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.ManualRanges,
+		},
+		{
+			Path:        "discovery.ip_scanning_enabled",
+			Type:        FieldTypeBool,
+			Title:       "IP Scanning",
+			Description: "Master switch that disables both manual and automatic IP scanning when turned off.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.IPScanningEnabled,
+		},
+		{
+			Path:        "discovery.arp_enabled",
+			Type:        FieldTypeBool,
+			Title:       "ARP",
+			Description: "Enable ARP probes for fast device liveness checks.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.ARPEnabled,
+		},
+		{
+			Path:        "discovery.icmp_enabled",
+			Type:        FieldTypeBool,
+			Title:       "ICMP",
+			Description: "Enable ICMP ping probes when scanning.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.ICMPEnabled,
+		},
+		{
+			Path:        "discovery.tcp_enabled",
+			Type:        FieldTypeBool,
+			Title:       "TCP",
+			Description: "Probe printer ports (80/443/9100) to confirm liveness even when ICMP is blocked.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.TCPEnabled,
+		},
+		{
+			Path:        "discovery.snmp_enabled",
+			Type:        FieldTypeBool,
+			Title:       "SNMP",
+			Description: "Collect printer metadata via SNMP queries during discovery.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.SNMPEnabled,
+		},
+		{
+			Path:        "discovery.mdns_enabled",
+			Type:        FieldTypeBool,
+			Title:       "mDNS HTTP Probing",
+			Description: "Attempt HTTP-based discovery using Bonjour/mDNS advertisements.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.MDNSEnabled,
+		},
+		{
+			Path:        "discovery.auto_discover_enabled",
+			Type:        FieldTypeBool,
+			Title:       "Auto Discover",
+			Description: "Run periodic discovery scans and allow passive listeners to execute.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.AutoDiscoverEnabled,
+		},
+		{
+			Path:        "discovery.autosave_discovered_devices",
+			Type:        FieldTypeBool,
+			Title:       "Autosave Discovered Devices",
+			Description: "Automatically promote newly discovered printers into the saved device list.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.AutosaveDiscoveredDevices,
+		},
+		{
+			Path:        "discovery.show_discover_button_anyway",
+			Type:        FieldTypeBool,
+			Title:       "Show Manual Discover Button",
+			Description: "Expose the manual \"Discover Now\" button even when auto discovery is enabled.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.ShowDiscoverButtonAnyway,
+		},
+		{
+			Path:        "discovery.show_discovered_devices_anyway",
+			Type:        FieldTypeBool,
+			Title:       "Show Discovered Devices",
+			Description: "Keep the Discovered Devices panel visible even when autosave is enabled.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.ShowDiscoveredDevicesAnyway,
+		},
+		{
+			Path:        "discovery.passive_discovery_enabled",
+			Type:        FieldTypeBool,
+			Title:       "Passive Discovery",
+			Description: "Master toggle controlling whether passive listeners (mDNS/WSD/SSDP/etc.) are allowed to run.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.PassiveDiscoveryEnabled,
+		},
+		{
+			Path:        "discovery.auto_discover_live_mdns",
+			Type:        FieldTypeBool,
+			Title:       "Live mDNS",
+			Description: "Enable the mDNS/Bonjour listener when Auto Discover is enabled.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.AutoDiscoverLiveMDNS,
+		},
+		{
+			Path:        "discovery.auto_discover_live_wsd",
+			Type:        FieldTypeBool,
+			Title:       "Live WS-Discovery",
+			Description: "Enable the Windows WS-Discovery listener when Auto Discover is enabled.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.AutoDiscoverLiveWSD,
+		},
+		{
+			Path:        "discovery.auto_discover_live_ssdp",
+			Type:        FieldTypeBool,
+			Title:       "Live SSDP",
+			Description: "Enable the SSDP/UPnP listener when Auto Discover is enabled.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.AutoDiscoverLiveSSDP,
+		},
+		{
+			Path:        "discovery.auto_discover_live_snmptrap",
+			Type:        FieldTypeBool,
+			Title:       "SNMP Trap Listener",
+			Description: "Enable SNMP trap ingestion for event-driven discovery.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.AutoDiscoverLiveSNMPTrap,
+		},
+		{
+			Path:        "discovery.auto_discover_live_llmnr",
+			Type:        FieldTypeBool,
+			Title:       "LLMNR Listener",
+			Description: "Enable the LLMNR responder for limited passive discovery.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.AutoDiscoverLiveLLMNR,
+		},
+		{
+			Path:        "discovery.metrics_rescan_enabled",
+			Type:        FieldTypeBool,
+			Title:       "Metrics Rescan",
+			Description: "Enable periodic SNMP metrics collection for saved printers.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.MetricsRescanEnabled,
+		},
+		{
+			Path:        "discovery.metrics_rescan_interval_minutes",
+			Type:        FieldTypeNumber,
+			Title:       "Metrics Interval (minutes)",
+			Description: "How often to refresh printer counters when metrics rescan is enabled.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.MetricsRescanIntervalMinutes,
+		},
+		{
+			Path:        "developer.asset_id_regex",
+			Type:        FieldTypeText,
+			Title:       "Asset ID Regex",
+			Description: "Optional regex to extract asset identifiers from device hostnames or descriptions.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Developer.AssetIDRegex,
+		},
+		{
+			Path:        "developer.snmp_community",
+			Type:        FieldTypeText,
+			Title:       "SNMP Community",
+			Description: "Community string used for SNMP v2 queries.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Developer.SNMPCommunity,
+		},
+		{
+			Path:        "developer.log_level",
+			Type:        FieldTypeSelect,
+			Title:       "Log Level",
+			Description: "Runtime log verbosity for the agent.",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Developer.LogLevel,
+			Enum:        []string{"debug", "info", "warn", "error"},
+		},
+		{
+			Path:        "developer.dump_parse_debug",
+			Type:        FieldTypeBool,
+			Title:       "Dump Parse Debug",
+			Description: "Emit verbose SNMP parse information for troubleshooting.",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Developer.DumpParseDebug,
+		},
+		{
+			Path:        "developer.show_legacy",
+			Type:        FieldTypeBool,
+			Title:       "Show Legacy UI",
+			Description: "Expose legacy discovery panels intended for troubleshooting older builds.",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Developer.ShowLegacy,
+		},
+		{
+			Path:        "developer.snmp_timeout_ms",
+			Type:        FieldTypeNumber,
+			Title:       "SNMP Timeout (ms)",
+			Description: "Timeout per SNMP request in milliseconds.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Developer.SNMPTimeoutMS,
+		},
+		{
+			Path:        "developer.snmp_retries",
+			Type:        FieldTypeNumber,
+			Title:       "SNMP Retries",
+			Description: "Number of retries before marking an SNMP request as failed.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Developer.SNMPRetries,
+		},
+		{
+			Path:        "developer.discover_concurrency",
+			Type:        FieldTypeNumber,
+			Title:       "Discovery Concurrency",
+			Description: "Maximum number of concurrent discovery workers per agent.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Developer.DiscoverConcurrency,
+		},
+		{
+			Path:        "security.credentials_enabled",
+			Type:        FieldTypeBool,
+			Title:       "Saved Credentials",
+			Description: "Allow the agent to store per-device HTTP credentials for UI proxying.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin},
+			Default:     defaults.Security.CredentialsEnabled,
+		},
+		{
+			Path:        "security.enable_http",
+			Type:        FieldTypeBool,
+			Title:       "Enable HTTP",
+			Description: "Expose the agent UI/API over HTTP (non-TLS).",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Security.EnableHTTP,
+		},
+		{
+			Path:        "security.enable_https",
+			Type:        FieldTypeBool,
+			Title:       "Enable HTTPS",
+			Description: "Expose the agent UI/API over HTTPS using the configured certificate.",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Security.EnableHTTPS,
+		},
+		{
+			Path:        "security.http_port",
+			Type:        FieldTypeText,
+			Title:       "HTTP Port",
+			Description: "Port used for the HTTP listener.",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Security.HTTPPort,
+		},
+		{
+			Path:        "security.https_port",
+			Type:        FieldTypeText,
+			Title:       "HTTPS Port",
+			Description: "Port used for the HTTPS listener.",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Security.HTTPSPort,
+		},
+		{
+			Path:        "security.redirect_http_to_https",
+			Type:        FieldTypeBool,
+			Title:       "Redirect HTTP to HTTPS",
+			Description: "When enabled, all HTTP traffic is redirected to HTTPS.",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Security.RedirectHTTPToHTTPS,
+		},
+		{
+			Path:        "security.custom_cert_path",
+			Type:        FieldTypeText,
+			Title:       "Custom Cert Path",
+			Description: "Filesystem path to a user-provided TLS certificate (PEM).",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Security.CustomCertPath,
+		},
+		{
+			Path:        "security.custom_key_path",
+			Type:        FieldTypeText,
+			Title:       "Custom Key Path",
+			Description: "Filesystem path to a user-provided TLS private key (PEM).",
+			Scope:       ScopeAgentLocal,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleAgentLocal},
+			Default:     defaults.Security.CustomKeyPath,
+		},
+	}
+
+	return Schema{Version: SchemaVersion, Fields: fields}
+}
