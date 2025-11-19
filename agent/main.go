@@ -34,6 +34,7 @@ import (
 	"printmaster/agent/storage"
 	"printmaster/common/config"
 	"printmaster/common/logger"
+	pmsettings "printmaster/common/settings"
 	commonutil "printmaster/common/util"
 	sharedweb "printmaster/common/web"
 	"runtime"
@@ -158,7 +159,9 @@ var (
 	// deviceStore is the global device storage interface
 	deviceStore storage.DeviceStore
 	// agentConfigStore handles agent configuration (IP ranges, settings, etc.)
-	agentConfigStore storage.AgentConfigStore
+	agentConfigStore          storage.AgentConfigStore
+	settingsManager           *SettingsManager
+	applyDiscoveryEffectsFunc func(map[string]interface{})
 
 	// Global structured logger
 	appLogger *logger.Logger
@@ -501,6 +504,99 @@ func (h *SSEHub) RemoveClient(client *SSEClient) {
 }
 
 var sseHub *SSEHub
+
+func mapIntoStruct(src map[string]interface{}, dst interface{}) {
+	if src == nil || dst == nil {
+		return
+	}
+	data, err := json.Marshal(src)
+	if err != nil {
+		return
+	}
+	_ = json.Unmarshal(data, dst)
+}
+
+func structToMap(src interface{}) map[string]interface{} {
+	if src == nil {
+		return map[string]interface{}{}
+	}
+	data, err := json.Marshal(src)
+	if err != nil {
+		return map[string]interface{}{}
+	}
+	var out map[string]interface{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		return map[string]interface{}{}
+	}
+	return out
+}
+
+func applyEffectiveSettingsSnapshot(cfg pmsettings.Settings) {
+	if applyDiscoveryEffectsFunc != nil {
+		discMap := structToMap(cfg.Discovery)
+		delete(discMap, "ranges_text")
+		delete(discMap, "detected_subnet")
+		applyDiscoveryEffectsFunc(discMap)
+	}
+}
+
+func loadUnifiedSettings(store storage.AgentConfigStore) pmsettings.Settings {
+	base := pmsettings.DefaultSettings()
+	managed := false
+	if settingsManager != nil {
+		base, managed = settingsManager.baseSettings()
+	}
+	if store == nil {
+		pmsettings.Sanitize(&base)
+		return base
+	}
+	if !managed {
+		var disc map[string]interface{}
+		if err := store.GetConfigValue("discovery_settings", &disc); err == nil && disc != nil {
+			mapIntoStruct(disc, &base.Discovery)
+		}
+	}
+	if txt, err := store.GetRanges(); err == nil {
+		base.Discovery.RangesText = txt
+	}
+	if ipnets, err := agent.GetLocalSubnets(); err == nil && len(ipnets) > 0 {
+		base.Discovery.DetectedSubnet = ipnets[0].String()
+	}
+	var unified map[string]interface{}
+	if err := store.GetConfigValue("settings", &unified); err == nil && unified != nil {
+		if devRaw, ok := unified["developer"].(map[string]interface{}); ok {
+			if managed {
+				mapIntoStruct(filterAgentLocalDeveloper(devRaw), &base.Developer)
+			} else {
+				mapIntoStruct(devRaw, &base.Developer)
+			}
+		}
+	}
+	var security map[string]interface{}
+	if err := store.GetConfigValue("security_settings", &security); err == nil && security != nil {
+		mapIntoStruct(security, &base.Security)
+	}
+	pmsettings.Sanitize(&base)
+	return base
+}
+
+func filterAgentLocalDeveloper(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	allowed := map[string]struct{}{
+		"log_level":        {},
+		"dump_parse_debug": {},
+		"show_legacy":      {},
+	}
+	out := make(map[string]interface{})
+	for key, value := range src {
+		if _, ok := allowed[key]; ok {
+			out[key] = value
+		}
+	}
+	return out
+}
 
 // tryLearnOIDForValue performs an SNMP walk to find an OID that returns the specified value
 // Returns the OID if found, empty string otherwise
@@ -1200,6 +1296,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 	}
 	defer agentConfigStore.Close()
 	appLogger.Info("Agent config database initialized", "path", agentDBPath)
+	settingsManager = NewSettingsManager(agentConfigStore)
 
 	// Migration: consolidate legacy dev_settings / developer_settings into unified "settings" key
 	// This is idempotent and creates a timestamped backup of legacy data before deleting it.
@@ -2201,6 +2298,11 @@ func runInteractive(ctx context.Context, configFlag string) {
 			}
 		}
 	}
+	applyDiscoveryEffectsFunc = applyDiscoveryEffects
+	if settingsManager != nil && settingsManager.HasManagedSnapshot() {
+		cfg := loadUnifiedSettings(agentConfigStore)
+		applyEffectiveSettingsSnapshot(cfg)
+	}
 
 	// Load saved ranges from database
 	rangesText, err := agentConfigStore.GetRanges()
@@ -2322,7 +2424,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 				UseWebSocket:      true, // Enable WebSocket for live heartbeat
 			}
 
-			uploadWorker = NewUploadWorker(serverClient, deviceStore, appLogger, workerConfig, dataDir)
+			uploadWorker = NewUploadWorker(serverClient, deviceStore, appLogger, settingsManager, workerConfig, dataDir)
 
 			// Start worker (will register if needed)
 			if err := uploadWorker.Start(ctx, Version); err != nil {
@@ -4612,100 +4714,14 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
-		if r.Method == http.MethodGet {
-			// Compose discovery
-			discovery := map[string]interface{}{
-				// IP Sources: what to scan
-				"subnet_scan":   true,  // Scan local subnet by default
-				"manual_ranges": false, // Advanced feature, off by default
-
-				// Active Probes: how to find devices
-				"arp_enabled":  true,  // Free, instant
-				"icmp_enabled": true,  // Reliable liveness
-				"tcp_enabled":  true,  // Works when ICMP blocked
-				"mdns_enabled": false, // Optional, covered by live mDNS
-
-				// Device Identification: what info to collect
-				"snmp_enabled": true, // Essential for printer info
-
-				// Passive Discovery: continuous listening (when Auto Discover enabled)
-				"auto_discover_enabled":       false, // Opt-in behavior
-				"auto_discover_live_mdns":     true,  // Recommended: macOS/Linux + modern printers
-				"auto_discover_live_wsd":      true,  // Recommended: Windows native + HP/Canon/Epson
-				"auto_discover_live_ssdp":     false, // Optional: broad but lower printer value
-				"auto_discover_live_snmptrap": false, // Advanced: requires privileges
-				"auto_discover_live_llmnr":    false, // Optional: limited printer support
-
-				// Metrics Monitoring: historical tracking
-				"metrics_rescan_enabled":          false, // Opt-in monitoring
-				"metrics_rescan_interval_minutes": 60,    // Hourly when enabled
-			}
-			{
-				var stored map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("discovery_settings", &stored)
-				for k, v := range stored {
-					discovery[k] = v
-				}
-			}
-
-			// Compose developer (migrated into unified "settings" key under settings.developer)
-			developer := map[string]interface{}{
-				"asset_id_regex":       "",
-				"snmp_community":       "",
-				"log_level":            "info",
-				"dump_parse_debug":     false,
-				"snmp_timeout_ms":      2000,
-				"snmp_retries":         1,
-				"discover_concurrency": 50,
-			}
-			{
-				var settings map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("settings", &settings)
-				if settings != nil {
-					if dev, ok := settings["developer"].(map[string]interface{}); ok {
-						for k, v := range dev {
-							developer[k] = v
-						}
-					}
-				}
-			}
-
-			// Include saved IP ranges text in discovery for unified settings UI
-			if agentConfigStore != nil {
-				if txt, err := agentConfigStore.GetRanges(); err == nil {
-					discovery["ranges_text"] = txt
-				}
-			}
-
-			// Include detected subnet for display
-			if ipnets, err := agent.GetLocalSubnets(); err == nil && len(ipnets) > 0 {
-				discovery["detected_subnet"] = ipnets[0].String()
-			} else {
-				discovery["detected_subnet"] = ""
-			}
-
-			// Compose security settings
-			security := map[string]interface{}{
-				"credentials_enabled": true, // Default: enabled
-			}
-			{
-				var stored map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("security_settings", &stored)
-				for k, v := range stored {
-					security[k] = v
-				}
-			}
-
+		switch r.Method {
+		case http.MethodGet:
+			snapshot := loadUnifiedSettings(agentConfigStore)
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"discovery": discovery,
-				"developer": developer,
-				"security":  security,
-			})
+			json.NewEncoder(w).Encode(snapshot)
 			return
-		}
 
-		if r.Method == http.MethodPost {
+		case http.MethodPost:
 			var req struct {
 				Discovery map[string]interface{} `json:"discovery"`
 				Developer map[string]interface{} `json:"developer"`
@@ -4718,18 +4734,15 @@ window.top.location.href = '/proxy/%s/';
 			}
 
 			if req.Reset {
-				// Reset both to defaults
 				_ = agentConfigStore.SetConfigValue("discovery_settings", map[string]interface{}{})
-				// Reset developer section inside unified settings
-				var settings map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("settings", &settings)
-				if settings == nil {
-					settings = map[string]interface{}{}
+				var envelope map[string]interface{}
+				_ = agentConfigStore.GetConfigValue("settings", &envelope)
+				if envelope == nil {
+					envelope = map[string]interface{}{}
 				}
-				settings["developer"] = map[string]interface{}{}
-				_ = agentConfigStore.SetConfigValue("settings", settings)
+				envelope["developer"] = map[string]interface{}{}
+				_ = agentConfigStore.SetConfigValue("settings", envelope)
 				_ = agentConfigStore.SetConfigValue("security_settings", map[string]interface{}{})
-				// Stop background features
 				stopAutoDiscover()
 				stopLiveMDNS()
 				stopLiveWSDiscovery()
@@ -4739,21 +4752,26 @@ window.top.location.href = '/proxy/%s/';
 				stopMetricsRescan()
 				agent.SetDebugEnabled(false)
 				agent.SetDumpParseDebug(false)
-				w.WriteHeader(http.StatusOK)
+				defaults := pmsettings.DefaultSettings()
+				if txt, err := agentConfigStore.GetRanges(); err == nil {
+					defaults.Discovery.RangesText = txt
+				}
+				if ipnets, err := agent.GetLocalSubnets(); err == nil && len(ipnets) > 0 {
+					defaults.Discovery.DetectedSubnet = ipnets[0].String()
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(defaults)
 				return
 			}
 
-			// Save discovery settings and apply effects (including ranges_text validation/save)
+			current := loadUnifiedSettings(agentConfigStore)
+
 			if req.Discovery != nil {
-				// Handle optional ranges_text field: validate and persist via AgentConfigStore
-				if val, ok := req.Discovery["ranges_text"]; ok {
-					var txt string
-					if s, ok2 := val.(string); ok2 {
-						txt = s
-					}
-					// Validate ranges using existing parser (same as /save_ranges)
+				updated := current.Discovery
+				mapIntoStruct(req.Discovery, &updated)
+				if _, ok := req.Discovery["ranges_text"]; ok {
 					maxAddrs := 4096
-					res, err := agent.ParseRangeText(txt, maxAddrs)
+					res, err := agent.ParseRangeText(updated.RangesText, maxAddrs)
 					if err != nil {
 						http.Error(w, "validation error: "+err.Error(), http.StatusBadRequest)
 						return
@@ -4764,48 +4782,51 @@ window.top.location.href = '/proxy/%s/';
 						_ = json.NewEncoder(w).Encode(res)
 						return
 					}
-					// Save ranges text as source of truth
-					if agentConfigStore != nil {
-						if err := agentConfigStore.SetRanges(txt); err != nil {
-							http.Error(w, "failed to save ranges: "+err.Error(), http.StatusInternalServerError)
-							return
-						}
+					if err := agentConfigStore.SetRanges(updated.RangesText); err != nil {
+						http.Error(w, "failed to save ranges: "+err.Error(), http.StatusInternalServerError)
+						return
 					}
-					// Do not persist ranges_text inside discovery_settings JSON to avoid duplication
-					delete(req.Discovery, "ranges_text")
 				}
-
-				if err := agentConfigStore.SetConfigValue("discovery_settings", req.Discovery); err != nil {
+				discMap := structToMap(updated)
+				delete(discMap, "ranges_text")
+				delete(discMap, "detected_subnet")
+				if err := agentConfigStore.SetConfigValue("discovery_settings", discMap); err != nil {
 					http.Error(w, "failed to save discovery settings: "+err.Error(), http.StatusInternalServerError)
 					return
 				}
-				// Apply side-effects using updated discovery settings
-				applyDiscoveryEffects(req.Discovery)
+				applyDiscoveryEffects(discMap)
+				current.Discovery = updated
 			}
 
-			// Save developer settings into unified settings.developer
 			if req.Developer != nil {
-				var settings map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("settings", &settings)
-				if settings == nil {
-					settings = map[string]interface{}{}
+				updated := current.Developer
+				mapIntoStruct(req.Developer, &updated)
+				var envelope map[string]interface{}
+				_ = agentConfigStore.GetConfigValue("settings", &envelope)
+				if envelope == nil {
+					envelope = map[string]interface{}{}
 				}
-				settings["developer"] = req.Developer
-				if err := agentConfigStore.SetConfigValue("settings", settings); err != nil {
+				envelope["developer"] = structToMap(updated)
+				if err := agentConfigStore.SetConfigValue("settings", envelope); err != nil {
 					http.Error(w, "failed to save developer settings: "+err.Error(), http.StatusInternalServerError)
 					return
 				}
+				current.Developer = updated
 			}
 
-			// Save security settings
 			if req.Security != nil {
-				if err := agentConfigStore.SetConfigValue("security_settings", req.Security); err != nil {
+				updated := current.Security
+				mapIntoStruct(req.Security, &updated)
+				if err := agentConfigStore.SetConfigValue("security_settings", structToMap(updated)); err != nil {
 					http.Error(w, "failed to save security settings: "+err.Error(), http.StatusInternalServerError)
 					return
 				}
+				current.Security = updated
 			}
 
-			w.WriteHeader(http.StatusOK)
+			pmsettings.Sanitize(&current)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(current)
 			return
 		}
 

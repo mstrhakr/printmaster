@@ -102,9 +102,12 @@ func TestServerClient_Heartbeat(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	err := client.Heartbeat(ctx)
+	result, err := client.Heartbeat(ctx, "")
 	if err != nil {
 		t.Fatalf("Heartbeat failed: %v", err)
+	}
+	if result == nil {
+		t.Fatalf("expected heartbeat result")
 	}
 }
 
@@ -247,7 +250,7 @@ func TestServerClient_Unauthorized(t *testing.T) {
 	defer cancel()
 
 	// Heartbeat should fail
-	err := client.Heartbeat(ctx)
+	_, err := client.Heartbeat(ctx, "")
 	if err == nil {
 		t.Error("Expected heartbeat to fail with bad token")
 	}
@@ -270,7 +273,7 @@ func TestServerClient_Timeout(t *testing.T) {
 	defer cancel()
 
 	// Should timeout
-	err := client.Heartbeat(ctx)
+	_, err := client.Heartbeat(ctx, "")
 	if err == nil {
 		t.Error("Expected heartbeat to timeout")
 	}

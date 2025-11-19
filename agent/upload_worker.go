@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +21,11 @@ type Logger interface {
 
 // UploadWorker handles periodic uploads of device and metrics data to the server
 type UploadWorker struct {
-	client  *agent.ServerClient
-	store   storage.DeviceStore
-	logger  Logger
-	dataDir string
+	client   *agent.ServerClient
+	store    storage.DeviceStore
+	settings *SettingsManager
+	logger   Logger
+	dataDir  string
 
 	// WebSocket client (optional, falls back to HTTP if unavailable)
 	wsClient     *agent.WSClient
@@ -47,6 +49,29 @@ type UploadWorker struct {
 	wg     sync.WaitGroup
 }
 
+func (w *UploadWorker) currentSettingsVersion() string {
+	if w.settings == nil {
+		return ""
+	}
+	return w.settings.CurrentVersion()
+}
+
+func (w *UploadWorker) handleHeartbeatSettings(result *agent.HeartbeatResult) {
+	if result == nil || result.Snapshot == nil || w.settings == nil {
+		return
+	}
+	newVersion := strings.TrimSpace(result.Snapshot.Version)
+	if newVersion == "" || newVersion == w.settings.CurrentVersion() {
+		return
+	}
+	effective, err := w.settings.ApplyServerSnapshot(result.Snapshot)
+	if err != nil {
+		w.logger.Warn("Failed to persist server settings", "error", err)
+		return
+	}
+	applyEffectiveSettingsSnapshot(effective)
+}
+
 // UploadWorkerConfig contains configuration for the upload worker
 type UploadWorkerConfig struct {
 	HeartbeatInterval time.Duration
@@ -57,7 +82,7 @@ type UploadWorkerConfig struct {
 }
 
 // NewUploadWorker creates a new upload worker instance
-func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logger Logger, config UploadWorkerConfig, dataDir string) *UploadWorker {
+func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logger Logger, settings *SettingsManager, config UploadWorkerConfig, dataDir string) *UploadWorker {
 	// Apply defaults
 	if config.HeartbeatInterval == 0 {
 		config.HeartbeatInterval = 60 * time.Second
@@ -75,6 +100,7 @@ func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logg
 	w := &UploadWorker{
 		client:            client,
 		store:             store,
+		settings:          settings,
 		logger:            logger,
 		dataDir:           dataDir,
 		heartbeatInterval: config.HeartbeatInterval,
@@ -157,7 +183,7 @@ func (w *UploadWorker) ensureRegistered(ctx context.Context, version string) err
 		hbCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		if err := w.client.Heartbeat(hbCtx); err == nil {
+		if _, err := w.client.Heartbeat(hbCtx, w.currentSettingsVersion()); err == nil {
 			w.logger.Info("Using existing authentication token")
 			return nil // Token is valid
 		}
@@ -257,13 +283,21 @@ func (w *UploadWorker) sendHeartbeat() {
 	}
 
 	// Fall back to HTTP heartbeat
+	var hbResult *agent.HeartbeatResult
 	err := w.retryWithBackoff(func() error {
-		return w.client.Heartbeat(ctx)
+		result, err := w.client.Heartbeat(ctx, w.currentSettingsVersion())
+		if err == nil {
+			hbResult = result
+		}
+		return err
 	})
 
 	if err != nil {
 		w.logger.Warn("HTTP heartbeat failed after retries", "error", err)
 	} else {
+		if hbResult != nil {
+			w.handleHeartbeatSettings(hbResult)
+		}
 		w.mu.Lock()
 		w.lastHeartbeat = time.Now()
 		w.mu.Unlock()

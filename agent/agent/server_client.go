@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	pmsettings "printmaster/common/settings"
 )
 
 // ServerClient handles uploading agent data to the central PrintMaster server
@@ -28,6 +30,20 @@ type ServerClient struct {
 	lastHeartbeat      time.Time
 	lastDeviceUpload   time.Time
 	lastMetricsUpload  time.Time
+}
+
+// SettingsSnapshot mirrors the server's managed settings payload.
+type SettingsSnapshot struct {
+	Version       string              `json:"version"`
+	SchemaVersion string              `json:"schema_version"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+	Settings      pmsettings.Settings `json:"settings"`
+}
+
+// HeartbeatResult captures metadata returned from a heartbeat call.
+type HeartbeatResult struct {
+	SettingsVersion string
+	Snapshot        *SettingsSnapshot
 }
 
 // NewServerClient creates a new server uploader for this agent
@@ -186,18 +202,18 @@ func (c *ServerClient) Register(ctx context.Context, version string) (string, er
 // on the client instance for future requests.
 func (c *ServerClient) RegisterWithToken(ctx context.Context, joinToken string, version string) (string, string, error) {
 	type JoinRequest struct {
-		Token         string `json:"token"`
-		AgentID       string `json:"agent_id"`
-		Name          string `json:"name,omitempty"`
-		AgentVersion  string `json:"agent_version,omitempty"`
+		Token           string `json:"token"`
+		AgentID         string `json:"agent_id"`
+		Name            string `json:"name,omitempty"`
+		AgentVersion    string `json:"agent_version,omitempty"`
 		ProtocolVersion string `json:"protocol_version,omitempty"`
 	}
 
 	type JoinResponse struct {
-		Success   bool   `json:"success"`
-		TenantID  string `json:"tenant_id"`
+		Success    bool   `json:"success"`
+		TenantID   string `json:"tenant_id"`
 		AgentToken string `json:"agent_token"`
-		Message   string `json:"message,omitempty"`
+		Message    string `json:"message,omitempty"`
 	}
 
 	hostname, _ := getHostname()
@@ -232,30 +248,44 @@ func (c *ServerClient) RegisterWithToken(ctx context.Context, joinToken string, 
 	return resp.AgentToken, resp.TenantID, nil
 }
 
-// Heartbeat sends a keep-alive signal to the server
-func (c *ServerClient) Heartbeat(ctx context.Context) error {
+// Heartbeat sends a keep-alive signal to the server and returns any managed settings snapshot metadata.
+func (c *ServerClient) Heartbeat(ctx context.Context, settingsVersion string) (*HeartbeatResult, error) {
 	type HeartbeatRequest struct {
-		AgentID   string    `json:"agent_id"`
-		Timestamp time.Time `json:"timestamp"`
-		Status    string    `json:"status"`
+		AgentID         string    `json:"agent_id"`
+		Timestamp       time.Time `json:"timestamp"`
+		Status          string    `json:"status"`
+		SettingsVersion string    `json:"settings_version,omitempty"`
+	}
+
+	type HeartbeatResponse struct {
+		Success          bool              `json:"success"`
+		SettingsVersion  string            `json:"settings_version,omitempty"`
+		SettingsSnapshot *SettingsSnapshot `json:"settings_snapshot,omitempty"`
 	}
 
 	req := HeartbeatRequest{
-		AgentID:   c.AgentID,
-		Timestamp: time.Now(),
-		Status:    "active",
+		AgentID:         c.AgentID,
+		Timestamp:       time.Now(),
+		Status:          "active",
+		SettingsVersion: settingsVersion,
 	}
 
-	var resp map[string]interface{}
+	var resp HeartbeatResponse
 	if err := c.doRequest(ctx, "POST", "/api/v1/agents/heartbeat", req, &resp, true); err != nil {
-		return fmt.Errorf("heartbeat failed: %w", err)
+		return nil, fmt.Errorf("heartbeat failed: %w", err)
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("heartbeat failed")
 	}
 
 	c.mu.Lock()
 	c.lastHeartbeat = time.Now()
 	c.mu.Unlock()
 
-	return nil
+	return &HeartbeatResult{
+		SettingsVersion: resp.SettingsVersion,
+		Snapshot:        resp.SettingsSnapshot,
+	}, nil
 }
 
 // UploadDevices sends discovered devices to the server
