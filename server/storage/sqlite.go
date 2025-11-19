@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"printmaster/common/logger"
+	pmsettings "printmaster/common/settings"
 
 	"golang.org/x/crypto/argon2"
 
@@ -28,7 +29,7 @@ type SQLiteStore struct {
 	dbPath string
 }
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Optional package-level logger that can be set by the application (server)
 var Log *logger.Logger
@@ -303,10 +304,32 @@ func (s *SQLiteStore) initSchema() error {
 		FOREIGN KEY (provider_slug) REFERENCES oidc_providers(slug) ON DELETE CASCADE,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
+
+	-- Settings tables (global + tenant overrides)
+	CREATE TABLE IF NOT EXISTS settings_global (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		schema_version TEXT NOT NULL,
+		payload TEXT NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_by TEXT
+	);
+
+	CREATE TABLE IF NOT EXISTS settings_tenant (
+		tenant_id TEXT PRIMARY KEY,
+		schema_version TEXT NOT NULL,
+		payload TEXT NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_by TEXT,
+		FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+	);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	if err := s.ensureGlobalSettingsSeed(); err != nil {
+		return err
 	}
 
 	// Add name column if it doesn't exist (migration for existing databases)
@@ -385,6 +408,24 @@ func (s *SQLiteStore) initSchema() error {
 
 	logInfo("Schema initialized for DB", "path", s.dbPath, "schemaVersion", schemaVersion)
 
+	return nil
+}
+
+func (s *SQLiteStore) ensureGlobalSettingsSeed() error {
+	defaults := pmsettings.DefaultSettings()
+	pmsettings.Sanitize(&defaults)
+	payload, err := json.Marshal(defaults)
+	if err != nil {
+		return fmt.Errorf("failed to marshal default settings: %w", err)
+	}
+	stmt := `
+		INSERT INTO settings_global (id, schema_version, payload, updated_at, updated_by)
+		SELECT 1, ?, ?, CURRENT_TIMESTAMP, 'system'
+		WHERE NOT EXISTS (SELECT 1 FROM settings_global WHERE id = 1);
+	`
+	if _, err := s.db.Exec(stmt, pmsettings.SchemaVersion, string(payload)); err != nil {
+		return fmt.Errorf("failed to seed global settings: %w", err)
+	}
 	return nil
 }
 
@@ -2018,6 +2059,204 @@ func (s *SQLiteStore) GetAuditLog(ctx context.Context, agentID string, since tim
 	}
 
 	return entries, rows.Err()
+}
+
+// Settings storage ---------------------------------------------------------
+
+// GetGlobalSettings returns the persisted global settings snapshot.
+func (s *SQLiteStore) GetGlobalSettings(ctx context.Context) (*SettingsRecord, error) {
+	query := `
+		SELECT schema_version, payload, updated_at, IFNULL(updated_by, '')
+		FROM settings_global
+		WHERE id = 1
+	`
+	var (
+		schemaVersion string
+		payload       sql.NullString
+		updatedAt     sql.NullTime
+		updatedBy     sql.NullString
+	)
+	err := s.db.QueryRowContext(ctx, query).Scan(&schemaVersion, &payload, &updatedAt, &updatedBy)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	settingsPayload := pmsettings.DefaultSettings()
+	if payload.Valid && payload.String != "" {
+		if err := json.Unmarshal([]byte(payload.String), &settingsPayload); err != nil {
+			return nil, fmt.Errorf("failed to decode global settings: %w", err)
+		}
+	}
+	pmsettings.Sanitize(&settingsPayload)
+	rec := &SettingsRecord{
+		SchemaVersion: schemaVersion,
+		Settings:      settingsPayload,
+		UpdatedBy:     updatedBy.String,
+	}
+	if updatedAt.Valid {
+		rec.UpdatedAt = updatedAt.Time
+	}
+	return rec, nil
+}
+
+// UpsertGlobalSettings replaces the canonical global settings row.
+func (s *SQLiteStore) UpsertGlobalSettings(ctx context.Context, rec *SettingsRecord) error {
+	if rec == nil {
+		return fmt.Errorf("settings record required")
+	}
+	pmsettings.Sanitize(&rec.Settings)
+	payload, err := json.Marshal(rec.Settings)
+	if err != nil {
+		return fmt.Errorf("failed to encode settings: %w", err)
+	}
+	if rec.SchemaVersion == "" {
+		rec.SchemaVersion = pmsettings.SchemaVersion
+	}
+	if rec.UpdatedBy == "" {
+		rec.UpdatedBy = "system"
+	}
+	query := `
+		INSERT INTO settings_global (id, schema_version, payload, updated_at, updated_by)
+		VALUES (1, ?, ?, CURRENT_TIMESTAMP, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			schema_version = excluded.schema_version,
+			payload = excluded.payload,
+			updated_at = CURRENT_TIMESTAMP,
+			updated_by = excluded.updated_by
+	`
+	_, err = s.db.ExecContext(ctx, query, rec.SchemaVersion, string(payload), rec.UpdatedBy)
+	return err
+}
+
+// GetTenantSettings returns tenant-specific overrides (if any).
+func (s *SQLiteStore) GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettingsRecord, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, fmt.Errorf("tenant id required")
+	}
+	query := `
+		SELECT tenant_id, schema_version, payload, updated_at, IFNULL(updated_by, '')
+		FROM settings_tenant
+		WHERE tenant_id = ?
+	`
+	var (
+		id            string
+		schemaVersion string
+		payload       sql.NullString
+		updatedAt     sql.NullTime
+		updatedBy     sql.NullString
+	)
+	err := s.db.QueryRowContext(ctx, query, tenantID).Scan(&id, &schemaVersion, &payload, &updatedAt, &updatedBy)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	overrides := map[string]interface{}{}
+	if payload.Valid && payload.String != "" {
+		if err := json.Unmarshal([]byte(payload.String), &overrides); err != nil {
+			return nil, fmt.Errorf("failed to decode tenant settings: %w", err)
+		}
+	}
+	rec := &TenantSettingsRecord{
+		TenantID:      id,
+		SchemaVersion: schemaVersion,
+		Overrides:     overrides,
+		UpdatedBy:     updatedBy.String,
+	}
+	if updatedAt.Valid {
+		rec.UpdatedAt = updatedAt.Time
+	}
+	return rec, nil
+}
+
+// UpsertTenantSettings stores tenant override patches.
+func (s *SQLiteStore) UpsertTenantSettings(ctx context.Context, rec *TenantSettingsRecord) error {
+	if rec == nil {
+		return fmt.Errorf("tenant settings record required")
+	}
+	if strings.TrimSpace(rec.TenantID) == "" {
+		return fmt.Errorf("tenant id required")
+	}
+	if rec.Overrides == nil {
+		rec.Overrides = map[string]interface{}{}
+	}
+	payload, err := json.Marshal(rec.Overrides)
+	if err != nil {
+		return fmt.Errorf("failed to encode overrides: %w", err)
+	}
+	if rec.SchemaVersion == "" {
+		rec.SchemaVersion = pmsettings.SchemaVersion
+	}
+	if rec.UpdatedBy == "" {
+		rec.UpdatedBy = "system"
+	}
+	query := `
+		INSERT INTO settings_tenant (tenant_id, schema_version, payload, updated_at, updated_by)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
+		ON CONFLICT(tenant_id) DO UPDATE SET
+			schema_version = excluded.schema_version,
+			payload = excluded.payload,
+			updated_at = CURRENT_TIMESTAMP,
+			updated_by = excluded.updated_by
+	`
+	_, err = s.db.ExecContext(ctx, query, rec.TenantID, rec.SchemaVersion, string(payload), rec.UpdatedBy)
+	return err
+}
+
+// DeleteTenantSettings removes overrides for a tenant.
+func (s *SQLiteStore) DeleteTenantSettings(ctx context.Context, tenantID string) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return fmt.Errorf("tenant id required")
+	}
+	_, err := s.db.ExecContext(ctx, "DELETE FROM settings_tenant WHERE tenant_id = ?", tenantID)
+	return err
+}
+
+// ListTenantSettings returns all tenants with overrides.
+func (s *SQLiteStore) ListTenantSettings(ctx context.Context) ([]*TenantSettingsRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tenant_id, schema_version, payload, updated_at, IFNULL(updated_by, '')
+		FROM settings_tenant
+		ORDER BY tenant_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []*TenantSettingsRecord
+	for rows.Next() {
+		var (
+			tenantID      string
+			schemaVersion string
+			payload       sql.NullString
+			updatedAt     sql.NullTime
+			updatedBy     sql.NullString
+		)
+		if err := rows.Scan(&tenantID, &schemaVersion, &payload, &updatedAt, &updatedBy); err != nil {
+			return nil, err
+		}
+		overrides := map[string]interface{}{}
+		if payload.Valid && payload.String != "" {
+			if err := json.Unmarshal([]byte(payload.String), &overrides); err != nil {
+				return nil, fmt.Errorf("failed to decode tenant settings: %w", err)
+			}
+		}
+		rec := &TenantSettingsRecord{
+			TenantID:      tenantID,
+			SchemaVersion: schemaVersion,
+			Overrides:     overrides,
+			UpdatedBy:     updatedBy.String,
+		}
+		if updatedAt.Valid {
+			rec.UpdatedAt = updatedAt.Time
+		}
+		records = append(records, rec)
+	}
+	return records, rows.Err()
 }
 
 // Close closes the database connection

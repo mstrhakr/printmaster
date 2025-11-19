@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	pmsettings "printmaster/common/settings"
 	commonstorage "printmaster/common/storage"
 	"sort"
 	"strings"
@@ -282,4 +283,29 @@ type Store interface {
 	GetOIDCLink(ctx context.Context, providerSlug, subject string) (*OIDCLink, error)
 	ListOIDCLinksForUser(ctx context.Context, userID int64) ([]*OIDCLink, error)
 	DeleteOIDCLink(ctx context.Context, providerSlug, subject string) error
+
+	// Settings management
+	GetGlobalSettings(ctx context.Context) (*SettingsRecord, error)
+	UpsertGlobalSettings(ctx context.Context, rec *SettingsRecord) error
+	GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettingsRecord, error)
+	UpsertTenantSettings(ctx context.Context, rec *TenantSettingsRecord) error
+	DeleteTenantSettings(ctx context.Context, tenantID string) error
+	ListTenantSettings(ctx context.Context) ([]*TenantSettingsRecord, error)
+}
+
+// SettingsRecord captures the canonical global settings payload persisted by the server.
+type SettingsRecord struct {
+	SchemaVersion string              `json:"schema_version"`
+	Settings      pmsettings.Settings `json:"settings"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+	UpdatedBy     string              `json:"updated_by,omitempty"`
+}
+
+// TenantSettingsRecord stores tenant-specific override patches (partial payloads).
+type TenantSettingsRecord struct {
+	TenantID      string                 `json:"tenant_id"`
+	SchemaVersion string                 `json:"schema_version"`
+	Overrides     map[string]interface{} `json:"overrides"`
+	UpdatedAt     time.Time              `json:"updated_at"`
+	UpdatedBy     string                 `json:"updated_by,omitempty"`
 }

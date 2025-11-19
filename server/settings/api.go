@@ -1,0 +1,342 @@
+package settings
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	pmsettings "printmaster/common/settings"
+	authz "printmaster/server/authz"
+	"printmaster/server/storage"
+	"printmaster/server/tenancy"
+)
+
+// APIOptions carry cross-cutting concerns required by the HTTP layer.
+type APIOptions struct {
+	AuthMiddleware func(http.HandlerFunc) http.HandlerFunc
+	Authorizer     func(*http.Request, authz.Action, authz.ResourceRef) error
+	ActorResolver  func(*http.Request) string
+}
+
+// RouteConfig controls how HTTP routes are registered.
+type RouteConfig struct {
+	Mux                 *http.ServeMux
+	FeatureEnabled      bool
+	RegisterTenantAlias bool
+}
+
+// API exposes HTTP handlers for server-controlled settings.
+type API struct {
+	store         Store
+	resolver      *Resolver
+	authWrap      func(http.HandlerFunc) http.HandlerFunc
+	authorizer    func(*http.Request, authz.Action, authz.ResourceRef) error
+	actorResolver func(*http.Request) string
+}
+
+// NewAPI builds an API backed by the provided store/resolver.
+func NewAPI(store Store, resolver *Resolver, opts APIOptions) *API {
+	if store == nil {
+		panic("settings API requires a store")
+	}
+	if resolver == nil {
+		resolver = NewResolver(store)
+	}
+	return &API{
+		store:         store,
+		resolver:      resolver,
+		authWrap:      opts.AuthMiddleware,
+		authorizer:    opts.Authorizer,
+		actorResolver: opts.ActorResolver,
+	}
+}
+
+// RegisterRoutes wires the HTTP handlers onto the mux based on the provided config.
+func (api *API) RegisterRoutes(cfg RouteConfig) {
+	if cfg.RegisterTenantAlias {
+		tenancy.RegisterTenantSubresource("settings", nil)
+	}
+	if !cfg.FeatureEnabled {
+		return
+	}
+
+	mux := cfg.Mux
+	if mux == nil {
+		mux = http.DefaultServeMux
+	}
+	wrap := api.wrap
+
+	mux.HandleFunc("/api/v1/settings/schema", wrap(api.handleSchema))
+	mux.HandleFunc("/api/v1/settings/global", wrap(api.handleGlobal))
+	mux.HandleFunc("/api/v1/settings/tenants/", wrap(api.handleTenantSettingsRoute))
+
+	if cfg.RegisterTenantAlias {
+		tenancy.RegisterTenantSubresource("settings", api.tenantSubresourceHandler())
+	}
+}
+
+func (api *API) wrap(handler http.HandlerFunc) http.HandlerFunc {
+	if api.authWrap == nil {
+		return handler
+	}
+	return api.authWrap(handler)
+}
+
+func (api *API) authorize(w http.ResponseWriter, r *http.Request, action authz.Action, resource authz.ResourceRef) bool {
+	if api.authorizer == nil {
+		http.Error(w, "authorization not configured", http.StatusInternalServerError)
+		return false
+	}
+	if err := api.authorizer(r, action, resource); err != nil {
+		status := http.StatusForbidden
+		if errors.Is(err, authz.ErrUnauthorized) {
+			status = http.StatusUnauthorized
+		}
+		http.Error(w, http.StatusText(status), status)
+		return false
+	}
+	return true
+}
+
+func (api *API) actorLabel(r *http.Request) string {
+	if api.actorResolver == nil {
+		return "system"
+	}
+	if name := strings.TrimSpace(api.actorResolver(r)); name != "" {
+		return name
+	}
+	return "system"
+}
+
+func (api *API) handleSchema(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		return
+	}
+	writeJSON(w, http.StatusOK, pmsettings.DefaultSchema())
+}
+
+func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+			return
+		}
+		snap, err := api.resolver.ResolveGlobal(r.Context())
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, snap)
+	case http.MethodPut:
+		if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+			return
+		}
+		var payload pmsettings.Settings
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if issues := pmsettings.Validate(payload); len(issues) > 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"error":             "invalid settings",
+				"validation_errors": issues,
+			})
+			return
+		}
+		pmsettings.Sanitize(&payload)
+		rec := &storage.SettingsRecord{
+			SchemaVersion: pmsettings.SchemaVersion,
+			Settings:      payload,
+			UpdatedBy:     api.actorLabel(r),
+		}
+		if err := api.store.UpsertGlobalSettings(r.Context(), rec); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		snap, err := api.resolver.ResolveGlobal(r.Context())
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, snap)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (api *API) handleTenantSettingsRoute(w http.ResponseWriter, r *http.Request) {
+	tenantID := strings.TrimPrefix(r.URL.Path, "/api/v1/settings/tenants/")
+	tenantID = strings.Trim(tenantID, "/")
+	if tenantID == "" || strings.Contains(tenantID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	api.handleTenantSettings(w, r, tenantID)
+}
+
+func (api *API) tenantSubresourceHandler() tenancy.TenantSubresourceHandler {
+	return func(w http.ResponseWriter, r *http.Request, tenantID string, rest string) {
+		if strings.Trim(rest, "/") != "" {
+			http.NotFound(w, r)
+			return
+		}
+		handler := api.wrap(func(w http.ResponseWriter, r *http.Request) {
+			api.handleTenantSettings(w, r, tenantID)
+		})
+		handler(w, r)
+	}
+}
+
+func (api *API) handleTenantSettings(w http.ResponseWriter, r *http.Request, tenantID string) {
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		writeError(w, http.StatusBadRequest, "tenant id required")
+		return
+	}
+	resource := authz.ResourceRef{TenantIDs: []string{tenantID}}
+	switch r.Method {
+	case http.MethodGet:
+		if !api.authorize(w, r, authz.ActionSettingsRead, resource) {
+			return
+		}
+		api.writeTenantSnapshot(w, r, tenantID)
+	case http.MethodPut:
+		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+			return
+		}
+		api.saveTenantOverrides(w, r, tenantID)
+	case http.MethodDelete:
+		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+			return
+		}
+		if err := api.store.DeleteTenantSettings(r.Context(), tenantID); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		api.writeTenantSnapshot(w, r, tenantID)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (api *API) writeTenantSnapshot(w http.ResponseWriter, r *http.Request, tenantID string) {
+	if err := api.ensureTenantExists(r.Context(), tenantID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		writeStoreError(w, err)
+		return
+	}
+	snap, err := api.resolver.ResolveForTenant(r.Context(), tenantID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
+func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tenantID string) {
+	if err := api.ensureTenantExists(r.Context(), tenantID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		writeStoreError(w, err)
+		return
+	}
+	var patch map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if len(patch) == 0 {
+		writeError(w, http.StatusBadRequest, "payload required")
+		return
+	}
+	globalSnap, err := api.resolver.ResolveGlobal(r.Context())
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	existingRec, err := api.store.GetTenantSettings(r.Context(), tenantID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	var existing map[string]interface{}
+	if existingRec != nil {
+		existing = existingRec.Overrides
+	}
+	merged := MergeOverrideMaps(existing, patch)
+	cleaned, err := CleanOverrides(globalSnap.Settings, merged)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	effective, err := ApplyPatch(globalSnap.Settings, cleaned)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if issues := pmsettings.Validate(effective); len(issues) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"error":             "invalid settings",
+			"validation_errors": issues,
+		})
+		return
+	}
+	actor := api.actorLabel(r)
+	if len(cleaned) == 0 {
+		if err := api.store.DeleteTenantSettings(r.Context(), tenantID); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+	} else {
+		rec := &storage.TenantSettingsRecord{
+			TenantID:      tenantID,
+			SchemaVersion: pmsettings.SchemaVersion,
+			Overrides:     cleaned,
+			UpdatedBy:     actor,
+		}
+		if err := api.store.UpsertTenantSettings(r.Context(), rec); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+	}
+	snap, err := api.resolver.ResolveForTenant(r.Context(), tenantID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
+func (api *API) ensureTenantExists(ctx context.Context, tenantID string) error {
+	_, err := api.store.GetTenant(ctx, tenantID)
+	return err
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func writeStoreError(w http.ResponseWriter, err error) {
+	writeJSON(w, http.StatusInternalServerError, map[string]string{
+		"error":  "storage operation failed",
+		"detail": err.Error(),
+	})
+}
