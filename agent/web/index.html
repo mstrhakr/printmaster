@@ -391,56 +391,6 @@
                             available
                             data</span>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">Max OIDs per GET request:</span>
-                        <input id="snmp_max_oids" type="number" style="width:120px" min="1" max="60" step="1"
-                            value="20" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Bulk GET optimization (1-60
-                            OIDs)</span>
-                    </label>
-
-                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
-                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced SNMP
-                            Settings
-                        </summary>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="snmp_v3_enabled" disabled />
-                                <span>Enable SNMP v3 support</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Encrypted/authenticated
-                                    SNMP</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">SNMP Port:</span>
-                                <input id="snmp_port" type="number" style="width:120px" min="1" max="65535"
-                                    value="161" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Default 161, change for
-                                    non-standard</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Walk rate limit (ms/OID):</span>
-                                <input id="snmp_walk_delay" type="number" style="width:120px" min="0" max="1000"
-                                    step="10" value="0" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Delay between OID queries
-                                    (0=no
-                                    delay)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="snmp_cache_enabled" checked disabled />
-                                <span>Cache SNMP responses</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Cache static data (sysDescr,
-                                    serial)
-                                    for faster rescans</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Cache TTL (minutes):</span>
-                                <input id="snmp_cache_ttl" type="number" style="width:120px" min="1" max="1440"
-                                    value="60" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: How long to cache SNMP
-                                    data</span>
-                            </label>
-                        </div>
-                    </details>
                 </div>
             </div>
 
@@ -468,19 +418,6 @@
                         <span style="color:var(--muted);font-size:12px;">Saves detailed JSON to logs/
                             directory</span>
                     </label>
-                    <label class="advanced-setting" style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">Log file rotation size:</span>
-                        <input id="log_rotation_mb" type="number" style="width:120px" min="1" max="1000" value="10" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: MB before rotating log files
-                            (1-1000)</span>
-                    </label>
-                    <label class="advanced-setting" style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">Keep rotated log files:</span>
-                        <input id="log_keep_files" type="number" style="width:120px" min="1" max="100" value="5" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Number of backup logs to retain
-                            (1-100)</span>
-                    </label>
-
                     <div class="advanced-setting"
                         style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -498,45 +435,6 @@
                         <button style="margin-top:8px">Save Trace Tags</button>
                     </div>
 
-                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
-                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Logging
-                            Settings
-                        </summary>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="log_to_console" checked disabled />
-                                <span>Log to console (stdout)</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Enable terminal output
-                                    (useful for
-                                    systemd/docker)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="log_to_file" checked disabled />
-                                <span>Log to file</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Write logs to agent/logs/
-                                    directory</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="log_json_format" disabled />
-                                <span>Use JSON log format</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Structured JSON logs for
-                                    parsing
-                                    tools</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="log_include_caller" disabled />
-                                <span>Include caller info in logs</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Show file:line in log
-                                    messages</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="log_compress_rotated" checked disabled />
-                                <span>Compress rotated logs</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Gzip old log files to save
-                                    space</span>
-                            </label>
-                        </div>
-                    </details>
                 </div>
             </div>
 
@@ -553,73 +451,6 @@
                             step="10" />
                         <span style="color:var(--muted);font-size:12px;">Parallel device probes (1-500)</span>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">ICMP ping timeout (ms):</span>
-                        <input id="icmp_timeout" type="number" style="width:120px" min="100" max="5000" step="100"
-                            value="1000" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Ping wait time (100-5000ms)</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">TCP connect timeout (ms):</span>
-                        <input id="tcp_timeout" type="number" style="width:120px" min="100" max="10000" step="100"
-                            value="2000" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Port probe timeout
-                            (100-10000ms)</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">HTTP request timeout (sec):</span>
-                        <input id="http_timeout" type="number" style="width:120px" min="5" max="120" step="5"
-                            value="30" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Web UI/API request timeout
-                            (5-120s)</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">Database connection pool:</span>
-                        <input id="db_pool_size" type="number" style="width:120px" min="1" max="100" value="10" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Max concurrent DB connections
-                            (1-100)</span>
-                    </label>
-
-                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
-                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Performance
-                            Settings</summary>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Memory buffer size (MB):</span>
-                                <input id="memory_buffer_mb" type="number" style="width:120px" min="1" max="1024"
-                                    value="64" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: In-memory cache for device
-                                    data
-                                    (1-1024MB)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="enable_disk_cache" disabled />
-                                <span>Enable disk caching</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Cache discovery results to
-                                    disk</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Worker pool size:</span>
-                                <input id="worker_pool_size" type="number" style="width:120px" min="1" max="100"
-                                    value="10" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Background task workers
-                                    (1-100)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="enable_rate_limiting" checked disabled />
-                                <span>Enable request rate limiting</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Prevent flooding target
-                                    devices</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Max requests per device/sec:</span>
-                                <input id="rate_limit_per_device" type="number" style="width:120px" min="1" max="100"
-                                    value="10" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Rate limit to prevent device
-                                    overload</span>
-                            </label>
-                        </div>
-                    </details>
                 </div>
             </div>
 
