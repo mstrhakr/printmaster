@@ -83,6 +83,7 @@ Purpose: give an AI coding agent the minimal, project-specific facts to be produ
 - Cross-platform first (Windows/WSL/macOS); SQLite must be pure-Go (`modernc.org/sqlite` used in CI/dev).
 - Tests are written to run in parallel: use `t.Parallel()` in table-driven tests; avoid shared mutable state.
 - Prefer small, focused changes and add unit tests for parsing/scanner/vendor logic.
+- Commit discipline: land each functional slice as soon as it works/tests clean so we never sit on massive uncommitted diffs.
 
 5) Integration points & APIs to reference in PRs
 
