@@ -1395,6 +1395,19 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 			clientIP := extractIPFromAddr(r.RemoteAddr)
 			authRateLimiter.RecordFailure(clientIP, req.Username)
 		}
+		logAuditEntry(ctx, &storage.AuditEntry{
+			ActorType: storage.AuditActorUser,
+			ActorID:   strings.ToLower(req.Username),
+			ActorName: req.Username,
+			Action:    "auth.login",
+			Severity:  storage.AuditSeverityWarn,
+			Details:   "Invalid username or password",
+			IPAddress: extractClientIP(r),
+			UserAgent: r.Header.Get("User-Agent"),
+			Metadata: map[string]interface{}{
+				"result": "failure",
+			},
+		})
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -1404,6 +1417,22 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
+
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType: storage.AuditActorUser,
+		ActorID:   user.Username,
+		ActorName: user.Username,
+		TenantID:  user.TenantID,
+		Action:    "auth.login",
+		Details:   "User authenticated via local login",
+		Metadata: map[string]interface{}{
+			"result":     "success",
+			"session_id": maskSensitiveToken(ses.Token),
+			"expires_at": ses.ExpiresAt.Format(time.RFC3339),
+		},
+		IPAddress: extractClientIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "token": ses.Token, "expires_at": ses.ExpiresAt.Format(time.RFC3339)})
@@ -1568,6 +1597,23 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		// Do not return password hash
 		u.PasswordHash = ""
+		actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+		logAuditEntry(ctx, &storage.AuditEntry{
+			ActorType:  actorType,
+			ActorID:    actorID,
+			ActorName:  actorName,
+			TenantID:   actorTenant,
+			Action:     "user.create",
+			TargetType: "user",
+			TargetID:   u.Username,
+			Details:    fmt.Sprintf("Created user %s with role %s", u.Username, u.Role),
+			Metadata: map[string]interface{}{
+				"role":       u.Role,
+				"tenant_ids": u.TenantIDs,
+				"email":      u.Email,
+			},
+			IPAddress: extractClientIP(r),
+		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(u)
@@ -1602,6 +1648,20 @@ func handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := context.Background()
 	_ = serverStore.DeleteSession(ctx, token)
+	actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType: actorType,
+		ActorID:   actorID,
+		ActorName: actorName,
+		TenantID:  actorTenant,
+		Action:    "auth.logout",
+		Details:   "Session terminated",
+		Metadata: map[string]interface{}{
+			"token_prefix": maskSensitiveToken(token),
+		},
+		IPAddress: extractClientIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
+	})
 	// expire cookie
 	cookie := &http.Cookie{
 		Name:     "pm_session",
@@ -1671,10 +1731,32 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 		if !authorizeOrReject(w, r, authz.ActionUsersWrite, authz.ResourceRef{}) {
 			return
 		}
+		u, err := serverStore.GetUserByID(ctx, id)
+		if err != nil {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
 		if err := serverStore.DeleteUser(ctx, id); err != nil {
 			http.Error(w, "failed to delete user", http.StatusInternalServerError)
 			return
 		}
+		actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+		logAuditEntry(ctx, &storage.AuditEntry{
+			ActorType:  actorType,
+			ActorID:    actorID,
+			ActorName:  actorName,
+			TenantID:   actorTenant,
+			Action:     "user.delete",
+			TargetType: "user",
+			TargetID:   u.Username,
+			Details:    fmt.Sprintf("Deleted user %s", u.Username),
+			Metadata: map[string]interface{}{
+				"user_id":    u.ID,
+				"role":       u.Role,
+				"tenant_ids": u.TenantIDs,
+			},
+			IPAddress: extractClientIP(r),
+		})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 		return
@@ -1698,6 +1780,9 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "user not found", http.StatusNotFound)
 			return
 		}
+		originalRole := u.Role
+		originalTenantIDs := append([]string{}, u.TenantIDs...)
+		originalEmail := u.Email
 		if req.Role != "" {
 			u.Role = storage.NormalizeRole(req.Role)
 		}
@@ -1720,11 +1805,46 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "failed to update user", http.StatusInternalServerError)
 			return
 		}
+		actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+		logAuditEntry(ctx, &storage.AuditEntry{
+			ActorType:  actorType,
+			ActorID:    actorID,
+			ActorName:  actorName,
+			TenantID:   actorTenant,
+			Action:     "user.update",
+			TargetType: "user",
+			TargetID:   u.Username,
+			Details:    fmt.Sprintf("Updated user %s", u.Username),
+			Metadata: map[string]interface{}{
+				"role_before":       originalRole,
+				"role_after":        u.Role,
+				"tenant_ids_before": originalTenantIDs,
+				"tenant_ids_after":  u.TenantIDs,
+				"email_before":      originalEmail,
+				"email_after":       u.Email,
+			},
+			IPAddress: extractClientIP(r),
+		})
 		if req.Password != "" {
 			if err := serverStore.UpdateUserPassword(ctx, id, req.Password); err != nil {
 				http.Error(w, "failed to update password", http.StatusInternalServerError)
 				return
 			}
+			logAuditEntry(ctx, &storage.AuditEntry{
+				ActorType:  actorType,
+				ActorID:    actorID,
+				ActorName:  actorName,
+				TenantID:   actorTenant,
+				Action:     "user.password.rotate",
+				TargetType: "user",
+				TargetID:   u.Username,
+				Severity:   storage.AuditSeverityWarn,
+				Details:    fmt.Sprintf("Password reset for user %s", u.Username),
+				Metadata: map[string]interface{}{
+					"user_id": u.ID,
+				},
+				IPAddress: extractClientIP(r),
+			})
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(u)
@@ -1787,6 +1907,21 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to delete session", http.StatusInternalServerError)
 		return
 	}
+	actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType:  actorType,
+		ActorID:    actorID,
+		ActorName:  actorName,
+		TenantID:   actorTenant,
+		Action:     "session.delete",
+		TargetType: "session",
+		TargetID:   key,
+		Details:    "Session revoked by administrator",
+		Metadata: map[string]interface{}{
+			"session_key": key,
+		},
+		IPAddress: extractClientIP(r),
+	})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
@@ -1887,6 +2022,23 @@ func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create token", http.StatusInternalServerError)
 		return
 	}
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType:  storage.AuditActorUser,
+		ActorID:    u.Username,
+		ActorName:  u.Username,
+		TenantID:   u.TenantID,
+		Action:     "password.reset.request",
+		TargetType: "user",
+		TargetID:   u.Username,
+		Severity:   storage.AuditSeverityWarn,
+		Details:    "Password reset link requested",
+		Metadata: map[string]interface{}{
+			"email":        strings.ToLower(req.Email),
+			"token_prefix": maskSensitiveToken(token),
+		},
+		IPAddress: extractClientIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
+	})
 	scheme := "https"
 	if r.TLS == nil {
 		scheme = "http"
@@ -1922,12 +2074,37 @@ func handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid or expired token", http.StatusBadRequest)
 		return
 	}
+	userRecord, _ := serverStore.GetUserByID(ctx, userID)
 	if err := serverStore.UpdateUserPassword(ctx, userID, req.Password); err != nil {
 		http.Error(w, "failed to reset password", http.StatusInternalServerError)
 		return
 	}
 	// Optionally delete any other outstanding tokens for this user
 	_ = serverStore.DeletePasswordResetToken(ctx, req.Token)
+	actorID := fmt.Sprintf("user:%d", userID)
+	actorName := ""
+	tenantID := ""
+	if userRecord != nil {
+		actorID = userRecord.Username
+		actorName = userRecord.Username
+		tenantID = userRecord.TenantID
+	}
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType:  storage.AuditActorUser,
+		ActorID:    actorID,
+		ActorName:  actorName,
+		TenantID:   tenantID,
+		Action:     "password.reset.confirm",
+		TargetType: "user",
+		TargetID:   actorID,
+		Severity:   storage.AuditSeverityWarn,
+		Details:    "Password reset completed via emailed token",
+		Metadata: map[string]interface{}{
+			"token_prefix": maskSensitiveToken(req.Token),
+		},
+		IPAddress: extractClientIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
+	})
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
@@ -1954,6 +2131,58 @@ func logAuditEntry(ctx context.Context, entry *storage.AuditEntry) {
 	if err := serverStore.SaveAuditEntry(ctx, entry); err != nil {
 		logError("Failed to save audit entry", "action", entry.Action, "actor_type", entry.ActorType, "actor_id", entry.ActorID, "error", err)
 	}
+}
+
+func auditActorFromPrincipal(r *http.Request) (storage.AuditActorType, string, string, string) {
+	if r == nil {
+		return storage.AuditActorSystem, "UNKNOWN", "", ""
+	}
+	if principal := getPrincipal(r); principal != nil && principal.User != nil {
+		return storage.AuditActorUser, principal.User.Username, principal.User.Username, principal.User.TenantID
+	}
+	return storage.AuditActorSystem, "UNKNOWN", "", ""
+}
+
+func maskSensitiveToken(token string) string {
+	if token == "" {
+		return ""
+	}
+	if len(token) <= 8 {
+		return token
+	}
+	return token[:8] + "..."
+}
+
+func logRequestAudit(r *http.Request, entry *storage.AuditEntry) {
+	if entry == nil {
+		return
+	}
+	ctx := context.Background()
+	if r != nil {
+		ctx = r.Context()
+	}
+	actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+	if entry.ActorType == "" {
+		entry.ActorType = actorType
+	}
+	if entry.ActorID == "" || entry.ActorID == "UNKNOWN" {
+		entry.ActorID = actorID
+	}
+	if entry.ActorName == "" {
+		entry.ActorName = actorName
+	}
+	if entry.TenantID == "" {
+		entry.TenantID = actorTenant
+	}
+	if r != nil {
+		if entry.IPAddress == "" {
+			entry.IPAddress = extractClientIP(r)
+		}
+		if entry.UserAgent == "" {
+			entry.UserAgent = r.Header.Get("User-Agent")
+		}
+	}
+	logAuditEntry(ctx, entry)
 }
 
 // extractClientIP gets the client IP address from the request
@@ -2042,6 +2271,7 @@ func setupRoutes(cfg *Config) {
 	tenancy.SetAgentEventSink(func(eventType string, data map[string]interface{}) {
 		sseHub.Broadcast(SSEEvent{Type: eventType, Data: data})
 	})
+	tenancy.SetAuditLogger(logRequestAudit)
 	tenancy.RegisterRoutes(serverStore)
 	logInfo("Tenancy routes registered", "enabled", featureEnabled)
 
@@ -2056,6 +2286,7 @@ func setupRoutes(cfg *Config) {
 			}
 			return ""
 		},
+		AuditLogger: logRequestAudit,
 	})
 	settingsAPI.RegisterRoutes(serversettings.RouteConfig{
 		Mux:                 http.DefaultServeMux,

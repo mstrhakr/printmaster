@@ -39,6 +39,8 @@ var agentEventSink func(eventType string, data map[string]interface{})
 
 var agentSettingsBuilder func(context.Context, string) (string, interface{}, error)
 
+var auditLogger func(*http.Request, *storage.AuditEntry)
+
 // SetAgentEventSink registers a callback invoked for agent lifecycle events.
 func SetAgentEventSink(sink func(eventType string, data map[string]interface{})) {
 	agentEventSink = sink
@@ -47,6 +49,42 @@ func SetAgentEventSink(sink func(eventType string, data map[string]interface{}))
 // SetAgentSettingsBuilder wires the callback that produces resolved settings snapshots for agents.
 func SetAgentSettingsBuilder(builder func(context.Context, string) (string, interface{}, error)) {
 	agentSettingsBuilder = builder
+}
+
+// SetAuditLogger wires an audit sink so tenancy actions appear in the central audit log.
+func SetAuditLogger(logger func(*http.Request, *storage.AuditEntry)) {
+	auditLogger = logger
+}
+
+func recordAudit(r *http.Request, entry *storage.AuditEntry) {
+	if auditLogger == nil || entry == nil {
+		return
+	}
+	auditLogger(r, entry)
+}
+
+func maskTokenValue(token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ""
+	}
+	if len(token) <= 8 {
+		return token
+	}
+	return token[:4] + "..." + token[len(token)-2:]
+}
+
+func tenantAuditMetadata(name, description, contactName, contactEmail, contactPhone, businessUnit, billingCode, address string) map[string]interface{} {
+	return map[string]interface{}{
+		"name":          name,
+		"description":   description,
+		"contact_name":  contactName,
+		"contact_email": contactEmail,
+		"contact_phone": contactPhone,
+		"business_unit": businessUnit,
+		"billing_code":  billingCode,
+		"address":       address,
+	}
 }
 
 func attachAgentSettings(resp map[string]interface{}, ctx context.Context, tenantID string) {
@@ -220,6 +258,14 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(tn)
+			recordAudit(r, &storage.AuditEntry{
+				Action:     "tenant.create",
+				TargetType: "tenant",
+				TargetID:   tn.ID,
+				TenantID:   tn.ID,
+				Details:    fmt.Sprintf("Created tenant %s", tn.Name),
+				Metadata:   tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address),
+			})
 			return
 		}
 		t, err := store.CreateTenant(Tenant{
@@ -240,6 +286,14 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(t)
+		recordAudit(r, &storage.AuditEntry{
+			Action:     "tenant.create",
+			TargetType: "tenant",
+			TargetID:   t.ID,
+			TenantID:   t.ID,
+			Details:    fmt.Sprintf("Created tenant %s", t.Name),
+			Metadata:   tenantAuditMetadata(t.Name, t.Description, t.ContactName, t.ContactEmail, t.ContactPhone, t.BusinessUnit, t.BillingCode, t.Address),
+		})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -319,6 +373,7 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(`{"error":"tenant not found"}`))
 			return
 		}
+		before := *tn
 		tn.Name = in.Name
 		tn.Description = in.Description
 		tn.ContactName = in.ContactName
@@ -334,6 +389,17 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(tn)
+		recordAudit(r, &storage.AuditEntry{
+			Action:     "tenant.update",
+			TargetType: "tenant",
+			TargetID:   tn.ID,
+			TenantID:   tn.ID,
+			Details:    fmt.Sprintf("Updated tenant %s", tn.Name),
+			Metadata: map[string]interface{}{
+				"before": tenantAuditMetadata(before.Name, before.Description, before.ContactName, before.ContactEmail, before.ContactPhone, before.BusinessUnit, before.BillingCode, before.Address),
+				"after":  tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address),
+			},
+		})
 		return
 	}
 	existing, ok := store.tenants[id]
@@ -362,6 +428,17 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(res)
+	recordAudit(r, &storage.AuditEntry{
+		Action:     "tenant.update",
+		TargetType: "tenant",
+		TargetID:   res.ID,
+		TenantID:   res.ID,
+		Details:    fmt.Sprintf("Updated tenant %s", res.Name),
+		Metadata: map[string]interface{}{
+			"before": tenantAuditMetadata(existing.Name, existing.Description, existing.ContactName, existing.ContactEmail, existing.ContactPhone, existing.BusinessUnit, existing.BillingCode, existing.Address),
+			"after":  tenantAuditMetadata(res.Name, res.Description, res.ContactName, res.ContactEmail, res.ContactPhone, res.BusinessUnit, res.BillingCode, res.Address),
+		},
+	})
 }
 
 // handleCreateJoinToken issues a join token. Body: {"tenant_id":"...","ttl_minutes":60,"one_time":false}
@@ -407,6 +484,18 @@ func handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 			"tenant_id":  jt.TenantID,
 			"expires_at": jt.ExpiresAt.Format(time.RFC3339),
 		})
+		recordAudit(r, &storage.AuditEntry{
+			Action:     "join_token.create",
+			TargetType: "join_token",
+			TargetID:   jt.ID,
+			TenantID:   jt.TenantID,
+			Details:    fmt.Sprintf("Join token created for tenant %s", jt.TenantID),
+			Metadata: map[string]interface{}{
+				"ttl_minutes": in.TTLMinutes,
+				"one_time":    in.OneTime,
+				"expires_at":  jt.ExpiresAt.Format(time.RFC3339),
+			},
+		})
 		return
 	}
 	jt, err := store.CreateJoinToken(in.TenantID, in.TTLMinutes, in.OneTime)
@@ -425,6 +514,18 @@ func handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		"token":      jt.Token,
 		"tenant_id":  jt.TenantID,
 		"expires_at": jt.ExpiresAt.Format(time.RFC3339),
+	})
+	recordAudit(r, &storage.AuditEntry{
+		Action:     "join_token.create",
+		TargetType: "join_token",
+		TargetID:   maskTokenValue(jt.Token),
+		TenantID:   jt.TenantID,
+		Details:    fmt.Sprintf("Join token created for tenant %s", jt.TenantID),
+		Metadata: map[string]interface{}{
+			"ttl_minutes": in.TTLMinutes,
+			"one_time":    in.OneTime,
+			"expires_at":  jt.ExpiresAt.Format(time.RFC3339),
+		},
 	})
 }
 
@@ -501,6 +602,12 @@ func handleRevokeJoinToken(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		recordAudit(r, &storage.AuditEntry{
+			Action:     "join_token.revoke",
+			TargetType: "join_token",
+			TargetID:   in.ID,
+			Details:    "Join token revoked",
+		})
 		return
 	}
 	// fallback: remove from in-memory store
@@ -510,6 +617,12 @@ func handleRevokeJoinToken(w http.ResponseWriter, r *http.Request) {
 		delete(store.tokens, in.ID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		recordAudit(r, &storage.AuditEntry{
+			Action:     "join_token.revoke",
+			TargetType: "join_token",
+			TargetID:   maskTokenValue(in.ID),
+			Details:    "Join token revoked",
+		})
 		return
 	}
 	w.WriteHeader(http.StatusNotFound)
@@ -553,6 +666,19 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 	if dbStore != nil {
 		jt, err := dbStore.ValidateJoinToken(r.Context(), in.Token)
 		if err != nil {
+			recordAudit(r, &storage.AuditEntry{
+				ActorType: storage.AuditActorAgent,
+				ActorID:   strings.TrimSpace(in.AgentID),
+				ActorName: strings.TrimSpace(in.Name),
+				Action:    "agent.register.token",
+				Severity:  storage.AuditSeverityWarn,
+				Details:   "Agent registration denied: invalid or expired join token",
+				Metadata: map[string]interface{}{
+					"token_prefix": maskTokenValue(in.Token),
+					"hostname":     strings.TrimSpace(in.Hostname),
+					"platform":     strings.TrimSpace(in.Platform),
+				},
+			})
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"invalid or expired token"}`))
 			return
@@ -606,12 +732,40 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		attachAgentSettings(resp, r.Context(), jt.TenantID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+		recordAudit(r, &storage.AuditEntry{
+			ActorType: storage.AuditActorAgent,
+			ActorID:   in.AgentID,
+			ActorName: in.Name,
+			TenantID:  jt.TenantID,
+			Action:    "agent.register.token",
+			Details:   "Agent registered via join token",
+			Metadata: map[string]interface{}{
+				"tenant_id":        jt.TenantID,
+				"protocol_version": strings.TrimSpace(in.ProtocolVersion),
+				"platform":         strings.TrimSpace(in.Platform),
+				"hostname":         strings.TrimSpace(in.Hostname),
+				"agent_version":    strings.TrimSpace(in.AgentVersion),
+			},
+		})
 		return
 	}
 
 	jt, err := store.ValidateToken(in.Token)
 	if err != nil {
 		if err == ErrTokenNotFound || err == ErrTokenExpired {
+			recordAudit(r, &storage.AuditEntry{
+				ActorType: storage.AuditActorAgent,
+				ActorID:   strings.TrimSpace(in.AgentID),
+				ActorName: strings.TrimSpace(in.Name),
+				Action:    "agent.register.token",
+				Severity:  storage.AuditSeverityWarn,
+				Details:   "Agent registration denied: invalid or expired join token",
+				Metadata: map[string]interface{}{
+					"token_prefix": maskTokenValue(in.Token),
+					"hostname":     strings.TrimSpace(in.Hostname),
+					"platform":     strings.TrimSpace(in.Platform),
+				},
+			})
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"invalid or expired token"}`))
 			return
@@ -658,6 +812,21 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 	attachAgentSettings(resp, r.Context(), jt.TenantID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+	recordAudit(r, &storage.AuditEntry{
+		ActorType: storage.AuditActorAgent,
+		ActorID:   in.AgentID,
+		ActorName: in.Name,
+		TenantID:  jt.TenantID,
+		Action:    "agent.register.token",
+		Details:   "Agent registered via join token",
+		Metadata: map[string]interface{}{
+			"tenant_id":        jt.TenantID,
+			"protocol_version": strings.TrimSpace(in.ProtocolVersion),
+			"platform":         strings.TrimSpace(in.Platform),
+			"hostname":         strings.TrimSpace(in.Hostname),
+			"agent_version":    strings.TrimSpace(in.AgentVersion),
+		},
+	})
 }
 
 func emitAgentEvent(eventType string, agent *storage.Agent) {
@@ -793,6 +962,18 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		installerType = "script"
 	}
 	platform := strings.ToLower(in.Platform)
+	recordAudit(r, &storage.AuditEntry{
+		Action:     "package.generate",
+		TargetType: "install_package",
+		TargetID:   strings.TrimSpace(in.TenantID),
+		TenantID:   strings.TrimSpace(in.TenantID),
+		Details:    "Bootstrap package generated",
+		Metadata: map[string]interface{}{
+			"platform":       platform,
+			"installer_type": installerType,
+			"ttl_minutes":    in.TTLMinutes,
+		},
+	})
 
 	if installerType == "script" {
 		var script string

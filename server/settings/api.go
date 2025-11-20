@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	pmsettings "printmaster/common/settings"
@@ -19,6 +21,7 @@ type APIOptions struct {
 	AuthMiddleware func(http.HandlerFunc) http.HandlerFunc
 	Authorizer     func(*http.Request, authz.Action, authz.ResourceRef) error
 	ActorResolver  func(*http.Request) string
+	AuditLogger    func(*http.Request, *storage.AuditEntry)
 }
 
 // RouteConfig controls how HTTP routes are registered.
@@ -35,6 +38,7 @@ type API struct {
 	authWrap      func(http.HandlerFunc) http.HandlerFunc
 	authorizer    func(*http.Request, authz.Action, authz.ResourceRef) error
 	actorResolver func(*http.Request) string
+	auditLogger   func(*http.Request, *storage.AuditEntry)
 }
 
 // NewAPI builds an API backed by the provided store/resolver.
@@ -51,6 +55,7 @@ func NewAPI(store Store, resolver *Resolver, opts APIOptions) *API {
 		authWrap:      opts.AuthMiddleware,
 		authorizer:    opts.Authorizer,
 		actorResolver: opts.ActorResolver,
+		auditLogger:   opts.AuditLogger,
 	}
 }
 
@@ -111,6 +116,13 @@ func (api *API) actorLabel(r *http.Request) string {
 	return "system"
 }
 
+func (api *API) audit(r *http.Request, entry *storage.AuditEntry) {
+	if api.auditLogger == nil || entry == nil {
+		return
+	}
+	api.auditLogger(r, entry)
+}
+
 func (api *API) handleSchema(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -151,10 +163,11 @@ func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		pmsettings.Sanitize(&payload)
+		actor := api.actorLabel(r)
 		rec := &storage.SettingsRecord{
 			SchemaVersion: pmsettings.SchemaVersion,
 			Settings:      payload,
-			UpdatedBy:     api.actorLabel(r),
+			UpdatedBy:     actor,
 		}
 		if err := api.store.UpsertGlobalSettings(r.Context(), rec); err != nil {
 			writeStoreError(w, err)
@@ -166,6 +179,15 @@ func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, snap)
+		api.audit(r, &storage.AuditEntry{
+			Action:     "settings.global.update",
+			TargetType: "settings",
+			TargetID:   "global",
+			Details:    fmt.Sprintf("Global settings updated by %s", actor),
+			Metadata: map[string]interface{}{
+				"schema_version": pmsettings.SchemaVersion,
+			},
+		})
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -220,6 +242,13 @@ func (api *API) handleTenantSettings(w http.ResponseWriter, r *http.Request, ten
 			writeStoreError(w, err)
 			return
 		}
+		api.audit(r, &storage.AuditEntry{
+			Action:     "settings.tenant.reset",
+			TargetType: "settings",
+			TargetID:   tenantID,
+			TenantID:   tenantID,
+			Details:    fmt.Sprintf("Cleared overrides for tenant %s", tenantID),
+		})
 		api.writeTenantSnapshot(w, r, tenantID)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -294,11 +323,19 @@ func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tena
 		return
 	}
 	actor := api.actorLabel(r)
+	keys := collectOverrideKeys(cleaned)
 	if len(cleaned) == 0 {
 		if err := api.store.DeleteTenantSettings(r.Context(), tenantID); err != nil {
 			writeStoreError(w, err)
 			return
 		}
+		api.audit(r, &storage.AuditEntry{
+			Action:     "settings.tenant.reset",
+			TargetType: "settings",
+			TargetID:   tenantID,
+			TenantID:   tenantID,
+			Details:    fmt.Sprintf("Cleared overrides for tenant %s", tenantID),
+		})
 	} else {
 		rec := &storage.TenantSettingsRecord{
 			TenantID:      tenantID,
@@ -310,6 +347,17 @@ func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tena
 			writeStoreError(w, err)
 			return
 		}
+		api.audit(r, &storage.AuditEntry{
+			Action:     "settings.tenant.update",
+			TargetType: "settings",
+			TargetID:   tenantID,
+			TenantID:   tenantID,
+			Details:    fmt.Sprintf("Updated %d override(s) for tenant %s", len(keys), tenantID),
+			Metadata: map[string]interface{}{
+				"override_keys":  keys,
+				"schema_version": pmsettings.SchemaVersion,
+			},
+		})
 	}
 	snap, err := api.resolver.ResolveForTenant(r.Context(), tenantID)
 	if err != nil {
@@ -339,4 +387,31 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		"error":  "storage operation failed",
 		"detail": err.Error(),
 	})
+}
+
+func collectOverrideKeys(m map[string]interface{}) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	var walk func(map[string]interface{}, string)
+	walk = func(curr map[string]interface{}, prefix string) {
+		if curr == nil {
+			return
+		}
+		for k, v := range curr {
+			key := k
+			if prefix != "" {
+				key = prefix + "." + k
+			}
+			if child, ok := v.(map[string]interface{}); ok {
+				walk(child, key)
+			} else {
+				keys = append(keys, key)
+			}
+		}
+	}
+	walk(m, "")
+	sort.Strings(keys)
+	return keys
 }
