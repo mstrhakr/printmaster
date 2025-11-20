@@ -188,14 +188,41 @@ type OIDCLink struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-// AuditEntry represents an audit log entry for agent operations
+// AuditActorType enumerates the source of an audit event.
+type AuditActorType string
+
+const (
+	AuditActorAgent  AuditActorType = "agent"
+	AuditActorUser   AuditActorType = "user"
+	AuditActorSystem AuditActorType = "system"
+)
+
+// AuditSeverity captures the importance of an audit event.
+type AuditSeverity string
+
+const (
+	AuditSeverityInfo  AuditSeverity = "info"
+	AuditSeverityWarn  AuditSeverity = "warn"
+	AuditSeverityError AuditSeverity = "error"
+)
+
+// AuditEntry represents a structured audit log entry for any security-significant action.
 type AuditEntry struct {
-	ID        int64     `json:"id"`
-	Timestamp time.Time `json:"timestamp"`
-	AgentID   string    `json:"agent_id"` // Agent ID or "UNKNOWN" for failed auth
-	Action    string    `json:"action"`   // register, heartbeat, upload_devices, upload_metrics, auth_blocked, auth_blocked_websocket
-	Details   string    `json:"details,omitempty"`
-	IPAddress string    `json:"ip_address,omitempty"`
+	ID         int64                  `json:"id"`
+	Timestamp  time.Time              `json:"timestamp"`
+	ActorType  AuditActorType         `json:"actor_type"`
+	ActorID    string                 `json:"actor_id"`
+	ActorName  string                 `json:"actor_name,omitempty"`
+	Action     string                 `json:"action"`
+	TargetType string                 `json:"target_type,omitempty"`
+	TargetID   string                 `json:"target_id,omitempty"`
+	TenantID   string                 `json:"tenant_id,omitempty"`
+	Severity   AuditSeverity          `json:"severity"`
+	Details    string                 `json:"details,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	IPAddress  string                 `json:"ip_address,omitempty"`
+	UserAgent  string                 `json:"user_agent,omitempty"`
+	RequestID  string                 `json:"request_id,omitempty"`
 }
 
 // Store defines the interface for server data storage
@@ -223,7 +250,7 @@ type Store interface {
 
 	// Audit logging
 	SaveAuditEntry(ctx context.Context, entry *AuditEntry) error
-	GetAuditLog(ctx context.Context, agentID string, since time.Time) ([]*AuditEntry, error)
+	GetAuditLog(ctx context.Context, actorID string, since time.Time) ([]*AuditEntry, error)
 
 	// Utility
 	Close() error

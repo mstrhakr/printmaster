@@ -1229,10 +1229,20 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 					logError("Authentication failed - IP blocked", fields...)
 
 					// Log to audit trail when blocking occurs
-					logAuditEntry(ctx, "UNKNOWN", "auth_blocked",
-						fmt.Sprintf("IP blocked after %d failed attempts with token %s... Error: %s",
+					logAuditEntry(ctx, &storage.AuditEntry{
+						ActorType: storage.AuditActorAgent,
+						ActorID:   tokenPrefix,
+						Action:    "auth_blocked",
+						Details: fmt.Sprintf("IP blocked after %d failed attempts with token %s... Error: %s",
 							attemptCount, tokenPrefix, err.Error()),
-						clientIP)
+						IPAddress: clientIP,
+						UserAgent: r.Header.Get("User-Agent"),
+						Severity:  storage.AuditSeverityWarn,
+						Metadata: map[string]interface{}{
+							"attempt_count": attemptCount,
+							"protocol":      "http",
+						},
+					})
 				} else if attemptCount >= 3 {
 					logWarn("Repeated authentication failures", fields...)
 				} else {
@@ -1922,18 +1932,27 @@ func handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
-// logAuditEntry is a helper to log agent operations to the audit log
-func logAuditEntry(ctx context.Context, agentID, action, details, ipAddress string) {
-	entry := &storage.AuditEntry{
-		Timestamp: time.Now(),
-		AgentID:   agentID,
-		Action:    action,
-		Details:   details,
-		IPAddress: ipAddress,
+// logAuditEntry persists an audit event using the shared storage helper. Default values are applied here
+// so callers can focus on describing the action, actor, and optional context.
+func logAuditEntry(ctx context.Context, entry *storage.AuditEntry) {
+	if entry == nil {
+		return
+	}
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now()
+	}
+	if entry.ActorType == "" {
+		entry.ActorType = storage.AuditActorSystem
+	}
+	if entry.ActorID == "" {
+		entry.ActorID = "UNKNOWN"
+	}
+	if entry.Severity == "" {
+		entry.Severity = storage.AuditSeverityInfo
 	}
 
 	if err := serverStore.SaveAuditEntry(ctx, entry); err != nil {
-		logError("Failed to save audit entry", "agent_id", agentID, "action", action, "error", err)
+		logError("Failed to save audit entry", "action", entry.Action, "actor_type", entry.ActorType, "actor_id", entry.ActorID, "error", err)
 	}
 }
 
@@ -2374,7 +2393,18 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Log audit entry for heartbeat (only occasionally to reduce log volume)
 	// Could add logic here to only log every Nth heartbeat
 	clientIP := extractClientIP(r)
-	logAuditEntry(ctx, agent.AgentID, "heartbeat", fmt.Sprintf("Status: %s", req.Status), clientIP)
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType: storage.AuditActorAgent,
+		ActorID:   agent.AgentID,
+		ActorName: agent.Name,
+		TenantID:  agent.TenantID,
+		Action:    "heartbeat",
+		Details:   fmt.Sprintf("Status: %s", req.Status),
+		Metadata: map[string]interface{}{
+			"status": req.Status,
+		},
+		IPAddress: clientIP,
+	})
 
 	// Broadcast agent_heartbeat event to UI via SSE
 	sseHub.Broadcast(SSEEvent{
@@ -3314,8 +3344,19 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 
 	// Log audit entry for device upload
 	clientIP := extractClientIP(r)
-	logAuditEntry(ctx, agent.AgentID, "upload_devices",
-		fmt.Sprintf("Uploaded %d devices (%d stored)", len(req.Devices), stored), clientIP)
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType: storage.AuditActorAgent,
+		ActorID:   agent.AgentID,
+		ActorName: agent.Name,
+		TenantID:  agent.TenantID,
+		Action:    "upload_devices",
+		Details:   fmt.Sprintf("Uploaded %d devices (%d stored)", len(req.Devices), stored),
+		Metadata: map[string]interface{}{
+			"received": len(req.Devices),
+			"stored":   stored,
+		},
+		IPAddress: clientIP,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3658,8 +3699,19 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 
 	// Log audit entry for metrics upload
 	clientIP := extractClientIP(r)
-	logAuditEntry(ctx, agent.AgentID, "upload_metrics",
-		fmt.Sprintf("Uploaded %d metric snapshots (%d stored)", len(req.Metrics), stored), clientIP)
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType: storage.AuditActorAgent,
+		ActorID:   agent.AgentID,
+		ActorName: agent.Name,
+		TenantID:  agent.TenantID,
+		Action:    "upload_metrics",
+		Details:   fmt.Sprintf("Uploaded %d metric snapshots (%d stored)", len(req.Metrics), stored),
+		Metadata: map[string]interface{}{
+			"received": len(req.Metrics),
+			"stored":   stored,
+		},
+		IPAddress: clientIP,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3819,7 +3871,10 @@ func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query()
-	agentID := strings.TrimSpace(query.Get("agent_id"))
+	actorID := strings.TrimSpace(query.Get("actor_id"))
+	if actorID == "" {
+		actorID = strings.TrimSpace(query.Get("agent_id"))
+	}
 	lookback := 24 * time.Hour
 	if hoursStr := strings.TrimSpace(query.Get("hours")); hoursStr != "" {
 		if hrs, err := strconv.Atoi(hoursStr); err == nil && hrs > 0 {
@@ -3839,17 +3894,21 @@ func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 		since = parsed
 	}
 
-	entries, err := serverStore.GetAuditLog(r.Context(), agentID, since)
+	entries, err := serverStore.GetAuditLog(r.Context(), actorID, since)
 	if err != nil {
-		logError("Failed to load audit log", "agent_id", agentID, "error", err)
+		logError("Failed to load audit log", "actor_id", actorID, "error", err)
 		http.Error(w, "failed to load audit log", http.StatusInternalServerError)
 		return
 	}
 
 	response := map[string]interface{}{
 		"entries":  entries,
-		"agent_id": agentID,
+		"actor_id": actorID,
 		"since":    since.UTC(),
+	}
+
+	if actorID != "" {
+		response["agent_id"] = actorID // legacy key for pre-actor UI clients
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -100,10 +100,20 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 				logError("WebSocket auth failed - IP blocked", fields...)
 
 				// Log to audit trail when blocking occurs
-				logAuditEntry(r.Context(), "UNKNOWN", "auth_blocked_websocket",
-					fmt.Sprintf("IP blocked after %d failed WebSocket auth attempts with token %s... Error: %s",
+				logAuditEntry(r.Context(), &storage.AuditEntry{
+					ActorType: storage.AuditActorAgent,
+					ActorID:   tokenPrefix,
+					Action:    "auth_blocked_websocket",
+					Details: fmt.Sprintf("IP blocked after %d failed WebSocket auth attempts with token %s... Error: %s",
 						attemptCount, tokenPrefix, err.Error()),
-					clientIP)
+					IPAddress: clientIP,
+					UserAgent: r.Header.Get("User-Agent"),
+					Severity:  storage.AuditSeverityWarn,
+					Metadata: map[string]interface{}{
+						"attempt_count": attemptCount,
+						"protocol":      "websocket",
+					},
+				})
 			} else if attemptCount >= 3 {
 				logWarn("Repeated WebSocket auth failures", fields...)
 			} else {
@@ -138,10 +148,20 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 					"status", "BLOCKED")
 
 				// Log to audit trail when blocking occurs
-				logAuditEntry(r.Context(), "UNKNOWN", "auth_blocked_websocket",
-					fmt.Sprintf("IP blocked after %d failed WebSocket auth attempts with token %s... (nil agent)",
+				logAuditEntry(r.Context(), &storage.AuditEntry{
+					ActorType: storage.AuditActorAgent,
+					ActorID:   tokenPrefix,
+					Action:    "auth_blocked_websocket",
+					Details: fmt.Sprintf("IP blocked after %d failed WebSocket auth attempts with token %s... (nil agent)",
 						attemptCount, tokenPrefix),
-					clientIP)
+					IPAddress: clientIP,
+					UserAgent: r.Header.Get("User-Agent"),
+					Severity:  storage.AuditSeverityWarn,
+					Metadata: map[string]interface{}{
+						"attempt_count": attemptCount,
+						"protocol":      "websocket",
+					},
+				})
 			} else {
 				logWarn("WebSocket auth returned nil agent",
 					"ip", clientIP,

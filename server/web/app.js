@@ -559,9 +559,9 @@ function initLogSubTabs() {
         timeFilter.addEventListener('change', () => loadAuditLogs());
     }
 
-    const agentFilter = document.getElementById('audit_agent_filter');
-    if (agentFilter) {
-        agentFilter.addEventListener('keyup', (ev) => {
+    const actorFilter = document.getElementById('audit_actor_filter');
+    if (actorFilter) {
+        actorFilter.addEventListener('keyup', (ev) => {
             if (ev.key === 'Enter') {
                 loadAuditLogs();
             }
@@ -3004,10 +3004,10 @@ async function loadAuditLogs() {
         params.set('hours', String(hours));
     }
 
-    const agentFilter = document.getElementById('audit_agent_filter');
-    const agentValue = agentFilter ? agentFilter.value.trim() : '';
-    if (agentValue) {
-        params.set('agent_id', agentValue);
+    const actorFilter = document.getElementById('audit_actor_filter');
+    const actorValue = actorFilter ? actorFilter.value.trim() : '';
+    if (actorValue) {
+        params.set('actor_id', actorValue);
     }
 
     container.innerHTML = '<div class="muted-text">Loading audit log...</div>';
@@ -3140,20 +3140,66 @@ function renderAuditLogs(entries) {
     const rows = entries.map(entry => {
         const ts = escapeHtml(formatDateTime(entry.timestamp));
         const rel = escapeHtml(formatRelativeTime(entry.timestamp));
-        const agent = escapeHtml(entry.agent_id || '—');
-        const action = escapeHtml(entry.action || '—');
-        const ip = escapeHtml(entry.ip_address || '—');
-        const details = escapeHtml(entry.details || '—');
+        const actorName = entry.actor_name || entry.actor_id || '—';
+        const actorMetaParts = [];
+        if (entry.actor_type) {
+            actorMetaParts.push((entry.actor_type || '').toUpperCase());
+        }
+        if (entry.actor_id) {
+            actorMetaParts.push(entry.actor_id);
+        }
+        const actorMeta = actorMetaParts.length ? `<div class="audit-actor-meta">${escapeHtml(actorMetaParts.join(' • '))}</div>` : '';
+
+        const severity = String(entry.severity || 'info').toLowerCase();
+        const severityBadge = `<span class="badge ${getSeverityBadgeClass(severity)}">${escapeHtml(severity.toUpperCase())}</span>`;
+
+        const actionLabel = escapeHtml(entry.action || '—');
+
+        const targetPrimaryParts = [];
+        if (entry.target_type) targetPrimaryParts.push(entry.target_type);
+        if (entry.target_id) targetPrimaryParts.push(entry.target_id);
+        const targetPrimary = targetPrimaryParts.length ? escapeHtml(targetPrimaryParts.join(' • ')) : '—';
+        const tenantTag = entry.tenant_id ? `<div class="audit-target-meta">Tenant: ${escapeHtml(entry.tenant_id)}</div>` : '';
+
+        const detailLines = [];
+        if (entry.details) {
+            detailLines.push(entry.details);
+        }
+        if (entry.ip_address) {
+            detailLines.push(`IP: ${entry.ip_address}`);
+        }
+        if (entry.user_agent) {
+            detailLines.push(`User-Agent: ${entry.user_agent}`);
+        }
+        if (entry.request_id) {
+            detailLines.push(`Request: ${entry.request_id}`);
+        }
+        const metadataText = formatAuditMetadata(entry.metadata);
+        const detailText = detailLines.length ? escapeHtml(detailLines.join('\n')) : '—';
+        const metadataBlock = metadataText ? `<pre class="audit-metadata">${escapeHtml(metadataText)}</pre>` : '';
+
         return `
             <tr>
                 <td>
                     <div class="table-primary">${ts}</div>
                     <div class="muted-text">${rel}</div>
                 </td>
-                <td>${agent}</td>
-                <td>${action}</td>
-                <td>${ip}</td>
-                <td><div class="audit-details">${details}</div></td>
+                <td>
+                    <div class="table-primary">${escapeHtml(actorName)}</div>
+                    ${actorMeta}
+                </td>
+                <td>
+                    <div class="table-primary">${actionLabel}</div>
+                    <div class="audit-detail-meta">${severityBadge}</div>
+                </td>
+                <td>
+                    <div class="table-primary">${targetPrimary}</div>
+                    ${tenantTag}
+                </td>
+                <td>
+                    <div class="audit-details">${detailText}</div>
+                    ${metadataBlock}
+                </td>
             </tr>
         `;
     }).join('');
@@ -3163,9 +3209,9 @@ function renderAuditLogs(entries) {
             <thead>
                 <tr>
                     <th>Timestamp</th>
-                    <th>Agent</th>
+                    <th>Actor</th>
                     <th>Action</th>
-                    <th>IP</th>
+                    <th>Target</th>
                     <th>Details</th>
                 </tr>
             </thead>
@@ -3174,6 +3220,30 @@ function renderAuditLogs(entries) {
             </tbody>
         </table>
     `;
+}
+
+function getSeverityBadgeClass(severity) {
+    switch (severity) {
+        case 'error':
+            return 'badge-error';
+        case 'warn':
+        case 'warning':
+            return 'badge-warn';
+        default:
+            return 'badge-info';
+    }
+}
+
+function formatAuditMetadata(metadata) {
+    if (!metadata || typeof metadata !== 'object') {
+        return '';
+    }
+    try {
+        return JSON.stringify(metadata, null, 2);
+    } catch (err) {
+        window.__pm_shared.warn('formatAuditMetadata failed', err);
+        return '';
+    }
 }
 
 // ====== Modal Handlers ======

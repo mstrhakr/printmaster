@@ -531,6 +531,24 @@ h1 {
   border-color: rgba(88, 110, 117, 0.4);
 }
 
+.badge-info {
+  background: rgba(38, 139, 210, 0.18);
+  color: var(--highlight);
+  border-color: rgba(38, 139, 210, 0.45);
+}
+
+.badge-warn {
+  background: rgba(203, 75, 22, 0.16);
+  color: var(--warning);
+  border-color: rgba(203, 75, 22, 0.4);
+}
+
+.badge-error {
+  background: rgba(220, 50, 47, 0.16);
+  color: var(--danger);
+  border-color: rgba(220, 50, 47, 0.45);
+}
+
 .sso-provider-name {
   font-weight: 600;
   color: var(--text);
@@ -1096,6 +1114,25 @@ select:focus {
   white-space: pre-wrap;
   color: var(--text);
   font-size: 12px;
+}
+
+.audit-actor-meta,
+.audit-target-meta,
+.audit-detail-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.audit-metadata {
+  margin-top: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .tab:hover {

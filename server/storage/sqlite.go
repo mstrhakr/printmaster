@@ -168,19 +168,28 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_metrics_agent_id ON metrics_history(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics_history(timestamp);
 
-	-- Audit log for agent operations
+	-- Audit log for agent and admin operations
 	CREATE TABLE IF NOT EXISTS audit_log (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		agent_id TEXT NOT NULL,
+		actor_type TEXT NOT NULL,
+		actor_id TEXT NOT NULL,
+		actor_name TEXT,
 		action TEXT NOT NULL,
+		target_type TEXT,
+		target_id TEXT,
+		tenant_id TEXT,
+		severity TEXT NOT NULL DEFAULT 'info',
 		details TEXT,
+		metadata TEXT,
 		ip_address TEXT,
-		FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
+		user_agent TEXT,
+		request_id TEXT
 	);
 
-	CREATE INDEX IF NOT EXISTS idx_audit_agent_id ON audit_log(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_type, actor_id);
+	CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_log(tenant_id);
 	CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 
 	-- Tenants table for multi-tenant support
@@ -1995,39 +2004,61 @@ func (s *SQLiteStore) GetMetricsHistory(ctx context.Context, serial string, sinc
 
 // SaveAuditEntry saves an audit log entry to the database
 func (s *SQLiteStore) SaveAuditEntry(ctx context.Context, entry *AuditEntry) error {
+	if entry == nil {
+		return fmt.Errorf("audit entry is nil")
+	}
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now()
+	}
+	if entry.ActorType == "" {
+		entry.ActorType = AuditActorSystem
+	}
+	if entry.Severity == "" {
+		entry.Severity = AuditSeverityInfo
+	}
+
+	var metadataJSON sql.NullString
+	if len(entry.Metadata) > 0 {
+		data, err := json.Marshal(entry.Metadata)
+		if err != nil {
+			return fmt.Errorf("failed to encode audit metadata: %w", err)
+		}
+		metadataJSON.Valid = true
+		metadataJSON.String = string(data)
+	}
+
 	query := `
-		INSERT INTO audit_log (timestamp, agent_id, action, details, ip_address)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO audit_log (
+			timestamp, actor_type, actor_id, actor_name, action,
+			target_type, target_id, tenant_id, severity, details,
+			metadata, ip_address, user_agent, request_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
-		entry.Timestamp, entry.AgentID, entry.Action, entry.Details, entry.IPAddress)
+		entry.Timestamp.UTC(), string(entry.ActorType), entry.ActorID, entry.ActorName,
+		entry.Action, entry.TargetType, entry.TargetID, entry.TenantID,
+		string(entry.Severity), entry.Details, metadataJSON,
+		entry.IPAddress, entry.UserAgent, entry.RequestID,
+	)
 	return err
 }
 
 // GetAuditLog retrieves audit log entries for an agent since a given time
-func (s *SQLiteStore) GetAuditLog(ctx context.Context, agentID string, since time.Time) ([]*AuditEntry, error) {
-	var query string
-	var args []interface{}
-
-	if agentID != "" {
-		query = `
-			SELECT id, timestamp, agent_id, action, details, ip_address
-			FROM audit_log
-			WHERE agent_id = ? AND timestamp >= ?
-			ORDER BY timestamp DESC
-		`
-		args = []interface{}{agentID, since}
-	} else {
-		// Get all audit entries if no agent_id specified
-		query = `
-			SELECT id, timestamp, agent_id, action, details, ip_address
-			FROM audit_log
-			WHERE timestamp >= ?
-			ORDER BY timestamp DESC
-		`
-		args = []interface{}{since}
+func (s *SQLiteStore) GetAuditLog(ctx context.Context, actorID string, since time.Time) ([]*AuditEntry, error) {
+	query := `
+		SELECT id, timestamp, actor_type, actor_id, actor_name, action,
+		       target_type, target_id, tenant_id, severity, details,
+		       metadata, ip_address, user_agent, request_id
+		FROM audit_log
+		WHERE timestamp >= ?
+	`
+	args := []interface{}{since}
+	if actorID != "" {
+		query += " AND actor_id = ?"
+		args = append(args, actorID)
 	}
+	query += " ORDER BY timestamp DESC"
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -2037,22 +2068,61 @@ func (s *SQLiteStore) GetAuditLog(ctx context.Context, agentID string, since tim
 
 	var entries []*AuditEntry
 	for rows.Next() {
-		var entry AuditEntry
-		var details, ipAddress sql.NullString
+		var (
+			entry      AuditEntry
+			actorType  string
+			actorName  sql.NullString
+			targetType sql.NullString
+			targetID   sql.NullString
+			tenantID   sql.NullString
+			severity   string
+			details    sql.NullString
+			metadata   sql.NullString
+			ipAddress  sql.NullString
+			userAgent  sql.NullString
+			requestID  sql.NullString
+		)
 
 		err := rows.Scan(
-			&entry.ID, &entry.Timestamp, &entry.AgentID,
-			&entry.Action, &details, &ipAddress,
+			&entry.ID, &entry.Timestamp, &actorType, &entry.ActorID,
+			&actorName, &entry.Action, &targetType, &targetID,
+			&tenantID, &severity, &details, &metadata,
+			&ipAddress, &userAgent, &requestID,
 		)
 		if err != nil {
 			return nil, err
 		}
-
+		entry.ActorType = AuditActorType(actorType)
+		if actorName.Valid {
+			entry.ActorName = actorName.String
+		}
+		if targetType.Valid {
+			entry.TargetType = targetType.String
+		}
+		if targetID.Valid {
+			entry.TargetID = targetID.String
+		}
+		if tenantID.Valid {
+			entry.TenantID = tenantID.String
+		}
+		entry.Severity = AuditSeverity(severity)
 		if details.Valid {
 			entry.Details = details.String
 		}
+		if metadata.Valid {
+			var meta map[string]interface{}
+			if err := json.Unmarshal([]byte(metadata.String), &meta); err == nil {
+				entry.Metadata = meta
+			}
+		}
 		if ipAddress.Valid {
 			entry.IPAddress = ipAddress.String
+		}
+		if userAgent.Valid {
+			entry.UserAgent = userAgent.String
+		}
+		if requestID.Valid {
+			entry.RequestID = requestID.String
 		}
 
 		entries = append(entries, &entry)

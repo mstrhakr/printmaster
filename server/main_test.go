@@ -478,7 +478,14 @@ func TestHandleLogsAuthorization(t *testing.T) {
 func TestHandleAuditLogsAdminOnly(t *testing.T) {
 	store := SetupTestStore(t)
 	ctx := context.Background()
-	entry := &storage.AuditEntry{Timestamp: time.Now(), AgentID: "agent-1", Action: "test", Details: ""}
+	entry := &storage.AuditEntry{
+		Timestamp: time.Now(),
+		ActorType: storage.AuditActorAgent,
+		ActorID:   "agent-1",
+		Action:    "test",
+		Severity:  storage.AuditSeverityInfo,
+		Details:   "",
+	}
 	if err := store.SaveAuditEntry(ctx, entry); err != nil {
 		t.Fatalf("failed to seed audit entry: %v", err)
 	}
