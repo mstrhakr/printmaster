@@ -1,3 +1,6 @@
+// Global settings placeholder so sections can stash the latest snapshot.
+const globalSettings = { discovery: {}, developer: {}, security: {} };
+
 // Agent-specific helper: save a discovered device (moved out of shared bundle)
 async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = true) {
     if (!ipOrSerial) return;

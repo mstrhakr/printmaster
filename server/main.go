@@ -358,7 +358,11 @@ func runServer(ctx context.Context, configFlag string) {
 		if _, statErr := os.Stat(resolved); statErr == nil {
 			if loadedCfg, err := LoadConfig(resolved); err == nil {
 				cfg = loadedCfg
-				loadedConfigPath = resolved
+				if absPath, err := filepath.Abs(resolved); err == nil {
+					loadedConfigPath = absPath
+				} else {
+					loadedConfigPath = resolved
+				}
 				configLoaded = true
 				logInfo("Loaded configuration", "path", resolved)
 			} else {
@@ -395,7 +399,11 @@ func runServer(ctx context.Context, configFlag string) {
 			// Config file exists, try to load it
 			if loadedCfg, err := LoadConfig(configPath); err == nil {
 				cfg = loadedCfg
-				loadedConfigPath = configPath
+				if absPath, err := filepath.Abs(configPath); err == nil {
+					loadedConfigPath = absPath
+				} else {
+					loadedConfigPath = configPath
+				}
 				configLoaded = true
 				logInfo("Loaded configuration", "path", configPath)
 				break
@@ -490,6 +498,12 @@ func runServer(ctx context.Context, configFlag string) {
 					}
 				}
 			}
+		}
+	}
+
+	if cfg.Database.Path != "" {
+		if absDBPath, err := filepath.Abs(cfg.Database.Path); err == nil {
+			cfg.Database.Path = absDBPath
 		}
 	}
 
