@@ -759,7 +759,7 @@ async function loadUsageGraph(serial) {
     if (!container) return;
 
     // Show loading state
-    container.innerHTML = '<canvas class="usage-graph-canvas" width="300" height="80" style="width:100%;height:80px"></canvas>';
+    container.innerHTML = '<canvas class="usage-graph-canvas" style="width:100%;height:80px;display:block"></canvas>';
     const canvas = container.querySelector('canvas');
     if (!canvas) return;
 
