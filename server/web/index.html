@@ -217,19 +217,64 @@
 
             <div class="panel log-panel hidden" data-logview-panel="audit" data-role="admin" style="display:none">
                 <div class="log-controls audit-controls">
-                    <label class="log-control">
-                        <span>Time Range</span>
-                        <select id="audit_time_filter">
-                            <option value="24">Last 24h</option>
-                            <option value="168">Last 7 days</option>
-                            <option value="720">Last 30 days</option>
-                        </select>
-                    </label>
-                    <label class="log-control">
-                        <span>Actor ID</span>
-                        <input type="text" id="audit_actor_filter" placeholder="Optional actor identifier" />
-                    </label>
-                    <button id="refresh_audit_logs_btn">Refresh</button>
+                    <div class="audit-filter-grid">
+                        <label class="log-control column">
+                            <span>Time Range</span>
+                            <select id="audit_time_filter">
+                                <option value="24">Last 24h</option>
+                                <option value="168">Last 7 days</option>
+                                <option value="720">Last 30 days</option>
+                            </select>
+                        </label>
+                        <label class="log-control column">
+                            <span>Actor ID</span>
+                            <input type="text" id="audit_actor_filter" placeholder="Optional actor identifier" />
+                        </label>
+                        <label class="log-control column">
+                            <span>Tenant</span>
+                            <input type="text" id="audit_tenant_filter" placeholder="Tenant ID or name" />
+                        </label>
+                        <label class="log-control column">
+                            <span>Action</span>
+                            <input type="text" id="audit_action_filter" list="audit_action_suggestions" placeholder="Filter by action keyword" />
+                            <datalist id="audit_action_suggestions"></datalist>
+                        </label>
+                        <label class="log-control column">
+                            <span>Search</span>
+                            <input type="text" id="audit_search_filter" placeholder="Search actor, target, IP, metadata..." />
+                        </label>
+                        <div class="audit-severity-group">
+                            <span>Severity</span>
+                            <div class="audit-severity-options" id="audit_severity_filter">
+                                <label class="audit-severity-pill">
+                                    <input type="checkbox" class="audit-severity-option" value="error" checked />
+                                    <span>Error</span>
+                                </label>
+                                <label class="audit-severity-pill">
+                                    <input type="checkbox" class="audit-severity-option" value="warn" checked />
+                                    <span>Warning</span>
+                                </label>
+                                <label class="audit-severity-pill">
+                                    <input type="checkbox" class="audit-severity-option" value="info" checked />
+                                    <span>Info</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="audit-controls-row">
+                        <label class="log-control">
+                            <input type="checkbox" id="audit_live_toggle" /> Auto-refresh (15s)
+                        </label>
+                        <div class="audit-controls-actions">
+                            <button class="ghost-btn" id="audit_clear_filters_btn">Reset Filters</button>
+                            <button id="refresh_audit_logs_btn">Refresh</button>
+                        </div>
+                    </div>
+                    <div class="audit-summary" id="audit_summary" hidden>
+                        <span id="audit_summary_counts">0 entries</span>
+                        <span id="audit_summary_updated">Updated just now</span>
+                        <span id="audit_live_status" class="audit-live-status">Auto-refresh off</span>
+                    </div>
                 </div>
                 <div id="audit_logs_table" class="table-wrapper">
                     <div class="muted-text">Audit entries load here for admins.</div>
