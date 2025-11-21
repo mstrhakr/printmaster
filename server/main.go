@@ -35,6 +35,7 @@ import (
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,6 +52,8 @@ const (
 	userContextKey      contextKey = "user"
 	principalContextKey contextKey = "principal"
 )
+
+const uiLogLineLimit = 500
 
 // Principal represents the authenticated user along with cached authorization helpers.
 type Principal struct {
@@ -264,6 +267,7 @@ var (
 	sseHub             *SSEHub          // SSE hub for real-time UI updates
 	wsHub              *wscommon.Hub    // In-process hub for websocket-capable UI clients
 	serverConfig       *Config          // Loaded server configuration (accessible to handlers)
+	serverLogDir       string           // Directory containing server logs for UI fetches
 )
 
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
@@ -512,6 +516,7 @@ func runServer(ctx context.Context, configFlag string) {
 	if err != nil {
 		logFatal("Failed to get log directory", "error", err)
 	}
+	serverLogDir = logDir
 
 	serverLogger = logger.NewWithComponent(logger.LevelFromString(cfg.Logging.Level), logDir, "server", 1000)
 	logInfo("Server starting", "version", Version, "protocol", ProtocolVersion, "config", loadedConfigPath)
@@ -4066,25 +4071,81 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try to read a logs file if present in the workspace (best-effort); otherwise return empty list
-	var lines []string
-
-	// Attempt to read workspace file from disk (not embedded) - this is optional
-	if b, err := os.ReadFile("logs/build.log"); err == nil {
-		for _, l := range strings.Split(string(b), "\n") {
-			if strings.TrimSpace(l) != "" {
-				lines = append(lines, l)
-			}
-		}
-	}
-
-	// If no lines found, return an informative placeholder
+	lines := collectServerLogLines(uiLogLineLimit)
 	if len(lines) == 0 {
-		lines = []string{"No server logs available (placeholder response)."}
+		lines = []string{"No server logs available yet."}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"logs": lines})
+}
+
+func collectServerLogLines(limit int) []string {
+	if limit <= 0 {
+		limit = uiLogLineLimit
+	}
+
+	if serverLogger != nil {
+		entries := serverLogger.GetBuffer()
+		if len(entries) > 0 {
+			start := 0
+			if len(entries) > limit {
+				start = len(entries) - limit
+			}
+			lines := make([]string, 0, len(entries)-start)
+			for _, entry := range entries[start:] {
+				lines = append(lines, formatUILogEntry(entry))
+			}
+			return lines
+		}
+	}
+
+	return tailServerLogFile(limit)
+}
+
+func formatUILogEntry(entry logger.LogEntry) string {
+	timestamp := entry.Timestamp.Format(time.RFC3339)
+	level := logger.LevelToString(entry.Level)
+	line := fmt.Sprintf("%s [%s] %s", timestamp, level, entry.Message)
+
+	if len(entry.Context) > 0 {
+		keys := make([]string, 0, len(entry.Context))
+		for k := range entry.Context {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			line += fmt.Sprintf(" %s=%v", k, entry.Context[k])
+		}
+	}
+
+	return line
+}
+
+func tailServerLogFile(limit int) []string {
+	if serverLogDir == "" {
+		return nil
+	}
+	logPath := filepath.Join(serverLogDir, "server.log")
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return nil
+	}
+	rows := strings.Split(string(data), "\n")
+	lines := make([]string, 0, len(rows))
+	for _, row := range rows {
+		trimmed := strings.TrimSpace(row)
+		if trimmed != "" {
+			lines = append(lines, trimmed)
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	if limit > 0 && len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	return lines
 }
 
 // handleAuditLogs exposes persisted agent/server audit trail entries to admins.
