@@ -1700,8 +1700,6 @@ input[type="checkbox"]:indeterminate::before {
 
 .settings-field-control input[type="checkbox"] {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
 }
 
 .settings-badge {

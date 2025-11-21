@@ -2208,6 +2208,45 @@ function normalizeTenantList(list) {
     return normalized;
 }
 
+function getSettingsPayload(record) {
+    if (!record) return {};
+    return record.settings || record.Settings || {};
+}
+
+function getOverridesPayload(record) {
+    if (!record) return {};
+    return record.overrides || record.Overrides || {};
+}
+
+function getUpdatedAt(record) {
+    if (!record) return null;
+    return record.updated_at || record.updatedAt || record.UpdatedAt || null;
+}
+
+function getUpdatedBy(record) {
+    if (!record) return '';
+    return record.updated_by || record.updatedBy || record.UpdatedBy || '';
+}
+
+function getOverridesUpdatedAt(record) {
+    if (!record) return null;
+    return record.overrides_updated_at || record.overridesUpdatedAt || record.OverridesUpdatedAt || null;
+}
+
+function getOverridesUpdatedBy(record) {
+    if (!record) return '';
+    return record.overrides_updated_by || record.overridesUpdatedBy || record.OverridesUpdatedBy || '';
+}
+
+function resolveFieldValue(field, value) {
+    if (value === undefined || value === null) {
+        if (field && Object.prototype.hasOwnProperty.call(field, 'default')) {
+            return field.default;
+        }
+    }
+    return value;
+}
+
 function updateSettingsTenantDirectory(rawList) {
     const normalized = normalizeTenantList(rawList);
     const previousSelection = settingsUIState.selectedTenantId;
@@ -2327,7 +2366,7 @@ function orderedSettingsSections() {
 async function loadGlobalSettingsSnapshot() {
     const snapshot = await fetchJSON('/api/v1/settings/global');
     settingsUIState.globalSnapshot = snapshot;
-    settingsUIState.globalDraft = cloneSettings(snapshot ? snapshot.Settings : {});
+    settingsUIState.globalDraft = cloneSettings(getSettingsPayload(snapshot));
     settingsUIState.globalDirty = false;
 }
 
@@ -2354,8 +2393,10 @@ async function loadTenantSnapshot(tenantId) {
     }
     const snapshot = await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`);
     settingsUIState.tenantSnapshot = snapshot;
-    settingsUIState.tenantDraft = cloneSettings(snapshot ? snapshot.Settings : settingsUIState.globalSnapshot.Settings);
-    settingsUIState.tenantOverridesDraft = cloneSettings(snapshot && snapshot.Overrides ? snapshot.Overrides : {});
+    const baseline = getSettingsPayload(settingsUIState.globalSnapshot);
+    const tenantSettings = snapshot ? getSettingsPayload(snapshot) : baseline;
+    settingsUIState.tenantDraft = cloneSettings(Object.keys(tenantSettings).length ? tenantSettings : baseline);
+    settingsUIState.tenantOverridesDraft = cloneSettings(getOverridesPayload(snapshot));
     settingsUIState.tenantDirty = false;
 }
 
@@ -2531,12 +2572,13 @@ function renderSettingsFieldRow(field, value, scope) {
 
 function createInputForField(field, value) {
     const type = (field.type || 'text').toLowerCase();
+    const resolvedValue = resolveFieldValue(field, value);
     let input;
     let element;
     if (type === 'bool') {
         input = document.createElement('input');
         input.type = 'checkbox';
-        input.checked = !!value;
+        input.checked = !!resolvedValue;
         const toggle = document.createElement('label');
         toggle.className = 'mini-toggle-container settings-toggle';
         toggle.title = field.title || field.path;
@@ -2552,7 +2594,7 @@ function createInputForField(field, value) {
     } else if (type === 'number') {
         input = document.createElement('input');
         input.type = 'number';
-        input.value = value === null || value === undefined ? '' : value;
+        input.value = resolvedValue === null || resolvedValue === undefined ? '' : resolvedValue;
         if (field.min !== undefined) input.min = field.min;
         if (field.max !== undefined) input.max = field.max;
         element = input;
@@ -2562,7 +2604,7 @@ function createInputForField(field, value) {
             const opt = document.createElement('option');
             opt.value = optionValue;
             opt.textContent = optionValue;
-            if (optionValue === value) {
+            if (optionValue === resolvedValue) {
                 opt.selected = true;
             }
             input.appendChild(opt);
@@ -2571,7 +2613,7 @@ function createInputForField(field, value) {
     } else {
         input = document.createElement('input');
         input.type = 'text';
-        input.value = value === null || value === undefined ? '' : value;
+        input.value = resolvedValue === null || resolvedValue === undefined ? '' : resolvedValue;
         element = input;
     }
     input.dataset.settingsPath = field.path;
@@ -2615,7 +2657,7 @@ function readInputValue(input, fieldType) {
 
 function updateGlobalDraft(path, value) {
     setNestedValue(settingsUIState.globalDraft, path, value);
-    const baseline = settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {};
+    const baseline = getSettingsPayload(settingsUIState.globalSnapshot);
     settingsUIState.globalDirty = !deepEqual(settingsUIState.globalDraft, baseline);
     updateActionButtons();
 }
@@ -2625,15 +2667,13 @@ function updateTenantDraft(path, value) {
         settingsUIState.tenantDraft = cloneSettings(settingsUIState.globalDraft);
     }
     setNestedValue(settingsUIState.tenantDraft, path, value);
-    const baseValue = getValueByPath(settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {}, path);
+    const baseValue = getValueByPath(getSettingsPayload(settingsUIState.globalSnapshot), path);
     if (valuesEqual(value, baseValue)) {
         deleteNestedValue(settingsUIState.tenantOverridesDraft, path);
     } else {
         setNestedValue(settingsUIState.tenantOverridesDraft, path, value);
     }
-    const originalOverrides = settingsUIState.tenantSnapshot && settingsUIState.tenantSnapshot.Overrides
-        ? settingsUIState.tenantSnapshot.Overrides
-        : {};
+    const originalOverrides = getOverridesPayload(settingsUIState.tenantSnapshot);
     settingsUIState.tenantDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
     renderOverrideSummary();
     updateActionButtons();
@@ -2642,11 +2682,9 @@ function updateTenantDraft(path, value) {
 function clearTenantOverride(path) {
     if (!settingsUIState.tenantDraft) return;
     deleteNestedValue(settingsUIState.tenantOverridesDraft, path);
-    const baseValue = getValueByPath(settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {}, path);
+    const baseValue = getValueByPath(getSettingsPayload(settingsUIState.globalSnapshot), path);
     setNestedValue(settingsUIState.tenantDraft, path, baseValue);
-    const originalOverrides = settingsUIState.tenantSnapshot && settingsUIState.tenantSnapshot.Overrides
-        ? settingsUIState.tenantSnapshot.Overrides
-        : {};
+    const originalOverrides = getOverridesPayload(settingsUIState.tenantSnapshot);
     settingsUIState.tenantDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
     renderSettingsForm();
     renderOverrideSummary();
@@ -2734,11 +2772,14 @@ async function saveTenantSettings() {
 function handleDiscardChanges(event) {
     event.preventDefault();
     if (settingsUIState.scope === 'global') {
-        settingsUIState.globalDraft = cloneSettings(settingsUIState.globalSnapshot ? settingsUIState.globalSnapshot.Settings : {});
+        settingsUIState.globalDraft = cloneSettings(getSettingsPayload(settingsUIState.globalSnapshot));
         settingsUIState.globalDirty = false;
     } else {
-        settingsUIState.tenantDraft = cloneSettings(settingsUIState.tenantSnapshot ? settingsUIState.tenantSnapshot.Settings : settingsUIState.globalSnapshot.Settings);
-        settingsUIState.tenantOverridesDraft = cloneSettings(settingsUIState.tenantSnapshot && settingsUIState.tenantSnapshot.Overrides ? settingsUIState.tenantSnapshot.Overrides : {});
+        const tenantSettings = settingsUIState.tenantSnapshot
+            ? getSettingsPayload(settingsUIState.tenantSnapshot)
+            : getSettingsPayload(settingsUIState.globalSnapshot);
+        settingsUIState.tenantDraft = cloneSettings(tenantSettings);
+        settingsUIState.tenantOverridesDraft = cloneSettings(getOverridesPayload(settingsUIState.tenantSnapshot));
         settingsUIState.tenantDirty = false;
     }
     renderSettingsUI();
@@ -2819,13 +2860,15 @@ function updateLastUpdatedMeta() {
     let text = '';
     if (settingsUIState.scope === 'global' && settingsUIState.globalSnapshot) {
         const snap = settingsUIState.globalSnapshot;
-        if (snap.UpdatedAt) {
-            text = `Updated ${formatRelativeTime(snap.UpdatedAt)} by ${escapeHtml(snap.UpdatedBy || 'system')}`;
+        const updatedAt = getUpdatedAt(snap);
+        if (updatedAt) {
+            text = `Updated ${formatRelativeTime(updatedAt)} by ${escapeHtml(getUpdatedBy(snap) || 'system')}`;
         }
     } else if (settingsUIState.scope === 'tenant' && settingsUIState.tenantSnapshot) {
         const snap = settingsUIState.tenantSnapshot;
-        if (snap.OverridesUpdatedAt) {
-            text = `Overrides updated ${formatRelativeTime(snap.OverridesUpdatedAt)} by ${escapeHtml(snap.OverridesUpdatedBy || 'system')}`;
+        const overridesUpdatedAt = getOverridesUpdatedAt(snap);
+        if (overridesUpdatedAt) {
+            text = `Overrides updated ${formatRelativeTime(overridesUpdatedAt)} by ${escapeHtml(getOverridesUpdatedBy(snap) || 'system')}`;
         } else {
             text = 'Inheriting global defaults';
         }
