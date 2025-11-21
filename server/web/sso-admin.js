@@ -11,6 +11,9 @@
         providers: [],
         tenants: [],
         redirectUri: '',
+        preset: 'generic',
+        lastAutoSlug: '',
+        lastAutoButtonText: '',
     };
 
     function qs(id) {
@@ -119,59 +122,172 @@
         }
     }
 
-    function applyEntraPreset() {
-        const tenantInput = qs('sso_entra_tenant_id');
-        const tenantId = ((tenantInput && tenantInput.value) || '').trim();
-        if (!tenantId) {
-            sharedToast('Enter your Directory (tenant) ID first.', 'info');
-            if (tenantInput) {
-                tenantInput.focus();
-            }
+    function setupPresetControls() {
+        const templateSelect = qs('sso_template_select');
+        if (templateSelect && !templateSelect.dataset.boundPreset) {
+            templateSelect.dataset.boundPreset = 'true';
+            templateSelect.addEventListener('change', () => {
+                setPreset(templateSelect.value || 'generic');
+            });
+        }
+        const tenantInput = qs('sso_entra_tenant');
+        if (tenantInput && !tenantInput.dataset.boundTenant) {
+            tenantInput.dataset.boundTenant = 'true';
+            tenantInput.addEventListener('input', () => {
+                updateTenantDerivedFields();
+            });
+        }
+        const slugInput = qs('sso_slug');
+        if (slugInput && !slugInput.dataset.boundSlug) {
+            slugInput.dataset.boundSlug = 'true';
+            slugInput.addEventListener('input', () => {
+                state.lastAutoSlug = slugInput.value;
+            });
+        }
+    }
+
+    function setPreset(value, options) {
+        const normalized = value === 'entra' ? 'entra' : 'generic';
+        state.preset = normalized;
+        const templateSelect = qs('sso_template_select');
+        if (templateSelect && templateSelect.value !== normalized) {
+            templateSelect.value = normalized;
+        }
+        togglePresetSections();
+        if (normalized === 'entra' && (!options || !options.skipDefaults)) {
+            applyEntraDefaults(options && options.forceDefaults);
+        }
+    }
+
+    function togglePresetSections() {
+        const isEntra = state.preset === 'entra';
+        document.querySelectorAll('.preset-generic').forEach((el) => {
+            setPresetVisibility(el, !isEntra);
+        });
+        document.querySelectorAll('.preset-entra').forEach((el) => {
+            setPresetVisibility(el, isEntra);
+        });
+    }
+
+    function setPresetVisibility(element, shouldShow) {
+        if (!element) {
             return;
         }
-
-        openModal(null);
-
-        const slugInput = qs('sso_slug');
-        if (slugInput) {
-            slugInput.disabled = false;
-            slugInput.value = buildEntraSlug(tenantId);
+        if (shouldShow) {
+            const target = element.dataset.display || '';
+            element.style.display = target || '';
+            return;
         }
+        if (!element.dataset.display) {
+            const computed = (window.getComputedStyle ? window.getComputedStyle(element).display : '') || '';
+            if (computed && computed !== 'none') {
+                element.dataset.display = computed;
+            }
+        }
+        element.style.display = 'none';
+    }
+
+    function applyEntraDefaults(forceDefaults) {
         const displayInput = qs('sso_display_name');
-        if (displayInput) {
+        if (displayInput && (!displayInput.value || forceDefaults)) {
             displayInput.value = 'Microsoft Entra ID';
         }
-        const issuerInput = qs('sso_issuer');
-        if (issuerInput) {
-            issuerInput.value = buildEntraIssuer(tenantId);
-        }
-        const scopesInput = qs('sso_scopes');
-        if (scopesInput) {
-            scopesInput.value = 'openid profile email offline_access';
-        }
         const buttonTextInput = qs('sso_button_text');
-        if (buttonTextInput) {
-            buttonTextInput.value = 'Sign in with Microsoft';
+        const defaultButtonText = 'Sign in with Microsoft';
+        if (buttonTextInput && (!buttonTextInput.value || buttonTextInput.value === state.lastAutoButtonText || forceDefaults)) {
+            buttonTextInput.value = defaultButtonText;
+            state.lastAutoButtonText = defaultButtonText;
         }
         const buttonStyleInput = qs('sso_button_style');
-        if (buttonStyleInput) {
+        if (buttonStyleInput && (!buttonStyleInput.value || forceDefaults)) {
             buttonStyleInput.value = 'btn-entra';
         }
         const iconInput = qs('sso_icon');
-        if (iconInput) {
+        if (iconInput && (!iconInput.value || forceDefaults)) {
             iconInput.value = ENTRA_ICON_DATA_URI;
         }
-        const autoCheckbox = qs('sso_auto_login');
-        if (autoCheckbox) {
-            autoCheckbox.checked = false;
-        }
-        const clientIdInput = qs('sso_client_id');
-        if (clientIdInput) {
-            clientIdInput.focus();
-        }
-        sharedToast('Microsoft Entra defaults applied. Paste your client ID and secret to finish.', 'success');
+        ensureScopesIncludeOffline();
+        updateTenantDerivedFields({ allowEmptyTenant: true, forceSlugUpdate: !!forceDefaults });
     }
 
+    function ensureScopesIncludeOffline() {
+        const scopesInput = qs('sso_scopes');
+        if (!scopesInput) {
+            return;
+        }
+        const scopes = scopesInput.value ? scopesInput.value.split(/\s+/).filter(Boolean) : [];
+        if (scopes.indexOf('openid') === -1) {
+            scopes.unshift('openid');
+        }
+        if (scopes.indexOf('profile') === -1) {
+            scopes.push('profile');
+        }
+        if (scopes.indexOf('email') === -1) {
+            scopes.push('email');
+        }
+        if (scopes.indexOf('offline_access') === -1) {
+            scopes.push('offline_access');
+        }
+        scopesInput.value = Array.from(new Set(scopes)).join(' ');
+    }
+
+    function updateTenantDerivedFields(options) {
+        if (state.preset !== 'entra') {
+            return;
+        }
+        const tenantInput = qs('sso_entra_tenant');
+        const tenantId = ((tenantInput && tenantInput.value) || '').trim();
+        const issuerInput = qs('sso_issuer');
+        if (issuerInput) {
+            issuerInput.value = tenantId ? buildEntraIssuer(tenantId) : '';
+        }
+        if (tenantId) {
+            maybeAutofillSlug(tenantId, options && options.forceSlugUpdate);
+        } else if (options && options.allowEmptyTenant) {
+            maybeAutofillSlug('', true);
+        }
+    }
+
+    function maybeAutofillSlug(tenantId, force) {
+        const slugInput = qs('sso_slug');
+        if (!slugInput || slugInput.disabled) {
+            return;
+        }
+        const generated = tenantId ? buildEntraSlug(tenantId) : 'entra';
+        if (force || !slugInput.value || slugInput.value === state.lastAutoSlug) {
+            slugInput.value = generated;
+            state.lastAutoSlug = generated;
+        }
+    }
+
+    function detectPresetFromProvider(provider) {
+        if (!provider) {
+            return 'generic';
+        }
+        const issuer = provider.issuer || '';
+        if (/login\.microsoftonline\.com\/[^\s]+/i.test(issuer)) {
+            return 'entra';
+        }
+        return 'generic';
+    }
+
+    function extractTenantFromIssuer(issuer) {
+        if (!issuer) {
+            return '';
+        }
+        const match = issuer.match(/login\.microsoftonline\.com\/([^/]+)\//i);
+        return match ? match[1] : '';
+    }
+
+    function resetPresetState() {
+        state.preset = 'generic';
+        state.lastAutoSlug = '';
+        state.lastAutoButtonText = '';
+        const tenantInput = qs('sso_entra_tenant');
+        if (tenantInput) {
+            tenantInput.value = '';
+        }
+    }
     function buildEntraIssuer(tenantId) {
         const cleaned = (tenantId || '').trim();
         return 'https://login.microsoftonline.com/' + cleaned + '/v2.0';
@@ -236,13 +352,6 @@
         state.redirectUri = computeRedirectUri();
         updateRedirectHints();
 
-        const helperCopyBtn = qs('sso_copy_redirect_btn');
-        if (helperCopyBtn) {
-            helperCopyBtn.addEventListener('click', (evt) => {
-                evt.preventDefault();
-                copyRedirectUri();
-            });
-        }
         const modalCopyBtn = qs('sso_modal_copy_redirect');
         if (modalCopyBtn) {
             modalCopyBtn.addEventListener('click', (evt) => {
@@ -251,13 +360,8 @@
             });
         }
 
-        const presetBtn = qs('sso_entra_apply_btn');
-        if (presetBtn) {
-            presetBtn.addEventListener('click', (evt) => {
-                evt.preventDefault();
-                applyEntraPreset();
-            });
-        }
+        setupPresetControls();
+        setPreset('generic', { skipDefaults: true });
 
         document.querySelectorAll('.sso-entra-portal-link').forEach((link) => {
             if (link) {
@@ -411,6 +515,8 @@
             modalError.style.display = 'none';
         }
 
+        resetPresetState();
+
         if (provider) {
             if (title) title.textContent = 'Edit OIDC Provider';
             slugInput.value = provider.slug || '';
@@ -445,6 +551,16 @@
             populateTenantSelect('');
         }
 
+        const inferredPreset = detectPresetFromProvider(provider);
+        const tenantInput = qs('sso_entra_tenant');
+        if (provider && inferredPreset === 'entra' && tenantInput) {
+            tenantInput.value = extractTenantFromIssuer(provider.issuer || '');
+        }
+        setPreset(inferredPreset, { skipDefaults: true });
+        if (inferredPreset === 'entra') {
+            updateTenantDerivedFields();
+        }
+
         updateRedirectHints();
         modal.style.display = 'flex';
         displayInput.focus();
@@ -458,6 +574,8 @@
         setModalSaving(false);
         modal.removeAttribute('data-edit-slug');
         modal.style.display = 'none';
+        resetPresetState();
+        setPreset('generic', { skipDefaults: true });
     }
 
     function parseScopes(value) {
@@ -508,6 +626,19 @@
             tenant_id: (qs('sso_tenant').value || '').trim(),
             default_role: (qs('sso_default_role').value || 'user').trim(),
         };
+
+        if (state.preset === 'entra') {
+            const tenantInput = qs('sso_entra_tenant');
+            const tenantId = ((tenantInput && tenantInput.value) || '').trim();
+            if (!tenantId) {
+                showModalError('Tenant (Directory) ID is required for Microsoft Entra ID presets.');
+                if (tenantInput) {
+                    tenantInput.focus();
+                }
+                return;
+            }
+            payload.issuer = buildEntraIssuer(tenantId);
+        }
 
         if (!payload.display_name) {
             showModalError('Display name is required.');

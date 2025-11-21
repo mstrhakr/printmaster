@@ -164,33 +164,6 @@
                             <button id="sso_add_provider_btn">Add Provider</button>
                         </div>
                     </div>
-                    <div class="sso-helper-card" id="sso_entra_helper">
-                        <div class="sso-helper-header">
-                            <div>
-                                <div class="sso-helper-title">Microsoft Entra ID quick start</div>
-                                <p class="sso-helper-subtitle">Drop in your Directory (tenant) ID and we'll prefill issuer, scopes, and a Microsoft-branded login button.</p>
-                            </div>
-                            <button id="sso_entra_apply_btn" class="ghost-btn">Apply preset</button>
-                        </div>
-                        <label class="sso-helper-field">
-                            <span>Tenant (Directory) ID</span>
-                            <input id="sso_entra_tenant_id" type="text" placeholder="11111111-2222-3333-4444-555555555555" />
-                        </label>
-                        <div class="sso-helper-steps">
-                            <div>1. Create an app registration in <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" rel="noopener" class="sso-entra-portal-link">Microsoft Entra admin center</a>.</div>
-                            <div>2. Choose a single-tenant Web application and add the redirect URI below.</div>
-                            <div>3. Copy the Application (client) ID, create a client secret, and note your Directory (tenant) ID.</div>
-                            <div>4. Click “Apply preset”, paste the client ID & secret, and save the provider.</div>
-                        </div>
-                        <div class="sso-helper-redirect">
-                            <div>
-                                <span>Redirect URI</span>
-                                <code id="sso_redirect_uri_text">https://example.com/auth/oidc/callback</code>
-                            </div>
-                            <button type="button" class="ghost-btn" id="sso_copy_redirect_btn">Copy</button>
-                        </div>
-                        <div class="sso-helper-note">Preset fills issuer URL, scopes, icon, and button styling. You only bring the tenant ID, client ID, and secret.</div>
-                    </div>
                     <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
                         <div class="muted-text">Loading identity providers…</div>
                     </div>
@@ -429,6 +402,13 @@
             </div>
             <form id="sso_modal_form">
                 <div class="modal-body" style="max-height:70vh;overflow:auto;display:flex;flex-direction:column;gap:16px;">
+                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                        <span>Provider Template</span>
+                        <select id="sso_template_select" style="padding:8px;border-radius:4px;border:1px solid var(--border);">
+                            <option value="generic">Generic OIDC</option>
+                            <option value="entra">Microsoft Entra ID</option>
+                        </select>
+                    </label>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
                         <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                             <span>Display Name</span>
@@ -452,9 +432,14 @@
                             </select>
                         </label>
                     </div>
-                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
+                    <label class="preset-section preset-generic" data-display="flex" style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Issuer URL</span>
                         <input id="sso_issuer" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://login.microsoftonline.com/..." />
+                    </label>
+                    <label class="preset-section preset-entra" data-display="flex" style="display:none;flex-direction:column;font-size:13px;gap:6px;">
+                        <span>Microsoft Entra Tenant (Directory) ID</span>
+                        <input id="sso_entra_tenant" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="11111111-2222-3333-4444-555555555555" />
+                        <small style="color:var(--muted);">We derive the issuer URL from this tenant ID.</small>
                     </label>
                     <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Client ID</span>
@@ -489,13 +474,13 @@
                         <span>Automatically redirect users to this provider when it is the only option.</span>
                     </label>
                     <div id="sso_modal_error" style="display:none;color:var(--danger);font-size:13px;"></div>
-                    <div class="sso-modal-helper">
+                    <div id="sso_entra_instructions" class="sso-modal-helper preset-entra" data-display="block" style="display:none;">
                         <div style="font-weight:600;margin-bottom:6px;">Microsoft Entra setup checklist</div>
                         <ul>
-                            <li>Add <code id="sso_modal_redirect_uri_text">https://example.com/auth/oidc/callback</code> as a Web redirect URI.</li>
-                            <li>Select “Accounts in this organization only” and the Web platform.</li>
-                            <li>Create a client secret, copy the Application (client) ID, and keep the Directory (tenant) ID.</li>
-                            <li><a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" rel="noopener" class="sso-entra-portal-link">Open the Microsoft Entra portal</a></li>
+                            <li>Create an app registration in <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" rel="noopener" class="sso-entra-portal-link">Microsoft Entra admin center</a>.</li>
+                            <li>Select “Accounts in this organization only” and add <code id="sso_modal_redirect_uri_text">https://example.com/auth/oidc/callback</code> as a Web redirect URI.</li>
+                            <li>Copy the Application (client) ID, create a client secret, and keep the Directory (tenant) ID.</li>
+                            <li>Paste the client ID/secret here; the issuer URL is generated from your tenant ID automatically.</li>
                         </ul>
                         <button type="button" class="link-button" id="sso_modal_copy_redirect">Copy redirect URI</button>
                     </div>
