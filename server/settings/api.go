@@ -18,10 +18,11 @@ import (
 
 // APIOptions carry cross-cutting concerns required by the HTTP layer.
 type APIOptions struct {
-	AuthMiddleware func(http.HandlerFunc) http.HandlerFunc
-	Authorizer     func(*http.Request, authz.Action, authz.ResourceRef) error
-	ActorResolver  func(*http.Request) string
-	AuditLogger    func(*http.Request, *storage.AuditEntry)
+	AuthMiddleware    func(http.HandlerFunc) http.HandlerFunc
+	Authorizer        func(*http.Request, authz.Action, authz.ResourceRef) error
+	ActorResolver     func(*http.Request) string
+	AuditLogger       func(*http.Request, *storage.AuditEntry)
+	LockedKeysChecker func() map[string]bool // Returns map of keys locked by env vars
 }
 
 // RouteConfig controls how HTTP routes are registered.
@@ -33,12 +34,13 @@ type RouteConfig struct {
 
 // API exposes HTTP handlers for server-controlled settings.
 type API struct {
-	store         Store
-	resolver      *Resolver
-	authWrap      func(http.HandlerFunc) http.HandlerFunc
-	authorizer    func(*http.Request, authz.Action, authz.ResourceRef) error
-	actorResolver func(*http.Request) string
-	auditLogger   func(*http.Request, *storage.AuditEntry)
+	store             Store
+	resolver          *Resolver
+	authWrap          func(http.HandlerFunc) http.HandlerFunc
+	authorizer        func(*http.Request, authz.Action, authz.ResourceRef) error
+	actorResolver     func(*http.Request) string
+	auditLogger       func(*http.Request, *storage.AuditEntry)
+	lockedKeysChecker func() map[string]bool
 }
 
 // NewAPI builds an API backed by the provided store/resolver.
@@ -50,12 +52,13 @@ func NewAPI(store Store, resolver *Resolver, opts APIOptions) *API {
 		resolver = NewResolver(store)
 	}
 	return &API{
-		store:         store,
-		resolver:      resolver,
-		authWrap:      opts.AuthMiddleware,
-		authorizer:    opts.Authorizer,
-		actorResolver: opts.ActorResolver,
-		auditLogger:   opts.AuditLogger,
+		store:             store,
+		resolver:          resolver,
+		authWrap:          opts.AuthMiddleware,
+		authorizer:        opts.Authorizer,
+		actorResolver:     opts.ActorResolver,
+		auditLogger:       opts.AuditLogger,
+		lockedKeysChecker: opts.LockedKeysChecker,
 	}
 }
 
@@ -123,6 +126,28 @@ func (api *API) audit(r *http.Request, entry *storage.AuditEntry) {
 	api.auditLogger(r, entry)
 }
 
+// checkLockedKeys returns a list of keys in the payload that are locked by environment variables.
+// Returns nil if no keys are locked or if lock checking is disabled.
+func (api *API) checkLockedKeys(payload map[string]interface{}) []string {
+	if api.lockedKeysChecker == nil {
+		return nil
+	}
+	lockedKeys := api.lockedKeysChecker()
+	if len(lockedKeys) == 0 {
+		return nil
+	}
+
+	var conflicts []string
+	// Flatten payload keys and check against locked set
+	// Settings keys typically look like "smtp.enabled", "server.http_port", etc.
+	for key := range payload {
+		if lockedKeys[key] {
+			conflicts = append(conflicts, key)
+		}
+	}
+	return conflicts
+}
+
 func (api *API) handleSchema(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -155,6 +180,22 @@ func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid json")
 			return
 		}
+
+		// Check for locked keys (set by environment variables)
+		// Convert settings struct to flat map for checking
+		payloadMap := make(map[string]interface{})
+		payloadBytes, _ := json.Marshal(payload)
+		_ = json.Unmarshal(payloadBytes, &payloadMap)
+
+		if lockedKeys := api.checkLockedKeys(payloadMap); len(lockedKeys) > 0 {
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"error":       "cannot modify locked settings",
+				"locked_keys": lockedKeys,
+				"reason":      "These keys are set by environment variables and cannot be overridden by managed settings",
+			})
+			return
+		}
+
 		if issues := pmsettings.Validate(payload); len(issues) > 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 				"error":             "invalid settings",

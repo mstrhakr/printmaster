@@ -693,17 +693,33 @@ async function loadServerSettings() {
         const resp = await fetch('/api/v1/server/settings');
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const data = await resp.json();
-        // Render simple key/value list
-        let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
-        Object.keys(data || {}).forEach(k => {
-            const v = data[k];
-            html += `<div style="display:flex;justify-content:space-between;gap:12px;border:1px solid var(--border);padding:8px;border-radius:6px;">`+
-                `<div style="font-weight:600;">${k}</div>`+
-                `<div style="font-family:monospace;word-break:break-all;">${(v===null||v===undefined)?'<span style=\"color:var(--muted);\">(unset)</span>':String(v)}</div>`+
-            `</div>`;
+        // Render categorized sections
+        const order = ['version','config_source','using_defaults','server','security','tls','tenancy_enabled','database','logging','smtp'];
+        let html = '';
+        order.forEach(key => {
+            if (!(key in data)) return;
+            const value = data[key];
+            if (typeof value === 'object' && value && !Array.isArray(value)) {
+                html += `<div class="panel" style="border:1px solid var(--border);padding:12px;border-radius:8px;margin-bottom:12px;">`+
+                    `<h5 style="margin:0 0 8px 0;color:var(--highlight);font-size:14px;">${key.replace(/_/g,' ').toUpperCase()}</h5>`;
+                html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+                Object.keys(value).forEach(k => {
+                    const v = value[k];
+                    html += `<div style="display:flex;justify-content:space-between;gap:12px;">`+
+                        `<div style="min-width:180px;color:var(--muted);">${k}</div>`+
+                        `<div style="font-family:monospace;">${(v===null||v===undefined||v==='')?'<span style=\"color:var(--muted);\">(unset)</span>':String(v)}</div>`+
+                    `</div>`;
+                });
+                html += '</div></div>';
+            } else {
+                // Primitive value (version, booleans, etc.)
+                html += `<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);padding:8px;border-radius:6px;margin-bottom:8px;">`+
+                    `<div style="font-weight:600;">${key}</div>`+
+                    `<div style="font-family:monospace;">${String(value)}</div>`+
+                `</div>`;
+            }
         });
-        html += '</div>';
-        container.innerHTML = html;
+        container.innerHTML = html || '<div style="color:var(--muted);">No server settings returned.</div>';
     } catch (err) {
         container.innerHTML = '<div style="color:var(--danger);">Failed to load server settings: '+(err.message||err)+'</div>';
     }
@@ -2293,7 +2309,8 @@ const settingsUIState = {
     tenantOverridesDraft: {},
     tenantDirty: false,
     saving: false,
-    eventsBound: false
+    eventsBound: false,
+    lockedKeys: new Set() // Keys locked by environment variables
 };
 
 function resolveTenantId(record) {
@@ -2410,6 +2427,7 @@ async function initSettingsUI() {
 
 async function bootstrapSettingsUI() {
     await loadSettingsSchema();
+    await loadSettingsSources(); // Fetch locked keys
     await loadGlobalSettingsSnapshot();
     await loadTenantDirectory();
     if (settingsUIState.tenantList.length > 0) {
@@ -2430,6 +2448,16 @@ async function loadSettingsSchema() {
             throw new Error('Managed settings are disabled on this server build. Enable tenancy/features to use this tab.');
         }
         throw err;
+    }
+}
+
+async function loadSettingsSources() {
+    try {
+        const sources = await fetchJSON('/api/v1/server/settings/sources');
+        settingsUIState.lockedKeys = new Set(sources.locked_keys || []);
+    } catch (err) {
+        // If endpoint doesn't exist or errors, assume no locks
+        settingsUIState.lockedKeys = new Set();
     }
 }
 
@@ -2637,6 +2665,10 @@ function renderSettingsFieldRow(field, value, scope) {
     const row = document.createElement('div');
     row.className = 'settings-field-row';
     row.dataset.fieldType = (field.type || 'text').toLowerCase();
+    
+    // Check if this field is locked by environment variable
+    const isLocked = settingsUIState.lockedKeys.has(field.path);
+    
     const label = document.createElement('div');
     label.className = 'settings-field-label';
     label.innerHTML = `
@@ -2652,8 +2684,18 @@ function renderSettingsFieldRow(field, value, scope) {
     }
     const { input, element } = inputFragment;
     const canEdit = userCan('settings.write');
-    input.disabled = !canEdit || (scope === 'tenant' && !settingsUIState.selectedTenantId);
+    // Disable input if user can't edit, no tenant selected (for tenant scope), OR locked by env
+    input.disabled = !canEdit || (scope === 'tenant' && !settingsUIState.selectedTenantId) || isLocked;
     control.appendChild(element);
+
+    // Show lock badge if locked by environment variable
+    if (isLocked) {
+        const lockBadge = document.createElement('span');
+        lockBadge.className = 'settings-badge locked';
+        lockBadge.textContent = '🔒 Locked';
+        lockBadge.title = 'This setting is locked by an environment variable and cannot be changed through managed settings';
+        control.appendChild(lockBadge);
+    }
 
     if (scope === 'tenant') {
         const isOverride = hasOverride(pathToArray(field.path));
@@ -2661,7 +2703,7 @@ function renderSettingsFieldRow(field, value, scope) {
         badge.className = `settings-badge ${isOverride ? 'override' : 'inherited'}`;
         badge.textContent = isOverride ? 'Override' : 'Inherited';
         control.appendChild(badge);
-        if (isOverride && canEdit) {
+        if (isOverride && canEdit && !isLocked) {
             const inheritBtn = document.createElement('button');
             inheritBtn.type = 'button';
             inheritBtn.className = 'ghost-btn inherit-btn';

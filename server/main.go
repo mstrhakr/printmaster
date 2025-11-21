@@ -257,17 +257,18 @@ func (h *SSEHub) RemoveClient(client *SSEClient) {
 }
 
 var (
-	serverLogger       *logger.Logger
-	serverStore        storage.Store
-	settingsResolver   *serversettings.Resolver
-	authRateLimiter    *AuthRateLimiter // Rate limiter for failed auth attempts
-	configLoadErrors   []string         // Track config loading errors for display in UI
-	usingDefaultConfig bool             // Flag to indicate if using defaults vs loaded config
-	loadedConfigPath   string           // Path of the config file that was successfully loaded
-	sseHub             *SSEHub          // SSE hub for real-time UI updates
-	wsHub              *wscommon.Hub    // In-process hub for websocket-capable UI clients
-	serverConfig       *Config          // Loaded server configuration (accessible to handlers)
-	serverLogDir       string           // Directory containing server logs for UI fetches
+	serverLogger        *logger.Logger
+	serverStore         storage.Store
+	settingsResolver    *serversettings.Resolver
+	authRateLimiter     *AuthRateLimiter     // Rate limiter for failed auth attempts
+	configLoadErrors    []string             // Track config loading errors for display in UI
+	usingDefaultConfig  bool                 // Flag to indicate if using defaults vs loaded config
+	loadedConfigPath    string               // Path of the config file that was successfully loaded
+	sseHub              *SSEHub              // SSE hub for real-time UI updates
+	wsHub               *wscommon.Hub        // In-process hub for websocket-capable UI clients
+	serverConfig        *Config              // Loaded server configuration (accessible to handlers)
+	serverLogDir        string               // Directory containing server logs for UI fetches
+	configSourceTracker *ConfigSourceTracker // Tracks which keys were set by env vars
 )
 
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
@@ -360,8 +361,9 @@ func runServer(ctx context.Context, configFlag string) {
 	resolved := config.ResolveConfigPath("SERVER", configFlag)
 	if resolved != "" {
 		if _, statErr := os.Stat(resolved); statErr == nil {
-			if loadedCfg, err := LoadConfig(resolved); err == nil {
+			if loadedCfg, tracker, err := LoadConfig(resolved); err == nil {
 				cfg = loadedCfg
+				configSourceTracker = tracker
 				if absPath, err := filepath.Abs(resolved); err == nil {
 					loadedConfigPath = absPath
 				} else {
@@ -401,8 +403,9 @@ func runServer(ctx context.Context, configFlag string) {
 	for _, configPath := range configPaths {
 		if _, statErr := os.Stat(configPath); statErr == nil {
 			// Config file exists, try to load it
-			if loadedCfg, err := LoadConfig(configPath); err == nil {
+			if loadedCfg, tracker, err := LoadConfig(configPath); err == nil {
 				cfg = loadedCfg
+				configSourceTracker = tracker
 				if absPath, err := filepath.Abs(configPath); err == nil {
 					loadedConfigPath = absPath
 				} else {
@@ -427,6 +430,7 @@ func runServer(ctx context.Context, configFlag string) {
 			logWarn("No config.toml found; using defaults")
 		}
 		cfg = DefaultConfig()
+		configSourceTracker = newConfigSourceTracker() // Empty tracker when using defaults
 		loadedConfigPath = "defaults"
 		usingDefaultConfig = true
 	} else {
@@ -2292,6 +2296,12 @@ func setupRoutes(cfg *Config) {
 			return ""
 		},
 		AuditLogger: logRequestAudit,
+		LockedKeysChecker: func() map[string]bool {
+			if configSourceTracker == nil {
+				return nil
+			}
+			return configSourceTracker.EnvKeys
+		},
 	})
 	settingsAPI.RegisterRoutes(serversettings.RouteConfig{
 		Mux:                 http.DefaultServeMux,
@@ -2299,6 +2309,79 @@ func setupRoutes(cfg *Config) {
 		RegisterTenantAlias: true,
 	})
 	logInfo("Settings routes registered", "enabled", featureEnabled)
+
+	// Server settings (sanitized config exposure). Read-only; does not allow mutation.
+	http.HandleFunc("/api/v1/server/settings", requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		// Sanitize config (exclude secrets like SMTP pass, TLS key paths)
+		resp := map[string]interface{}{
+			"version":         Version,
+			"tenancy_enabled": cfg.Tenancy.Enabled,
+			"config_source":   loadedConfigPath,
+			"using_defaults":  usingDefaultConfig,
+			"server": map[string]interface{}{
+				"http_port":             cfg.Server.HTTPPort,
+				"https_port":            cfg.Server.HTTPSPort,
+				"bind_address":          cfg.Server.BindAddress,
+				"behind_proxy":          cfg.Server.BehindProxy,
+				"proxy_use_https":       cfg.Server.ProxyUseHTTPS,
+				"auto_approve_agents":   cfg.Server.AutoApproveAgents,
+				"agent_timeout_minutes": cfg.Server.AgentTimeoutMinutes,
+			},
+			"security": map[string]interface{}{
+				"rate_limit_enabled":        cfg.Security.RateLimitEnabled,
+				"rate_limit_max_attempts":   cfg.Security.RateLimitMaxAttempts,
+				"rate_limit_block_minutes":  cfg.Security.RateLimitBlockMinutes,
+				"rate_limit_window_minutes": cfg.Security.RateLimitWindowMinutes,
+			},
+			"tls": map[string]interface{}{
+				"mode":                   cfg.TLS.Mode,
+				"domain":                 cfg.TLS.Domain,
+				"letsencrypt_domain":     cfg.TLS.LetsEncrypt.Domain,
+				"letsencrypt_email":      cfg.TLS.LetsEncrypt.Email,
+				"letsencrypt_accept_tos": cfg.TLS.LetsEncrypt.AcceptTOS,
+			},
+			"database": map[string]interface{}{
+				"path": cfg.Database.Path,
+			},
+			"logging": map[string]interface{}{
+				"level": cfg.Logging.Level,
+			},
+			"smtp": map[string]interface{}{
+				"enabled": cfg.SMTP.Enabled,
+				"host":    cfg.SMTP.Host,
+				"port":    cfg.SMTP.Port,
+				"user":    cfg.SMTP.User,
+				"from":    cfg.SMTP.From,
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+
+	// Server settings sources (metadata about which keys are locked by env overrides)
+	http.HandleFunc("/api/v1/server/settings/sources", requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		// Build list of locked keys (those set by environment variables)
+		lockedKeys := make([]string, 0, len(configSourceTracker.EnvKeys))
+		for key := range configSourceTracker.EnvKeys {
+			lockedKeys = append(lockedKeys, key)
+		}
+		resp := map[string]interface{}{
+			"locked_keys": lockedKeys,
+			"lock_reason": "environment_variable",
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
 
 	// Proxy endpoints - require login
 	http.HandleFunc("/api/v1/proxy/agent/", requireWebAuth(handleAgentProxy))   // Proxy to agent's own web UI

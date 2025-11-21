@@ -144,7 +144,7 @@ level = "debug"
 		}
 
 		// Load config
-		cfg, err := LoadConfig(configPath)
+		cfg, _, err := LoadConfig(configPath)
 		if err != nil {
 			t.Fatalf("LoadConfig() failed: %v", err)
 		}
@@ -180,7 +180,7 @@ level = "debug"
 		configPath := filepath.Join(t.TempDir(), "nonexistent.toml")
 
 		// Load config - should use defaults
-		cfg, err := LoadConfig(configPath)
+		cfg, _, err := LoadConfig(configPath)
 		if err != nil {
 			t.Fatalf("LoadConfig() failed: %v", err)
 		}
