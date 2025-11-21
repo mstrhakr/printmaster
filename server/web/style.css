@@ -494,14 +494,26 @@ h1 {
   color: var(--text);
 }
 
+.simple-table th.actions-col,
+.simple-table td.actions-col {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
 .table-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
+  width: 100%;
+  white-space: nowrap;
 }
 
 .table-actions button {
   flex: none;
+  white-space: nowrap;
 }
 
 /* Badge styles for provider metadata */
@@ -1218,8 +1230,12 @@ select:focus {
 }
 
 .audit-controls-actions {
-  display: flex;
+  display: inline-flex;
   gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
 }
 
 .audit-summary {
@@ -1243,6 +1259,24 @@ select:focus {
 @media (max-width: 720px) {
   .audit-filter-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .table-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    white-space: normal;
+  }
+
+  .simple-table th.actions-col,
+  .simple-table td.actions-col {
+    text-align: left;
+    white-space: normal;
+  }
+
+  .audit-controls-actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    white-space: normal;
   }
 }
 

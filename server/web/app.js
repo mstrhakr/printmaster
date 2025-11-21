@@ -923,7 +923,7 @@ function renderUsers(list){
                 </td>
                 <td>${role}</td>
                 <td>${tenantMarkup}</td>
-                <td>
+                <td class="actions-col">
                     <div class="table-actions">
                         <button data-action="user-sessions" data-id="${idAttr}" data-username="${usernameAttr}">Sessions</button>
                         <button data-action="edit-user" data-id="${idAttr}">Edit</button>
@@ -942,7 +942,7 @@ function renderUsers(list){
                         <th>User</th>
                         <th>Role</th>
                         <th>Tenant</th>
-                        <th style="width:1%">Actions</th>
+                        <th class="actions-col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1186,7 +1186,7 @@ function renderTenants(list){
                 <td>${businessLines}</td>
                 <td>${contactLines || '<span class="muted-text">No contact info</span>'}</td>
                 <td>${metaLines}</td>
-                <td>
+                <td class="actions-col">
                     <div class="table-actions">
                         <button data-action="create-token" data-tenant="${idAttr}">Create Token</button>
                         <button data-action="view-tokens" data-tenant="${idAttr}">Tokens</button>
@@ -1205,7 +1205,7 @@ function renderTenants(list){
                         <th>Customer</th>
                         <th>Contact</th>
                         <th>Details</th>
-                        <th style="width:1%">Actions</th>
+                        <th class="actions-col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
