@@ -982,118 +982,118 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		case "windows", "win", "windows_nt":
 			filename = "install.ps1"
 			pwTemplate := `# PowerShell bootstrap for PrintMaster
-	$ErrorActionPreference = "Stop"
-	$server = "%s"
-	$token = "%s"
+$ErrorActionPreference = "Stop"
+$server = "%s"
+$token = "%s"
 
-	function Assert-Administrator {
-		$current = [Security.Principal.WindowsIdentity]::GetCurrent()
-		$principal = New-Object Security.Principal.WindowsPrincipal($current)
-		if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-			Write-Error "This installer must be run from an elevated PowerShell session."
-			exit 1
-		}
-	}
-
-	function Set-RelaxedCertificatePolicy {
-		try {
-			[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-			[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-		} catch {
-			Write-Warning "Unable to relax certificate validation: $_"
-		}
-	}
-
-	Assert-Administrator
-	Set-RelaxedCertificatePolicy
-
-	$programFiles = ${env:ProgramFiles}
-	if ([string]::IsNullOrWhiteSpace($programFiles)) {
-		$programFiles = "C:\\Program Files"
-	}
-	$programData = ${env:ProgramData}
-	if ([string]::IsNullOrWhiteSpace($programData)) {
-		$programData = "C:\\ProgramData"
-	}
-
-	$agentDir = Join-Path $programFiles "PrintMaster"
-	$agentExe = Join-Path $agentDir "printmaster-agent.exe"
-	$dataRoot = Join-Path $programData "PrintMaster"
-	$configDir = Join-Path $dataRoot "agent"
-	$configPath = Join-Path $configDir "config.toml"
-
-	Write-Host "Preparing directories..."
-	New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
-	New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-
-	Write-Host "Downloading agent binary..."
-	try {
-		$downloadParams = @{
-			Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64"
-			OutFile = $agentExe
-			ErrorAction = 'Stop'
-		}
-		try {
-			$invokeCmd = Get-Command Invoke-WebRequest -ErrorAction Stop
-			if ($invokeCmd.Parameters.Keys -contains 'UseBasicParsing') {
-				$downloadParams.UseBasicParsing = $true
-			}
-			if ($invokeCmd.Parameters.Keys -contains 'SkipCertificateCheck') {
-				$downloadParams.SkipCertificateCheck = $true
-			}
-		} catch {
-			# Fall back to relaxed certificate policy only
-		}
-		Invoke-WebRequest @downloadParams
-	} catch {
-		Write-Error "Failed to download agent: $_"
+function Assert-Administrator {
+	$current = [Security.Principal.WindowsIdentity]::GetCurrent()
+	$principal = New-Object Security.Principal.WindowsPrincipal($current)
+	if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+		Write-Error "This installer must be run from an elevated PowerShell session."
 		exit 1
 	}
+}
 
-	if (-not (Test-Path $agentExe)) {
-		Write-Error "Agent binary missing after download."
-		exit 1
-	}
-
+function Set-RelaxedCertificatePolicy {
 	try {
-		Unblock-File -Path $agentExe -ErrorAction SilentlyContinue
+		[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+		[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 	} catch {
-		# Ignore if Unblock-File is unavailable
+		Write-Warning "Unable to relax certificate validation: $_"
 	}
+}
 
-	$agentName = $env:COMPUTERNAME
-	if ([string]::IsNullOrWhiteSpace($agentName)) {
-		$agentName = "windows-agent"
+Assert-Administrator
+Set-RelaxedCertificatePolicy
+
+$programFiles = ${env:ProgramFiles}
+if ([string]::IsNullOrWhiteSpace($programFiles)) {
+	$programFiles = "C:\\Program Files"
+}
+$programData = ${env:ProgramData}
+if ([string]::IsNullOrWhiteSpace($programData)) {
+	$programData = "C:\\ProgramData"
+}
+
+$agentDir = Join-Path $programFiles "PrintMaster"
+$agentExe = Join-Path $agentDir "printmaster-agent.exe"
+$dataRoot = Join-Path $programData "PrintMaster"
+$configDir = Join-Path $dataRoot "agent"
+$configPath = Join-Path $configDir "config.toml"
+
+Write-Host "Preparing directories..."
+New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
+New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+
+Write-Host "Downloading agent binary..."
+try {
+	$downloadParams = @{
+		Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64"
+		OutFile = $agentExe
+		ErrorAction = 'Stop'
 	}
-
-	Write-Host "Writing configuration to $configPath"
-	$configContent = @"
-	[server]
-	enabled = true
-	url = "$server"
-	name = "$agentName"
-	token = "$token"
-	insecure_skip_verify = true
-	"@
-	Set-Content -Path $configPath -Value $configContent -Encoding UTF8
-
-	Write-Host "Installing PrintMaster Agent service..."
-	& $agentExe --service install
-	if ($LASTEXITCODE -ne 0) {
-		Write-Error "Service installation failed with exit code $LASTEXITCODE"
-		exit $LASTEXITCODE
+	try {
+		$invokeCmd = Get-Command Invoke-WebRequest -ErrorAction Stop
+		if ($invokeCmd.Parameters.Keys -contains 'UseBasicParsing') {
+			$downloadParams.UseBasicParsing = $true
+		}
+		if ($invokeCmd.Parameters.Keys -contains 'SkipCertificateCheck') {
+			$downloadParams.SkipCertificateCheck = $true
+		}
+	} catch {
+		# Fall back to relaxed certificate policy only
 	}
+	Invoke-WebRequest @downloadParams
+} catch {
+	Write-Error "Failed to download agent: $_"
+	exit 1
+}
 
-	Write-Host "Starting PrintMaster Agent service..."
-	& $agentExe --service start
-	if ($LASTEXITCODE -ne 0) {
-		Write-Warning "Service installed but failed to start (exit code $LASTEXITCODE). Use 'Get-Service PrintMasterAgent' for status."
-	} else {
-		Write-Host "PrintMaster Agent service is running."
-		Write-Host "Configuration: $configPath"
-		Write-Host "Logs:        $(Join-Path $configDir 'logs')"
-	}
-	`
+if (-not (Test-Path $agentExe)) {
+	Write-Error "Agent binary missing after download."
+	exit 1
+}
+
+try {
+	Unblock-File -Path $agentExe -ErrorAction SilentlyContinue
+} catch {
+	# Ignore if Unblock-File is unavailable
+}
+
+$agentName = $env:COMPUTERNAME
+if ([string]::IsNullOrWhiteSpace($agentName)) {
+	$agentName = "windows-agent"
+}
+
+Write-Host "Writing configuration to $configPath"
+$configContent = @"
+[server]
+enabled = true
+url = "$server"
+name = "$agentName"
+token = "$token"
+insecure_skip_verify = true
+"@
+Set-Content -Path $configPath -Value $configContent -Encoding UTF8
+
+Write-Host "Installing PrintMaster Agent service..."
+& $agentExe --service install
+if ($LASTEXITCODE -ne 0) {
+	Write-Error "Service installation failed with exit code $LASTEXITCODE"
+	exit $LASTEXITCODE
+}
+
+Write-Host "Starting PrintMaster Agent service..."
+& $agentExe --service start
+if ($LASTEXITCODE -ne 0) {
+	Write-Warning "Service installed but failed to start (exit code $LASTEXITCODE). Use 'Get-Service PrintMasterAgent' for status."
+} else {
+	Write-Host "PrintMaster Agent service is running."
+	Write-Host "Configuration: $configPath"
+	Write-Host "Logs:        $(Join-Path $configDir 'logs')"
+}
+`
 			script = fmt.Sprintf(pwTemplate, serverURL, rawToken)
 		default:
 			// linux / darwin
