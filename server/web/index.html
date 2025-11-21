@@ -164,6 +164,33 @@
                             <button id="sso_add_provider_btn">Add Provider</button>
                         </div>
                     </div>
+                    <div class="sso-helper-card" id="sso_entra_helper">
+                        <div class="sso-helper-header">
+                            <div>
+                                <div class="sso-helper-title">Microsoft Entra ID quick start</div>
+                                <p class="sso-helper-subtitle">Drop in your Directory (tenant) ID and we'll prefill issuer, scopes, and a Microsoft-branded login button.</p>
+                            </div>
+                            <button id="sso_entra_apply_btn" class="ghost-btn">Apply preset</button>
+                        </div>
+                        <label class="sso-helper-field">
+                            <span>Tenant (Directory) ID</span>
+                            <input id="sso_entra_tenant_id" type="text" placeholder="11111111-2222-3333-4444-555555555555" />
+                        </label>
+                        <div class="sso-helper-steps">
+                            <div>1. Create an app registration in <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" rel="noopener" class="sso-entra-portal-link">Microsoft Entra admin center</a>.</div>
+                            <div>2. Choose a single-tenant Web application and add the redirect URI below.</div>
+                            <div>3. Copy the Application (client) ID, create a client secret, and note your Directory (tenant) ID.</div>
+                            <div>4. Click “Apply preset”, paste the client ID & secret, and save the provider.</div>
+                        </div>
+                        <div class="sso-helper-redirect">
+                            <div>
+                                <span>Redirect URI</span>
+                                <code id="sso_redirect_uri_text">https://example.com/auth/oidc/callback</code>
+                            </div>
+                            <button type="button" class="ghost-btn" id="sso_copy_redirect_btn">Copy</button>
+                        </div>
+                        <div class="sso-helper-note">Preset fills issuer URL, scopes, icon, and button styling. You only bring the tenant ID, client ID, and secret.</div>
+                    </div>
                     <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
                         <div class="muted-text">Loading identity providers…</div>
                     </div>
@@ -462,6 +489,16 @@
                         <span>Automatically redirect users to this provider when it is the only option.</span>
                     </label>
                     <div id="sso_modal_error" style="display:none;color:var(--danger);font-size:13px;"></div>
+                    <div class="sso-modal-helper">
+                        <div style="font-weight:600;margin-bottom:6px;">Microsoft Entra setup checklist</div>
+                        <ul>
+                            <li>Add <code id="sso_modal_redirect_uri_text">https://example.com/auth/oidc/callback</code> as a Web redirect URI.</li>
+                            <li>Select “Accounts in this organization only” and the Web platform.</li>
+                            <li>Create a client secret, copy the Application (client) ID, and keep the Directory (tenant) ID.</li>
+                            <li><a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" rel="noopener" class="sso-entra-portal-link">Open the Microsoft Entra portal</a></li>
+                        </ul>
+                        <button type="button" class="link-button" id="sso_modal_copy_redirect">Copy redirect URI</button>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="modal-button modal-button-secondary" id="sso_modal_cancel">Cancel</button>

@@ -3,10 +3,14 @@
         return;
     }
 
+    const ENTRA_PORTAL_URL = 'https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false';
+    const ENTRA_ICON_DATA_URI = 'data:image/svg+xml,%3Csvg xmlns%3D%22http://www.w3.org/2000/svg%22 viewBox%3D%220 0 24 24%22%3E%3Crect width%3D%2210%22 height%3D%2210%22 x%3D%221%22 y%3D%221%22 fill%3D%22%23f35325%22/%3E%3Crect width%3D%2210%22 height%3D%2210%22 x%3D%2213%22 y%3D%221%22 fill%3D%22%2381bc06%22/%3E%3Crect width%3D%2210%22 height%3D%2210%22 x%3D%221%22 y%3D%2213%22 fill%3D%22%2305a6f0%22/%3E%3Crect width%3D%2210%22 height%3D%2210%22 x%3D%2213%22 y%3D%2213%22 fill%3D%22%23ffba08%22/%3E%3C/svg%3E';
+
     const state = {
         initialized: false,
         providers: [],
         tenants: [],
+        redirectUri: '',
     };
 
     function qs(id) {
@@ -45,6 +49,147 @@
         } else {
             alert(message);
         }
+    }
+
+    function computeRedirectUri() {
+        try {
+            if (typeof window !== 'undefined' && window.location && window.location.origin) {
+                return window.location.origin.replace(/\/+$/, '') + '/auth/oidc/callback';
+            }
+            if (typeof window !== 'undefined' && window.location && window.location.protocol) {
+                return window.location.protocol + '//' + window.location.host + '/auth/oidc/callback';
+            }
+        } catch (err) {
+            console.warn('Failed to compute redirect URI', err);
+        }
+        return '/auth/oidc/callback';
+    }
+
+    function updateRedirectHints() {
+        const value = state.redirectUri || computeRedirectUri();
+        const helper = qs('sso_redirect_uri_text');
+        if (helper) {
+            helper.textContent = value;
+        }
+        const modal = qs('sso_modal_redirect_uri_text');
+        if (modal) {
+            modal.textContent = value;
+        }
+    }
+
+    function copyRedirectUri() {
+        const value = state.redirectUri || computeRedirectUri();
+        if (!value) {
+            return;
+        }
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(value).then(() => {
+                sharedToast('Redirect URI copied', 'success');
+            }).catch(() => {
+                if (fallbackCopyToClipboard(value)) {
+                    sharedToast('Redirect URI copied', 'success');
+                } else {
+                    sharedAlert(value, 'Redirect URI');
+                }
+            });
+            return;
+        }
+        if (fallbackCopyToClipboard(value)) {
+            sharedToast('Redirect URI copied', 'success');
+            return;
+        }
+        sharedAlert(value, 'Redirect URI');
+    }
+
+    function fallbackCopyToClipboard(text) {
+        try {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', 'readonly');
+            textarea.style.position = 'absolute';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            const copied = document.execCommand ? document.execCommand('copy') : false;
+            document.body.removeChild(textarea);
+            return copied;
+        } catch (err) {
+            console.warn('Copy fallback failed', err);
+            return false;
+        }
+    }
+
+    function applyEntraPreset() {
+        const tenantInput = qs('sso_entra_tenant_id');
+        const tenantId = ((tenantInput && tenantInput.value) || '').trim();
+        if (!tenantId) {
+            sharedToast('Enter your Directory (tenant) ID first.', 'info');
+            if (tenantInput) {
+                tenantInput.focus();
+            }
+            return;
+        }
+
+        openModal(null);
+
+        const slugInput = qs('sso_slug');
+        if (slugInput) {
+            slugInput.disabled = false;
+            slugInput.value = buildEntraSlug(tenantId);
+        }
+        const displayInput = qs('sso_display_name');
+        if (displayInput) {
+            displayInput.value = 'Microsoft Entra ID';
+        }
+        const issuerInput = qs('sso_issuer');
+        if (issuerInput) {
+            issuerInput.value = buildEntraIssuer(tenantId);
+        }
+        const scopesInput = qs('sso_scopes');
+        if (scopesInput) {
+            scopesInput.value = 'openid profile email offline_access';
+        }
+        const buttonTextInput = qs('sso_button_text');
+        if (buttonTextInput) {
+            buttonTextInput.value = 'Sign in with Microsoft';
+        }
+        const buttonStyleInput = qs('sso_button_style');
+        if (buttonStyleInput) {
+            buttonStyleInput.value = 'btn-entra';
+        }
+        const iconInput = qs('sso_icon');
+        if (iconInput) {
+            iconInput.value = ENTRA_ICON_DATA_URI;
+        }
+        const autoCheckbox = qs('sso_auto_login');
+        if (autoCheckbox) {
+            autoCheckbox.checked = false;
+        }
+        const clientIdInput = qs('sso_client_id');
+        if (clientIdInput) {
+            clientIdInput.focus();
+        }
+        sharedToast('Microsoft Entra defaults applied. Paste your client ID and secret to finish.', 'success');
+    }
+
+    function buildEntraIssuer(tenantId) {
+        const cleaned = (tenantId || '').trim();
+        return 'https://login.microsoftonline.com/' + cleaned + '/v2.0';
+    }
+
+    function buildEntraSlug(tenantId) {
+        let cleaned = (tenantId || '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        cleaned = cleaned.replace(/^-+|-+$/g, '');
+        if (!cleaned) {
+            cleaned = 'entra';
+        }
+        const suffix = cleaned.length > 24 ? cleaned.slice(0, 24) : cleaned;
+        let slug = 'entra-' + suffix;
+        slug = slug.replace(/-+/g, '-');
+        if (slug.length > 64) {
+            slug = slug.slice(0, 64);
+        }
+        return slug;
     }
 
     async function init() {
@@ -87,6 +232,38 @@
                 submitProvider();
             });
         }
+
+        state.redirectUri = computeRedirectUri();
+        updateRedirectHints();
+
+        const helperCopyBtn = qs('sso_copy_redirect_btn');
+        if (helperCopyBtn) {
+            helperCopyBtn.addEventListener('click', (evt) => {
+                evt.preventDefault();
+                copyRedirectUri();
+            });
+        }
+        const modalCopyBtn = qs('sso_modal_copy_redirect');
+        if (modalCopyBtn) {
+            modalCopyBtn.addEventListener('click', (evt) => {
+                evt.preventDefault();
+                copyRedirectUri();
+            });
+        }
+
+        const presetBtn = qs('sso_entra_apply_btn');
+        if (presetBtn) {
+            presetBtn.addEventListener('click', (evt) => {
+                evt.preventDefault();
+                applyEntraPreset();
+            });
+        }
+
+        document.querySelectorAll('.sso-entra-portal-link').forEach((link) => {
+            if (link) {
+                link.href = ENTRA_PORTAL_URL;
+            }
+        });
 
         await loadProviders();
     }
@@ -268,6 +445,7 @@
             populateTenantSelect('');
         }
 
+        updateRedirectHints();
         modal.style.display = 'flex';
         displayInput.focus();
     }
