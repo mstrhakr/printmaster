@@ -120,10 +120,23 @@
 
                 <div class="subtab-bar" id="settings_subtab_bar">
                     <button class="subtab settings-subtab" data-settingsview="server">Server Settings</button>
+                    <button class="subtab settings-subtab" data-settingsview="sso">SSO Settings</button>
                     <button class="subtab settings-subtab active" data-settingsview="fleet">Fleet Settings</button>
                 </div>
 
                 <div class="settings-view-panel hidden" data-settingsview-panel="server">
+                    <div class="panel">
+                        <h4 style="margin-top:0;color:var(--highlight)">Server Settings</h4>
+                        <div style="color:var(--muted);font-size:13px;margin-bottom:12px;max-width:600px;">
+                            Core configuration affecting this PrintMaster server instance. (Placeholder – populate via API.)
+                        </div>
+                        <div id="server_settings_container" class="card" style="padding:12px;display:flex;flex-direction:column;gap:12px;">
+                            <div class="muted-text">Loading server settings…</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-view-panel hidden" data-settingsview-panel="sso">
                     <div class="panel">
                         <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
                         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">

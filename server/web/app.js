@@ -647,7 +647,10 @@ function initSettingsSubTabs() {
 }
 
 function switchSettingsView(view, force = false) {
-    const normalized = view === 'server' ? 'server' : 'fleet';
+    // valid views: server | fleet | sso
+    let normalized = 'fleet';
+    if (view === 'server') normalized = 'server';
+    else if (view === 'sso') normalized = 'sso';
     const previous = activeSettingsView;
     activeSettingsView = normalized;
 
@@ -667,12 +670,43 @@ function switchSettingsView(view, force = false) {
 }
 
 function ensureSettingsViewReady(view) {
-    if (view === 'server') {
+    if (view === 'sso') {
+        // Initialize SSO admin panel lazily
         initSSOAdmin();
         refreshSSOProviders();
         return;
     }
+    if (view === 'server') {
+        // Placeholder: fetch and render server settings into server_settings_container
+        loadServerSettings();
+        return;
+    }
+    // fleet
     initSettingsUI();
+}
+
+async function loadServerSettings() {
+    const container = document.getElementById('server_settings_container');
+    if (!container) return;
+    container.innerHTML = '<div style="color:var(--muted);">Fetching server settings...</div>';
+    try {
+        const resp = await fetch('/api/v1/server/settings');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        // Render simple key/value list
+        let html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+        Object.keys(data || {}).forEach(k => {
+            const v = data[k];
+            html += `<div style="display:flex;justify-content:space-between;gap:12px;border:1px solid var(--border);padding:8px;border-radius:6px;">`+
+                `<div style="font-weight:600;">${k}</div>`+
+                `<div style="font-family:monospace;word-break:break-all;">${(v===null||v===undefined)?'<span style=\"color:var(--muted);\">(unset)</span>':String(v)}</div>`+
+            `</div>`;
+        });
+        html += '</div>';
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = '<div style="color:var(--danger);">Failed to load server settings: '+(err.message||err)+'</div>';
+    }
 }
 
 function switchTab(targetTab) {
