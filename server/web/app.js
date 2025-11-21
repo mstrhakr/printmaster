@@ -1319,13 +1319,39 @@ function renderTokenModal(tenantID, tokens){
         window.__pm_shared.showAlert('No tokens for tenant: ' + escapeHtml(tenantID), 'Tokens', false, false);
         return;
     }
-    let html = '<div style="font-family:monospace; white-space:pre-wrap;">';
+    
+    let html = '<div style="max-height: 400px; overflow-y: auto;">';
+    html += '<table style="width: 100%; border-collapse: collapse; font-size: 13px;">';
+    html += '<thead><tr style="background: var(--bg-secondary); text-align: left;">';
+    html += '<th style="padding: 8px; border-bottom: 1px solid var(--border);">ID</th>';
+    html += '<th style="padding: 8px; border-bottom: 1px solid var(--border);">Type</th>';
+    html += '<th style="padding: 8px; border-bottom: 1px solid var(--border);">Status</th>';
+    html += '<th style="padding: 8px; border-bottom: 1px solid var(--border);">Used At</th>';
+    html += '<th style="padding: 8px; border-bottom: 1px solid var(--border);">Expires</th>';
+    html += '</tr></thead><tbody>';
+    
     tokens.forEach(t => {
-        html += `ID: ${t.id} | one_time: ${t.one_time} | revoked: ${t.revoked?1:0} | used_at: ${t.used_at||'-'} | expires: ${t.expires_at||'-'}\n`;
+        const isRevoked = t.revoked;
+        const isUsed = !!t.used_at;
+        const isExpired = t.expires_at && new Date(t.expires_at) < new Date();
+        
+        let status = '<span style="color: var(--success);">Active</span>';
+        if (isRevoked) status = '<span style="color: var(--danger);">Revoked</span>';
+        else if (isUsed && t.one_time) status = '<span style="color: var(--muted);">Used</span>';
+        else if (isExpired) status = '<span style="color: var(--warning);">Expired</span>';
+        
+        html += `<tr style="border-bottom: 1px solid var(--border);">`;
+        html += `<td style="padding: 8px; font-family: monospace;">${escapeHtml(t.id)}</td>`;
+        html += `<td style="padding: 8px;">${t.one_time ? 'One-time' : 'Reusable'}</td>`;
+        html += `<td style="padding: 8px;">${status}</td>`;
+        html += `<td style="padding: 8px;">${t.used_at ? window.__pm_shared.formatDateTime(t.used_at) : '-'}</td>`;
+        html += `<td style="padding: 8px;">${t.expires_at ? window.__pm_shared.formatDateTime(t.expires_at) : 'Never'}</td>`;
+        html += `</tr>`;
     });
-    html += '</div>';
+    html += '</tbody></table></div>';
+    
     // Ask user if they want to revoke a token via input modal
-    window.__pm_shared.showAlert(html, 'Tokens for tenant: ' + escapeHtml(tenantID), false, false);
+    window.__pm_shared.showAlert(html, 'Tokens for tenant: ' + escapeHtml(tenantID), false, false, true);
     showInputModal('Revoke token', 'Enter the token ID to revoke (leave empty to cancel)', '').then(id => {
         if (!id) return;
         revokeToken(id.trim()).then(()=>{

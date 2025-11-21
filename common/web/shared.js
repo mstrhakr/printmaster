@@ -409,19 +409,23 @@ function createTemporaryConfirmModal(message, title = 'Confirm', isDangerous = f
 
 // Create a simple temporary alert modal when embedded modal is not present.
 // This is non-blocking and will dismiss on OK.
-function createTemporaryAlertModal(message, title = 'Notice', showDontRemindCheckbox = false) {
+function createTemporaryAlertModal(message, title = 'Notice', showDontRemindCheckbox = false, isHtml = false) {
     try {
         const wrapper = document.createElement('div');
         wrapper.className = 'modal-overlay';
         wrapper.style.display = 'flex';
+        
+        // Helper to escape HTML if global function is missing
+        const safeEscape = (s) => (typeof escapeHtml === 'function' ? escapeHtml(s) : String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"));
+
         wrapper.innerHTML = `
             <div class="modal-content" style="max-width:480px;">
                 <div class="modal-header">
-                    <h3 class="modal-title">${escapeHtml(title)}</h3>
+                    <h3 class="modal-title">${safeEscape(title)}</h3>
                     <button class="modal-close-x" title="Close">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div style="white-space:pre-wrap;">${escapeHtml(message)}</div>
+                    <div style="white-space:pre-wrap;">${isHtml ? message : safeEscape(message)}</div>
                     ${showDontRemindCheckbox ? `<div style="margin-top:12px"><label><input type="checkbox" id="_tmp_alert_dont_remind"> Don't show this again</label></div>` : ''}
                 </div>
                 <div class="modal-footer">
@@ -544,8 +548,9 @@ function showConfirm(message, title = 'Confirm Action', isDangerous = false) {
  * @param {string} title - Modal title (default 'Notice')
  * @param {boolean} isDangerous - Whether to style as danger/warning
  * @param {boolean} showDontRemindCheckbox - Show "don't remind me" checkbox
+ * @param {boolean} isHtml - Whether message contains HTML (default false)
  */
-function showAlert(message, title = 'Notice', isDangerous = false, showDontRemindCheckbox = false) {
+function showAlert(message, title = 'Notice', isDangerous = false, showDontRemindCheckbox = false, isHtml = false) {
     const modal = document.getElementById('confirm_modal');
     const titleEl = document.getElementById('confirm_modal_title');
     const messageEl = document.getElementById('confirm_modal_message');
@@ -555,14 +560,19 @@ function showAlert(message, title = 'Notice', isDangerous = false, showDontRemin
     
     if (!modal || !titleEl || !messageEl || !confirmBtn) {
         // Fallback to a temporary alert modal instead of native alert()
-        createTemporaryAlertModal(message, title, showDontRemindCheckbox);
+        createTemporaryAlertModal(message, title, showDontRemindCheckbox, isHtml);
         return;
     }
     
     // Set content
     titleEl.textContent = title;
     messageEl.style.whiteSpace = 'pre-wrap'; // Preserve line breaks
-    messageEl.textContent = message;
+    
+    if (isHtml) {
+        messageEl.innerHTML = message;
+    } else {
+        messageEl.textContent = message;
+    }
     
     // Add "Don't remind me" checkbox if requested
     let dontRemindCheckbox = null;
@@ -575,7 +585,11 @@ function showAlert(message, title = 'Notice', isDangerous = false, showDontRemin
                 </label>
             </div>
         `;
-        messageEl.innerHTML = message.replace(/\n/g, '<br>') + checkboxHTML;
+        if (isHtml) {
+            messageEl.innerHTML = message + checkboxHTML;
+        } else {
+            messageEl.innerHTML = message.replace(/\\n/g, '<br>') + checkboxHTML;
+        }
         dontRemindCheckbox = modal.querySelector('#dont_remind_checkbox');
     }
     
