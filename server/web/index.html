@@ -116,56 +116,65 @@
         <!-- Settings Tab (rendered dynamically) -->
         <template id="tab-template-settings">
             <div style="margin-top:12px;" data-tab="settings" class="hidden">
-                <h3>Fleet Settings</h3>
+                <h3>Settings</h3>
 
-                <div class="managed-settings-grid">
-                    <div class="panel" id="managed_settings_panel">
-                        <div class="settings-scope-bar">
-                            <div class="settings-scope-buttons">
-                                <button class="settings-scope-btn active" data-scope="global">Global Defaults</button>
-                                <button class="settings-scope-btn" data-scope="tenant">Tenant Overrides</button>
+                <div class="subtab-bar" id="settings_subtab_bar">
+                    <button class="subtab settings-subtab" data-settingsview="server">Server Settings</button>
+                    <button class="subtab settings-subtab active" data-settingsview="fleet">Fleet Settings</button>
+                </div>
+
+                <div class="settings-view-panel hidden" data-settingsview-panel="server">
+                    <div class="panel">
+                        <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                                Connect identity providers for the hosted login page. Providers can be tenant-specific or global.
                             </div>
-                            <div class="settings-tenant-controls hidden" id="settings_tenant_controls">
-                                <label>
-                                    <span>Tenant</span>
-                                    <select id="settings_tenant_select"></select>
-                                </label>
-                                <button id="settings_reset_overrides_btn" class="ghost-btn">Clear Overrides</button>
-                            </div>
-                            <div class="settings-updated" id="settings_last_updated"></div>
-                        </div>
-
-                        <div id="settings_form_root" class="settings-form-root">
-                            <div class="muted-text">Loading managed settings…</div>
-                        </div>
-
-                        <div class="settings-actions">
-                            <div class="settings-status" id="settings_status"></div>
-                            <div class="settings-action-buttons">
-                                <button id="settings_discard_btn" class="ghost-btn">Discard Changes</button>
-                                <button id="settings_save_btn" class="primary">Save Changes</button>
+                            <div>
+                                <button id="sso_add_provider_btn">Add Provider</button>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="panel" id="settings_summary_panel">
-                        <h4 style="margin-top:0;color:var(--highlight);">Override Summary</h4>
-                        <div id="settings_override_list" class="muted-text">Select a tenant to view overrides.</div>
+                        <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
+                            <div class="muted-text">Loading identity providers…</div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="panel" style="margin-top:16px;">
-                    <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
-                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-                        <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                            Connect identity providers for the hosted login page. Providers can be tenant-specific or global.
+                <div class="settings-view-panel" data-settingsview-panel="fleet">
+                    <div class="managed-settings-grid">
+                        <div class="panel" id="managed_settings_panel">
+                            <div class="settings-scope-bar">
+                                <div class="settings-scope-buttons">
+                                    <button class="settings-scope-btn active" data-scope="global">Global Defaults</button>
+                                    <button class="settings-scope-btn" data-scope="tenant">Tenant Overrides</button>
+                                </div>
+                                <div class="settings-tenant-controls hidden" id="settings_tenant_controls">
+                                    <label>
+                                        <span>Tenant</span>
+                                        <select id="settings_tenant_select"></select>
+                                    </label>
+                                    <button id="settings_reset_overrides_btn" class="ghost-btn">Clear Overrides</button>
+                                </div>
+                                <div class="settings-updated" id="settings_last_updated"></div>
+                            </div>
+
+                            <div id="settings_form_root" class="settings-form-root">
+                                <div class="muted-text">Loading managed settings…</div>
+                            </div>
+
+                            <div class="settings-actions">
+                                <div class="settings-status" id="settings_status"></div>
+                                <div class="settings-action-buttons">
+                                    <button id="settings_discard_btn" class="ghost-btn">Discard Changes</button>
+                                    <button id="settings_save_btn" class="primary">Save Changes</button>
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <button id="sso_add_provider_btn">Add Provider</button>
+
+                        <div class="panel" id="settings_summary_panel">
+                            <h4 style="margin-top:0;color:var(--highlight);">Override Summary</h4>
+                            <div id="settings_override_list" class="muted-text">Select a tenant to view overrides.</div>
                         </div>
-                    </div>
-                    <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
-                        <div class="muted-text">Loading identity providers…</div>
                     </div>
                 </div>
             </div>

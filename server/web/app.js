@@ -26,7 +26,8 @@ const TAB_DEFINITIONS = {
         requiredAction: 'settings.read',
         templateId: 'tab-template-settings',
         onMount: () => {
-            initSSOAdmin();
+            initSettingsSubTabs();
+            switchSettingsView(activeSettingsView, true);
         }
     },
     logs: {
@@ -48,6 +49,8 @@ let tenantModalInitialized = false;
 let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
+let settingsSubtabsInitialized = false;
+let activeSettingsView = 'fleet';
 let activeLogView = 'system';
 const AUDIT_SEVERITY_VALUES = ['error', 'warn', 'info'];
 const AUDIT_AUTO_REFRESH_INTERVAL_MS = 15000;
@@ -629,6 +632,49 @@ function switchLogView(view) {
     syncAuditLiveTimer();
 }
 
+function initSettingsSubTabs() {
+    if (settingsSubtabsInitialized) {
+        return;
+    }
+    settingsSubtabsInitialized = true;
+
+    document.querySelectorAll('.settings-subtab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.settingsview || 'fleet';
+            switchSettingsView(target);
+        });
+    });
+}
+
+function switchSettingsView(view, force = false) {
+    const normalized = view === 'server' ? 'server' : 'fleet';
+    const previous = activeSettingsView;
+    activeSettingsView = normalized;
+
+    document.querySelectorAll('.settings-subtab').forEach(btn => {
+        const target = btn.dataset.settingsview || 'fleet';
+        btn.classList.toggle('active', target === normalized);
+    });
+
+    document.querySelectorAll('[data-settingsview-panel]').forEach(panel => {
+        const target = panel.dataset.settingsviewPanel || 'fleet';
+        panel.classList.toggle('hidden', target !== normalized);
+    });
+
+    if (force || previous !== normalized) {
+        ensureSettingsViewReady(normalized);
+    }
+}
+
+function ensureSettingsViewReady(view) {
+    if (view === 'server') {
+        initSSOAdmin();
+        refreshSSOProviders();
+        return;
+    }
+    initSettingsUI();
+}
+
 function switchTab(targetTab) {
     // Hide all tabs
     document.querySelectorAll('[data-tab]').forEach(tab => {
@@ -663,8 +709,8 @@ function switchTab(targetTab) {
     } else if (targetTab === 'metrics') {
         loadMetrics();
     } else if (targetTab === 'settings') {
-        initSettingsUI();
-        refreshSSOProviders();
+        initSettingsSubTabs();
+        switchSettingsView(activeSettingsView, true);
     } else if (targetTab === 'logs') {
         initLogSubTabs();
         switchLogView(activeLogView || 'system');

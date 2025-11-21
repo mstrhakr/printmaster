@@ -1094,6 +1094,10 @@ select:focus {
   box-shadow: var(--shadow-sm);
 }
 
+.settings-view-panel {
+  margin-top: 16px;
+}
+
 .log-panel {
   margin-bottom: 16px;
 }
