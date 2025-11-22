@@ -7,6 +7,7 @@ import (
 
 	"printmaster/agent/scanner/capabilities"
 	"printmaster/agent/scanner/vendor"
+	"printmaster/common/logger"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -161,6 +162,9 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 		} else {
 			detectedVendor = vendor.DetectVendor(sysObjectID, sysDescr, model)
 		}
+		if logger.Global != nil {
+			logger.Global.Debug("SNMP preliminary detection", "ip", ip, "sysObjectID", sysObjectID, "vendor_selected", detectedVendor.Name())
+		}
 	}
 	if detectedVendor == nil {
 		// Full walk or detection failed: use generic
@@ -169,6 +173,9 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 
 	// 4. Build OID list based on profile + capabilities + vendor
 	oids := buildQueryOIDsWithModule(profile, caps, detectedVendor)
+	if logger.Global != nil {
+		logger.Global.Debug("OID list constructed", "ip", ip, "profile", profile.String(), "oid_count", len(oids), "vendor", detectedVendor.Name())
+	}
 
 	// 5. Query SNMP (Walk for Full, Get for others)
 	var pdus []gosnmp.SnmpPDU
@@ -234,11 +241,17 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 		Profile:    profile,
 		VendorHint: vendorHint,
 	}
+	if logger.Global != nil {
+		logger.Global.Debug("SNMP query complete", "ip", ip, "profile", profile.String(), "pdu_count", len(pdus))
+	}
 
 	// Detect capabilities if QueryFull (has comprehensive data)
 	if profile == QueryFull {
 		caps := detectCapabilities(pdus, vendorHint)
 		result.Capabilities = &caps
+		if logger.Global != nil {
+			logger.Global.Debug("Capabilities detected", "ip", ip, "isScanner", caps.IsScanner, "isCopier", caps.IsCopier, "isFax", caps.IsFax, "hasDuplex", caps.HasDuplex)
+		}
 	}
 
 	return result, nil

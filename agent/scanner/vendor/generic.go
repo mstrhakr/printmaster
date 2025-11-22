@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"printmaster/agent/scanner/capabilities"
+	"printmaster/common/logger"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -59,6 +60,9 @@ func (v *GenericVendor) SupplyOIDs() []string {
 
 func (v *GenericVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	result := make(map[string]interface{})
+	if logger.Global != nil {
+		logger.Global.TraceTag("vendor_parse", "Parsing Generic vendor PDUs", "pdu_count", len(pdus))
+	}
 
 	// Parse basic page count
 	if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1"); pageCount > 0 {
@@ -68,6 +72,9 @@ func (v *GenericVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Parse supply levels from prtMarkerSuppliesTable
 	supplies := parseSuppliesTable(pdus)
+	if logger.Global != nil {
+		logger.Global.Debug("Generic supply table parsed", "supplies_count", len(supplies))
+	}
 	for k, v := range supplies {
 		result[k] = v
 	}
@@ -156,6 +163,7 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	}
 
 	// Map supplies to standardized names
+	processed := 0
 	for _, entry := range supplies {
 		if entry.Description == "" {
 			continue
@@ -194,6 +202,10 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 			sanitized := strings.ReplaceAll(desc, " ", "_")
 			result[fmt.Sprintf("supply_%s", sanitized)] = percentage
 		}
+		processed++
+	}
+	if logger.Global != nil {
+		logger.Global.TraceTag("vendor_parse", "Supply entries processed", "count", processed)
 	}
 
 	return result

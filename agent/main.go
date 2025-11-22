@@ -1127,6 +1127,8 @@ func runInteractive(ctx context.Context, configFlag string) {
 
 	if err := os.MkdirAll(logDir, 0755); err == nil {
 		appLogger = logger.New(logger.DEBUG, logDir, 1000)
+		// Expose logger globally for scanner/vendor packages
+		logger.SetGlobal(appLogger)
 		appLogger.SetRotationPolicy(logger.RotationPolicy{
 			Enabled:    true,
 			MaxSizeMB:  10,

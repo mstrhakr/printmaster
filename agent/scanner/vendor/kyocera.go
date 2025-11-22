@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"printmaster/agent/scanner/capabilities"
+	"printmaster/common/logger"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -96,6 +97,9 @@ func (v *KyoceraVendor) SupplyOIDs() []string {
 
 func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	result := make(map[string]interface{})
+	if logger.Global != nil {
+		logger.Global.TraceTag("vendor_parse", "Parsing Kyocera vendor PDUs", "pdu_count", len(pdus))
+	}
 
 	// Extract Kyocera enterprise counters
 	printerBW := getOIDInt(pdus, "1.3.6.1.4.1.1347.42.3.1.2.1.1.1.1")
@@ -166,5 +170,12 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 	}
 
+	if logger.Global != nil {
+		mono := 0
+		color := 0
+		if m, ok := result["mono_pages"].(int); ok { mono = m }
+		if c, ok := result["color_pages"].(int); ok { color = c }
+		logger.Global.Debug("Kyocera parsing complete", "mono_pages", mono, "color_pages", color)
+	}
 	return result
 }

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"printmaster/agent/scanner/capabilities"
+	"printmaster/common/logger"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -86,6 +87,9 @@ func (v *EpsonVendor) SupplyOIDs() []string {
 
 func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	result := make(map[string]interface{})
+	if logger.Global != nil {
+		logger.Global.TraceTag("vendor_parse", "Parsing Epson vendor PDUs", "pdu_count", len(pdus))
+	}
 
 	// Extract Epson enterprise counters
 	totalPages := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.1.1.30.1.1")
@@ -156,5 +160,12 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 	}
 
+	if logger.Global != nil {
+		mono := 0
+		color := 0
+		if m, ok := result["mono_pages"].(int); ok { mono = m }
+		if c, ok := result["color_pages"].(int); ok { color = c }
+		logger.Global.Debug("Epson parsing complete", "mono_pages", mono, "color_pages", color)
+	}
 	return result
 }

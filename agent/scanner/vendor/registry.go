@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"printmaster/agent/scanner/capabilities"
+	"printmaster/common/logger"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -77,12 +78,18 @@ func SetGenericModule(module VendorModule) {
 // 2. Try each registered module's Detect() method
 // 3. Fall back to generic module
 func DetectVendor(sysObjectID, sysDescr, model string) VendorModule {
+	if logger.Global != nil {
+		logger.Global.Debug("Vendor detection start", "sysObjectID", sysObjectID, "sysDescr_len", len(sysDescr), "model", model)
+	}
 	// Try enterprise OID prefix matching first (fastest)
 	if enterprise := extractEnterpriseNumber(sysObjectID); enterprise != "" {
 		if vendorName, ok := EnterpriseOIDMap[enterprise]; ok {
 			// Find matching vendor module
 			for _, module := range vendorModules {
 				if strings.EqualFold(module.Name(), vendorName) {
+					if logger.Global != nil {
+						logger.Global.Debug("Vendor detected via enterprise OID", "enterprise", enterprise, "vendor", module.Name())
+					}
 					return module
 				}
 			}
@@ -92,12 +99,18 @@ func DetectVendor(sysObjectID, sysDescr, model string) VendorModule {
 	// Try each module's Detect() method (allows heuristic matching)
 	for _, module := range vendorModules {
 		if module.Detect(sysObjectID, sysDescr, model) {
+			if logger.Global != nil {
+				logger.Global.Debug("Vendor detected via heuristic", "vendor", module.Name())
+			}
 			return module
 		}
 	}
 
 	// Fall back to generic
 	if genericModule != nil {
+		if logger.Global != nil {
+			logger.Global.Debug("Vendor fallback to generic module")
+		}
 		return genericModule
 	}
 

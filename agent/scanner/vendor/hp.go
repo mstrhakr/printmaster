@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"printmaster/agent/scanner/capabilities"
+	"printmaster/common/logger"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -98,6 +99,9 @@ func (v *HPVendor) SupplyOIDs() []string {
 
 func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	result := make(map[string]interface{})
+	if logger.Global != nil {
+		logger.Global.TraceTag("vendor_parse", "Parsing HP vendor PDUs", "pdu_count", len(pdus))
+	}
 
 	// Extract HP enterprise counters
 	colorPages := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.7.0")
@@ -160,12 +164,18 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	// Attempt firmware extraction from any string PDUs (sysDescr or HP enterprise values)
 	if fw := extractFirmwareVersion(pdus); fw != "" {
 		result["firmware_version"] = fw
+		if logger.Global != nil {
+			logger.Global.Info("HP firmware extracted", "version", fw)
+		}
 	}
 
 	// Parse supply levels using generic parser
 	supplies := parseSuppliesTable(pdus)
 	for k, v := range supplies {
 		result[k] = v
+	}
+	if logger.Global != nil {
+		logger.Global.Debug("HP supplies parsed", "supplies_count", len(supplies))
 	}
 
 	// Fallback to standard Printer-MIB if enterprise OIDs failed
@@ -176,6 +186,18 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 	}
 
+	if logger.Global != nil {
+		logger.Global.Debug("HP parsing complete",
+			"color_pages", colorPages,
+			"mono_pages", monoPages,
+			"copy_pages", copyPages,
+			"scan_adf", adfScans,
+			"scan_flatbed", flatbedScans,
+			"fax_pages", faxSent+faxReceived,
+			"duplex_sheets", duplexSheets,
+			"jam_events", jamEvents,
+		)
+	}
 	return result
 }
 

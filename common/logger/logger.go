@@ -63,6 +63,15 @@ type Logger struct {
 	onLogCallback   func(LogEntry)  // callback for SSE broadcasting
 }
 
+// Global is an optional shared logger instance that components may use directly
+// when a single unified logging sink is desired. It is set by the main
+// application via SetGlobal and intentionally exposed without wrapper methods
+// to avoid creating a shim layer.
+var Global *Logger
+
+// SetGlobal assigns the process-wide logger instance.
+func SetGlobal(l *Logger) { Global = l }
+
 // RotationPolicy defines when and how to rotate log files
 type RotationPolicy struct {
 	Enabled    bool
