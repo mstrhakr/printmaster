@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"printmaster/agent/supplies"
 	"printmaster/common/util"
 
 	"github.com/gosnmp/gosnmp"
@@ -562,7 +563,11 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 	var descBlack, descCyan, descMagenta, descYellow string
 	for idx, lvl := range supplyLevels {
 		if desc, ok := supplyDesc[idx]; ok {
-			tonerLevels[desc] = lvl
+			key := desc
+			if normalized := supplies.NormalizeDescription(desc); normalized != "" {
+				key = normalized
+			}
+			tonerLevels[key] = lvl
 			consumables = append(consumables, desc)
 			lcase := strings.ToLower(desc)
 			if strings.Contains(lcase, "black") || strings.Contains(lcase, "k") {

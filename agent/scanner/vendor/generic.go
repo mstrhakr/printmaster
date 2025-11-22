@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"printmaster/agent/scanner/capabilities"
+	"printmaster/agent/supplies"
 	"printmaster/common/logger"
 
 	"github.com/gosnmp/gosnmp"
@@ -96,7 +97,7 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		Type        int
 	}
 
-	supplies := make(map[string]*SupplyEntry)
+	entries := make(map[string]*SupplyEntry)
 
 	for _, pdu := range pdus {
 		oid := normalizeOID(pdu.Name)
@@ -134,14 +135,13 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 
 		// Initialize entry if not exists
-		if supplies[instance] == nil {
-			supplies[instance] = &SupplyEntry{
+		if entries[instance] == nil {
+			entries[instance] = &SupplyEntry{
 				Level:       -1,
 				MaxCapacity: -1,
 			}
 		}
-
-		entry := supplies[instance]
+		entry := entries[instance]
 
 		// Populate fields
 		switch field {
@@ -164,7 +164,7 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Map supplies to standardized names
 	processed := 0
-	for _, entry := range supplies {
+	for _, entry := range entries {
 		if entry.Description == "" {
 			continue
 		}
@@ -190,8 +190,8 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 			percentage = -1
 		}
 
-		// Match description to color
-		metricName := matchSupplyColor(desc)
+		// Match description to canonical metric key
+		metricName := supplies.NormalizeDescription(desc)
 		if metricName != "" {
 			result[metricName] = percentage
 		}
@@ -210,70 +210,6 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	return result
 }
-
-// matchSupplyColor maps a supply description to a standardized metric name.
-// Handles common variations in toner/ink descriptions.
-func matchSupplyColor(desc string) string {
-	desc = strings.ToLower(desc)
-
-	// Black (most common variations)
-	if containsAny(desc, []string{"black", "bk", "blk", "negro", "noir", "schwarz", "nero", "μαύρο"}) {
-		// Exclude "black drum" or "black imaging" unless it's explicitly toner/ink
-		if containsAny(desc, []string{"drum", "imaging", "image"}) && !containsAny(desc, []string{"toner", "ink", "cartridge"}) {
-			return "drum_life"
-		}
-		return "toner_black"
-	}
-
-	// Cyan
-	if containsAny(desc, []string{"cyan", "cy", "cyn"}) {
-		if containsAny(desc, []string{"drum", "imaging", "image"}) && !containsAny(desc, []string{"toner", "ink", "cartridge"}) {
-			return ""
-		}
-		return "toner_cyan"
-	}
-
-	// Magenta
-	if containsAny(desc, []string{"magenta", "mg", "mag"}) {
-		if containsAny(desc, []string{"drum", "imaging", "image"}) && !containsAny(desc, []string{"toner", "ink", "cartridge"}) {
-			return ""
-		}
-		return "toner_magenta"
-	}
-
-	// Yellow
-	if containsAny(desc, []string{"yellow", "yl", "yel", "amarillo", "jaune", "gelb", "giallo"}) {
-		if containsAny(desc, []string{"drum", "imaging", "image"}) && !containsAny(desc, []string{"toner", "ink", "cartridge"}) {
-			return ""
-		}
-		return "toner_yellow"
-	}
-
-	// Drum/Imaging (non-color specific)
-	if containsAny(desc, []string{"drum", "imaging"}) && !containsAny(desc, []string{"black", "cyan", "magenta", "yellow"}) {
-		return "drum_life"
-	}
-
-	// Waste toner
-	if containsAny(desc, []string{"waste", "used"}) {
-		return "waste_toner"
-	}
-
-	// Fuser
-	if containsAny(desc, []string{"fuser", "fusing"}) {
-		return "fuser_life"
-	}
-
-	// Transfer belt/unit
-	if containsAny(desc, []string{"transfer", "belt"}) {
-		return "transfer_belt"
-	}
-
-	return ""
-}
-
-// Helper functions
-
 func getOIDInt(pdus []gosnmp.SnmpPDU, oid string) int {
 	oid = normalizeOID(oid)
 	for _, pdu := range pdus {
@@ -308,13 +244,4 @@ func coerceToInt(value interface{}) int {
 		}
 	}
 	return -1
-}
-
-func containsAny(haystack string, needles []string) bool {
-	for _, needle := range needles {
-		if strings.Contains(haystack, needle) {
-			return true
-		}
-	}
-	return false
 }

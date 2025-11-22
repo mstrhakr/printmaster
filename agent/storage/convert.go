@@ -2,6 +2,7 @@ package storage
 
 import (
 	"printmaster/agent/agent"
+	"printmaster/agent/supplies"
 )
 
 // PrinterInfoToDevice converts agent.PrinterInfo to storage.Device
@@ -245,12 +246,6 @@ func PrinterInfoToScanSnapshot(pi agent.PrinterInfo) *ScanSnapshot {
 // PrinterInfoToMetricsSnapshot converts agent.PrinterInfo to storage.MetricsSnapshot
 // This extracts only metrics data (page counts, toner levels) for time-series storage.
 func PrinterInfoToMetricsSnapshot(pi agent.PrinterInfo) *MetricsSnapshot {
-	// Convert TonerLevels map[string]int to map[string]interface{} for storage
-	tonerLevels := make(map[string]interface{})
-	for k, v := range pi.TonerLevels {
-		tonerLevels[k] = v
-	}
-
 	snapshot := &MetricsSnapshot{}
 
 	// Set common MetricsSnapshot fields
@@ -259,7 +254,45 @@ func PrinterInfoToMetricsSnapshot(pi agent.PrinterInfo) *MetricsSnapshot {
 	snapshot.PageCount = pi.PageCount
 	snapshot.ColorPages = pi.ColorImpressions
 	snapshot.MonoPages = pi.MonoImpressions
-	snapshot.TonerLevels = tonerLevels
+	snapshot.TonerLevels = normalizeTonerLevels(pi)
 
 	return snapshot
+}
+
+func normalizeTonerLevels(pi agent.PrinterInfo) map[string]interface{} {
+	tonerLevels := make(map[string]interface{})
+	add := func(key string, value int) {
+		if key == "" {
+			return
+		}
+		tonerLevels[key] = value
+	}
+
+	for k, v := range pi.TonerLevels {
+		key := k
+		if normalized := supplies.NormalizeDescription(k); normalized != "" {
+			key = normalized
+		}
+		add(key, v)
+	}
+
+	ensure := func(key string, value int, desc string) {
+		if key == "" {
+			return
+		}
+		if _, exists := tonerLevels[key]; exists {
+			return
+		}
+		if value == 0 && desc == "" {
+			return
+		}
+		tonerLevels[key] = value
+	}
+
+	ensure("toner_black", pi.TonerLevelBlack, pi.TonerDescBlack)
+	ensure("toner_cyan", pi.TonerLevelCyan, pi.TonerDescCyan)
+	ensure("toner_magenta", pi.TonerLevelMagenta, pi.TonerDescMagenta)
+	ensure("toner_yellow", pi.TonerLevelYellow, pi.TonerDescYellow)
+
+	return tonerLevels
 }
