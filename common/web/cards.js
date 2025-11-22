@@ -335,6 +335,7 @@
     // Export to shared namespace
     window.__pm_shared_cards = window.__pm_shared_cards || {};
     window.__pm_shared_cards.renderSavedCard = renderSavedCard;
+    window.__pm_shared_cards.buildTonerLevels = buildTonerLevels;
     window.__pm_shared_cards.checkDatabaseRotationWarning = checkDatabaseRotationWarning;
     window.__pm_shared_cards.renderCapabilities = renderCapabilities;
 

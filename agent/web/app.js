@@ -1120,6 +1120,10 @@ function showPrinterDetails(ip, source) {
 // Load device metrics history and display in UI with interactive timeframe selector
 // If targetId is provided, render UI into that element. Otherwise render into default '#metrics_content'.
 async function loadDeviceMetrics(serial, targetId) {
+    const sharedLoad = window.__pm_shared_metrics && window.__pm_shared_metrics.loadDeviceMetrics;
+    if (typeof sharedLoad === 'function' && sharedLoad !== loadDeviceMetrics) {
+        return sharedLoad(serial, targetId);
+    }
     window.__pm_shared.log('[Metrics] loadDeviceMetrics called for serial:', serial);
     let contentEl = null;
     if (targetId) contentEl = document.getElementById(targetId);
@@ -1197,6 +1201,10 @@ async function loadDeviceMetrics(serial, targetId) {
 
 // Initialize custom datetime picker with actual data bounds
 async function initializeCustomDatetimePicker(serial, contentElOverride) {
+    const sharedInit = window.__pm_shared_metrics && window.__pm_shared_metrics.initializeCustomDatetimePicker;
+    if (typeof sharedInit === 'function' && sharedInit !== initializeCustomDatetimePicker) {
+        return sharedInit(serial, contentElOverride);
+    }
     window.__pm_shared.log('[Metrics] initializeCustomDatetimePicker called');
     try {
         // Fetch all available metrics to determine data range
@@ -1330,6 +1338,10 @@ function updatePresetButtonStates(minTime, maxTime) {
 
 // Quick range preset button handler
 window.setMetricsQuickRange = function (preset, serial) {
+    const sharedRange = window.__pm_shared_metrics && window.__pm_shared_metrics.setMetricsQuickRange;
+    if (typeof sharedRange === 'function' && sharedRange !== window.setMetricsQuickRange) {
+        return sharedRange(preset, serial);
+    }
     if (!window.metricsDataRange || !window.metricsDataRange.min || !window.metricsDataRange.flatpickr) return;
 
     const minTime = window.metricsDataRange.min;
@@ -1361,6 +1373,10 @@ window.setMetricsQuickRange = function (preset, serial) {
 
 // Refresh metrics chart based on selected timeframe
 window.refreshMetricsChart = async function (serial) {
+    const sharedRefresh = window.__pm_shared_metrics && window.__pm_shared_metrics.refreshMetricsChart;
+    if (typeof sharedRefresh === 'function' && sharedRefresh !== window.refreshMetricsChart) {
+        return sharedRefresh(serial);
+    }
     window.__pm_shared.log('[Metrics] refreshMetricsChart called for serial:', serial);
     // Prefer modal body if present, otherwise default metrics_content
     const container = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
@@ -1616,6 +1632,10 @@ window.refreshMetricsChart = async function (serial) {
 
 // Draw smooth line graph showing cumulative page count over time
 function drawMetricsChart(canvas, history, startTime, endTime) {
+    const sharedDraw = window.__pm_shared_metrics && window.__pm_shared_metrics.drawMetricsChart;
+    if (typeof sharedDraw === 'function' && sharedDraw !== drawMetricsChart) {
+        return sharedDraw(canvas, history, startTime, endTime);
+    }
     window.__pm_shared.log('[Metrics] drawMetricsChart called with', history.length, 'points');
     const ctx = canvas.getContext('2d');
     if (!ctx) {
@@ -1846,6 +1866,10 @@ function drawMetricsChart(canvas, history, startTime, endTime) {
 
 // Draw empty chart placeholder
 function drawEmptyChart(canvas) {
+    const sharedEmpty = window.__pm_shared_metrics && window.__pm_shared_metrics.drawEmptyChart;
+    if (typeof sharedEmpty === 'function' && sharedEmpty !== drawEmptyChart) {
+        return sharedEmpty(canvas);
+    }
     const ctx = canvas.getContext('2d');
 
     // Handle high DPI displays

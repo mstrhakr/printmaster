@@ -2,6 +2,158 @@
 // Exposes the same global symbols used by the app: loadDeviceMetrics, initializeCustomDatetimePicker,
 // setMetricsQuickRange, refreshMetricsChart and lower-level helpers.
 
+const TONER_COLOR_ORDER = ['black', 'cyan', 'magenta', 'yellow', 'maintenance', 'waste'];
+const TONER_COLOR_MAP = {
+    black: '#4a4a4a',
+    cyan: '#00bcd4',
+    magenta: '#d81b60',
+    yellow: '#fbc02d',
+    maintenance: '#ffb300',
+    waste: '#ef6c00',
+    default: '#8bc34a',
+};
+
+function normalizeTonerValue(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number' && !Number.isNaN(value)) {
+        return Math.min(100, Math.max(0, value));
+    }
+    const numeric = parseFloat(String(value).replace(/[^0-9.-]/g, ''));
+    if (Number.isNaN(numeric)) return null;
+    return Math.min(100, Math.max(0, numeric));
+}
+
+function canonicalizeTonerName(name) {
+    const raw = (name || '').trim();
+    const lower = raw.toLowerCase();
+    if (!raw) return { label: 'Supply', colorKey: 'default' };
+    if (lower.includes('black') || lower === 'k') return { label: 'Black', colorKey: 'black' };
+    if (lower.includes('cyan') || lower === 'c') return { label: 'Cyan', colorKey: 'cyan' };
+    if (lower.includes('magenta') || lower === 'm') return { label: 'Magenta', colorKey: 'magenta' };
+    if (lower.includes('yellow') || lower === 'y') return { label: 'Yellow', colorKey: 'yellow' };
+    if (lower.includes('waste')) return { label: raw, colorKey: 'waste' };
+    if (lower.includes('maint') || lower.includes('service')) {
+        return { label: raw, colorKey: 'maintenance' };
+    }
+    const cleaned = raw.replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const titled = cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+    return { label: titled || 'Supply', colorKey: 'default' };
+}
+
+function resolveSeriesLabel(baseLabel, series) {
+    if (!series[baseLabel]) return baseLabel;
+    let counter = 2;
+    while (series[`${baseLabel} #${counter}`]) {
+        counter++;
+    }
+    return `${baseLabel} #${counter}`;
+}
+
+function extractSnapshotTonerEntries(snapshot) {
+    let rawLevels = {};
+    try {
+        if (window.__pm_shared_cards && typeof window.__pm_shared_cards.buildTonerLevels === 'function') {
+            rawLevels = window.__pm_shared_cards.buildTonerLevels(null, snapshot) || {};
+        } else if (snapshot) {
+            rawLevels = snapshot.toners || snapshot.toner || snapshot.toner_levels || {};
+        }
+    } catch (e) {
+        rawLevels = snapshot && (snapshot.toners || snapshot.toner || snapshot.toner_levels) || {};
+    }
+
+    const entries = [];
+    Object.entries(rawLevels || {}).forEach(([name, value]) => {
+        const normalized = normalizeTonerValue(value);
+        if (normalized === null) return;
+        const meta = canonicalizeTonerName(name);
+        entries.push({ label: meta.label, colorKey: meta.colorKey, value: normalized });
+    });
+    return entries;
+}
+
+function buildTonerSeries(history) {
+    const series = {};
+    if (!Array.isArray(history)) return series;
+    history.forEach(snapshot => {
+        const timestamp = new Date(snapshot.timestamp).getTime();
+        if (Number.isNaN(timestamp)) return;
+        extractSnapshotTonerEntries(snapshot).forEach(entry => {
+            const key = resolveSeriesLabel(entry.label, series);
+            if (!series[key]) {
+                series[key] = { colorKey: entry.colorKey, points: [] };
+            }
+            series[key].points.push({ time: timestamp, value: entry.value });
+        });
+    });
+    return series;
+}
+
+function filterTonerSeriesForRange(series, startTime, endTime) {
+    if (!series) return {};
+    const result = {};
+    const startMs = startTime.getTime();
+    const endMs = endTime.getTime();
+    Object.entries(series).forEach(([name, entry]) => {
+        const points = (entry.points || []).filter(pt => pt.time >= startMs && pt.time <= endMs);
+        if (points.length > 0) {
+            result[name] = { colorKey: entry.colorKey, points };
+        }
+    });
+    return result;
+}
+
+function resolveTonerColor(label, colorKey) {
+    const loweredKey = (colorKey || '').toLowerCase();
+    if (TONER_COLOR_MAP[loweredKey]) return TONER_COLOR_MAP[loweredKey];
+    const lower = (label || '').toLowerCase();
+    if (lower.includes('black')) return TONER_COLOR_MAP.black;
+    if (lower.includes('cyan')) return TONER_COLOR_MAP.cyan;
+    if (lower.includes('magenta')) return TONER_COLOR_MAP.magenta;
+    if (lower.includes('yellow')) return TONER_COLOR_MAP.yellow;
+    if (lower.includes('waste')) return TONER_COLOR_MAP.waste;
+    if (lower.includes('maint')) return TONER_COLOR_MAP.maintenance;
+    return TONER_COLOR_MAP.default;
+}
+
+function legendSortKey(name, colorKey) {
+    const loweredKey = (colorKey || '').toLowerCase();
+    const idx = TONER_COLOR_ORDER.indexOf(loweredKey);
+    if (idx !== -1) return idx;
+    return TONER_COLOR_ORDER.length + name.toLowerCase().charCodeAt(0);
+}
+
+function renderTonerLegend(container, tonerSeries) {
+    const legendEl = (container && container.querySelector) ? container.querySelector('#toner_legend') : document.getElementById('toner_legend');
+    if (!legendEl) return;
+    const keys = Object.keys(tonerSeries || {});
+    if (keys.length === 0) {
+        legendEl.style.display = 'none';
+        legendEl.innerHTML = '';
+        return;
+    }
+    const sorted = keys.sort((a, b) => {
+        const aKey = legendSortKey(a, tonerSeries[a].colorKey);
+        const bKey = legendSortKey(b, tonerSeries[b].colorKey);
+        if (aKey === bKey) {
+            return a.localeCompare(b);
+        }
+        return aKey - bKey;
+    });
+
+    legendEl.style.display = 'flex';
+    legendEl.style.flexWrap = 'wrap';
+    legendEl.innerHTML = sorted.map(name => {
+        const entry = tonerSeries[name];
+        const color = resolveTonerColor(name, entry.colorKey);
+        const lastPoint = entry.points && entry.points[entry.points.length - 1];
+        const latestText = lastPoint ? Math.round(lastPoint.value) + '%' : '–';
+        return '<div class="toner-legend-item" style="display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(0,0,0,0.15);border-radius:999px;margin:4px 6px;color:var(--text);font-size:12px">'
+            + '<span style="width:10px;height:10px;border-radius:50%;background:' + color + ';"></span>'
+            + '<span>' + name + ': <strong>' + latestText + '</strong></span>'
+            + '</div>';
+    }).join('');
+}
+
 // Load device metrics history and display in UI with interactive timeframe selector
 // If targetId is provided, render UI into that element. Otherwise render into default '#metrics_content'.
 async function loadDeviceMetrics(serial, targetId) {
@@ -61,6 +213,7 @@ async function loadDeviceMetrics(serial, targetId) {
 
     // Chart canvas
     html += '<canvas id="metrics_chart" width="500" height="200" style="width:100%;max-height:200px;background:#001f22;border:1px solid rgba(255,255,255,0.06);border-radius:4px"></canvas>';
+    html += '<div id="toner_legend" style="margin-top:8px;display:none;gap:8px;flex-wrap:wrap"></div>';
 
     contentEl.innerHTML = html;
 
@@ -292,6 +445,7 @@ async function refreshMetricsChart(serial) {
         if (!fp || !fp.selectedDates || fp.selectedDates.length !== 2) {
             window.__pm_shared.warn('[Metrics] No valid date range selected');
             statsEl.textContent = 'Please select a date range';
+            renderTonerLegend(container, {});
             return;
         }
         window.__pm_shared.log('[Metrics] Using date range:', fp.selectedDates);
@@ -302,6 +456,7 @@ async function refreshMetricsChart(serial) {
         // Validate range
         if (endTime <= startTime) {
             statsEl.textContent = 'End time must be after start time';
+            renderTonerLegend(container, {});
             return;
         }
 
@@ -315,6 +470,7 @@ async function refreshMetricsChart(serial) {
         if (!res.ok) {
             window.__pm_shared.error('[Metrics] Chart data API returned status:', res.status);
             statsEl.textContent = 'No metrics data available yet.';
+            renderTonerLegend(container, {});
             return;
         }
 
@@ -324,8 +480,12 @@ async function refreshMetricsChart(serial) {
             window.__pm_shared.warn('[Metrics] No data in selected timeframe');
             statsEl.textContent = 'No metrics data in selected timeframe.';
             drawEmptyChart(canvas);
+            renderTonerLegend(container, {});
             return;
         }
+
+        const tonerSeries = buildTonerSeries(history);
+        const filteredTonerSeries = filterTonerSeriesForRange(tonerSeries, startTime, endTime);
 
         // Calculate stats - comprehensive metrics table
         const latest = history[history.length - 1];
@@ -401,7 +561,8 @@ async function refreshMetricsChart(serial) {
         window.__pm_shared.log('[Metrics] Stats updated, drawing chart');
 
         // Draw chart
-        drawMetricsChart(canvas, history, startTime, endTime);
+        drawMetricsChart(canvas, history, startTime, endTime, filteredTonerSeries);
+        renderTonerLegend(container, filteredTonerSeries);
 
         // Render a horizontally-scrollable metrics table showing each snapshot and a delete button
         try {
@@ -502,7 +663,7 @@ async function refreshMetricsChart(serial) {
 }
 
 // Draw smooth line graph showing cumulative page count over time
-function drawMetricsChart(canvas, history, startTime, endTime) {
+function drawMetricsChart(canvas, history, startTime, endTime, tonerSeries) {
     window.__pm_shared.log('[Metrics] (shared) drawMetricsChart called with', history.length, 'points');
     const ctx = canvas.getContext('2d');
     if (!ctx) {
@@ -544,6 +705,9 @@ function drawMetricsChart(canvas, history, startTime, endTime) {
         drawEmptyChart(canvas);
         return;
     }
+
+    const seriesToPlot = tonerSeries || {};
+    const hasTonerSeries = Object.keys(seriesToPlot).length > 0;
 
     // Find min/max values for scaling
     const minValue = Math.min(...dataPoints.map(p => p.value));
@@ -592,6 +756,34 @@ function drawMetricsChart(canvas, history, startTime, endTime) {
     ctx.lineTo(padding.left, padding.top + chartHeight);
     ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
     ctx.stroke();
+
+    const tonerAxis = padding.left + chartWidth;
+    const tonerMin = 0;
+    const tonerMax = 100;
+    const mapTonerY = (value) => padding.top + chartHeight - ((value - tonerMin) / (tonerMax - tonerMin)) * chartHeight;
+
+    if (hasTonerSeries) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.beginPath();
+        ctx.moveTo(tonerAxis, padding.top);
+        ctx.lineTo(tonerAxis, padding.top + chartHeight);
+        ctx.stroke();
+
+        const tonerTicks = [0, 25, 50, 75, 100];
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'left';
+        tonerTicks.forEach(level => {
+            const y = mapTonerY(level);
+            ctx.beginPath();
+            ctx.moveTo(tonerAxis, y);
+            ctx.lineTo(tonerAxis + 6, y);
+            ctx.stroke();
+            ctx.fillText(level + '%', tonerAxis + 8, y + 4);
+        });
+        ctx.restore();
+    }
 
     // Draw Y-axis labels (page counts)
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
@@ -709,11 +901,42 @@ function drawMetricsChart(canvas, history, startTime, endTime) {
         });
     }
 
+    if (hasTonerSeries) {
+        Object.entries(seriesToPlot).forEach(([name, entry]) => {
+            const color = resolveTonerColor(name, entry.colorKey);
+            ctx.beginPath();
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.moveTo(mapX(entry.points[0].time), mapTonerY(entry.points[0].value));
+            for (let i = 1; i < entry.points.length; i++) {
+                ctx.lineTo(mapX(entry.points[i].time), mapTonerY(entry.points[i].value));
+            }
+            ctx.stroke();
+
+            if (entry.points.length <= 60) {
+                entry.points.forEach(pt => {
+                    ctx.beginPath();
+                    ctx.fillStyle = color;
+                    ctx.strokeStyle = '#002b36';
+                    ctx.lineWidth = 1;
+                    ctx.arc(mapX(pt.time), mapTonerY(pt.value), 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                });
+            }
+        });
+    }
+
     // Chart title
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('Page Count Over Time', padding.left, 18);
+    if (hasTonerSeries) {
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText('Consumable %', tonerAxis, 18);
+    }
 
     // Data point count indicator (top right)
     ctx.font = '10px monospace';
