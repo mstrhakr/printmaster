@@ -3,6 +3,8 @@ package vendor
 import (
 	"testing"
 
+	"printmaster/agent/supplies"
+
 	"github.com/gosnmp/gosnmp"
 )
 
@@ -241,9 +243,9 @@ func TestSupplyColorMatching(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			got := matchSupplyColor(tt.description)
+			got := supplies.NormalizeDescription(tt.description)
 			if got != tt.want {
-				t.Errorf("matchSupplyColor(%q) = %q, want %q", tt.description, got, tt.want)
+				t.Errorf("NormalizeDescription(%q) = %q, want %q", tt.description, got, tt.want)
 			}
 		})
 	}

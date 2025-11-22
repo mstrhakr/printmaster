@@ -255,16 +255,13 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 			scalarOIDs = oids
 		}
 
-		// GET scalar values
+		// GET scalar values using batched requests to avoid oversized PDUs
 		if len(scalarOIDs) > 0 {
-			result, err := client.Get(scalarOIDs)
+			scalarPDUs, err := batchedGet(ctx, client, scalarOIDs, defaultOIDBatchSize)
 			if err != nil {
-				return nil, fmt.Errorf("SNMP GET failed: %w", err)
+				return nil, err
 			}
-
-			if result != nil {
-				pdus = result.Variables
-			}
+			pdus = append(pdus, scalarPDUs...)
 		}
 
 		// WALK supply tables
@@ -340,9 +337,11 @@ func buildQueryOIDsWithModule(profile QueryProfile, caps *capabilities.DeviceCap
 	switch profile {
 	case QueryMinimal:
 		oids = []string{"1.3.6.1.2.1.43.5.1.1.17.1"}
+		oids = appendUniqueOIDs(oids, VendorIDTargetOIDs()...)
 	case QueryEssential:
 		oids = append(oids, vendorModule.BaseOIDs()...)
 		oids = append(oids, "1.3.6.1.2.1.43.10.2.1.4.1")
+		oids = appendUniqueOIDs(oids, VendorIDTargetOIDs()...)
 	case QueryFull:
 		return nil
 	case QueryMetrics:
@@ -351,6 +350,28 @@ func buildQueryOIDsWithModule(profile QueryProfile, caps *capabilities.DeviceCap
 		oids = append(oids, vendorModule.SupplyOIDs()...)
 	}
 	return oids
+}
+
+// appendUniqueOIDs appends extras to base while avoiding duplicate OIDs.
+func appendUniqueOIDs(base []string, extras ...string) []string {
+	if len(extras) == 0 {
+		return base
+	}
+	seen := make(map[string]struct{}, len(base))
+	for _, oid := range base {
+		seen[oid] = struct{}{}
+	}
+	for _, extra := range extras {
+		if extra == "" {
+			continue
+		}
+		if _, ok := seen[extra]; ok {
+			continue
+		}
+		base = append(base, extra)
+		seen[extra] = struct{}{}
+	}
+	return base
 }
 
 // enterpriseFromHint is a helper best-effort map from vendor name to a synthetic OID to reuse DetectVendor logic.

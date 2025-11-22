@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"printmaster/agent/scanner"
 	"printmaster/agent/supplies"
 	"printmaster/common/util"
 
@@ -25,6 +26,43 @@ var AssetIDRegex string
 // SetAssetIDRegex updates the package-level regex used during parsing.
 func SetAssetIDRegex(r string) {
 	AssetIDRegex = r
+}
+
+// parseDeviceIDPayload extracts key/value pairs from IEEE-1284 style descriptors.
+func parseDeviceIDPayload(raw string) map[string]string {
+	fields := make(map[string]string)
+	if raw == "" {
+		return fields
+	}
+	parts := strings.Split(raw, ";")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		sepIdx := strings.IndexAny(part, ":=")
+		if sepIdx == -1 {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(part[:sepIdx]))
+		val := strings.TrimSpace(part[sepIdx+1:])
+		if key == "" || val == "" {
+			continue
+		}
+		fields[key] = val
+	}
+	return fields
+}
+
+// firstNonEmpty returns the first non-empty trimmed string from the provided list.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		trimmed := strings.TrimSpace(v)
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 // extractIPv4FromOID checks whether the last four numeric components of an OID
@@ -394,6 +432,45 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 	// scan PDUs for known OIDs and patterns
 	for _, v := range allVars {
 		name := strings.TrimPrefix(v.Name, ".")
+		if target, ok := scanner.LookupVendorIDTarget(name); ok {
+			raw := pduToString(v.Value)
+			learnedOIDs.VendorSpecificOIDs[target.Key] = name
+			if raw != "" {
+				fields := parseDeviceIDPayload(raw)
+				if model == "" {
+					if mdl := firstNonEmpty(fields["mdl"], fields["model"], fields["md"]); mdl != "" {
+						model = strings.TrimSpace(mdl)
+						prov["model"] = name
+						learnedOIDs.ModelOID = name
+					}
+				}
+				if serial == "" {
+					if sn := firstNonEmpty(fields["sn"], fields["serial"], fields["ser"]); sn != "" && !looksLikeUUID(sn) {
+						serial = strings.TrimSpace(sn)
+						prov["serial"] = name
+						learnedOIDs.SerialOID = name
+					}
+				}
+				if description == "" {
+					if des := firstNonEmpty(fields["des"], fields["description"]); des != "" {
+						description = strings.TrimSpace(des)
+						prov["description"] = name
+					}
+				}
+				if assetID == "" {
+					if asset := firstNonEmpty(fields["asset"], fields["assetid"]); asset != "" {
+						assetID = strings.TrimSpace(asset)
+					}
+				}
+				if mfgGuess == "" {
+					if mfg := firstNonEmpty(fields["mfg"], fields["manufacturer"]); mfg != "" {
+						mfgGuess = strings.ToLower(mfg)
+					}
+				}
+				debug.Steps = append(debug.Steps, fmt.Sprintf("vendor_device_id:%s", target.Key))
+			}
+			continue
+		}
 		switch name {
 		case "1.3.6.1.2.1.1.1.0":
 			raw := pduToString(v.Value)

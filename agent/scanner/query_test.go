@@ -12,9 +12,12 @@ import (
 type mockSNMPClient struct {
 	connectErr error
 	getResult  *gosnmp.SnmpPacket
+	getResults []*gosnmp.SnmpPacket
 	getErr     error
 	walkPDUs   []gosnmp.SnmpPDU
 	walkErr    error
+	getInputs  [][]string
+	getCalls   int
 }
 
 func (m *mockSNMPClient) Connect() error {
@@ -22,8 +25,19 @@ func (m *mockSNMPClient) Connect() error {
 }
 
 func (m *mockSNMPClient) Get(oids []string) (*gosnmp.SnmpPacket, error) {
+	m.getCalls++
+	copyOids := make([]string, len(oids))
+	copy(copyOids, oids)
+	m.getInputs = append(m.getInputs, copyOids)
 	if m.getErr != nil {
 		return nil, m.getErr
+	}
+	if len(m.getResults) > 0 {
+		idx := m.getCalls - 1
+		if idx < len(m.getResults) {
+			return m.getResults[idx], nil
+		}
+		return m.getResults[len(m.getResults)-1], nil
 	}
 	return m.getResult, nil
 }
@@ -285,6 +299,12 @@ func TestBuildQueryOIDs_Minimal(t *testing.T) {
 	if !found {
 		t.Errorf("expected serial OID %s in minimal query", expectedSerial)
 	}
+
+	// QueryMinimal should also include at least one vendor-specific device ID OID (HP IEEE-1284)
+	vendorOID := "1.3.6.1.4.1.11.2.3.9.1.1.7.0"
+	if !containsOID(oids, vendorOID) {
+		t.Errorf("expected vendor device ID OID %s in minimal query", vendorOID)
+	}
 }
 
 func TestBuildQueryOIDs_Essential(t *testing.T) {
@@ -336,4 +356,13 @@ func TestBuildQueryOIDs_Full(t *testing.T) {
 	if oids != nil {
 		t.Errorf("expected nil for QueryFull (walk mode), got %v", oids)
 	}
+}
+
+func containsOID(list []string, target string) bool {
+	for _, oid := range list {
+		if oid == target {
+			return true
+		}
+	}
+	return false
 }

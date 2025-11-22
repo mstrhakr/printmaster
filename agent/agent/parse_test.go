@@ -63,3 +63,26 @@ func TestParsePDUs_OID16_UUID_DoesNotSetSerial(t *testing.T) {
 		t.Fatalf("expected description to capture UUID '%s', got '%s'", uuid, pi.Description)
 	}
 }
+
+func TestParsePDUs_VendorDeviceIDSetsModelAndSerial(t *testing.T) {
+	t.Parallel()
+
+	vars := []gosnmp.SnmpPDU{
+		{Name: "1.3.6.1.4.1.11.2.3.9.1.1.7.0", Type: gosnmp.OctetString, Value: []byte("MFG:HP;MDL:LaserJet 400;SN:CN123456;DES:Workgroup printer;")},
+		{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.OctetString, Value: []byte("1500")},
+	}
+
+	pi, ok := ParsePDUs("10.0.0.4", vars, nil, nil)
+	if !ok {
+		t.Fatalf("expected vendor device ID to still mark as printer via marker count")
+	}
+	if pi.Model != "LaserJet 400" {
+		t.Fatalf("expected model LaserJet 400, got %q", pi.Model)
+	}
+	if pi.Serial != "CN123456" {
+		t.Fatalf("expected serial CN123456, got %q", pi.Serial)
+	}
+	if pi.Description != "Workgroup printer" {
+		t.Fatalf("expected description from DES field, got %q", pi.Description)
+	}
+}
