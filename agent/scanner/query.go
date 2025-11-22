@@ -3,8 +3,10 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"printmaster/agent/scanner/capabilities"
+	"printmaster/agent/scanner/vendor"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -125,8 +127,48 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 	}
 	defer client.Close()
 
-	// 4. Build OID list based on profile + capabilities
-	oids := buildQueryOIDsWithCapabilities(profile, caps)
+	// 3. Preliminary vendor detection (fast, minimal GET) unless full walk
+	var detectedVendor vendor.VendorModule
+	var sysObjectID, sysDescr, model string
+
+	if profile != QueryFull {
+		preOIDs := []string{
+			"1.3.6.1.2.1.1.2.0",        // sysObjectID
+			"1.3.6.1.2.1.1.1.0",        // sysDescr
+			"1.3.6.1.2.1.25.3.2.1.3.1", // hrDeviceDescr
+		}
+		preRes, preErr := client.Get(preOIDs)
+		if preErr == nil && preRes != nil {
+			for _, pdu := range preRes.Variables {
+				name := strings.TrimPrefix(pdu.Name, ".")
+				if name == "1.3.6.1.2.1.1.2.0" {
+					if b, ok := pdu.Value.([]byte); ok { sysObjectID = string(b) } else if s, ok := pdu.Value.(string); ok { sysObjectID = s }
+				} else if name == "1.3.6.1.2.1.1.1.0" {
+					if b, ok := pdu.Value.([]byte); ok { sysDescr = string(b) } else if s, ok := pdu.Value.(string); ok { sysDescr = s }
+				} else if name == "1.3.6.1.2.1.25.3.2.1.3.1" {
+					if b, ok := pdu.Value.([]byte); ok { model = string(b) } else if s, ok := pdu.Value.(string); ok { model = s }
+				}
+			}
+		}
+		// If caller supplied vendorHint, prefer that; else detect
+		if vendorHint != "" {
+			// Attempt to match a registered module by name
+			detectedVendor = vendor.DetectVendor(sysObjectID, sysDescr, model)
+			if !strings.EqualFold(detectedVendor.Name(), vendorHint) {
+				// Fallback: iterate modules to find explicit name match
+				detectedVendor = vendor.DetectVendor("."+enterpriseFromHint(vendorHint), sysDescr, model) // crude fallback
+			}
+		} else {
+			detectedVendor = vendor.DetectVendor(sysObjectID, sysDescr, model)
+		}
+	}
+	if detectedVendor == nil {
+		// Full walk or detection failed: use generic
+		detectedVendor = &vendor.GenericVendor{}
+	}
+
+	// 4. Build OID list based on profile + capabilities + vendor
+	oids := buildQueryOIDsWithModule(profile, caps, detectedVendor)
 
 	// 5. Query SNMP (Walk for Full, Get for others)
 	var pdus []gosnmp.SnmpPDU
@@ -203,51 +245,61 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 }
 
 // buildQueryOIDs constructs the list of OIDs to query based on profile.
-// Uses standard Printer-MIB OIDs only (no vendor-specific modules).
+// Now vendor-aware: integrates vendor module OIDs with standard Printer-MIB.
 func buildQueryOIDs(profile QueryProfile) []string {
 	return buildQueryOIDsWithCapabilities(profile, nil)
 }
 
 // buildQueryOIDsWithCapabilities constructs the list of OIDs with optional capability-aware filtering.
-// Hardcoded standard Printer-MIB OIDs for simplicity and maintainability.
-func buildQueryOIDsWithCapabilities(profile QueryProfile, _ *capabilities.DeviceCapabilities) []string { //nolint:revive
+// Integrates vendor-specific OIDs when vendorHint is provided.
+func buildQueryOIDsWithCapabilities(profile QueryProfile, caps *capabilities.DeviceCapabilities) []string { // backward compatibility
+	return buildQueryOIDsWithModule(profile, caps, &vendor.GenericVendor{})
+}
+
+// buildQueryOIDsWithModule constructs OIDs using a specific vendor module.
+func buildQueryOIDsWithModule(profile QueryProfile, caps *capabilities.DeviceCapabilities, vendorModule vendor.VendorModule) []string {
 	var oids []string
 
 	switch profile {
 	case QueryMinimal:
-		// Just serial number OID (fastest detection)
-		oids = []string{
-			"1.3.6.1.2.1.43.5.1.1.17.1", // prtGeneralSerialNumber
-		}
-
+		oids = []string{"1.3.6.1.2.1.43.5.1.1.17.1"}
 	case QueryEssential:
-		// Serial + basic device info + toner + pages + status
-		oids = []string{
-			"1.3.6.1.2.1.1.1.0",         // sysDescr
-			"1.3.6.1.2.1.1.5.0",         // sysName
-			"1.3.6.1.2.1.25.3.2.1.3.1",  // hrDeviceDescr (model)
-			"1.3.6.1.2.1.43.5.1.1.17.1", // prtGeneralSerialNumber
-			"1.3.6.1.2.1.43.10.2.1.4.1", // prtMarkerLifeCount (page count)
-			"1.3.6.1.2.1.43.11.1.1.6.1", // prtMarkerSuppliesLevel (toner level)
-			"1.3.6.1.2.1.43.11.1.1.9.1", // prtMarkerSuppliesMaxCapacity
-			"1.3.6.1.2.1.25.3.5.1.1.1",  // hrPrinterStatus
-		}
-
+		oids = append(oids, vendorModule.BaseOIDs()...)
+		oids = append(oids, "1.3.6.1.2.1.43.10.2.1.4.1")
 	case QueryFull:
-		// Full walk - return nil to indicate walk mode
 		return nil
-
 	case QueryMetrics:
-		// Standard metrics (page counts + toner levels + status)
-		oids = []string{
-			"1.3.6.1.2.1.43.10.2.1.4.1", // prtMarkerLifeCount
-			"1.3.6.1.2.1.43.11.1.1.6.1", // prtMarkerSuppliesLevel
-			"1.3.6.1.2.1.43.11.1.1.9.1", // prtMarkerSuppliesMaxCapacity
-			"1.3.6.1.2.1.25.3.5.1.1.1",  // hrPrinterStatus
-		}
+		oids = append(oids, vendorModule.BaseOIDs()...)
+		oids = append(oids, vendorModule.MetricOIDs(caps)...)
+		oids = append(oids, vendorModule.SupplyOIDs()...)
 	}
-
 	return oids
+}
+
+// enterpriseFromHint is a helper best-effort map from vendor name to a synthetic OID to reuse DetectVendor logic.
+func enterpriseFromHint(name string) string {
+	switch strings.ToLower(name) {
+	case "hp":
+		return "11"
+	case "kyocera":
+		return "1347"
+	case "epson":
+		return "1248"
+	case "canon":
+		return "1602"
+	case "brother":
+		return "2435"
+	case "lexmark":
+		return "641"
+	case "ricoh":
+		return "367"
+	case "samsung":
+		return "236"
+	case "xerox":
+		return "253"
+	default:
+		return ""
+	}
 }
 
 // detectCapabilities analyzes SNMP PDUs to determine device capabilities.

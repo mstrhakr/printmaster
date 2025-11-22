@@ -1,0 +1,135 @@
+package vendor
+
+import (
+	"strings"
+
+	"printmaster/agent/scanner/capabilities"
+
+	"github.com/gosnmp/gosnmp"
+)
+
+// VendorModule defines the interface for vendor-specific SNMP handling.
+// Each vendor (HP, Canon, Brother, etc.) implements this interface to provide
+// custom OID lists and parsing logic for their proprietary enterprise MIBs.
+type VendorModule interface {
+	// Name returns the vendor identifier (e.g., "HP", "Kyocera", "Epson").
+	Name() string
+
+	// Detect returns true if this module should be used for the given device.
+	// Checks sysObjectID, sysDescr, and other evidence.
+	Detect(sysObjectID, sysDescr, model string) bool
+
+	// BaseOIDs returns standard OIDs that should always be queried (page counts, status).
+	// These are included in all query profiles.
+	BaseOIDs() []string
+
+	// MetricOIDs returns vendor-specific metric OIDs (color pages, copy/fax/scan counters).
+	// Only included when QueryProfile is QueryMetrics or QueryEssential.
+	// Can return capability-aware OIDs if caps is provided.
+	MetricOIDs(caps *capabilities.DeviceCapabilities) []string
+
+	// SupplyOIDs returns OIDs for supply levels (toner, ink, drums).
+	// Typically walks prtMarkerSuppliesTable or vendor-specific supply trees.
+	SupplyOIDs() []string
+
+	// Parse extracts metrics from SNMP PDUs and returns a map of metric names to values.
+	// Keys should match the MetricRegistry names (e.g., "color_pages", "toner_cyan").
+	// Returns map[string]interface{} to support int, float64, string, etc.
+	Parse(pdus []gosnmp.SnmpPDU) map[string]interface{}
+}
+
+// EnterpriseOIDMap maps IANA enterprise numbers to vendor names.
+// Source: https://www.iana.org/assignments/enterprise-numbers/
+var EnterpriseOIDMap = map[string]string{
+	"11":   "HP",      // Hewlett-Packard
+	"367":  "Ricoh",   // Ricoh Company, Ltd.
+	"641":  "Lexmark", // Lexmark International
+	"1347": "Kyocera", // Kyocera Corporation
+	"1602": "Canon",   // Canon Inc.
+	"2435": "Brother", // Brother Industries, Ltd.
+	"1248": "Epson",   // Seiko Epson Corporation
+	"236":  "Samsung", // Samsung Electronics
+	"253":  "Xerox",   // Xerox Corporation
+	// Add more as needed
+}
+
+// vendorModules holds registered vendor module instances.
+// Populated by init() functions in each vendor module file.
+var vendorModules []VendorModule
+
+// genericModule is the fallback when no vendor-specific module matches.
+var genericModule VendorModule
+
+// RegisterVendor adds a vendor module to the registry.
+// Called by init() in each vendor module file (hp.go, canon.go, etc.).
+func RegisterVendor(module VendorModule) {
+	vendorModules = append(vendorModules, module)
+}
+
+// SetGenericModule sets the fallback module used when no vendor matches.
+func SetGenericModule(module VendorModule) {
+	genericModule = module
+}
+
+// DetectVendor identifies the appropriate vendor module for a device.
+// Detection logic:
+// 1. Extract enterprise number from sysObjectID (e.g., "1.3.6.1.4.1.11.2..." → "11" → HP)
+// 2. Try each registered module's Detect() method
+// 3. Fall back to generic module
+func DetectVendor(sysObjectID, sysDescr, model string) VendorModule {
+	// Try enterprise OID prefix matching first (fastest)
+	if enterprise := extractEnterpriseNumber(sysObjectID); enterprise != "" {
+		if vendorName, ok := EnterpriseOIDMap[enterprise]; ok {
+			// Find matching vendor module
+			for _, module := range vendorModules {
+				if strings.EqualFold(module.Name(), vendorName) {
+					return module
+				}
+			}
+		}
+	}
+
+	// Try each module's Detect() method (allows heuristic matching)
+	for _, module := range vendorModules {
+		if module.Detect(sysObjectID, sysDescr, model) {
+			return module
+		}
+	}
+
+	// Fall back to generic
+	if genericModule != nil {
+		return genericModule
+	}
+
+	// Should never reach here, but return a safe default
+	return &GenericVendor{}
+}
+
+// extractEnterpriseNumber extracts the enterprise number from a sysObjectID.
+// Example: "1.3.6.1.4.1.11.2.3.9.1" → "11"
+// Returns empty string if the OID doesn't match the standard enterprise pattern.
+func extractEnterpriseNumber(sysObjectID string) string {
+	// Remove leading dot if present
+	oid := strings.TrimPrefix(sysObjectID, ".")
+
+	// Standard enterprise OID prefix: 1.3.6.1.4.1.<enterprise_number>
+	parts := strings.Split(oid, ".")
+	if len(parts) >= 7 &&
+		parts[0] == "1" &&
+		parts[1] == "3" &&
+		parts[2] == "6" &&
+		parts[3] == "1" &&
+		parts[4] == "4" &&
+		parts[5] == "1" {
+		return parts[6] // Enterprise number
+	}
+
+	return ""
+}
+
+// GetVendorName returns the human-readable vendor name for a device.
+// Used for logging and display purposes.
+func GetVendorName(sysObjectID, sysDescr, model string) string {
+	module := DetectVendor(sysObjectID, sysDescr, model)
+	return module.Name()
+}
