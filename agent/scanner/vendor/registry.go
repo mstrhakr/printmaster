@@ -146,3 +146,14 @@ func GetVendorName(sysObjectID, sysDescr, model string) string {
 	module := DetectVendor(sysObjectID, sysDescr, model)
 	return module.Name()
 }
+
+// GetVendorByName returns the registered vendor module with the given name (case-insensitive).
+// Returns nil if no matching vendor is found.
+func GetVendorByName(name string) VendorModule {
+	for _, module := range vendorModules {
+		if strings.EqualFold(module.Name(), name) {
+			return module
+		}
+	}
+	return nil
+}

@@ -70,7 +70,7 @@ func init() {
 
 	// Build flat OID lookup map for fast searching
 	oidLookup = make(map[string]OIDInfo)
-	
+
 	// Add standard MIB OIDs
 	for oid, info := range printerMIB.OIDs {
 		oidLookup[oid] = info
@@ -79,7 +79,7 @@ func init() {
 			oidLookup[childOID] = childInfo
 		}
 	}
-	
+
 	// Add HP MIB OIDs
 	for oid, info := range hpMIB.OIDs {
 		oidLookup[oid] = info

@@ -112,6 +112,34 @@ var MetricRegistry = struct {
 			RequiresAny: []string{"scanner", "copier"},
 			Description: "Scans from ADF to computer",
 		},
+		{
+			Name:        "scan_adf_images",
+			DisplayName: "ADF Images Scanned",
+			Category:    "pages",
+			RequiresAny: []string{"scanner", "copier"},
+			Description: "Total images scanned using the automatic document feeder",
+		},
+		{
+			Name:        "scan_flatbed_images",
+			DisplayName: "Flatbed Images Scanned",
+			Category:    "pages",
+			RequiresAny: []string{"scanner", "copier"},
+			Description: "Total images scanned using the flatbed",
+		},
+		{
+			Name:        "scan_adf_to_host_images",
+			DisplayName: "ADF Images to Host",
+			Category:    "pages",
+			RequiresAny: []string{"scanner", "copier"},
+			Description: "Images captured via ADF workflows that deliver directly to a host",
+		},
+		{
+			Name:        "scan_flatbed_to_host_images",
+			DisplayName: "Flatbed Images to Host",
+			Category:    "pages",
+			RequiresAny: []string{"scanner", "copier"},
+			Description: "Images captured via flatbed workflows that deliver directly to a host",
+		},
 
 		// === FAX COUNTERS ===
 		{
@@ -134,6 +162,13 @@ var MetricRegistry = struct {
 			Category:    "pages",
 			RequiresAll: []string{"fax"},
 			Description: "Fax pages sent via flatbed",
+		},
+		{
+			Name:        "fax_impressions",
+			DisplayName: "Fax Impressions",
+			Category:    "pages",
+			RequiresAll: []string{"fax"},
+			Description: "Total fax impressions processed (ADF + flatbed)",
 		},
 
 		// === DUPLEX COUNTERS ===
@@ -234,6 +269,13 @@ var MetricRegistry = struct {
 			Category:    "usage",
 			RequiresAll: []string{"printer"},
 			Description: "Total paper jam events",
+		},
+		{
+			Name:        "jam_events_total",
+			DisplayName: "Paper Jams (Total)",
+			Category:    "usage",
+			RequiresAll: []string{"printer"},
+			Description: "Device-reported aggregate jam counter when available",
 		},
 		{
 			Name:        "scanner_jam_events",

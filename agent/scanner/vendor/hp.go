@@ -59,17 +59,25 @@ func (v *HPVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 	// Add MFP-specific counters if device has copier/scanner
 	if caps != nil && (caps.IsCopier || caps.IsScanner) {
 		oids = append(oids,
-			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.3.0", // Copy pages
-			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.0", // ADF scan pages
-			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.1.0", // Flatbed scan pages
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.3.0",    // Copy pages
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.0",    // ADF scan pages
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.1.0",    // Flatbed scan pages
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.44.0", // ADF images scanned (lifetime)
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.45.0", // ADF images scanned to host
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.73.0", // Flatbed images scanned to host
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.74.0", // Flatbed images scanned (lifetime)
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.43.0", // Scanner jam events
 		)
 	}
 
 	// Add fax counters if device has fax
 	if caps != nil && caps.IsFax {
 		oids = append(oids,
-			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.1.0", // Fax pages sent
-			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.2.0", // Fax pages received
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.1.0",    // Fax pages sent
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.2.0",    // Fax pages received
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.31.0", // Fax ADF images scanned
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.36.0", // Fax flatbed images scanned
+			"1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.32.0", // Fax impressions
 		)
 	}
 
@@ -83,6 +91,8 @@ func (v *HPVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 	// Jam event counter
 	oids = append(oids, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.0") // Paper jams
 
+	// Extended jam summary counter (always-on due to minimal cost)
+	oids = append(oids, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.34.0")
 	return oids
 }
 
@@ -113,6 +123,17 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	faxReceived := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.2.0")
 	duplexSheets := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.6.0")
 	jamEvents := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.0")
+
+	// Extended metrics
+	jamEventsTotal := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.34.0")
+	adfScansToHost := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.45.0")
+	flatbedScansToHost := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.73.0")
+	faxAdfScans := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.31.0")
+	faxFlatbedScans := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.36.0")
+	faxImpressions := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.32.0")
+	adfImagesScanned := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.44.0")
+	flatbedImagesScanned := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.74.0")
+	scannerJamEvents := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.43.0")
 
 	// Color/Mono breakdown
 	if colorPages > 0 {
@@ -159,6 +180,37 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	// Jam events
 	if jamEvents > 0 {
 		result["jam_events"] = jamEvents
+	}
+	if jamEventsTotal > 0 {
+		result["jam_events_total"] = jamEventsTotal
+	}
+	if scannerJamEvents > 0 {
+		result["scanner_jam_events"] = scannerJamEvents
+	}
+
+	// Extended scan metrics
+	if adfScansToHost > 0 {
+		result["scan_adf_to_host_images"] = adfScansToHost
+	}
+	if flatbedScansToHost > 0 {
+		result["scan_flatbed_to_host_images"] = flatbedScansToHost
+	}
+	if adfImagesScanned > 0 {
+		result["scan_adf_images"] = adfImagesScanned
+	}
+	if flatbedImagesScanned > 0 {
+		result["scan_flatbed_images"] = flatbedImagesScanned
+	}
+
+	// Extended fax metrics
+	if faxAdfScans > 0 {
+		result["fax_scan_adf"] = faxAdfScans
+	}
+	if faxFlatbedScans > 0 {
+		result["fax_scan_flatbed"] = faxFlatbedScans
+	}
+	if faxImpressions > 0 {
+		result["fax_impressions"] = faxImpressions
 	}
 
 	// Attempt firmware extraction from any string PDUs (sysDescr or HP enterprise values)
