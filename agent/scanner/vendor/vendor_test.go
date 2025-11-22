@@ -213,10 +213,10 @@ func TestHPVendorFirmwareParse(t *testing.T) {
 
 	fw, ok := result["firmware_version"].(string)
 	if !ok || fw != "20230712" {
-			// Accept alternative extraction if pattern changes
-			if fw == "" {
-				t.Errorf("expected firmware_version parsed, got empty")
-			}
+		// Accept alternative extraction if pattern changes
+		if fw == "" {
+			t.Errorf("expected firmware_version parsed, got empty")
+		}
 	}
 }
 

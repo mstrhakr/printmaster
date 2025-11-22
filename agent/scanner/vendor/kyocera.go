@@ -173,8 +173,12 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	if logger.Global != nil {
 		mono := 0
 		color := 0
-		if m, ok := result["mono_pages"].(int); ok { mono = m }
-		if c, ok := result["color_pages"].(int); ok { color = c }
+		if m, ok := result["mono_pages"].(int); ok {
+			mono = m
+		}
+		if c, ok := result["color_pages"].(int); ok {
+			color = c
+		}
 		logger.Global.Debug("Kyocera parsing complete", "mono_pages", mono, "color_pages", color)
 	}
 	return result

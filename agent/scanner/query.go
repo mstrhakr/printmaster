@@ -143,11 +143,23 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 			for _, pdu := range preRes.Variables {
 				name := strings.TrimPrefix(pdu.Name, ".")
 				if name == "1.3.6.1.2.1.1.2.0" {
-					if b, ok := pdu.Value.([]byte); ok { sysObjectID = string(b) } else if s, ok := pdu.Value.(string); ok { sysObjectID = s }
+					if b, ok := pdu.Value.([]byte); ok {
+						sysObjectID = string(b)
+					} else if s, ok := pdu.Value.(string); ok {
+						sysObjectID = s
+					}
 				} else if name == "1.3.6.1.2.1.1.1.0" {
-					if b, ok := pdu.Value.([]byte); ok { sysDescr = string(b) } else if s, ok := pdu.Value.(string); ok { sysDescr = s }
+					if b, ok := pdu.Value.([]byte); ok {
+						sysDescr = string(b)
+					} else if s, ok := pdu.Value.(string); ok {
+						sysDescr = s
+					}
 				} else if name == "1.3.6.1.2.1.25.3.2.1.3.1" {
-					if b, ok := pdu.Value.([]byte); ok { model = string(b) } else if s, ok := pdu.Value.(string); ok { model = s }
+					if b, ok := pdu.Value.([]byte); ok {
+						model = string(b)
+					} else if s, ok := pdu.Value.(string); ok {
+						model = s
+					}
 				}
 			}
 		}
