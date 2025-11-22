@@ -2661,6 +2661,10 @@ function loadSettings() {
         document.getElementById('dev_snmp_retries').value = dev.snmp_retries || 1;
         document.getElementById('dev_discover_concurrency').value = dev.discover_concurrency || 50;
         document.getElementById('dev_asset_id_regex').value = dev.asset_id_regex || '';
+        const epsonRemoteToggle = document.getElementById('dev_epson_remote_mode');
+        if (epsonRemoteToggle) {
+            epsonRemoteToggle.checked = dev.epson_remote_mode_enabled === true;
+        }
 
         document.getElementById('scan_local_subnet_enabled').checked = disc.subnet_scan !== false;
         document.getElementById('manual_ranges_enabled').checked = disc.manual_ranges !== false;
@@ -3068,7 +3072,8 @@ function saveDevSettings() {
         snmp_timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
         snmp_retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1,
         discover_concurrency: parseInt(document.getElementById('dev_discover_concurrency').value) || 50,
-        asset_id_regex: document.getElementById('dev_asset_id_regex').value || ''
+        asset_id_regex: document.getElementById('dev_asset_id_regex').value || '',
+        epson_remote_mode_enabled: document.getElementById('dev_epson_remote_mode')?.checked ?? false
     };
     // POST developer settings as part of the unified /settings endpoint
     fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ developer: body }) })
@@ -3249,6 +3254,7 @@ function addAutoSaveHandlers() {
     document.getElementById('dev_snmp_community')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_timeout')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_retries')?.addEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('dev_epson_remote_mode')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_discover_concurrency')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_asset_id_regex')?.addEventListener('change', window.__settingsChangeHandler);
 }
@@ -3294,6 +3300,7 @@ function removeAutoSaveHandlers() {
     document.getElementById('dev_snmp_community')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_timeout')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_retries')?.removeEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('dev_epson_remote_mode')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_discover_concurrency')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_asset_id_regex')?.removeEventListener('change', window.__settingsChangeHandler);
 }
@@ -3363,7 +3370,8 @@ async function saveAllSettings(btn) {
             snmp_timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
             snmp_retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1,
             discover_concurrency: parseInt(document.getElementById('dev_discover_concurrency').value) || 50,
-            asset_id_regex: document.getElementById('dev_asset_id_regex').value || ''
+            asset_id_regex: document.getElementById('dev_asset_id_regex').value || '',
+            epson_remote_mode_enabled: document.getElementById('dev_epson_remote_mode')?.checked ?? false
         };
 
         // Compose security settings

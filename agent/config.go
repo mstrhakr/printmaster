@@ -13,13 +13,14 @@ import (
 
 // AgentConfig represents the agent configuration
 type AgentConfig struct {
-	AssetIDRegex string                 `toml:"asset_id_regex"`
-	Concurrency  int                    `toml:"discovery_concurrency"`
-	SNMP         SNMPConfig             `toml:"snmp"`
-	Server       ServerConnectionConfig `toml:"server"`
-	Database     config.DatabaseConfig  `toml:"database"`
-	Logging      config.LoggingConfig   `toml:"logging"`
-	Web          WebConfig              `toml:"web"`
+	AssetIDRegex           string                 `toml:"asset_id_regex"`
+	Concurrency            int                    `toml:"discovery_concurrency"`
+	SNMP                   SNMPConfig             `toml:"snmp"`
+	Server                 ServerConnectionConfig `toml:"server"`
+	Database               config.DatabaseConfig  `toml:"database"`
+	Logging                config.LoggingConfig   `toml:"logging"`
+	Web                    WebConfig              `toml:"web"`
+	EpsonRemoteModeEnabled bool                   `toml:"epson_remote_mode_enabled"`
 }
 
 // SNMPConfig holds SNMP client settings
@@ -66,8 +67,9 @@ type WebAuthConfig struct {
 // DefaultAgentConfig returns agent configuration with sensible defaults
 func DefaultAgentConfig() *AgentConfig {
 	return &AgentConfig{
-		AssetIDRegex: `\b\d{5}\b`,
-		Concurrency:  50,
+		AssetIDRegex:           `\b\d{5}\b`,
+		Concurrency:            50,
+		EpsonRemoteModeEnabled: false,
 		SNMP: SNMPConfig{
 			Community: "public",
 			TimeoutMs: 2000,
@@ -168,6 +170,10 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 	if val := os.Getenv("WEB_ALLOW_LOCAL_ADMIN"); val != "" {
 		lower := strings.ToLower(val)
 		cfg.Web.Auth.AllowLocalAdmin = (lower == "1" || lower == "true" || lower == "yes")
+	}
+	if val := os.Getenv("EPSON_REMOTE_MODE_ENABLED"); val != "" {
+		lower := strings.ToLower(val)
+		cfg.EpsonRemoteModeEnabled = (lower == "1" || lower == "true" || lower == "yes")
 	}
 
 	// Apply common environment variable overrides (component-specific prefixed env var supported)

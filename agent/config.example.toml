@@ -7,6 +7,9 @@ asset_id_regex = "\\b\\d{5}\\b"
 # Number of concurrent SNMP queries (adjust based on network capacity)
 discovery_concurrency = 50
 
+# Enable Epson remote-mode commands (experimental richer metrics)
+epson_remote_mode_enabled = false
+
 [snmp]
   # Default SNMP community string (change for security)
   community = "public"

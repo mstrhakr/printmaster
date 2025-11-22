@@ -21,6 +21,9 @@ func TestDefaultAgentConfig(t *testing.T) {
 	if cfg.Concurrency != 50 {
 		t.Errorf("expected default Concurrency to be 50, got %d", cfg.Concurrency)
 	}
+	if cfg.EpsonRemoteModeEnabled {
+		t.Error("expected Epson remote mode to be disabled by default")
+	}
 
 	// Test SNMP settings
 	if cfg.SNMP.Community != "public" {
@@ -70,6 +73,7 @@ func TestLoadAgentConfig(t *testing.T) {
 
 	configContent := `asset_id_regex = "\\b\\d{6}\\b"
 discovery_concurrency = 100
+	epson_remote_mode_enabled = true
 
 [snmp]
 community = "private"
@@ -140,6 +144,9 @@ level = "debug"
 	if cfg.Logging.Level != "debug" {
 		t.Errorf("expected log level to be 'debug', got %s", cfg.Logging.Level)
 	}
+	if !cfg.EpsonRemoteModeEnabled {
+		t.Error("expected Epson remote mode to be enabled when set in config")
+	}
 }
 
 func TestLoadAgentConfigWithEnvOverrides(t *testing.T) {
@@ -161,7 +168,7 @@ timeout_ms = 2000
 	}
 
 	// Save original environment
-	envVars := []string{"ASSET_ID_REGEX", "SNMP_COMMUNITY", "SNMP_TIMEOUT_MS", "SNMP_RETRIES", "SERVER_ENABLED", "SERVER_URL", "WEB_HTTP_PORT"}
+	envVars := []string{"ASSET_ID_REGEX", "SNMP_COMMUNITY", "SNMP_TIMEOUT_MS", "SNMP_RETRIES", "SERVER_ENABLED", "SERVER_URL", "WEB_HTTP_PORT", "EPSON_REMOTE_MODE_ENABLED"}
 	originalEnv := make(map[string]string)
 	for _, key := range envVars {
 		originalEnv[key] = os.Getenv(key)
@@ -175,6 +182,7 @@ timeout_ms = 2000
 	os.Setenv("SERVER_ENABLED", "true")
 	os.Setenv("SERVER_URL", "https://env.example.com")
 	os.Setenv("WEB_HTTP_PORT", "7070")
+	os.Setenv("EPSON_REMOTE_MODE_ENABLED", "true")
 
 	// Restore original environment
 	defer func() {
@@ -215,6 +223,9 @@ timeout_ms = 2000
 	if cfg.Web.HTTPPort != 7070 {
 		t.Errorf("expected HTTP port to be overridden to 7070, got %d", cfg.Web.HTTPPort)
 	}
+	if !cfg.EpsonRemoteModeEnabled {
+		t.Error("expected Epson remote mode to be enabled via env override")
+	}
 }
 
 func TestLoadAgentConfigNonExistent(t *testing.T) {
@@ -243,6 +254,7 @@ func TestWriteDefaultAgentConfig(t *testing.T) {
 		"ASSET_ID_REGEX", "DISCOVERY_CONCURRENCY", "SNMP_COMMUNITY",
 		"SNMP_TIMEOUT_MS", "SNMP_RETRIES", "SERVER_ENABLED", "SERVER_URL",
 		"AGENT_ID", "SERVER_CA_PATH", "WEB_HTTP_PORT", "WEB_HTTPS_PORT",
+		"EPSON_REMOTE_MODE_ENABLED",
 	}
 	originalValues := make(map[string]string)
 	for _, key := range envVars {

@@ -57,14 +57,15 @@ type DiscoverySettings struct {
 
 // DeveloperSettings include diagnostic and advanced tuning options intended for administrators.
 type DeveloperSettings struct {
-	AssetIDRegex        string `json:"asset_id_regex"`
-	SNMPCommunity       string `json:"snmp_community"`
-	LogLevel            string `json:"log_level"`
-	DumpParseDebug      bool   `json:"dump_parse_debug"`
-	ShowLegacy          bool   `json:"show_legacy"`
-	SNMPTimeoutMS       int    `json:"snmp_timeout_ms"`
-	SNMPRetries         int    `json:"snmp_retries"`
-	DiscoverConcurrency int    `json:"discover_concurrency"`
+	AssetIDRegex           string `json:"asset_id_regex"`
+	SNMPCommunity          string `json:"snmp_community"`
+	LogLevel               string `json:"log_level"`
+	DumpParseDebug         bool   `json:"dump_parse_debug"`
+	ShowLegacy             bool   `json:"show_legacy"`
+	SNMPTimeoutMS          int    `json:"snmp_timeout_ms"`
+	SNMPRetries            int    `json:"snmp_retries"`
+	DiscoverConcurrency    int    `json:"discover_concurrency"`
+	EpsonRemoteModeEnabled bool   `json:"epson_remote_mode_enabled"`
 }
 
 // SecuritySettings describe listener and credential behaviors for the embedded agent UI/API.

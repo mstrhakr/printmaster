@@ -29,6 +29,7 @@ import (
 	"path"
 	"path/filepath"
 	"printmaster/agent/agent"
+	"printmaster/agent/featureflags"
 	"printmaster/agent/proxy"
 	"printmaster/agent/scanner"
 	"printmaster/agent/storage"
@@ -159,9 +160,10 @@ var (
 	// deviceStore is the global device storage interface
 	deviceStore storage.DeviceStore
 	// agentConfigStore handles agent configuration (IP ranges, settings, etc.)
-	agentConfigStore          storage.AgentConfigStore
-	settingsManager           *SettingsManager
-	applyDiscoveryEffectsFunc func(map[string]interface{})
+	agentConfigStore             storage.AgentConfigStore
+	settingsManager              *SettingsManager
+	applyDiscoveryEffectsFunc    func(map[string]interface{})
+	configEpsonRemoteModeEnabled bool
 
 	// Global structured logger
 	appLogger *logger.Logger
@@ -531,6 +533,22 @@ func structToMap(src interface{}) map[string]interface{} {
 	return out
 }
 
+func applyDeveloperSettingsEffects(dev *pmsettings.DeveloperSettings) {
+	if dev == nil {
+		return
+	}
+	configEnabled := configEpsonRemoteModeEnabled
+	effective := dev.EpsonRemoteModeEnabled || configEnabled
+	previous := featureflags.EpsonRemoteModeEnabled()
+	featureflags.SetEpsonRemoteMode(effective)
+	if configEnabled {
+		dev.EpsonRemoteModeEnabled = effective
+	}
+	if appLogger != nil && effective != previous {
+		appLogger.Info("Epson remote mode updated", "enabled", effective, "config_override", configEnabled)
+	}
+}
+
 func applyEffectiveSettingsSnapshot(cfg pmsettings.Settings) {
 	if applyDiscoveryEffectsFunc != nil {
 		discMap := structToMap(cfg.Discovery)
@@ -538,6 +556,7 @@ func applyEffectiveSettingsSnapshot(cfg pmsettings.Settings) {
 		delete(discMap, "detected_subnet")
 		applyDiscoveryEffectsFunc(discMap)
 	}
+	applyDeveloperSettingsEffects(&cfg.Developer)
 }
 
 func loadUnifiedSettings(store storage.AgentConfigStore) pmsettings.Settings {
@@ -577,6 +596,7 @@ func loadUnifiedSettings(store storage.AgentConfigStore) pmsettings.Settings {
 		mapIntoStruct(security, &base.Security)
 	}
 	pmsettings.Sanitize(&base)
+	applyDeveloperSettingsEffects(&base.Developer)
 	return base
 }
 
@@ -1225,6 +1245,8 @@ func runInteractive(ctx context.Context, configFlag string) {
 		appLogger.Warn("No config.toml found, using defaults")
 		agentConfig = DefaultAgentConfig()
 	}
+	configEpsonRemoteModeEnabled = agentConfig != nil && agentConfig.EpsonRemoteModeEnabled
+	featureflags.SetEpsonRemoteMode(configEpsonRemoteModeEnabled)
 
 	// Always apply environment overrides for database path (supports AGENT_DB_PATH and DB_PATH)
 	// even when using default configuration (no config file present).
@@ -1344,6 +1366,9 @@ func runInteractive(ctx context.Context, configFlag string) {
 			return
 		}
 	}()
+
+	// Prime runtime settings (developer/discovery) so feature flags reflect stored values before services start.
+	loadUnifiedSettings(agentConfigStore)
 
 	// Clean up old database backups (keep 10 most recent)
 	if err := storage.CleanupOldBackups(dbPath, 10); err != nil {
@@ -4761,6 +4786,7 @@ window.top.location.href = '/proxy/%s/';
 				if ipnets, err := agent.GetLocalSubnets(); err == nil && len(ipnets) > 0 {
 					defaults.Discovery.DetectedSubnet = ipnets[0].String()
 				}
+				applyDeveloperSettingsEffects(&defaults.Developer)
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(defaults)
 				return
@@ -4827,6 +4853,7 @@ window.top.location.href = '/proxy/%s/';
 			}
 
 			pmsettings.Sanitize(&current)
+			applyDeveloperSettingsEffects(&current.Developer)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(current)
 			return

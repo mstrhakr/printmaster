@@ -288,6 +288,15 @@ func DefaultSchema() Schema {
 			Default:     defaults.Developer.DiscoverConcurrency,
 		},
 		{
+			Path:        "developer.epson_remote_mode_enabled",
+			Type:        FieldTypeBool,
+			Title:       "Enable Epson Remote Mode",
+			Description: "Allow the agent to issue Epson remote-mode commands for richer metrics (experimental).",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Developer.EpsonRemoteModeEnabled,
+		},
+		{
 			Path:        "security.credentials_enabled",
 			Type:        FieldTypeBool,
 			Title:       "Saved Credentials",
