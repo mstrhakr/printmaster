@@ -313,8 +313,8 @@ func TestBuildQueryOIDs_Metrics(t *testing.T) {
 		t.Error("expected non-empty OID list for QueryMetrics")
 	}
 
-	// QueryMetrics should include standard metrics OIDs
-	expectedMetrics := "1.3.6.1.2.1.43.10.2.1.4.1" // page count OID
+	// QueryMetrics should include standard metrics OIDs (with .1 instance suffix)
+	expectedMetrics := "1.3.6.1.2.1.43.10.2.1.4.1.1" // page count OID (instance .1)
 	found := false
 	for _, oid := range oids {
 		if oid == expectedMetrics {

@@ -233,13 +233,65 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 			return nil, fmt.Errorf("no OIDs to query for profile %s", profile)
 		}
 
-		result, err := client.Get(oids)
-		if err != nil {
-			return nil, fmt.Errorf("SNMP GET failed: %w", err)
+		// For QueryMetrics, separate supply table walks from scalar GETs
+		var scalarOIDs []string
+		var tableRoots []string
+
+		if profile == QueryMetrics && detectedVendor != nil {
+			supplyOIDs := detectedVendor.SupplyOIDs()
+			supplyMap := make(map[string]bool)
+			for _, s := range supplyOIDs {
+				supplyMap[s] = true
+			}
+
+			for _, oid := range oids {
+				if supplyMap[oid] {
+					tableRoots = append(tableRoots, oid)
+				} else {
+					scalarOIDs = append(scalarOIDs, oid)
+				}
+			}
+		} else {
+			scalarOIDs = oids
 		}
 
-		if result != nil {
-			pdus = result.Variables
+		// GET scalar values
+		if len(scalarOIDs) > 0 {
+			result, err := client.Get(scalarOIDs)
+			if err != nil {
+				return nil, fmt.Errorf("SNMP GET failed: %w", err)
+			}
+
+			if result != nil {
+				pdus = result.Variables
+			}
+		}
+
+		// WALK supply tables
+		for _, root := range tableRoots {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+
+			err := client.Walk(root, func(pdu gosnmp.SnmpPDU) error {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+
+				pdus = append(pdus, pdu)
+				if len(pdus) >= 10000 {
+					return fmt.Errorf("walk limit exceeded")
+				}
+				return nil
+			})
+			// Don't fail if one table walk fails - continue with other tables
+			if err != nil && logger.Global != nil {
+				logger.Global.Debug("Supply table walk failed", "ip", ip, "root", root, "error", err)
+			}
 		}
 	}
 
