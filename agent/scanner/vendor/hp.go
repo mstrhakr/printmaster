@@ -47,7 +47,7 @@ func (v *HPVendor) BaseOIDs() []string {
 func (v *HPVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 	oids := []string{
 		// Standard Printer-MIB (fallback)
-		"1.3.6.1.2.1.43.10.2.1.4.1", // prtMarkerLifeCount
+		"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount (instance .1)
 
 		// HP enterprise counters - common across many models
 		// Base: 1.3.6.1.4.1.11.2.3.9.4.2.*
@@ -180,7 +180,7 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Fallback to standard Printer-MIB if enterprise OIDs failed
 	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1"); pageCount > 0 {
+		if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1.1"); pageCount > 0 {
 			result["page_count"] = pageCount
 			result["total_pages"] = pageCount
 		}

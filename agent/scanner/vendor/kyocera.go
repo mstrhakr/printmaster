@@ -48,7 +48,7 @@ func (v *KyoceraVendor) BaseOIDs() []string {
 func (v *KyoceraVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 	oids := []string{
 		// Standard Printer-MIB (fallback)
-		"1.3.6.1.2.1.43.10.2.1.4.1", // prtMarkerLifeCount
+		"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount (instance .1)
 
 		// Kyocera enterprise - Total printed
 		"1.3.6.1.4.1.1347.43.10.1.1.12.1.1", // Total printed pages
@@ -164,7 +164,7 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Fallback to standard Printer-MIB if enterprise OIDs failed
 	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1"); pageCount > 0 {
+		if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1.1"); pageCount > 0 {
 			result["page_count"] = pageCount
 			result["total_pages"] = pageCount
 		}

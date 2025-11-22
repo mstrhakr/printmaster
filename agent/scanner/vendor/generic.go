@@ -43,7 +43,7 @@ func (v *GenericVendor) BaseOIDs() []string {
 
 func (v *GenericVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 	return []string{
-		"1.3.6.1.2.1.43.10.2.1.4.1", // prtMarkerLifeCount (total pages)
+		"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount (instance .1)
 	}
 }
 
@@ -65,7 +65,7 @@ func (v *GenericVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	}
 
 	// Parse basic page count
-	if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1"); pageCount > 0 {
+	if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1.1"); pageCount > 0 {
 		result["total_pages"] = pageCount
 		result["page_count"] = pageCount
 	}
