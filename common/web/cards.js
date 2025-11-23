@@ -738,10 +738,13 @@
         html += '</div>'; // close settings-grid
 
         // Action buttons area
-        html += '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;padding:12px;background:rgba(0,0,0,0.1);border-radius:6px">';
+        html += '<div id="action_buttons_area" style="margin-top:16px;padding:12px;background:rgba(0,0,0,0.1);border-radius:6px">';
+        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
         html += '<button id="refresh_data_btn">Refresh Details</button>';
         if (source === 'saved') html += '<button id="collect_metrics_btn">Collect Metrics</button>';
         html += '<span id="refresh_status" style="color:var(--muted);align-self:center"></span>';
+        html += '</div>';
+        html += '<div id="diff_container"></div>';
         html += '</div>';
 
     bodyEl.innerHTML = html;
@@ -922,7 +925,12 @@
                     const { proposed } = await r.json();
                     if (statusEl) statusEl.textContent = '';
                     const fields = ['manufacturer', 'model', 'hostname', 'firmware', 'ip', 'subnet_mask', 'gateway', 'dns_servers', 'dhcp_server', 'asset_number', 'location', 'description', 'web_ui_url'];
-                    let diffHtml = '<div id="diff_card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px;margin:8px 0">';
+                    
+                    // Clear any existing diff UI
+                    const diffContainer = document.getElementById('diff_container');
+                    if (diffContainer) diffContainer.innerHTML = '';
+                    
+                    let diffHtml = '<div id="diff_card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px;margin-top:8px">';
                     diffHtml += '<div style="font-weight:600;color:var(--highlight);margin-bottom:6px;font-size:14px">Proposed Updates</div>';
                     diffHtml += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:6px 8px">';
                     fields.forEach(f => {
@@ -938,12 +946,20 @@
                     diffHtml += '</div>';
                     diffHtml += '<div style="margin-top:8px;text-align:right"><button id="apply_selected_btn" class="primary">Apply Selected</button></div>';
                     diffHtml += '</div>';
-                    const container = document.createElement('div');
-                    container.innerHTML = diffHtml;
-                    bodyEl.insertBefore(container, bodyEl.firstChild);
+                    
+                    // Insert into the diff_container instead of at the top of bodyEl
+                    if (diffContainer) {
+                        diffContainer.innerHTML = diffHtml;
+                    } else {
+                        // Fallback to old behavior if container not found
+                        const container = document.createElement('div');
+                        container.innerHTML = diffHtml;
+                        bodyEl.insertBefore(container, bodyEl.firstChild);
+                    }
 
                     document.getElementById('apply_selected_btn')?.addEventListener('click', async () => {
-                        const checks = Array.from(container.querySelectorAll('.apply-proposed:checked'));
+                        const checkboxContainer = diffContainer || bodyEl;
+                        const checks = Array.from(checkboxContainer.querySelectorAll('.apply-proposed:checked'));
                         if (checks.length === 0) { if (statusEl) statusEl.textContent = ' No changes selected'; return; }
                         const payload = { serial: p.serial };
                         checks.forEach(ch => {

@@ -53,7 +53,8 @@ foreach ($listenerPid in $portPids) {
         try {
             $proc = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
             if ($proc) {
-                $pname = ($proc.ProcessName || '') -as [string]
+                $pname = if ($proc.ProcessName) { $proc.ProcessName } else { '' }
+                $pname = $pname -as [string]
                 if ($pname) { $pname = $pname.ToLower() }
                 # If the process name matches a known browser, skip killing it
                 if ($pname -and ($ignoredBrowserNames -contains $pname)) {
