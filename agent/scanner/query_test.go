@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"printmaster/common/snmp/oids"
+
 	"github.com/gosnmp/gosnmp"
 )
 
@@ -75,9 +77,9 @@ func TestQueryDevice_SNMPGetSuccess(t *testing.T) {
 
 	preflight := &gosnmp.SnmpPacket{
 		Variables: []gosnmp.SnmpPDU{
-			{Name: ".1.3.6.1.2.1.1.2.0", Type: gosnmp.OctetString, Value: []byte(".1.3.6.1.4.1.11")},
-			{Name: ".1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("HP LaserJet")},
-			{Name: ".1.3.6.1.2.1.25.3.2.1.3.1", Type: gosnmp.OctetString, Value: []byte("HP Model")},
+			{Name: "." + oids.SysObjectID, Type: gosnmp.OctetString, Value: []byte(".1.3.6.1.4.1.11")},
+			{Name: "." + oids.SysDescr, Type: gosnmp.OctetString, Value: []byte("HP LaserJet")},
+			{Name: "." + oids.HrDeviceDescr, Type: gosnmp.OctetString, Value: []byte("HP Model")},
 		},
 	}
 
@@ -88,7 +90,7 @@ func TestQueryDevice_SNMPGetSuccess(t *testing.T) {
 		vars := make([]gosnmp.SnmpPDU, len(batch))
 		for i, oid := range batch {
 			value := []byte("GENERIC")
-			if oid == "1.3.6.1.2.1.43.5.1.1.17.1" {
+			if oid == oids.PrtGeneralSerialNumber {
 				value = []byte("SN12345")
 			}
 			vars[i] = gosnmp.SnmpPDU{Name: oid, Type: gosnmp.OctetString, Value: value}
@@ -136,9 +138,9 @@ func TestQueryDevice_SNMPWalkSuccess(t *testing.T) {
 	// Mock SNMP client with walk PDUs
 	mockClient := &mockSNMPClient{
 		walkPDUs: []gosnmp.SnmpPDU{
-			{Name: ".1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("HP LaserJet")},
+			{Name: "." + oids.SysDescr, Type: gosnmp.OctetString, Value: []byte("HP LaserJet")},
 			{Name: ".1.3.6.1.2.1.1.5.0", Type: gosnmp.OctetString, Value: []byte("printer-01")},
-			{Name: ".1.3.6.1.2.1.43.5.1.1.17.1", Type: gosnmp.OctetString, Value: []byte("SN98765")},
+			{Name: "." + oids.PrtGeneralSerialNumber, Type: gosnmp.OctetString, Value: []byte("SN98765")},
 		},
 	}
 
@@ -231,13 +233,13 @@ func TestQueryDevice_AllProfiles(t *testing.T) {
 			mockClient := &mockSNMPClient{
 				getResult: &gosnmp.SnmpPacket{
 					Variables: []gosnmp.SnmpPDU{
-						{Name: ".1.3.6.1.2.1.43.5.1.1.17.1", Type: gosnmp.OctetString, Value: []byte("SERIAL123")},
-						{Name: ".1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 1000},
-						{Name: ".1.3.6.1.2.1.43.11.1.1.6.1.1", Type: gosnmp.Integer, Value: 50},
+						{Name: "." + oids.PrtGeneralSerialNumber, Type: gosnmp.OctetString, Value: []byte("SERIAL123")},
+						{Name: "." + oids.PrtMarkerLifeCount + ".1", Type: gosnmp.Integer, Value: 1000},
+						{Name: "." + oids.PrtMarkerSuppliesDesc + ".1.1", Type: gosnmp.Integer, Value: 50},
 					},
 				},
 				walkPDUs: []gosnmp.SnmpPDU{
-					{Name: ".1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("Test Device")},
+					{Name: "." + oids.SysDescr, Type: gosnmp.OctetString, Value: []byte("Test Device")},
 				},
 			}
 
@@ -271,7 +273,7 @@ func TestQueryDevice_AllVendors(t *testing.T) {
 			mockClient := &mockSNMPClient{
 				getResult: &gosnmp.SnmpPacket{
 					Variables: []gosnmp.SnmpPDU{
-						{Name: ".1.3.6.1.2.1.43.5.1.1.17.1", Type: gosnmp.OctetString, Value: []byte("TEST")},
+						{Name: "." + oids.PrtGeneralSerialNumber, Type: gosnmp.OctetString, Value: []byte("TEST")},
 						{Name: ".1.3.6.1.4.1.11.2.3.9.1.2.1", Type: gosnmp.OctetString, Value: []byte("VENDOR_SN")},
 					},
 				},
@@ -298,16 +300,16 @@ func TestQueryDevice_AllVendors(t *testing.T) {
 func TestBuildQueryOIDs_Minimal(t *testing.T) {
 	t.Parallel()
 
-	oids := buildQueryOIDs(QueryMinimal)
+	queryOIDs := buildQueryOIDs(QueryMinimal)
 
-	if len(oids) == 0 {
+	if len(queryOIDs) == 0 {
 		t.Error("expected non-empty OID list for QueryMinimal")
 	}
 
 	// QueryMinimal should include serial OID
-	expectedSerial := "1.3.6.1.2.1.43.5.1.1.17.1"
+	expectedSerial := oids.PrtGeneralSerialNumber
 	found := false
-	for _, oid := range oids {
+	for _, oid := range queryOIDs {
 		if oid == expectedSerial {
 			found = true
 			break
@@ -319,7 +321,7 @@ func TestBuildQueryOIDs_Minimal(t *testing.T) {
 
 	// QueryMinimal should also include at least one vendor-specific device ID OID (HP IEEE-1284)
 	vendorOID := "1.3.6.1.4.1.11.2.3.9.1.1.7.0"
-	if !containsOID(oids, vendorOID) {
+	if !containsOID(queryOIDs, vendorOID) {
 		t.Errorf("expected vendor device ID OID %s in minimal query", vendorOID)
 	}
 }
@@ -327,33 +329,33 @@ func TestBuildQueryOIDs_Minimal(t *testing.T) {
 func TestBuildQueryOIDs_Essential(t *testing.T) {
 	t.Parallel()
 
-	oids := buildQueryOIDs(QueryEssential)
+	queryOIDs := buildQueryOIDs(QueryEssential)
 
-	if len(oids) == 0 {
+	if len(queryOIDs) == 0 {
 		t.Error("expected non-empty OID list for QueryEssential")
 	}
 
 	// QueryEssential should include serial + toner + pages + status
-	if len(oids) < 3 {
-		t.Errorf("expected at least 3 OIDs for QueryEssential, got %d", len(oids))
+	if len(queryOIDs) < 3 {
+		t.Errorf("expected at least 3 OIDs for QueryEssential, got %d", len(queryOIDs))
 	}
 
-	t.Logf("QueryEssential returned %d OIDs", len(oids))
+	t.Logf("QueryEssential returned %d OIDs", len(queryOIDs))
 }
 
 func TestBuildQueryOIDs_Metrics(t *testing.T) {
 	t.Parallel()
 
-	oids := buildQueryOIDs(QueryMetrics)
+	queryOIDs := buildQueryOIDs(QueryMetrics)
 
-	if len(oids) == 0 {
+	if len(queryOIDs) == 0 {
 		t.Error("expected non-empty OID list for QueryMetrics")
 	}
 
 	// QueryMetrics should include standard metrics OIDs (with .1 instance suffix)
-	expectedMetrics := "1.3.6.1.2.1.43.10.2.1.4.1.1" // page count OID (instance .1)
+	expectedMetrics := oids.PrtMarkerLifeCount + ".1" // page count OID (instance .1)
 	found := false
-	for _, oid := range oids {
+	for _, oid := range queryOIDs {
 		if oid == expectedMetrics {
 			found = true
 			break
@@ -367,11 +369,11 @@ func TestBuildQueryOIDs_Metrics(t *testing.T) {
 func TestBuildQueryOIDs_Full(t *testing.T) {
 	t.Parallel()
 
-	oids := buildQueryOIDs(QueryFull)
+	queryOIDs := buildQueryOIDs(QueryFull)
 
 	// QueryFull uses Walk, so OID list should be nil
-	if oids != nil {
-		t.Errorf("expected nil for QueryFull (walk mode), got %v", oids)
+	if queryOIDs != nil {
+		t.Errorf("expected nil for QueryFull (walk mode), got %v", queryOIDs)
 	}
 }
 

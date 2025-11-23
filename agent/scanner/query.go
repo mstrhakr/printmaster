@@ -8,6 +8,7 @@ import (
 	"printmaster/agent/scanner/capabilities"
 	"printmaster/agent/scanner/vendor"
 	"printmaster/common/logger"
+	"printmaster/common/snmp/oids"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -134,27 +135,27 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 
 	if profile != QueryFull {
 		preOIDs := []string{
-			"1.3.6.1.2.1.1.2.0",        // sysObjectID
-			"1.3.6.1.2.1.1.1.0",        // sysDescr
-			"1.3.6.1.2.1.25.3.2.1.3.1", // hrDeviceDescr
+			oids.SysObjectID,
+			oids.SysDescr,
+			oids.HrDeviceDescr,
 		}
 		preRes, preErr := client.Get(preOIDs)
 		if preErr == nil && preRes != nil {
 			for _, pdu := range preRes.Variables {
 				name := strings.TrimPrefix(pdu.Name, ".")
-				if name == "1.3.6.1.2.1.1.2.0" {
+				if name == oids.SysObjectID {
 					if b, ok := pdu.Value.([]byte); ok {
 						sysObjectID = string(b)
 					} else if s, ok := pdu.Value.(string); ok {
 						sysObjectID = s
 					}
-				} else if name == "1.3.6.1.2.1.1.1.0" {
+				} else if name == oids.SysDescr {
 					if b, ok := pdu.Value.([]byte); ok {
 						sysDescr = string(b)
 					} else if s, ok := pdu.Value.(string); ok {
 						sysDescr = s
 					}
-				} else if name == "1.3.6.1.2.1.25.3.2.1.3.1" {
+				} else if name == oids.HrDeviceDescr {
 					if b, ok := pdu.Value.([]byte); ok {
 						model = string(b)
 					} else if s, ok := pdu.Value.(string); ok {
@@ -184,9 +185,9 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 	}
 
 	// 4. Build OID list based on profile + capabilities + vendor
-	oids := buildQueryOIDsWithModule(profile, caps, detectedVendor)
+	queryOIDs := buildQueryOIDsWithModule(profile, caps, detectedVendor)
 	if logger.Global != nil {
-		logger.Global.Debug("OID list constructed", "ip", ip, "profile", profile.String(), "oid_count", len(oids), "vendor", detectedVendor.Name())
+		logger.Global.Debug("OID list constructed", "ip", ip, "profile", profile.String(), "oid_count", len(queryOIDs), "vendor", detectedVendor.Name())
 	}
 
 	// 5. Query SNMP (Walk for Full, Get for others)
@@ -229,7 +230,7 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 		}
 	} else {
 		// Targeted GET for specific OIDs
-		if len(oids) == 0 {
+		if len(queryOIDs) == 0 {
 			return nil, fmt.Errorf("no OIDs to query for profile %s", profile)
 		}
 
@@ -244,7 +245,7 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 				supplyMap[s] = true
 			}
 
-			for _, oid := range oids {
+			for _, oid := range queryOIDs {
 				if supplyMap[oid] {
 					tableRoots = append(tableRoots, oid)
 				} else {
@@ -252,7 +253,7 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 				}
 			}
 		} else {
-			scalarOIDs = oids
+			scalarOIDs = queryOIDs
 		}
 
 		// GET scalar values using batched requests to avoid oversized PDUs
@@ -332,24 +333,24 @@ func buildQueryOIDsWithCapabilities(profile QueryProfile, caps *capabilities.Dev
 
 // buildQueryOIDsWithModule constructs OIDs using a specific vendor module.
 func buildQueryOIDsWithModule(profile QueryProfile, caps *capabilities.DeviceCapabilities, vendorModule vendor.VendorModule) []string {
-	var oids []string
+	var queryOIDs []string
 
 	switch profile {
 	case QueryMinimal:
-		oids = []string{"1.3.6.1.2.1.43.5.1.1.17.1"}
-		oids = appendUniqueOIDs(oids, VendorIDTargetOIDs()...)
+		queryOIDs = []string{oids.PrtGeneralSerialNumber}
+		queryOIDs = appendUniqueOIDs(queryOIDs, VendorIDTargetOIDs()...)
 	case QueryEssential:
-		oids = append(oids, vendorModule.BaseOIDs()...)
-		oids = append(oids, "1.3.6.1.2.1.43.10.2.1.4.1")
-		oids = appendUniqueOIDs(oids, VendorIDTargetOIDs()...)
+		queryOIDs = append(queryOIDs, vendorModule.BaseOIDs()...)
+		queryOIDs = append(queryOIDs, oids.PrtMarkerLifeCount)
+		queryOIDs = appendUniqueOIDs(queryOIDs, VendorIDTargetOIDs()...)
 	case QueryFull:
 		return nil
 	case QueryMetrics:
-		oids = append(oids, vendorModule.BaseOIDs()...)
-		oids = append(oids, vendorModule.MetricOIDs(caps)...)
-		oids = append(oids, vendorModule.SupplyOIDs()...)
+		queryOIDs = append(queryOIDs, vendorModule.BaseOIDs()...)
+		queryOIDs = append(queryOIDs, vendorModule.MetricOIDs(caps)...)
+		queryOIDs = append(queryOIDs, vendorModule.SupplyOIDs()...)
 	}
-	return oids
+	return queryOIDs
 }
 
 // appendUniqueOIDs appends extras to base while avoiding duplicate OIDs.
@@ -407,10 +408,10 @@ func detectCapabilities(pdus []gosnmp.SnmpPDU, vendorHint string) capabilities.D
 	evidence := &capabilities.DetectionEvidence{
 		PDUs:     pdus,
 		Vendor:   vendorHint,
-		SysDescr: extractOIDString(pdus, "1.3.6.1.2.1.1.1.0"),
-		SysOID:   extractOIDString(pdus, "1.3.6.1.2.1.1.2.0"),
-		Model:    extractOIDString(pdus, "1.3.6.1.2.1.25.3.2.1.3.1"),  // hrDeviceDescr
-		Serial:   extractOIDString(pdus, "1.3.6.1.2.1.43.5.1.1.17.1"), // prtGeneralSerialNumber
+		SysDescr: extractOIDString(pdus, oids.SysDescr),
+		SysOID:   extractOIDString(pdus, oids.SysObjectID),
+		Model:    extractOIDString(pdus, oids.HrDeviceDescr),          // hrDeviceDescr
+		Serial:   extractOIDString(pdus, oids.PrtGeneralSerialNumber), // prtGeneralSerialNumber
 	}
 
 	// If model is empty, try to extract from sysDescr
