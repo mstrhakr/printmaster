@@ -220,7 +220,7 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-build-${{ hashFiles('agent/go.sum', 'server/go.sum') }}
+        key: ${{ runner.os }}-go-build-${{ hashFiles('agent/go.sum') }}-${{ hashFiles('server/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-build-
       continue-on-error: true
