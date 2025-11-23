@@ -69,6 +69,44 @@
         "clear": false
       }
     },
+      {
+        "label": "Prep: Agent (Kill + Build Dev)",
+        "type": "shell",
+        "command": "echo Agent build ready",
+        "dependsOrder": "sequence",
+        "dependsOn": [
+          "Kill: PrintMaster processes",
+          "Build: Agent (Dev)"
+        ],
+        "problemMatcher": [],
+        "presentation": {
+          "echo": false,
+          "reveal": "always",
+          "focus": false,
+          "panel": "shared",
+          "showReuseMessage": false,
+          "clear": false
+        }
+      },
+      {
+        "label": "Prep: Server (Kill + Build Dev)",
+        "type": "shell",
+        "command": "echo Server build ready",
+        "dependsOrder": "sequence",
+        "dependsOn": [
+          "Kill: PrintMaster processes",
+          "Build: Server (Dev)"
+        ],
+        "problemMatcher": [],
+        "presentation": {
+          "echo": false,
+          "reveal": "always",
+          "focus": false,
+          "panel": "shared",
+          "showReuseMessage": false,
+          "clear": false
+        }
+      },
     
     // ========== Test Tasks ==========
     {

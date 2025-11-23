@@ -6,54 +6,48 @@
       "name": "Debug: Agent (Default Port)",
       "type": "go",
       "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}\\agent",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\agent\\printmaster-agent.exe",
       "cwd": "${workspaceFolder}\\agent",
       "env": {},
       "args": [],
-      "buildFlags": "",
-      "output": "${workspaceFolder}\\agent\\__debug_bin.exe",
       "showLog": true,
-      "preLaunchTask": "Kill: PrintMaster processes"
+      "preLaunchTask": "Prep: Agent (Kill + Build Dev)"
     },
     {
       "name": "Debug: Agent (Port 9090)",
       "type": "go",
       "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}\\agent",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\agent\\printmaster-agent.exe",
       "cwd": "${workspaceFolder}\\agent",
       "env": {},
       "args": ["-port", "9090"],
-      "buildFlags": "",
-      "output": "${workspaceFolder}\\agent\\__debug_bin.exe",
       "showLog": true,
-      "preLaunchTask": "Kill: PrintMaster processes"
+      "preLaunchTask": "Prep: Agent (Kill + Build Dev)"
     },
     {
       "name": "Debug: Agent (Custom Config)",
       "type": "go",
       "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}\\agent",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\agent\\printmaster-agent.exe",
       "cwd": "${workspaceFolder}\\agent",
       "env": {},
       "args": ["-config", "config.ini"],
-      "buildFlags": "",
-      "output": "${workspaceFolder}\\agent\\__debug_bin.exe",
       "showLog": true,
-      "preLaunchTask": "Kill: PrintMaster processes"
+      "preLaunchTask": "Prep: Agent (Kill + Build Dev)"
     },
     {
       "name": "Run: Agent (No Debug)",
       "type": "go",
       "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/agent",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\agent\\printmaster-agent.exe",
       "cwd": "${workspaceFolder}/agent",
       "args": [],
       "env": {},
-      "preLaunchTask": "Kill: PrintMaster processes"
+      "preLaunchTask": "Prep: Agent (Kill + Build Dev)"
     },
     
     // ========== Server Debugging ==========
@@ -61,40 +55,36 @@
       "name": "Debug: Server (Default Port)",
       "type": "go",
       "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}\\server",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\server\\printmaster-server.exe",
       "cwd": "${workspaceFolder}\\server",
       "env": {},
       "args": [],
-      "buildFlags": "",
-      "output": "${workspaceFolder}\\server\\__debug_bin.exe",
       "showLog": true,
-      "preLaunchTask": "Kill: PrintMaster processes"
+      "preLaunchTask": "Prep: Server (Kill + Build Dev)"
     },
     {
       "name": "Debug: Server (Port 8080)",
       "type": "go",
       "request": "launch",
-      "mode": "debug",
-      "program": "${workspaceFolder}\\server",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\server\\printmaster-server.exe",
       "cwd": "${workspaceFolder}\\server",
       "env": {},
       "args": ["-port", "9090"],
-      "buildFlags": "",
-      "output": "${workspaceFolder}\\server\\__debug_bin.exe",
       "showLog": true,
-      "preLaunchTask": "Kill: PrintMaster processes"
+      "preLaunchTask": "Prep: Server (Kill + Build Dev)"
     },
     {
       "name": "Run: Server (No Debug)",
       "type": "go",
       "request": "launch",
-      "mode": "auto",
-      "program": "${workspaceFolder}/server",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\server\\printmaster-server.exe",
       "cwd": "${workspaceFolder}/server",
       "args": [],
       "env": {},
-      "preLaunchTask": "Kill: PrintMaster processes"
+      "preLaunchTask": "Prep: Server (Kill + Build Dev)"
     },
     
     // ========== Test Debugging ==========
