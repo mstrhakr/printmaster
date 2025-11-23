@@ -183,8 +183,11 @@ func (ws *WSClient) connect() error {
 		return fmt.Errorf("unsupported URL scheme: %s", u.Scheme)
 	}
 
-	// Set WebSocket endpoint path
-	u.Path = "/api/v1/agents/ws"
+	// Preserve any base path segment present in the configured server URL so
+	// deployments mounted under subpaths (e.g. https://host/printmaster)
+	// continue to work when switching the scheme to ws/wss.
+	basePath := strings.TrimSuffix(u.Path, "/")
+	u.Path = basePath + "/api/v1/agents/ws"
 
 	// Add authentication token as query parameter
 	q := u.Query()

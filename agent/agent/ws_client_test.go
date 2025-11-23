@@ -307,3 +307,43 @@ func TestWSClientSkipVerify(t *testing.T) {
 		t.Fatal("Expected WS client to NOT be connected when insecureSkipVerify=false to a self-signed server")
 	}
 }
+
+// TestWSClientBasePath verifies that the WebSocket client preserves any base
+// path included in the configured server URL when constructing the ws endpoint.
+func TestWSClientBasePath(t *testing.T) {
+	t.Parallel()
+
+	pathCh := make(chan string, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pathCh <- r.URL.Path
+		if r.URL.Query().Get("token") != "test-token" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("Upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+		time.Sleep(200 * time.Millisecond)
+	}))
+	defer server.Close()
+
+	baseURL := server.URL + "/nested/base"
+	client := NewWSClient(baseURL, "test-token", false)
+	if err := client.Start(); err != nil {
+		t.Fatalf("Failed to start WebSocket client with base path: %v", err)
+	}
+	defer client.Stop()
+
+	select {
+	case path := <-pathCh:
+		if path != "/nested/base/api/v1/agents/ws" {
+			t.Fatalf("WebSocket path mismatch, got %q", path)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timed out waiting for WebSocket request")
+	}
+}
