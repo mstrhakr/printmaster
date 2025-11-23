@@ -1,7 +1,6 @@
 // PrintMaster Server - Web UI JavaScript
 
-const RBAC = (typeof window !== 'undefined' && window.__pm_rbac) ? window.__pm_rbac : null;
-const ROLE_PRIORITY = RBAC && RBAC.ROLE_PRIORITY ? RBAC.ROLE_PRIORITY : { admin: 3, operator: 2, viewer: 1 };
+const DEFAULT_ROLE_PRIORITY = { admin: 3, operator: 2, viewer: 1 };
 const BASE_TAB_LABELS = {
     agents: 'Agents',
     devices: 'Devices',
@@ -170,20 +169,35 @@ const serverSettingsVM = {
     lastError: null,
 };
 
+function getRBAC() {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+    return window.__pm_rbac || null;
+}
+
+function getRolePriorityMap() {
+    const rbac = getRBAC();
+    return (rbac && rbac.ROLE_PRIORITY) ? rbac.ROLE_PRIORITY : DEFAULT_ROLE_PRIORITY;
+}
+
 function normalizeRole(role) {
-    if (RBAC && typeof RBAC.normalizeRole === 'function') {
-        return RBAC.normalizeRole(role);
+    const rbac = getRBAC();
+    if (rbac && typeof rbac.normalizeRole === 'function') {
+        return rbac.normalizeRole(role);
     }
     return (role || '').toString().toLowerCase();
 }
 
 function userHasRole(minRole) {
     if (!currentUser) return false;
-    if (RBAC && typeof RBAC.userHasRequiredRole === 'function') {
-        return RBAC.userHasRequiredRole(currentUser.role, minRole);
+    const rbac = getRBAC();
+    if (rbac && typeof rbac.userHasRequiredRole === 'function') {
+        return rbac.userHasRequiredRole(currentUser.role, minRole);
     }
-    const current = ROLE_PRIORITY[normalizeRole(currentUser.role)] || 0;
-    const required = ROLE_PRIORITY[normalizeRole(minRole)] || 0;
+    const priorities = getRolePriorityMap();
+    const current = priorities[normalizeRole(currentUser.role)] || 0;
+    const required = priorities[normalizeRole(minRole)] || 0;
     return current >= required;
 }
 
@@ -191,11 +205,12 @@ function userCan(action) {
     if (!currentUser || !action) {
         return false;
     }
-    if (RBAC && typeof RBAC.canPerformAction === 'function') {
-        return RBAC.canPerformAction(currentUser.role, action);
+    const rbac = getRBAC();
+    if (rbac && typeof rbac.canPerformAction === 'function') {
+        return rbac.canPerformAction(currentUser.role, action);
     }
-    if (RBAC && RBAC.ACTION_MIN_ROLE && RBAC.ACTION_MIN_ROLE[action]) {
-        return userHasRole(RBAC.ACTION_MIN_ROLE[action]);
+    if (rbac && rbac.ACTION_MIN_ROLE && rbac.ACTION_MIN_ROLE[action]) {
+        return userHasRole(rbac.ACTION_MIN_ROLE[action]);
     }
     return false;
 }
