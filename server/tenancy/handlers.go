@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -40,6 +41,11 @@ var agentEventSink func(eventType string, data map[string]interface{})
 var agentSettingsBuilder func(context.Context, string) (string, interface{}, error)
 
 var auditLogger func(*http.Request, *storage.AuditEntry)
+
+var (
+	releaseAssetBaseURL   = "https://github.com/mstrhakr/printmaster/releases/download"
+	releaseDownloadClient = &http.Client{Timeout: 2 * time.Minute}
+)
 
 // SetAgentEventSink registers a callback invoked for agent lifecycle events.
 func SetAgentEventSink(sink func(eventType string, data map[string]interface{})) {
@@ -1029,7 +1035,7 @@ New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 Write-Host "Downloading agent binary..."
 try {
 	$downloadParams = @{
-		Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64"
+			Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64&proxy=1"
 		OutFile = $agentExe
 		ErrorAction = 'Stop'
 	}
@@ -1103,7 +1109,7 @@ SERVER="%s"
 TOKEN="%s"
 set -e
 echo "Downloading agent..."
-curl -fsSL "$SERVER/api/v1/agents/download/latest" -o /usr/local/bin/pm-agent || exit 1
+curl -fsSL "$SERVER/api/v1/agents/download/latest?proxy=1" -o /usr/local/bin/pm-agent || exit 1
 chmod +x /usr/local/bin/pm-agent
 mkdir -p /etc/printmaster
 cat > /etc/printmaster/pm-config.json <<EOF
@@ -1234,6 +1240,8 @@ func handleAgentDownloadLatest(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	platform := strings.ToLower(q.Get("platform"))
 	arch := strings.ToLower(q.Get("arch"))
+	proxyParam := strings.ToLower(q.Get("proxy"))
+	proxyDownload := proxyParam == "1" || proxyParam == "true" || proxyParam == "yes"
 	if platform == "" {
 		platform = "linux"
 	}
@@ -1271,8 +1279,50 @@ func handleAgentDownloadLatest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	asset := fmt.Sprintf("printmaster-agent-%s-%s-%s%s", tag, platform, arch, ext)
-	redirectURL := fmt.Sprintf("https://github.com/mstrhakr/printmaster/releases/download/%s/%s", tag, asset)
+	redirectURL := fmt.Sprintf("%s/%s/%s", releaseAssetBaseURL, tag, asset)
 
-	// Use 302/Found to allow clients to follow to GitHub.
-	http.Redirect(w, r, redirectURL, http.StatusFound)
+	if !proxyDownload {
+		// Use 302/Found to allow capable clients to follow to GitHub directly.
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+
+	// Fall back to proxying the download through the server for older clients
+	// (notably legacy PowerShell) that cannot negotiate GitHub's TLS/SNI
+	// requirements.
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, redirectURL, nil)
+	if err != nil {
+		http.Error(w, "failed to build upstream request", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("User-Agent", fmt.Sprintf("printmaster-server/%s", ver))
+	resp, err := releaseDownloadClient.Do(req)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("upstream download failed: %v", err), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, fmt.Sprintf("upstream responded with %s", resp.Status), http.StatusBadGateway)
+		return
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	} else {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		w.Header().Set("Content-Length", cl)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+		w.Header().Set("Content-Disposition", cd)
+	} else {
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", asset))
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		// We cannot change the response at this point; best-effort copy only.
+		return
+	}
 }

@@ -3,8 +3,10 @@ package tenancy
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	authz "printmaster/server/authz"
@@ -386,4 +388,61 @@ func TestListAndRevokeJoinTokens(t *testing.T) {
 	}
 
 	// no raw for in-memory path
+}
+
+func TestHandleAgentDownloadLatestProxy(t *testing.T) {
+	enableTenancyForTest(t)
+	origVersion := serverVersion
+	serverVersion = "1.2.3"
+	t.Cleanup(func() { serverVersion = origVersion })
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expectedPath := "/v1.2.3/printmaster-agent-v1.2.3-windows-amd64.exe"
+		if r.URL.Path != expectedPath {
+			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write([]byte("bin"))
+	}))
+	t.Cleanup(func() { upstream.Close() })
+	origBase := releaseAssetBaseURL
+	releaseAssetBaseURL = upstream.URL
+	t.Cleanup(func() { releaseAssetBaseURL = origBase })
+	origClient := releaseDownloadClient
+	releaseDownloadClient = upstream.Client()
+	t.Cleanup(func() { releaseDownloadClient = origClient })
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/download/latest?platform=windows&arch=amd64&proxy=1", nil)
+	rw := httptest.NewRecorder()
+	handleAgentDownloadLatest(rw, req)
+	res := rw.Result()
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 got %d", res.StatusCode)
+	}
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+	if string(body) != "bin" {
+		t.Fatalf("unexpected body: %q", body)
+	}
+	if res.Header.Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("unexpected content type: %s", res.Header.Get("Content-Type"))
+	}
+}
+
+func TestHandleAgentDownloadLatestRedirect(t *testing.T) {
+	enableTenancyForTest(t)
+	origVersion := serverVersion
+	serverVersion = "2.0.0"
+	t.Cleanup(func() { serverVersion = origVersion })
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/download/latest?platform=windows&arch=amd64", nil)
+	rw := httptest.NewRecorder()
+	handleAgentDownloadLatest(rw, req)
+	if rw.Code != http.StatusFound {
+		t.Fatalf("expected 302 got %d", rw.Code)
+	}
+	loc := rw.Header().Get("Location")
+	if !strings.Contains(loc, "printmaster-agent-v2.0.0-windows-amd64.exe") {
+		t.Fatalf("unexpected redirect location: %s", loc)
+	}
 }
