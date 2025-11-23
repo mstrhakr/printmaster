@@ -479,31 +479,33 @@ func runServer(ctx context.Context, configFlag string) {
 
 	// Initialize logger
 	if cfg.Database.Path == "" {
-		// Use platform default, but on Windows if we're running interactively
-		// prefer the user AppData location when ProgramData is not writable
-		defaultPath := storage.GetDefaultDBPath()
-		cfg.Database.Path = defaultPath
 		if runtime.GOOS == "windows" && !isService {
-			// If defaultPath looks like ProgramData and we can't create the parent dir,
-			// fall back to the interactive data directory (AppData).
-			pd := os.Getenv("PROGRAMDATA")
-			if pd == "" {
-				pd = "C:\\ProgramData"
+			if userDir, err := config.GetDataDirectory("server", false); err == nil {
+				cfg.Database.Path = filepath.Join(userDir, "server.db")
+				logDebug("Using per-user data directory for database", "path", cfg.Database.Path)
+			} else {
+				logWarn("Failed to resolve user data directory; falling back to default DB path", "error", err)
+				cfg.Database.Path = storage.GetDefaultDBPath()
 			}
-			if strings.HasPrefix(strings.ToLower(defaultPath), strings.ToLower(pd)) {
-				parent := filepath.Dir(defaultPath)
-				if err := os.MkdirAll(parent, 0755); err != nil {
-					// Can't create ProgramData path — fall back to per-user data dir
-					logInfo("Falling back to user data directory because ProgramData is not writable", "programdata", pd, "error", err)
-					if userDir, derr := config.GetDataDirectory("server", false); derr == nil {
-						// Ensure directory exists
-						if err := os.MkdirAll(userDir, 0755); err == nil {
-							cfg.Database.Path = filepath.Join(userDir, "server.db")
-						} else {
-							// If we still can't create, keep default and hope for the best
-							logWarn("Failed to create user data directory; using default DB path", "user_dir", userDir, "error", err)
-						}
-					}
+		} else {
+			cfg.Database.Path = storage.GetDefaultDBPath()
+		}
+	}
+
+	if cfg.Database.Path != "" && runtime.GOOS == "windows" && !isService {
+		// If the path still points into ProgramData (custom config/env override), verify permissions
+		pd := os.Getenv("PROGRAMDATA")
+		if pd == "" {
+			pd = "C:\\ProgramData"
+		}
+		if strings.HasPrefix(strings.ToLower(cfg.Database.Path), strings.ToLower(pd)) {
+			parent := filepath.Dir(cfg.Database.Path)
+			if err := os.MkdirAll(parent, 0755); err != nil {
+				logInfo("ProgramData path not writable; switching to per-user data directory", "programdata", pd, "error", err)
+				if userDir, derr := config.GetDataDirectory("server", false); derr == nil {
+					cfg.Database.Path = filepath.Join(userDir, "server.db")
+				} else {
+					logWarn("Failed to resolve user data directory; keeping existing DB path", "error", derr)
 				}
 			}
 		}
@@ -2310,58 +2312,8 @@ func setupRoutes(cfg *Config) {
 	})
 	logInfo("Settings routes registered", "enabled", featureEnabled)
 
-	// Server settings (sanitized config exposure). Read-only; does not allow mutation.
-	http.HandleFunc("/api/v1/server/settings", requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-			return
-		}
-		// Sanitize config (exclude secrets like SMTP pass, TLS key paths)
-		resp := map[string]interface{}{
-			"version":         Version,
-			"tenancy_enabled": cfg.Tenancy.Enabled,
-			"config_source":   loadedConfigPath,
-			"using_defaults":  usingDefaultConfig,
-			"server": map[string]interface{}{
-				"http_port":             cfg.Server.HTTPPort,
-				"https_port":            cfg.Server.HTTPSPort,
-				"bind_address":          cfg.Server.BindAddress,
-				"behind_proxy":          cfg.Server.BehindProxy,
-				"proxy_use_https":       cfg.Server.ProxyUseHTTPS,
-				"auto_approve_agents":   cfg.Server.AutoApproveAgents,
-				"agent_timeout_minutes": cfg.Server.AgentTimeoutMinutes,
-			},
-			"security": map[string]interface{}{
-				"rate_limit_enabled":        cfg.Security.RateLimitEnabled,
-				"rate_limit_max_attempts":   cfg.Security.RateLimitMaxAttempts,
-				"rate_limit_block_minutes":  cfg.Security.RateLimitBlockMinutes,
-				"rate_limit_window_minutes": cfg.Security.RateLimitWindowMinutes,
-			},
-			"tls": map[string]interface{}{
-				"mode":                   cfg.TLS.Mode,
-				"domain":                 cfg.TLS.Domain,
-				"letsencrypt_domain":     cfg.TLS.LetsEncrypt.Domain,
-				"letsencrypt_email":      cfg.TLS.LetsEncrypt.Email,
-				"letsencrypt_accept_tos": cfg.TLS.LetsEncrypt.AcceptTOS,
-			},
-			"database": map[string]interface{}{
-				"path": cfg.Database.Path,
-			},
-			"logging": map[string]interface{}{
-				"level": cfg.Logging.Level,
-			},
-			"smtp": map[string]interface{}{
-				"enabled": cfg.SMTP.Enabled,
-				"host":    cfg.SMTP.Host,
-				"port":    cfg.SMTP.Port,
-				"user":    cfg.SMTP.User,
-				"from":    cfg.SMTP.From,
-			},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(resp)
-	}))
+	// Server settings (read/write via sanitized API)
+	http.HandleFunc("/api/v1/server/settings", requireWebAuth(handleServerSettings))
 
 	// Server settings sources (metadata about which keys are locked by env overrides)
 	http.HandleFunc("/api/v1/server/settings/sources", requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -2370,9 +2322,12 @@ func setupRoutes(cfg *Config) {
 			return
 		}
 		// Build list of locked keys (those set by environment variables)
-		lockedKeys := make([]string, 0, len(configSourceTracker.EnvKeys))
-		for key := range configSourceTracker.EnvKeys {
-			lockedKeys = append(lockedKeys, key)
+		lockedKeys := make([]string, 0)
+		if configSourceTracker != nil && configSourceTracker.EnvKeys != nil {
+			lockedKeys = make([]string, 0, len(configSourceTracker.EnvKeys))
+			for key := range configSourceTracker.EnvKeys {
+				lockedKeys = append(lockedKeys, key)
+			}
 		}
 		resp := map[string]interface{}{
 			"locked_keys": lockedKeys,
@@ -4290,4 +4245,571 @@ func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		logError("Failed to encode audit log response", "error", err)
 	}
+}
+
+// ===== Server Settings API =====
+
+type serverSettingsRequest struct {
+	Server   *serverSettingsServerSection   `json:"server"`
+	Security *serverSettingsSecuritySection `json:"security"`
+	TLS      *serverSettingsTLSSection      `json:"tls"`
+	Logging  *serverSettingsLoggingSection  `json:"logging"`
+	SMTP     *serverSettingsSMTPSection     `json:"smtp"`
+}
+
+type serverSettingsServerSection struct {
+	HTTPPort            *int    `json:"http_port"`
+	HTTPSPort           *int    `json:"https_port"`
+	BindAddress         *string `json:"bind_address"`
+	BehindProxy         *bool   `json:"behind_proxy"`
+	ProxyUseHTTPS       *bool   `json:"proxy_use_https"`
+	AutoApproveAgents   *bool   `json:"auto_approve_agents"`
+	AgentTimeoutMinutes *int    `json:"agent_timeout_minutes"`
+}
+
+type serverSettingsSecuritySection struct {
+	RateLimitEnabled       *bool `json:"rate_limit_enabled"`
+	RateLimitMaxAttempts   *int  `json:"rate_limit_max_attempts"`
+	RateLimitBlockMinutes  *int  `json:"rate_limit_block_minutes"`
+	RateLimitWindowMinutes *int  `json:"rate_limit_window_minutes"`
+}
+
+type serverSettingsTLSSection struct {
+	Mode        *string                           `json:"mode"`
+	Domain      *string                           `json:"domain"`
+	CertPath    *string                           `json:"cert_path"`
+	KeyPath     *string                           `json:"key_path"`
+	LetsEncrypt *serverSettingsLetsEncryptSection `json:"letsencrypt"`
+}
+
+type serverSettingsLetsEncryptSection struct {
+	Domain    *string `json:"domain"`
+	Email     *string `json:"email"`
+	CacheDir  *string `json:"cache_dir"`
+	AcceptTOS *bool   `json:"accept_tos"`
+}
+
+type serverSettingsLoggingSection struct {
+	Level *string `json:"level"`
+}
+
+type serverSettingsSMTPSection struct {
+	Enabled *bool   `json:"enabled"`
+	Host    *string `json:"host"`
+	Port    *int    `json:"port"`
+	User    *string `json:"user"`
+	Pass    *string `json:"pass"`
+	From    *string `json:"from"`
+}
+
+type serverSettingsUpdateResult struct {
+	ChangedKeys     []string `json:"changed_keys"`
+	RestartRequired bool     `json:"restart_required"`
+}
+
+func handleServerSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		if !authorizeOrReject(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+			return
+		}
+		resp := buildServerSettingsResponse(serverConfig)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	case http.MethodPut:
+		if !authorizeOrReject(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+			return
+		}
+		var req serverSettingsRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+			return
+		}
+		result, err := applyServerSettings(serverConfig, &req)
+		if err != nil {
+			logWarn("Server settings update failed", "error", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(result.ChangedKeys) > 0 {
+			actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+			logAuditEntry(r.Context(), &storage.AuditEntry{
+				ActorType: actorType,
+				ActorID:   actorID,
+				ActorName: actorName,
+				TenantID:  actorTenant,
+				Action:    "settings.server.update",
+				Details:   fmt.Sprintf("changed keys: %s", strings.Join(result.ChangedKeys, ", ")),
+				IPAddress: extractClientIP(r),
+				UserAgent: r.Header.Get("User-Agent"),
+				Severity:  storage.AuditSeverityInfo,
+			})
+		}
+		resp := map[string]interface{}{
+			"settings":         buildServerSettingsResponse(serverConfig),
+			"restart_required": result.RestartRequired,
+			"changed_keys":     result.ChangedKeys,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	default:
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+func buildServerSettingsResponse(cfg *Config) map[string]interface{} {
+	if cfg == nil {
+		return map[string]interface{}{"error": "config not loaded"}
+	}
+	return map[string]interface{}{
+		"version":         Version,
+		"tenancy_enabled": cfg.Tenancy.Enabled,
+		"config_source":   loadedConfigPath,
+		"using_defaults":  usingDefaultConfig,
+		"server": map[string]interface{}{
+			"http_port":             cfg.Server.HTTPPort,
+			"https_port":            cfg.Server.HTTPSPort,
+			"bind_address":          cfg.Server.BindAddress,
+			"behind_proxy":          cfg.Server.BehindProxy,
+			"proxy_use_https":       cfg.Server.ProxyUseHTTPS,
+			"auto_approve_agents":   cfg.Server.AutoApproveAgents,
+			"agent_timeout_minutes": cfg.Server.AgentTimeoutMinutes,
+		},
+		"security": map[string]interface{}{
+			"rate_limit_enabled":        cfg.Security.RateLimitEnabled,
+			"rate_limit_max_attempts":   cfg.Security.RateLimitMaxAttempts,
+			"rate_limit_block_minutes":  cfg.Security.RateLimitBlockMinutes,
+			"rate_limit_window_minutes": cfg.Security.RateLimitWindowMinutes,
+		},
+		"tls": map[string]interface{}{
+			"mode":                   cfg.TLS.Mode,
+			"domain":                 cfg.TLS.Domain,
+			"cert_path":              cfg.TLS.CertPath,
+			"key_path":               cfg.TLS.KeyPath,
+			"letsencrypt_domain":     cfg.TLS.LetsEncrypt.Domain,
+			"letsencrypt_email":      cfg.TLS.LetsEncrypt.Email,
+			"letsencrypt_cache_dir":  cfg.TLS.LetsEncrypt.CacheDir,
+			"letsencrypt_accept_tos": cfg.TLS.LetsEncrypt.AcceptTOS,
+		},
+		"database": map[string]interface{}{
+			"path": cfg.Database.Path,
+		},
+		"logging": map[string]interface{}{
+			"level": cfg.Logging.Level,
+		},
+		"smtp": map[string]interface{}{
+			"enabled": cfg.SMTP.Enabled,
+			"host":    cfg.SMTP.Host,
+			"port":    cfg.SMTP.Port,
+			"user":    cfg.SMTP.User,
+			"from":    cfg.SMTP.From,
+		},
+	}
+}
+
+func isConfigKeyLocked(key string) bool {
+	if configSourceTracker == nil || configSourceTracker.EnvKeys == nil {
+		return false
+	}
+	return configSourceTracker.EnvKeys[key]
+}
+
+func ensureConfigKeyEditable(key string) error {
+	if isConfigKeyLocked(key) {
+		return fmt.Errorf("%s is managed by environment variables", key)
+	}
+	return nil
+}
+
+func applyServerSettings(cfg *Config, req *serverSettingsRequest) (*serverSettingsUpdateResult, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("server configuration not loaded")
+	}
+	if req == nil {
+		return &serverSettingsUpdateResult{}, nil
+	}
+	original := *cfg
+	changedKeys := make([]string, 0)
+	restartRequired := false
+
+	var markChanged = func(key string, needsRestart bool) {
+		changedKeys = append(changedKeys, key)
+		if needsRestart {
+			restartRequired = true
+		}
+	}
+
+	if section := req.Server; section != nil {
+		if section.HTTPPort != nil {
+			if err := ensureConfigKeyEditable("server.http_port"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if err := validatePort(*section.HTTPPort); err != nil {
+				*cfg = original
+				return nil, fmt.Errorf("invalid server.http_port: %w", err)
+			}
+			if cfg.Server.HTTPPort != *section.HTTPPort {
+				cfg.Server.HTTPPort = *section.HTTPPort
+				markChanged("server.http_port", true)
+			}
+		}
+		if section.HTTPSPort != nil {
+			if err := ensureConfigKeyEditable("server.https_port"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if err := validatePort(*section.HTTPSPort); err != nil {
+				*cfg = original
+				return nil, fmt.Errorf("invalid server.https_port: %w", err)
+			}
+			if cfg.Server.HTTPSPort != *section.HTTPSPort {
+				cfg.Server.HTTPSPort = *section.HTTPSPort
+				markChanged("server.https_port", true)
+			}
+		}
+		if section.BindAddress != nil {
+			if err := ensureConfigKeyEditable("server.bind_address"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			value := strings.TrimSpace(*section.BindAddress)
+			if value == "" {
+				*cfg = original
+				return nil, fmt.Errorf("server.bind_address cannot be empty")
+			}
+			if cfg.Server.BindAddress != value {
+				cfg.Server.BindAddress = value
+				markChanged("server.bind_address", true)
+			}
+		}
+		if section.BehindProxy != nil {
+			if err := ensureConfigKeyEditable("server.behind_proxy"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if cfg.Server.BehindProxy != *section.BehindProxy {
+				cfg.Server.BehindProxy = *section.BehindProxy
+				markChanged("server.behind_proxy", true)
+			}
+		}
+		if section.ProxyUseHTTPS != nil {
+			if err := ensureConfigKeyEditable("server.proxy_use_https"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if cfg.Server.ProxyUseHTTPS != *section.ProxyUseHTTPS {
+				cfg.Server.ProxyUseHTTPS = *section.ProxyUseHTTPS
+				markChanged("server.proxy_use_https", true)
+			}
+		}
+		if section.AutoApproveAgents != nil {
+			if err := ensureConfigKeyEditable("server.auto_approve_agents"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if cfg.Server.AutoApproveAgents != *section.AutoApproveAgents {
+				cfg.Server.AutoApproveAgents = *section.AutoApproveAgents
+				markChanged("server.auto_approve_agents", true)
+			}
+		}
+		if section.AgentTimeoutMinutes != nil {
+			if err := ensureConfigKeyEditable("server.agent_timeout_minutes"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.AgentTimeoutMinutes <= 0 {
+				*cfg = original
+				return nil, fmt.Errorf("server.agent_timeout_minutes must be positive")
+			}
+			if cfg.Server.AgentTimeoutMinutes != *section.AgentTimeoutMinutes {
+				cfg.Server.AgentTimeoutMinutes = *section.AgentTimeoutMinutes
+				markChanged("server.agent_timeout_minutes", true)
+			}
+		}
+	}
+
+	if section := req.Security; section != nil {
+		if section.RateLimitEnabled != nil {
+			if err := ensureConfigKeyEditable("security.rate_limit_enabled"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if cfg.Security.RateLimitEnabled != *section.RateLimitEnabled {
+				cfg.Security.RateLimitEnabled = *section.RateLimitEnabled
+				markChanged("security.rate_limit_enabled", true)
+			}
+		}
+		if section.RateLimitMaxAttempts != nil {
+			if err := ensureConfigKeyEditable("security.rate_limit_max_attempts"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.RateLimitMaxAttempts <= 0 {
+				*cfg = original
+				return nil, fmt.Errorf("security.rate_limit_max_attempts must be positive")
+			}
+			if cfg.Security.RateLimitMaxAttempts != *section.RateLimitMaxAttempts {
+				cfg.Security.RateLimitMaxAttempts = *section.RateLimitMaxAttempts
+				markChanged("security.rate_limit_max_attempts", true)
+			}
+		}
+		if section.RateLimitBlockMinutes != nil {
+			if err := ensureConfigKeyEditable("security.rate_limit_block_minutes"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.RateLimitBlockMinutes <= 0 {
+				*cfg = original
+				return nil, fmt.Errorf("security.rate_limit_block_minutes must be positive")
+			}
+			if cfg.Security.RateLimitBlockMinutes != *section.RateLimitBlockMinutes {
+				cfg.Security.RateLimitBlockMinutes = *section.RateLimitBlockMinutes
+				markChanged("security.rate_limit_block_minutes", true)
+			}
+		}
+		if section.RateLimitWindowMinutes != nil {
+			if err := ensureConfigKeyEditable("security.rate_limit_window_minutes"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.RateLimitWindowMinutes <= 0 {
+				*cfg = original
+				return nil, fmt.Errorf("security.rate_limit_window_minutes must be positive")
+			}
+			if cfg.Security.RateLimitWindowMinutes != *section.RateLimitWindowMinutes {
+				cfg.Security.RateLimitWindowMinutes = *section.RateLimitWindowMinutes
+				markChanged("security.rate_limit_window_minutes", true)
+			}
+		}
+	}
+
+	if section := req.TLS; section != nil {
+		if section.Mode != nil {
+			if err := ensureConfigKeyEditable("tls.mode"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			mode := strings.ToLower(strings.TrimSpace(*section.Mode))
+			switch mode {
+			case "self-signed", "custom", "letsencrypt":
+			default:
+				*cfg = original
+				return nil, fmt.Errorf("unsupported tls.mode: %s", mode)
+			}
+			if cfg.TLS.Mode != mode {
+				cfg.TLS.Mode = mode
+				markChanged("tls.mode", true)
+			}
+		}
+		if section.Domain != nil {
+			if err := ensureConfigKeyEditable("tls.domain"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			domain := strings.TrimSpace(*section.Domain)
+			if domain == "" {
+				*cfg = original
+				return nil, fmt.Errorf("tls.domain cannot be empty")
+			}
+			if cfg.TLS.Domain != domain {
+				cfg.TLS.Domain = domain
+				markChanged("tls.domain", true)
+			}
+		}
+		if section.CertPath != nil {
+			if err := ensureConfigKeyEditable("tls.cert_path"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			path := strings.TrimSpace(*section.CertPath)
+			if cfg.TLS.CertPath != path {
+				cfg.TLS.CertPath = path
+				markChanged("tls.cert_path", true)
+			}
+		}
+		if section.KeyPath != nil {
+			if err := ensureConfigKeyEditable("tls.key_path"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			path := strings.TrimSpace(*section.KeyPath)
+			if cfg.TLS.KeyPath != path {
+				cfg.TLS.KeyPath = path
+				markChanged("tls.key_path", true)
+			}
+		}
+		if le := section.LetsEncrypt; le != nil {
+			if le.Domain != nil {
+				if err := ensureConfigKeyEditable("tls.letsencrypt.domain"); err != nil {
+					*cfg = original
+					return nil, err
+				}
+				domain := strings.TrimSpace(*le.Domain)
+				if domain == "" {
+					*cfg = original
+					return nil, fmt.Errorf("tls.letsencrypt.domain cannot be empty")
+				}
+				if cfg.TLS.LetsEncrypt.Domain != domain {
+					cfg.TLS.LetsEncrypt.Domain = domain
+					markChanged("tls.letsencrypt.domain", true)
+				}
+			}
+			if le.Email != nil {
+				if err := ensureConfigKeyEditable("tls.letsencrypt.email"); err != nil {
+					*cfg = original
+					return nil, err
+				}
+				email := strings.TrimSpace(*le.Email)
+				if email == "" {
+					*cfg = original
+					return nil, fmt.Errorf("tls.letsencrypt.email cannot be empty")
+				}
+				if cfg.TLS.LetsEncrypt.Email != email {
+					cfg.TLS.LetsEncrypt.Email = email
+					markChanged("tls.letsencrypt.email", true)
+				}
+			}
+			if le.CacheDir != nil {
+				if err := ensureConfigKeyEditable("tls.letsencrypt.cache_dir"); err != nil {
+					*cfg = original
+					return nil, err
+				}
+				cache := strings.TrimSpace(*le.CacheDir)
+				if cache == "" {
+					cache = cfg.TLS.LetsEncrypt.CacheDir
+				}
+				if cfg.TLS.LetsEncrypt.CacheDir != cache {
+					cfg.TLS.LetsEncrypt.CacheDir = cache
+					markChanged("tls.letsencrypt.cache_dir", true)
+				}
+			}
+			if le.AcceptTOS != nil {
+				if err := ensureConfigKeyEditable("tls.letsencrypt.accept_tos"); err != nil {
+					*cfg = original
+					return nil, err
+				}
+				if cfg.TLS.LetsEncrypt.AcceptTOS != *le.AcceptTOS {
+					cfg.TLS.LetsEncrypt.AcceptTOS = *le.AcceptTOS
+					markChanged("tls.letsencrypt.accept_tos", true)
+				}
+			}
+		}
+	}
+
+	if section := req.Logging; section != nil && section.Level != nil {
+		if err := ensureConfigKeyEditable("logging.level"); err != nil {
+			*cfg = original
+			return nil, err
+		}
+		level := strings.ToUpper(strings.TrimSpace(*section.Level))
+		switch level {
+		case "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE":
+		default:
+			*cfg = original
+			return nil, fmt.Errorf("invalid logging.level: %s", level)
+		}
+		if !strings.EqualFold(cfg.Logging.Level, level) {
+			cfg.Logging.Level = strings.ToLower(level)
+			changedKeys = append(changedKeys, "logging.level")
+			if serverLogger != nil {
+				serverLogger.SetLevel(logger.LevelFromString(level))
+			}
+		}
+	}
+
+	if section := req.SMTP; section != nil {
+		if section.Enabled != nil {
+			if err := ensureConfigKeyEditable("smtp.enabled"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if cfg.SMTP.Enabled != *section.Enabled {
+				cfg.SMTP.Enabled = *section.Enabled
+				markChanged("smtp.enabled", true)
+			}
+		}
+		if section.Host != nil {
+			if err := ensureConfigKeyEditable("smtp.host"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			host := strings.TrimSpace(*section.Host)
+			if cfg.SMTP.Host != host {
+				cfg.SMTP.Host = host
+				markChanged("smtp.host", true)
+			}
+		}
+		if section.Port != nil {
+			if err := ensureConfigKeyEditable("smtp.port"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.Port <= 0 || *section.Port > 65535 {
+				*cfg = original
+				return nil, fmt.Errorf("smtp.port must be between 1 and 65535")
+			}
+			if cfg.SMTP.Port != *section.Port {
+				cfg.SMTP.Port = *section.Port
+				markChanged("smtp.port", true)
+			}
+		}
+		if section.User != nil {
+			if err := ensureConfigKeyEditable("smtp.user"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			user := strings.TrimSpace(*section.User)
+			if cfg.SMTP.User != user {
+				cfg.SMTP.User = user
+				markChanged("smtp.user", true)
+			}
+		}
+		if section.Pass != nil {
+			if err := ensureConfigKeyEditable("smtp.pass"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			pass := strings.TrimSpace(*section.Pass)
+			if cfg.SMTP.Pass != pass {
+				cfg.SMTP.Pass = pass
+				markChanged("smtp.pass", true)
+			}
+		}
+		if section.From != nil {
+			if err := ensureConfigKeyEditable("smtp.from"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			from := strings.TrimSpace(*section.From)
+			if cfg.SMTP.From != from {
+				cfg.SMTP.From = from
+				markChanged("smtp.from", true)
+			}
+		}
+	}
+
+	if len(changedKeys) == 0 {
+		return &serverSettingsUpdateResult{ChangedKeys: changedKeys, RestartRequired: restartRequired}, nil
+	}
+
+	if loadedConfigPath == "" {
+		*cfg = original
+		return nil, fmt.Errorf("config path not set; cannot persist changes")
+	}
+
+	if err := config.WriteTOML(loadedConfigPath, cfg); err != nil {
+		*cfg = original
+		return nil, fmt.Errorf("failed to persist configuration: %w", err)
+	}
+
+	logInfo("Server settings updated", "changed", strings.Join(changedKeys, ","), "restart_required", restartRequired)
+	return &serverSettingsUpdateResult{ChangedKeys: changedKeys, RestartRequired: restartRequired}, nil
+}
+
+func validatePort(port int) error {
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	return nil
 }

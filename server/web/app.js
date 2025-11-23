@@ -67,6 +67,109 @@ let auditLastUpdated = null;
 let auditLiveRequested = false;
 let auditDataLoaded = false;
 
+const SERVER_SETTINGS_SCHEMA = [
+    {
+        section: 'server',
+        title: 'Network & Proxy',
+        description: 'Listener ports, binding address, and proxy awareness.',
+        fields: [
+            { key: 'http_port', label: 'HTTP Port', type: 'number', min: 1, max: 65535, required: true, helper: 'Plain HTTP listener used for health checks or reverse proxies.', configKey: 'server.http_port' },
+            { key: 'https_port', label: 'HTTPS Port', type: 'number', min: 1, max: 65535, required: true, helper: 'Direct TLS listener when not running behind a reverse proxy.', configKey: 'server.https_port' },
+            { key: 'bind_address', label: 'Bind Address', type: 'text', placeholder: '0.0.0.0', helper: 'Interface to bind when accepting connections.', configKey: 'server.bind_address', fullWidth: true },
+            { key: 'behind_proxy', label: 'Behind Reverse Proxy', type: 'checkbox', helper: 'Trust X-Forwarded-* headers and skip automatic TLS.', configKey: 'server.behind_proxy' },
+            { key: 'proxy_use_https', label: 'Proxy Uses HTTPS', type: 'checkbox', helper: 'When behind a proxy, assume incoming traffic was HTTPS.', configKey: 'server.proxy_use_https' },
+            { key: 'auto_approve_agents', label: 'Auto-Approve Agents', type: 'checkbox', helper: 'Automatically trust new agents without manual approval.', configKey: 'server.auto_approve_agents' },
+            { key: 'agent_timeout_minutes', label: 'Agent Timeout (minutes)', type: 'number', min: 1, helper: 'Time window before an agent is considered offline.', configKey: 'server.agent_timeout_minutes' }
+        ]
+    },
+    {
+        section: 'security',
+        title: 'Authentication & Rate Limits',
+        description: 'Brute-force protection for the built-in login experience.',
+        fields: [
+            { key: 'rate_limit_enabled', label: 'Rate Limiting Enabled', type: 'checkbox', helper: 'Reject login attempts after repeated failures.', configKey: 'security.rate_limit_enabled' },
+            { key: 'rate_limit_max_attempts', label: 'Max Attempts', type: 'number', min: 1, helper: 'Failed logins allowed before triggering a block.', configKey: 'security.rate_limit_max_attempts' },
+            { key: 'rate_limit_block_minutes', label: 'Block Duration (minutes)', type: 'number', min: 1, helper: 'How long to block an IP/user after exceeding attempts.', configKey: 'security.rate_limit_block_minutes' },
+            { key: 'rate_limit_window_minutes', label: 'Window (minutes)', type: 'number', min: 1, helper: 'Rolling window for counting failed attempts.', configKey: 'security.rate_limit_window_minutes' }
+        ]
+    },
+    {
+        section: 'tls',
+        title: 'TLS & Certificates',
+        description: 'Choose how HTTPS certificates are provisioned.',
+        fields: [
+            {
+                key: 'mode',
+                label: 'TLS Mode',
+                type: 'select',
+                required: true,
+                options: [
+                    { value: 'self-signed', label: 'Self-signed (default)' },
+                    { value: 'custom', label: 'Custom certificate' },
+                    { value: 'letsencrypt', label: 'Let\'s Encrypt (automatic)' }
+                ],
+                helper: 'Self-signed is easiest. Custom and Let\'s Encrypt require additional metadata.',
+                configKey: 'tls.mode'
+            },
+            { key: 'domain', label: 'Primary Domain', type: 'text', placeholder: 'pm.yourdomain.com', helper: 'Common Name used for certificates and redirects.', configKey: 'tls.domain', required: true },
+            { key: 'cert_path', label: 'Certificate Path', type: 'text', placeholder: 'C:/printmaster/server.crt', helper: 'Path to PEM certificate when using custom TLS.', configKey: 'tls.cert_path', fullWidth: true },
+            { key: 'key_path', label: 'Key Path', type: 'text', placeholder: 'C:/printmaster/server.key', helper: 'Private key for custom TLS certificates.', configKey: 'tls.key_path', fullWidth: true },
+            { key: 'letsencrypt_domain', label: 'Let\'s Encrypt Domain', type: 'text', placeholder: 'pm.yourdomain.com', helper: 'FQDN requested from Let\'s Encrypt.', configKey: 'tls.letsencrypt.domain' },
+            { key: 'letsencrypt_email', label: 'Let\'s Encrypt Email', type: 'text', placeholder: 'ops@yourdomain.com', helper: 'Administrative contact for ACME registration.', configKey: 'tls.letsencrypt.email' },
+            { key: 'letsencrypt_cache_dir', label: 'Let\'s Encrypt Cache Dir', type: 'text', placeholder: 'letsencrypt-cache', helper: 'Directory for cached ACME assets.', configKey: 'tls.letsencrypt.cache_dir' },
+            { key: 'letsencrypt_accept_tos', label: 'Accept Let\'s Encrypt Terms', type: 'checkbox', helper: 'Required before automatic certificate issuance.', configKey: 'tls.letsencrypt.accept_tos' }
+        ]
+    },
+    {
+        section: 'logging',
+        title: 'Logging Level',
+        description: 'Control verbosity for new log entries.',
+        fields: [
+            {
+                key: 'level',
+                label: 'Log Level',
+                type: 'select',
+                required: true,
+                options: [
+                    { value: 'ERROR', label: 'ERROR' },
+                    { value: 'WARN', label: 'WARN' },
+                    { value: 'INFO', label: 'INFO' },
+                    { value: 'DEBUG', label: 'DEBUG' },
+                    { value: 'TRACE', label: 'TRACE' }
+                ],
+                helper: 'Changes apply immediately without restarting.',
+                configKey: 'logging.level'
+            }
+        ]
+    },
+    {
+        section: 'smtp',
+        title: 'SMTP Notifications',
+        description: 'Optional email settings for alerts and reports.',
+        fields: [
+            { key: 'enabled', label: 'Enable SMTP', type: 'checkbox', helper: 'Toggle email delivery for alerting.', configKey: 'smtp.enabled' },
+            { key: 'host', label: 'SMTP Host', type: 'text', placeholder: 'smtp.office365.com', helper: 'Hostname or IP of your SMTP relay.', configKey: 'smtp.host' },
+            { key: 'port', label: 'SMTP Port', type: 'number', min: 1, max: 65535, helper: 'Port used to connect to your SMTP server.', configKey: 'smtp.port' },
+            { key: 'user', label: 'SMTP Username', type: 'text', helper: 'Leave blank if your relay allows anonymous auth.', configKey: 'smtp.user' },
+            { key: 'pass', label: 'SMTP Password', type: 'password', placeholder: 'Leave blank to keep existing secret', helper: 'Value is only stored if you provide a new password.', configKey: 'smtp.pass' },
+            { key: 'from', label: 'From Address', type: 'text', placeholder: 'printmaster@yourdomain.com', helper: 'Default sender for outbound email.', configKey: 'smtp.from' }
+        ]
+    }
+];
+
+const serverSettingsVM = {
+    data: null,
+    original: null,
+    lockedKeys: new Set(),
+    loading: false,
+    saving: false,
+    dirty: false,
+    restartRequired: false,
+    statusMessage: '',
+    statusTone: 'muted',
+    lastError: null,
+};
+
 function normalizeRole(role) {
     if (RBAC && typeof RBAC.normalizeRole === 'function') {
         return RBAC.normalizeRole(role);
@@ -685,44 +788,499 @@ function ensureSettingsViewReady(view) {
     initSettingsUI();
 }
 
-async function loadServerSettings() {
+async function loadServerSettings(forceRefresh = false) {
     const container = document.getElementById('server_settings_container');
     if (!container) return;
-    container.innerHTML = '<div style="color:var(--muted);">Fetching server settings...</div>';
+    if (serverSettingsVM.loading && !forceRefresh) {
+        return;
+    }
+    serverSettingsVM.loading = true;
+    container.innerHTML = '<div style="color:var(--muted);">Loading server settings…</div>';
     try {
-        const resp = await fetch('/api/v1/server/settings');
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
-        // Render categorized sections
-        const order = ['version','config_source','using_defaults','server','security','tls','tenancy_enabled','database','logging','smtp'];
-        let html = '';
-        order.forEach(key => {
-            if (!(key in data)) return;
-            const value = data[key];
-            if (typeof value === 'object' && value && !Array.isArray(value)) {
-                html += `<div class="panel" style="border:1px solid var(--border);padding:12px;border-radius:8px;margin-bottom:12px;">`+
-                    `<h5 style="margin:0 0 8px 0;color:var(--highlight);font-size:14px;">${key.replace(/_/g,' ').toUpperCase()}</h5>`;
-                html += '<div style="display:flex;flex-direction:column;gap:6px;">';
-                Object.keys(value).forEach(k => {
-                    const v = value[k];
-                    html += `<div style="display:flex;justify-content:space-between;gap:12px;">`+
-                        `<div style="min-width:180px;color:var(--muted);">${k}</div>`+
-                        `<div style="font-family:monospace;">${(v===null||v===undefined||v==='')?'<span style=\"color:var(--muted);\">(unset)</span>':String(v)}</div>`+
-                    `</div>`;
-                });
-                html += '</div></div>';
-            } else {
-                // Primitive value (version, booleans, etc.)
-                html += `<div style="display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);padding:8px;border-radius:6px;margin-bottom:8px;">`+
-                    `<div style="font-weight:600;">${key}</div>`+
-                    `<div style="font-family:monospace;">${String(value)}</div>`+
-                `</div>`;
+        const [settingsResp, sourcesResp] = await Promise.all([
+            fetchJSON('/api/v1/server/settings'),
+            fetchJSON('/api/v1/server/settings/sources').catch(err => {
+                window.__pm_shared.warn('Failed to load server settings lock metadata', err);
+                return null;
+            })
+        ]);
+        const normalized = normalizeServerSettings(settingsResp || {});
+        serverSettingsVM.original = cloneServerSettingsData(normalized);
+        serverSettingsVM.data = cloneServerSettingsData(normalized);
+        const lockedKeys = (sourcesResp && Array.isArray(sourcesResp.locked_keys)) ? sourcesResp.locked_keys : [];
+        serverSettingsVM.lockedKeys = new Set(lockedKeys);
+        serverSettingsVM.dirty = false;
+        serverSettingsVM.restartRequired = false;
+        serverSettingsVM.lastError = null;
+        serverSettingsVM.statusMessage = 'Fetched latest settings from server.';
+        serverSettingsVM.statusTone = 'muted';
+        renderServerSettingsForm();
+    } catch (err) {
+        serverSettingsVM.lastError = err;
+        const message = err && err.message ? err.message : err;
+        container.innerHTML = `<div style="color:var(--danger);">Failed to load server settings: ${message}</div>`;
+        window.__pm_shared.error('Failed to load server settings', err);
+    } finally {
+        serverSettingsVM.loading = false;
+    }
+}
+
+function normalizeServerSettings(raw) {
+    const safeStr = (val) => (val === null || val === undefined) ? '' : String(val);
+    const safeBool = (val) => Boolean(val);
+    const scoped = raw || {};
+    const serverSection = scoped.server || {};
+    const securitySection = scoped.security || {};
+    const tlsSection = scoped.tls || {};
+    const loggingSection = scoped.logging || {};
+    const smtpSection = scoped.smtp || {};
+    const databaseSection = scoped.database || {};
+    return {
+        meta: {
+            version: safeStr(scoped.version || 'unknown'),
+            config_source: safeStr(scoped.config_source || 'config.toml'),
+            using_defaults: Boolean(scoped.using_defaults),
+            tenancy_enabled: Boolean(scoped.tenancy_enabled),
+            database_path: safeStr(databaseSection.path || ''),
+        },
+        server: {
+            http_port: safeStr(serverSection.http_port),
+            https_port: safeStr(serverSection.https_port),
+            bind_address: safeStr(serverSection.bind_address || ''),
+            behind_proxy: safeBool(serverSection.behind_proxy),
+            proxy_use_https: safeBool(serverSection.proxy_use_https),
+            auto_approve_agents: safeBool(serverSection.auto_approve_agents),
+            agent_timeout_minutes: safeStr(serverSection.agent_timeout_minutes),
+        },
+        security: {
+            rate_limit_enabled: safeBool(securitySection.rate_limit_enabled),
+            rate_limit_max_attempts: safeStr(securitySection.rate_limit_max_attempts),
+            rate_limit_block_minutes: safeStr(securitySection.rate_limit_block_minutes),
+            rate_limit_window_minutes: safeStr(securitySection.rate_limit_window_minutes),
+        },
+        tls: {
+            mode: safeStr(tlsSection.mode || 'self-signed') || 'self-signed',
+            domain: safeStr(tlsSection.domain || ''),
+            cert_path: safeStr(tlsSection.cert_path || ''),
+            key_path: safeStr(tlsSection.key_path || ''),
+            letsencrypt_domain: safeStr(tlsSection.letsencrypt_domain || ''),
+            letsencrypt_email: safeStr(tlsSection.letsencrypt_email || ''),
+            letsencrypt_cache_dir: safeStr(tlsSection.letsencrypt_cache_dir || ''),
+            letsencrypt_accept_tos: safeBool(tlsSection.letsencrypt_accept_tos),
+        },
+        logging: {
+            level: safeStr(loggingSection.level || 'INFO') || 'INFO',
+        },
+        smtp: {
+            enabled: safeBool(smtpSection.enabled),
+            host: safeStr(smtpSection.host || ''),
+            port: safeStr(smtpSection.port),
+            user: safeStr(smtpSection.user || ''),
+            pass: '',
+            from: safeStr(smtpSection.from || ''),
+        },
+    };
+}
+
+function cloneServerSettingsData(data) {
+    return JSON.parse(JSON.stringify(data || {}));
+}
+
+function renderServerSettingsForm() {
+    const container = document.getElementById('server_settings_container');
+    if (!container) return;
+    if (!serverSettingsVM.data) {
+        container.innerHTML = '<div style="color:var(--muted);">Server settings are not available.</div>';
+        return;
+    }
+    const sectionsHtml = SERVER_SETTINGS_SCHEMA.map(section => renderServerSettingsSection(section)).join('');
+    const metaCards = renderServerSettingsInfoCards();
+    const lockSummary = renderServerSettingsLockSummary();
+    const restartBanner = `<div id="server_settings_restart_banner" style="display:${(serverSettingsVM.restartRequired && !serverSettingsVM.dirty) ? 'flex' : 'none'};align-items:center;gap:8px;padding:8px 12px;border-radius:6px;background:rgba(255,153,0,0.15);color:var(--warn);font-size:13px;">
+        <span style="font-weight:600;">Restart required</span>
+        <span>Recycle the PrintMaster server service to apply TLS or network changes.</span>
+    </div>`;
+    container.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+            ${metaCards}
+        </div>
+        ${lockSummary}
+        ${restartBanner}
+        ${sectionsHtml}
+        <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:24px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.02);">
+            <div id="server_settings_status" style="font-size:13px;color:var(--muted);"></div>
+            <div style="display:flex;gap:10px;">
+                <button id="server_settings_discard_btn" class="btn btn-secondary" type="button">Discard</button>
+                <button id="server_settings_save_btn" class="btn btn-primary" type="button">Save changes</button>
+            </div>
+        </div>
+    `;
+    bindServerSettingsInputs(container);
+    syncServerSettingsActionState();
+}
+
+function renderServerSettingsInfoCards() {
+    const meta = (serverSettingsVM.data && serverSettingsVM.data.meta) || {};
+    const cards = [
+        { label: 'Version', value: meta.version || 'unknown' },
+        { label: 'Config Source', value: meta.config_source || 'config.toml' },
+        { label: 'Tenancy', value: meta.tenancy_enabled ? 'Enabled' : 'Disabled' },
+        { label: 'Database Path', value: meta.database_path || '(default)' },
+    ];
+    return cards.map(card => `
+        <div style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;">
+            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px;">${card.label}</div>
+            <div style="font-size:15px;margin-top:4px;font-family:var(--font-code,monospace);">${escapeHtml(card.value)}</div>
+        </div>
+    `).join('');
+}
+
+function renderServerSettingsLockSummary() {
+    if (!serverSettingsVM.lockedKeys || serverSettingsVM.lockedKeys.size === 0) {
+        return '';
+    }
+    const keys = Array.from(serverSettingsVM.lockedKeys).sort();
+    const preview = keys.slice(0, 4).map(key => `<code style="background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:4px;">${escapeHtml(key)}</code>`).join(' ');
+    const remainder = keys.length > 4 ? ` +${keys.length - 4} more` : '';
+    return `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:16px;background:rgba(255,255,255,0.02);font-size:13px;">
+            <strong>Managed keys:</strong> ${preview}${remainder}
+            <div style="font-size:12px;color:var(--muted);margin-top:4px;">These values come from environment overrides and cannot be edited here.</div>
+        </div>
+    `;
+}
+
+function renderServerSettingsSection(sectionDef) {
+    const fields = sectionDef.fields || [];
+    const fieldGrid = fields.map(field => renderServerSettingsField(sectionDef.section, field)).join('');
+    const title = escapeHtml(sectionDef.title || '');
+    const description = sectionDef.description ? escapeHtml(sectionDef.description) : '';
+    return `
+        <div class="panel" style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;">
+            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:12px;">
+                <div style="font-size:16px;font-weight:600;">${title}</div>
+                <div style="font-size:13px;color:var(--muted);">${description}</div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;">
+                ${fieldGrid}
+            </div>
+        </div>
+    `;
+}
+
+function renderServerSettingsField(sectionKey, field) {
+    const sectionData = (serverSettingsVM.data && serverSettingsVM.data[sectionKey]) || {};
+    let value = sectionData[field.key];
+    if (value === null || value === undefined) {
+        value = (field.type === 'checkbox') ? false : '';
+    }
+    const inputId = `server_setting_${sectionKey}_${field.key}`;
+    const isLocked = field.configKey && serverSettingsVM.lockedKeys.has(field.configKey);
+    const disabledAttr = isLocked ? 'disabled' : '';
+    const lockBadge = isLocked ? '<span style="font-size:11px;color:var(--warn);background:rgba(255,153,0,0.15);padding:2px 6px;border-radius:4px;">Env managed</span>' : '';
+    const labelText = escapeHtml(field.label || '');
+    let control = '';
+    if (field.type === 'checkbox') {
+        const checked = value ? 'checked' : '';
+        control = `
+            <input data-settings-input="true" data-section="${sectionKey}" data-key="${field.key}" id="${inputId}" type="checkbox" ${checked} ${disabledAttr} />
+        `;
+    } else if (field.type === 'select') {
+        const options = (field.options || []).map(opt => `<option value="${escapeHtml(opt.value)}" ${opt.value === value ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('');
+        control = `
+            <select data-settings-input="true" data-section="${sectionKey}" data-key="${field.key}" id="${inputId}" ${disabledAttr}>
+                ${options}
+            </select>
+        `;
+    } else {
+        const typeAttr = field.type === 'password' ? 'password' : (field.type === 'number' ? 'number' : 'text');
+        const minAttr = (field.type === 'number' && field.min !== undefined) ? `min="${field.min}"` : '';
+        const maxAttr = (field.type === 'number' && field.max !== undefined) ? `max="${field.max}"` : '';
+        const inputMode = field.type === 'number' ? 'inputmode="numeric" pattern="[0-9]*"' : '';
+        control = `
+            <input data-settings-input="true" data-section="${sectionKey}" data-key="${field.key}" id="${inputId}" type="${typeAttr}" ${minAttr} ${maxAttr} ${inputMode} ${disabledAttr}
+                value="${escapeHtml(value)}" placeholder="${field.placeholder ? escapeHtml(field.placeholder) : ''}" />
+        `;
+    }
+    const helper = field.helper ? `<div style="font-size:12px;color:var(--muted);">${escapeHtml(field.helper)}</div>` : '';
+    return `
+        <div style="display:flex;flex-direction:column;gap:6px;${field.fullWidth ? 'grid-column:1 / -1;' : ''}">
+            <div style="display:flex;align-items:center;gap:8px;font-weight:600;">
+                <label for="${inputId}">${labelText}</label>
+                ${lockBadge}
+                ${field.required ? '<span style="font-size:11px;color:var(--muted);">*</span>' : ''}
+            </div>
+            ${control}
+            ${helper}
+        </div>
+    `;
+}
+
+function bindServerSettingsInputs(container) {
+    if (!container) return;
+    container.querySelectorAll('[data-settings-input="true"]').forEach(input => {
+        const section = input.dataset.section;
+        const key = input.dataset.key;
+        if (!section || !key) {
+            return;
+        }
+        if (input.type === 'checkbox') {
+            input.addEventListener('change', () => handleServerSettingsInput(section, key, input.checked));
+        } else if (input.tagName === 'SELECT') {
+            input.addEventListener('change', () => handleServerSettingsInput(section, key, input.value));
+        } else {
+            input.addEventListener('input', () => handleServerSettingsInput(section, key, input.value));
+        }
+    });
+    const saveBtn = container.querySelector('#server_settings_save_btn');
+    const discardBtn = container.querySelector('#server_settings_discard_btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveServerSettings();
+        });
+    }
+    if (discardBtn) {
+        discardBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            discardServerSettingsChanges();
+        });
+    }
+}
+
+function handleServerSettingsInput(section, key, value) {
+    if (!serverSettingsVM.data || !serverSettingsVM.data[section]) {
+        return;
+    }
+    serverSettingsVM.data[section][key] = value;
+    serverSettingsVM.dirty = true;
+    serverSettingsVM.statusMessage = 'Unsaved changes';
+    serverSettingsVM.statusTone = 'warn';
+    serverSettingsVM.lastError = null;
+    syncServerSettingsActionState();
+}
+
+function syncServerSettingsActionState() {
+    const saveBtn = document.getElementById('server_settings_save_btn');
+    const discardBtn = document.getElementById('server_settings_discard_btn');
+    const statusEl = document.getElementById('server_settings_status');
+    const restartBanner = document.getElementById('server_settings_restart_banner');
+    if (saveBtn) {
+        saveBtn.disabled = serverSettingsVM.saving || !serverSettingsVM.dirty;
+    }
+    if (discardBtn) {
+        discardBtn.disabled = serverSettingsVM.saving || !serverSettingsVM.dirty;
+    }
+    if (restartBanner) {
+        restartBanner.style.display = (serverSettingsVM.restartRequired && !serverSettingsVM.dirty) ? 'flex' : 'none';
+    }
+    if (statusEl) {
+        let message = serverSettingsVM.statusMessage || 'All changes saved.';
+        let color = 'var(--muted)';
+        if (serverSettingsVM.saving) {
+            message = 'Saving changes…';
+            color = 'var(--highlight)';
+        } else if (serverSettingsVM.lastError) {
+            message = 'Save failed. Check logs for details.';
+            color = 'var(--danger)';
+        } else if (serverSettingsVM.dirty) {
+            color = 'var(--warn)';
+        } else if (serverSettingsVM.restartRequired) {
+            color = 'var(--warn)';
+            message = 'Changes saved. Restart required to apply network/TLS settings.';
+        }
+        statusEl.textContent = message;
+        statusEl.style.color = color;
+    }
+}
+
+function validateServerSettingsData() {
+    if (!serverSettingsVM.data) {
+        return { ok: false, message: 'Settings payload not ready.' };
+    }
+    for (const section of SERVER_SETTINGS_SCHEMA) {
+        const dataSection = serverSettingsVM.data[section.section] || {};
+        for (const field of section.fields || []) {
+            const value = dataSection[field.key];
+            if (field.required && field.type !== 'checkbox') {
+                if (value === undefined || value === null || String(value).trim() === '') {
+                    return { ok: false, message: `${field.label} is required.` };
+                }
+            }
+            if (field.type === 'number' && value !== '' && value !== undefined) {
+                if (isNaN(Number(value))) {
+                    return { ok: false, message: `${field.label} must be a number.` };
+                }
+            }
+        }
+    }
+    const tls = serverSettingsVM.data.tls || {};
+    if (tls.mode === 'custom') {
+        if (!tls.cert_path || !tls.key_path) {
+            return { ok: false, message: 'Custom TLS mode requires both certificate and key paths.' };
+        }
+    }
+    if (tls.mode === 'letsencrypt') {
+        if (!tls.letsencrypt_domain || !tls.letsencrypt_email) {
+            return { ok: false, message: 'Let\'s Encrypt mode requires domain and email.' };
+        }
+        if (!tls.letsencrypt_accept_tos) {
+            return { ok: false, message: 'You must accept the Let\'s Encrypt terms of service.' };
+        }
+    }
+    return { ok: true };
+}
+
+function buildServerSettingsPayload() {
+    if (!serverSettingsVM.data) {
+        return null;
+    }
+    const data = serverSettingsVM.data;
+    const parseNumber = (val) => {
+        if (val === undefined || val === null || String(val).trim() === '') {
+            return undefined;
+        }
+        const parsed = parseInt(val, 10);
+        return Number.isNaN(parsed) ? undefined : parsed;
+    };
+    const pickString = (val) => {
+        if (val === undefined || val === null) {
+            return undefined;
+        }
+        return String(val);
+    };
+    const payload = {
+        server: {
+            http_port: parseNumber(data.server.http_port),
+            https_port: parseNumber(data.server.https_port),
+            bind_address: pickString(data.server.bind_address),
+            behind_proxy: Boolean(data.server.behind_proxy),
+            proxy_use_https: Boolean(data.server.proxy_use_https),
+            auto_approve_agents: Boolean(data.server.auto_approve_agents),
+            agent_timeout_minutes: parseNumber(data.server.agent_timeout_minutes),
+        },
+        security: {
+            rate_limit_enabled: Boolean(data.security.rate_limit_enabled),
+            rate_limit_max_attempts: parseNumber(data.security.rate_limit_max_attempts),
+            rate_limit_block_minutes: parseNumber(data.security.rate_limit_block_minutes),
+            rate_limit_window_minutes: parseNumber(data.security.rate_limit_window_minutes),
+        },
+        tls: {
+            mode: pickString(data.tls.mode) || 'self-signed',
+            domain: pickString(data.tls.domain) || '',
+            cert_path: pickString(data.tls.cert_path),
+            key_path: pickString(data.tls.key_path),
+        },
+        logging: {
+            level: data.logging.level || 'INFO',
+        },
+        smtp: {
+            enabled: Boolean(data.smtp.enabled),
+            host: pickString(data.smtp.host) || '',
+            port: parseNumber(data.smtp.port),
+            user: pickString(data.smtp.user) || '',
+            from: pickString(data.smtp.from) || '',
+        },
+    };
+    if (payload.tls.mode === 'letsencrypt') {
+        payload.tls.letsencrypt = {
+            domain: pickString(data.tls.letsencrypt_domain) || '',
+            email: pickString(data.tls.letsencrypt_email) || '',
+            cache_dir: pickString(data.tls.letsencrypt_cache_dir),
+            accept_tos: Boolean(data.tls.letsencrypt_accept_tos),
+        };
+    }
+    if (data.smtp.pass && data.smtp.pass.trim() !== '') {
+        payload.smtp.pass = data.smtp.pass;
+    }
+    if (payload.smtp.port === undefined) {
+        delete payload.smtp.port;
+    }
+    Object.keys(payload.server).forEach(key => {
+        if (payload.server[key] === undefined) {
+            delete payload.server[key];
+        }
+    });
+    Object.keys(payload.security).forEach(key => {
+        if (payload.security[key] === undefined) {
+            delete payload.security[key];
+        }
+    });
+    Object.keys(payload.tls).forEach(key => {
+        if (payload.tls[key] === undefined) {
+            delete payload.tls[key];
+        }
+    });
+    if (payload.tls.letsencrypt) {
+        Object.keys(payload.tls.letsencrypt).forEach(key => {
+            if (payload.tls.letsencrypt[key] === undefined) {
+                delete payload.tls.letsencrypt[key];
             }
         });
-        container.innerHTML = html || '<div style="color:var(--muted);">No server settings returned.</div>';
-    } catch (err) {
-        container.innerHTML = '<div style="color:var(--danger);">Failed to load server settings: '+(err.message||err)+'</div>';
     }
+    return payload;
+}
+
+async function saveServerSettings() {
+    if (!serverSettingsVM.data || serverSettingsVM.saving || !serverSettingsVM.dirty) {
+        return;
+    }
+    const validation = validateServerSettingsData();
+    if (!validation.ok) {
+        window.__pm_shared.showToast(validation.message, 'warn');
+        serverSettingsVM.statusMessage = validation.message;
+        serverSettingsVM.statusTone = 'warn';
+        syncServerSettingsActionState();
+        return;
+    }
+    const payload = buildServerSettingsPayload();
+    if (!payload) {
+        window.__pm_shared.showToast('Settings payload was empty.', 'warn');
+        return;
+    }
+    serverSettingsVM.saving = true;
+    serverSettingsVM.statusMessage = 'Saving changes…';
+    serverSettingsVM.statusTone = 'info';
+    serverSettingsVM.lastError = null;
+    syncServerSettingsActionState();
+    try {
+        const resp = await fetchJSON('/api/v1/server/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const nextState = normalizeServerSettings((resp && resp.settings) || {});
+        serverSettingsVM.original = cloneServerSettingsData(nextState);
+        serverSettingsVM.data = cloneServerSettingsData(nextState);
+        serverSettingsVM.dirty = false;
+        serverSettingsVM.restartRequired = Boolean(resp && resp.restart_required);
+        serverSettingsVM.statusMessage = serverSettingsVM.restartRequired ? 'Saved. Restart required for some settings.' : 'Settings saved successfully.';
+        serverSettingsVM.statusTone = serverSettingsVM.restartRequired ? 'warn' : 'success';
+        window.__pm_shared.showToast('Server settings updated.', 'success');
+        renderServerSettingsForm();
+    } catch (err) {
+        serverSettingsVM.lastError = err;
+        serverSettingsVM.statusMessage = err && err.message ? err.message : 'Failed to save settings.';
+        serverSettingsVM.statusTone = 'error';
+        window.__pm_shared.error('Saving server settings failed', err);
+        syncServerSettingsActionState();
+        return;
+    } finally {
+        serverSettingsVM.saving = false;
+        syncServerSettingsActionState();
+    }
+}
+
+function discardServerSettingsChanges() {
+    if (!serverSettingsVM.dirty || !serverSettingsVM.original) {
+        return;
+    }
+    serverSettingsVM.data = cloneServerSettingsData(serverSettingsVM.original);
+    serverSettingsVM.dirty = false;
+    serverSettingsVM.statusMessage = 'Changes discarded.';
+    serverSettingsVM.statusTone = 'muted';
+    renderServerSettingsForm();
+    window.__pm_shared.showToast('Server settings reverted.', 'info');
 }
 
 function switchTab(targetTab) {
