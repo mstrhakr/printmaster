@@ -5,9 +5,12 @@ import (
 
 	"printmaster/agent/scanner/capabilities"
 	"printmaster/common/logger"
+	"printmaster/common/snmp/oids"
 
 	"github.com/gosnmp/gosnmp"
 )
+
+const hpIEEE1284DeviceIDOID = "1.3.6.1.4.1.11.2.3.9.1.1.7.0"
 
 // HPVendor implements vendor-specific support for HP/Hewlett-Packard devices.
 // Provides extended metrics via enterprise OID 1.3.6.1.4.1.11.*
@@ -34,20 +37,21 @@ func (v *HPVendor) Detect(sysObjectID, sysDescr, model string) bool {
 
 func (v *HPVendor) BaseOIDs() []string {
 	return []string{
-		"1.3.6.1.2.1.1.1.0",         // sysDescr
-		"1.3.6.1.2.1.1.2.0",         // sysObjectID
-		"1.3.6.1.2.1.1.5.0",         // sysName
-		"1.3.6.1.2.1.25.3.2.1.3.1",  // hrDeviceDescr
-		"1.3.6.1.2.1.43.5.1.1.16.1", // prtGeneralPrinterName
-		"1.3.6.1.2.1.43.5.1.1.17.1", // prtGeneralSerialNumber
-		"1.3.6.1.2.1.25.3.5.1.1.1",  // hrPrinterStatus
+		oids.SysDescr,
+		oids.SysObjectID,
+		oids.SysName,
+		oids.HrDeviceDescr,
+		oids.PrtGeneralPrinterName,
+		oids.PrtGeneralSerialNumber,
+		oids.HrPrinterStatus + ".1",
+		hpIEEE1284DeviceIDOID, // HP-specific IEEE-1284 payload
 	}
 }
 
 func (v *HPVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
-	oids := []string{
+	oidList := []string{
 		// Standard Printer-MIB (fallback)
-		"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount (instance .1)
+		oids.PrtMarkerLifeCount + ".1", // prtMarkerLifeCount (instance .1)
 
 		// HP enterprise counters - common across many models
 		// Base: 1.3.6.1.4.1.11.2.3.9.4.2.*
@@ -58,7 +62,7 @@ func (v *HPVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 
 	// Add MFP-specific counters if device has copier/scanner
 	if caps != nil && (caps.IsCopier || caps.IsScanner) {
-		oids = append(oids,
+		oidList = append(oidList,
 			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.3.0",    // Copy pages
 			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.0",    // ADF scan pages
 			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.1.0",    // Flatbed scan pages
@@ -72,7 +76,7 @@ func (v *HPVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 
 	// Add fax counters if device has fax
 	if caps != nil && caps.IsFax {
-		oids = append(oids,
+		oidList = append(oidList,
 			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.1.0",    // Fax pages sent
 			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.2.0",    // Fax pages received
 			"1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.31.0", // Fax ADF images scanned
@@ -83,27 +87,27 @@ func (v *HPVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 
 	// Add duplex counter if device has duplex
 	if caps != nil && caps.HasDuplex {
-		oids = append(oids,
+		oidList = append(oidList,
 			"1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.6.0", // Duplex sheets
 		)
 	}
 
 	// Jam event counter
-	oids = append(oids, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.0") // Paper jams
+	oidList = append(oidList, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.0") // Paper jams
 
 	// Extended jam summary counter (always-on due to minimal cost)
-	oids = append(oids, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.34.0")
-	return oids
+	oidList = append(oidList, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.34.0")
+	return oidList
 }
 
 func (v *HPVendor) SupplyOIDs() []string {
 	// Use standard Printer-MIB supply tables
 	return []string{
-		"1.3.6.1.2.1.43.11.1.1.6", // prtMarkerSuppliesDescription
-		"1.3.6.1.2.1.43.11.1.1.9", // prtMarkerSuppliesLevel
-		"1.3.6.1.2.1.43.11.1.1.8", // prtMarkerSuppliesMaxCapacity
-		"1.3.6.1.2.1.43.11.1.1.4", // prtMarkerSuppliesClass
-		"1.3.6.1.2.1.43.11.1.1.5", // prtMarkerSuppliesType
+		oids.PrtMarkerSuppliesDesc,
+		oids.PrtMarkerSuppliesLevel,
+		oids.PrtMarkerSuppliesMaxCap,
+		oids.PrtMarkerSuppliesClass,
+		oids.PrtMarkerSuppliesType,
 	}
 }
 
@@ -232,7 +236,7 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Fallback to standard Printer-MIB if enterprise OIDs failed
 	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1.1"); pageCount > 0 {
+		if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
 			result["page_count"] = pageCount
 			result["total_pages"] = pageCount
 		}

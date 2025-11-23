@@ -8,6 +8,7 @@ import (
 	"printmaster/agent/scanner/capabilities"
 	"printmaster/agent/supplies"
 	"printmaster/common/logger"
+	"printmaster/common/snmp/oids"
 
 	"github.com/gosnmp/gosnmp"
 )
@@ -32,30 +33,30 @@ func (v *GenericVendor) Detect(sysObjectID, sysDescr, model string) bool {
 
 func (v *GenericVendor) BaseOIDs() []string {
 	return []string{
-		"1.3.6.1.2.1.1.1.0",         // sysDescr
-		"1.3.6.1.2.1.1.2.0",         // sysObjectID
-		"1.3.6.1.2.1.1.5.0",         // sysName
-		"1.3.6.1.2.1.25.3.2.1.3.1",  // hrDeviceDescr (model)
-		"1.3.6.1.2.1.43.5.1.1.16.1", // prtGeneralPrinterName
-		"1.3.6.1.2.1.43.5.1.1.17.1", // prtGeneralSerialNumber
-		"1.3.6.1.2.1.25.3.5.1.1.1",  // hrPrinterStatus
+		oids.SysDescr,
+		oids.SysObjectID,
+		oids.SysName,
+		oids.HrDeviceDescr,
+		oids.PrtGeneralPrinterName,
+		oids.PrtGeneralSerialNumber,
+		oids.HrPrinterStatus + ".1",
 	}
 }
 
 func (v *GenericVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
 	return []string{
-		"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount (instance .1)
+		oids.PrtMarkerLifeCount + ".1", // prtMarkerLifeCount (instance .1)
 	}
 }
 
 func (v *GenericVendor) SupplyOIDs() []string {
 	// Return OID roots for SNMP walk of supply tables
 	return []string{
-		"1.3.6.1.2.1.43.11.1.1.6", // prtMarkerSuppliesDescription (walk table)
-		"1.3.6.1.2.1.43.11.1.1.9", // prtMarkerSuppliesLevel (walk table)
-		"1.3.6.1.2.1.43.11.1.1.8", // prtMarkerSuppliesMaxCapacity (walk table)
-		"1.3.6.1.2.1.43.11.1.1.4", // prtMarkerSuppliesClass (walk table)
-		"1.3.6.1.2.1.43.11.1.1.5", // prtMarkerSuppliesType (walk table)
+		oids.PrtMarkerSuppliesDesc,
+		oids.PrtMarkerSuppliesLevel,
+		oids.PrtMarkerSuppliesMaxCap,
+		oids.PrtMarkerSuppliesClass,
+		oids.PrtMarkerSuppliesType,
 	}
 }
 
@@ -66,7 +67,7 @@ func (v *GenericVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	}
 
 	// Parse basic page count
-	if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1.1"); pageCount > 0 {
+	if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
 		result["total_pages"] = pageCount
 		result["page_count"] = pageCount
 	}
@@ -106,23 +107,23 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		var instance string
 		var field string
 
-		if strings.HasPrefix(oid, "1.3.6.1.2.1.43.11.1.1.6.1.") {
+		if strings.HasPrefix(oid, oids.PrtMarkerSuppliesDesc+".1.") {
 			// Description
 			instance = strings.TrimPrefix(oid, "1.3.6.1.2.1.43.11.1.1.6.1.")
 			field = "description"
-		} else if strings.HasPrefix(oid, "1.3.6.1.2.1.43.11.1.1.9.1.") {
+		} else if strings.HasPrefix(oid, oids.PrtMarkerSuppliesLevel+".1.") {
 			// Level
 			instance = strings.TrimPrefix(oid, "1.3.6.1.2.1.43.11.1.1.9.1.")
 			field = "level"
-		} else if strings.HasPrefix(oid, "1.3.6.1.2.1.43.11.1.1.8.1.") {
+		} else if strings.HasPrefix(oid, oids.PrtMarkerSuppliesMaxCap+".1.") {
 			// MaxCapacity
 			instance = strings.TrimPrefix(oid, "1.3.6.1.2.1.43.11.1.1.8.1.")
 			field = "max_capacity"
-		} else if strings.HasPrefix(oid, "1.3.6.1.2.1.43.11.1.1.4.1.") {
+		} else if strings.HasPrefix(oid, oids.PrtMarkerSuppliesClass+".1.") {
 			// Class
 			instance = strings.TrimPrefix(oid, "1.3.6.1.2.1.43.11.1.1.4.1.")
 			field = "class"
-		} else if strings.HasPrefix(oid, "1.3.6.1.2.1.43.11.1.1.5.1.") {
+		} else if strings.HasPrefix(oid, oids.PrtMarkerSuppliesType+".1.") {
 			// Type
 			instance = strings.TrimPrefix(oid, "1.3.6.1.2.1.43.11.1.1.5.1.")
 			field = "type"

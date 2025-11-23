@@ -11,8 +11,12 @@ const (
 	SysDescr = "1.3.6.1.2.1.1.1.0"
 	// SysObjectID contains the authoritative enterprise OID for the device.
 	SysObjectID = "1.3.6.1.2.1.1.2.0"
+	// SysName provides the device hostname/location string.
+	SysName = "1.3.6.1.2.1.1.5.0"
 	// HrDeviceDescr points at HOST-RESOURCES-MIB::hrDeviceDescr.1
 	HrDeviceDescr = "1.3.6.1.2.1.25.3.2.1.3.1"
+	// HrDeviceType identifies the HOST-RESOURCES-MIB device class (Printer=3).
+	HrDeviceType = "1.3.6.1.2.1.25.3.2.1.2"
 )
 
 const (
@@ -20,6 +24,8 @@ const (
 
 	// PrtGeneralSerialNumber (prtGeneralSerialNumber.1) is the canonical serial.
 	PrtGeneralSerialNumber = "1.3.6.1.2.1.43.5.1.1.17.1"
+	// PrtGeneralPrinterName (prtGeneralPrinterName.1) carries the friendly name.
+	PrtGeneralPrinterName = "1.3.6.1.2.1.43.5.1.1.16.1"
 	// PrtMarkerLifeCount targets prtMarkerLifeCount.1 and is commonly treated as the page counter.
 	PrtMarkerLifeCount = "1.3.6.1.2.1.43.10.2.1.4.1"
 
