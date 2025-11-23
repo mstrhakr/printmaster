@@ -98,25 +98,17 @@ func basicAuth(userpass string) string {
 // Global session cache for form-based logins
 var proxySessionCache = proxy.NewSessionCache()
 
-// context key for agent principal
-// NOTE: Placeholder principal context key left commented until middleware uses it
-// const agentPrincipalContextKey contextKey = "agent_principal"
-
-// AgentPrincipal represents an authenticated identity for agent UI
-// AgentPrincipal and related helpers will be introduced when full auth flow lands.
-// Keeping minimal stub to avoid unused warnings while documenting future extension.
+// AgentPrincipal represents an authenticated UI context (placeholder for future auth)
 type AgentPrincipal struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
 	Source   string `json:"source"`
 }
 
-// Context key for storing whether the original request was HTTPS
 type contextKey string
 
 const isHTTPSContextKey contextKey = "isHTTPS"
 
-// Static resource cache to avoid hitting slow printers repeatedly
 type staticResourceCache struct {
 	sync.RWMutex
 	items map[string]cachedResource
@@ -157,18 +149,18 @@ func (c *staticResourceCache) Set(key string, data []byte, contentType string, h
 var staticCache = newStaticResourceCache()
 
 var (
-	// deviceStore is the global device storage interface
+	// deviceStore is shared across the agent for persistence access
 	deviceStore storage.DeviceStore
-	// agentConfigStore handles agent configuration (IP ranges, settings, etc.)
-	agentConfigStore             storage.AgentConfigStore
-	settingsManager              *SettingsManager
-	applyDiscoveryEffectsFunc    func(map[string]interface{})
+	// agentConfigStore stores user-configurable settings/ranges
+	agentConfigStore storage.AgentConfigStore
+	settingsManager  *SettingsManager
+	// applyDiscoveryEffectsFunc allows deferred wiring of discovery settings hooks
+	applyDiscoveryEffectsFunc func(map[string]interface{})
+	// configEpsonRemoteModeEnabled tracks global feature flag state
 	configEpsonRemoteModeEnabled bool
-
-	// Global structured logger
+	// Global structured logger instance
 	appLogger *logger.Logger
-
-	// Global scanner configuration
+	// scannerConfig centralizes runtime-adjustable scanner parameters
 	scannerConfig struct {
 		sync.RWMutex
 		SNMPTimeoutMs       int
@@ -177,7 +169,6 @@ var (
 	}
 )
 
-// runGarbageCollection runs periodic cleanup of old scan history and hidden devices
 func runGarbageCollection(ctx context.Context, store storage.DeviceStore, config *agent.RetentionConfig) {
 	ticker := time.NewTicker(24 * time.Hour) // Run daily
 	defer ticker.Stop()
@@ -598,6 +589,147 @@ func loadUnifiedSettings(store storage.AgentConfigStore) pmsettings.Settings {
 	pmsettings.Sanitize(&base)
 	applyDeveloperSettingsEffects(&base.Developer)
 	return base
+}
+
+// applyServerConfigFromStore merges persisted server connection settings from the
+// agent config database into the in-memory configuration so that UI-driven join
+// flows can enable uploads without editing config.toml manually.
+func applyServerConfigFromStore(agentCfg *AgentConfig, store storage.AgentConfigStore, log *logger.Logger) {
+	if agentCfg == nil || store == nil {
+		return
+	}
+
+	var persisted ServerConnectionConfig
+	if err := store.GetConfigValue("server", &persisted); err != nil {
+		if log != nil {
+			log.Warn("Failed to load server settings from config store", "error", err)
+		}
+		return
+	}
+
+	if strings.TrimSpace(persisted.URL) == "" {
+		return
+	}
+
+	agentCfg.Server.URL = strings.TrimSpace(persisted.URL)
+	if persisted.Name != "" {
+		agentCfg.Server.Name = persisted.Name
+	}
+	agentCfg.Server.CAPath = persisted.CAPath
+	agentCfg.Server.InsecureSkipVerify = persisted.InsecureSkipVerify
+	if persisted.UploadInterval > 0 {
+		agentCfg.Server.UploadInterval = persisted.UploadInterval
+	}
+	if persisted.HeartbeatInterval > 0 {
+		agentCfg.Server.HeartbeatInterval = persisted.HeartbeatInterval
+	}
+	if persisted.AgentID != "" {
+		agentCfg.Server.AgentID = persisted.AgentID
+	}
+	if persisted.Token != "" {
+		agentCfg.Server.Token = persisted.Token
+	}
+	if persisted.Enabled {
+		agentCfg.Server.Enabled = true
+	} else if agentCfg.Server.URL != "" {
+		// Default to enabled when a URL is present but legacy data omitted the flag
+		agentCfg.Server.Enabled = true
+	}
+
+	if log != nil {
+		log.Info("Loaded server configuration from agent database",
+			"url", agentCfg.Server.URL,
+			"enabled", agentCfg.Server.Enabled,
+			"insecure_skip_verify", agentCfg.Server.InsecureSkipVerify)
+	}
+}
+
+// startServerUploadWorker encapsulates upload worker bootstrap (agent
+// registration, token persistence, WebSocket setup) so it can be invoked at
+// startup and again after a join event without duplicating logic.
+func startServerUploadWorker(
+	ctx context.Context,
+	agentCfg *AgentConfig,
+	dataDir string,
+	deviceStore storage.DeviceStore,
+	settings *SettingsManager,
+	workerLogger Logger,
+) (*UploadWorker, error) {
+	if agentCfg == nil {
+		return nil, fmt.Errorf("agent configuration unavailable")
+	}
+	if strings.TrimSpace(agentCfg.Server.URL) == "" {
+		return nil, fmt.Errorf("server URL not configured")
+	}
+
+	agentID := agentCfg.Server.AgentID
+	if agentID == "" {
+		var err error
+		agentID, err = LoadOrGenerateAgentID(dataDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load or generate agent ID: %w", err)
+		}
+		agentCfg.Server.AgentID = agentID
+		workerLogger.Info("Generated new agent ID", "agent_id", agentID)
+	}
+
+	agentName := agentCfg.Server.Name
+	if agentName == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			agentName = hostname
+		}
+	}
+
+	workerLogger.Info("Server integration enabled",
+		"url", agentCfg.Server.URL,
+		"agent_id", agentID,
+		"agent_name", agentName,
+		"ca_path", agentCfg.Server.CAPath,
+		"upload_interval", agentCfg.Server.UploadInterval,
+		"heartbeat_interval", agentCfg.Server.HeartbeatInterval)
+
+	token := LoadServerToken(dataDir)
+	if token == "" {
+		workerLogger.Debug("No saved server token found")
+	}
+
+	serverClient := agent.NewServerClientWithName(
+		agentCfg.Server.URL,
+		agentID,
+		agentName,
+		token,
+		agentCfg.Server.CAPath,
+		agentCfg.Server.InsecureSkipVerify,
+	)
+
+	workerConfig := UploadWorkerConfig{
+		HeartbeatInterval: time.Duration(agentCfg.Server.HeartbeatInterval) * time.Second,
+		UploadInterval:    time.Duration(agentCfg.Server.UploadInterval) * time.Second,
+		RetryAttempts:     3,
+		RetryBackoff:      2 * time.Second,
+		UseWebSocket:      true,
+	}
+	if workerConfig.HeartbeatInterval <= 0 {
+		workerConfig.HeartbeatInterval = 60 * time.Second
+	}
+	if workerConfig.UploadInterval <= 0 {
+		workerConfig.UploadInterval = 5 * time.Minute
+	}
+
+	uploadWorker := NewUploadWorker(serverClient, deviceStore, workerLogger, settings, workerConfig, dataDir)
+	if err := uploadWorker.Start(ctx, Version); err != nil {
+		return nil, err
+	}
+
+	if newToken := serverClient.GetToken(); newToken != "" && newToken != token {
+		if err := SaveServerToken(dataDir, newToken); err != nil {
+			workerLogger.Error("Failed to save server token", "error", err)
+		} else {
+			workerLogger.Info("Server token saved")
+		}
+	}
+
+	return uploadWorker, nil
 }
 
 func filterAgentLocalDeveloper(src map[string]interface{}) map[string]interface{} {
@@ -1321,6 +1453,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 	defer agentConfigStore.Close()
 	appLogger.Info("Agent config database initialized", "path", agentDBPath)
 	settingsManager = NewSettingsManager(agentConfigStore)
+	applyServerConfigFromStore(agentConfig, agentConfigStore, appLogger)
 
 	// Migration: consolidate legacy dev_settings / developer_settings into unified "settings" key
 	// This is idempotent and creates a timestamped backup of legacy data before deleting it.
@@ -2392,81 +2525,19 @@ func runInteractive(ctx context.Context, configFlag string) {
 	// Load server configuration from TOML and start upload worker
 	var uploadWorker *UploadWorker
 	if agentConfig != nil && agentConfig.Server.Enabled {
-		// Get or generate stable agent ID
 		dataDir, err := config.GetDataDirectory("agent", isService)
 		if err != nil {
 			appLogger.Error("Failed to get data directory", "error", err)
 			return
 		}
 
-		// Load or generate agent UUID (stable identifier)
-		agentID := agentConfig.Server.AgentID
-		if agentID == "" {
-			agentID, err = LoadOrGenerateAgentID(dataDir)
-			if err != nil {
-				appLogger.Error("Failed to generate agent ID", "error", err)
-				return
-			}
-			appLogger.Info("Generated new agent ID", "agent_id", agentID)
-			// Note: We don't save back to config file - agent_id is persisted separately
-		}
-
-		// Use Name field for display purposes, default to hostname if not set
-		agentName := agentConfig.Server.Name
-		if agentName == "" {
-			hostname, _ := os.Hostname()
-			agentName = hostname
-		}
-
-		appLogger.Info("Server integration enabled",
-			"url", agentConfig.Server.URL,
-			"agent_id", agentID,
-			"agent_name", agentName,
-			"ca_path", agentConfig.Server.CAPath,
-			"upload_interval", agentConfig.Server.UploadInterval,
-			"heartbeat_interval", agentConfig.Server.HeartbeatInterval)
-
-		// Load authentication token from file
-		token := LoadServerToken(dataDir)
-		if token == "" {
-			appLogger.Debug("No saved server token found")
-		}
-
-		// Create and start upload worker for server communication
 		go func() {
-			serverClient := agent.NewServerClientWithName(
-				agentConfig.Server.URL,
-				agentID,   // Use stable UUID
-				agentName, // User-friendly name
-				token,
-				agentConfig.Server.CAPath,
-				agentConfig.Server.InsecureSkipVerify,
-			)
-
-			workerConfig := UploadWorkerConfig{
-				HeartbeatInterval: time.Duration(agentConfig.Server.HeartbeatInterval) * time.Second,
-				UploadInterval:    time.Duration(agentConfig.Server.UploadInterval) * time.Second,
-				RetryAttempts:     3,
-				RetryBackoff:      2 * time.Second,
-				UseWebSocket:      true, // Enable WebSocket for live heartbeat
-			}
-
-			uploadWorker = NewUploadWorker(serverClient, deviceStore, appLogger, settingsManager, workerConfig, dataDir)
-
-			// Start worker (will register if needed)
-			if err := uploadWorker.Start(ctx, Version); err != nil {
+			worker, err := startServerUploadWorker(ctx, agentConfig, dataDir, deviceStore, settingsManager, appLogger)
+			if err != nil {
 				appLogger.Error("Failed to start upload worker", "error", err)
 				return
 			}
-
-			// Save token after successful registration
-			if newToken := serverClient.GetToken(); newToken != "" && newToken != token {
-				if err := SaveServerToken(dataDir, newToken); err != nil {
-					appLogger.Error("Failed to save server token", "error", err)
-				} else {
-					appLogger.Info("Server token saved")
-				}
-			}
+			uploadWorker = worker
 		}()
 	}
 
@@ -4913,22 +4984,45 @@ window.top.location.href = '/proxy/%s/';
 
 		// Create a temporary client to call the central server register-with-token API
 		sc := agent.NewServerClientWithName(in.ServerURL, agentID, agentName, "", in.CAPath, in.Insecure)
-		ctx := r.Context()
-		agentToken, tenantID, err := sc.RegisterWithToken(ctx, in.Token, Version)
+		reqCtx := r.Context()
+		agentToken, tenantID, err := sc.RegisterWithToken(reqCtx, in.Token, Version)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)
 			w.Write([]byte(`{"error":"failed to register with server: ` + err.Error() + `"}`))
 			return
 		}
 
+		// Update in-memory configuration to reflect new server settings
+		if agentConfig != nil {
+			agentConfig.Server.Enabled = true
+			agentConfig.Server.URL = in.ServerURL
+			agentConfig.Server.Name = agentName
+			agentConfig.Server.CAPath = in.CAPath
+			agentConfig.Server.InsecureSkipVerify = in.Insecure
+			agentConfig.Server.AgentID = agentID
+		}
+
 		// Persist server settings to config store so they survive restarts
 		if agentConfigStore != nil {
-			_ = agentConfigStore.SetConfigValue("server", map[string]interface{}{
+			serverSettings := map[string]interface{}{
 				"url":                  in.ServerURL,
 				"name":                 agentName,
 				"ca_path":              in.CAPath,
 				"insecure_skip_verify": in.Insecure,
-			})
+				"enabled":              true,
+			}
+			if agentID != "" {
+				serverSettings["agent_id"] = agentID
+			}
+			if agentConfig != nil {
+				if agentConfig.Server.UploadInterval > 0 {
+					serverSettings["upload_interval"] = agentConfig.Server.UploadInterval
+				}
+				if agentConfig.Server.HeartbeatInterval > 0 {
+					serverSettings["heartbeat_interval"] = agentConfig.Server.HeartbeatInterval
+				}
+			}
+			_ = agentConfigStore.SetConfigValue("server", serverSettings)
 		}
 
 		// Save the agent token to disk
@@ -4948,6 +5042,15 @@ window.top.location.href = '/proxy/%s/';
 		if uploadWorker != nil && uploadWorker.client != nil {
 			uploadWorker.client.SetToken(agentToken)
 			uploadWorker.client.BaseURL = in.ServerURL
+		} else {
+			go func() {
+				worker, err := startServerUploadWorker(ctx, agentConfig, dataDir, deviceStore, settingsManager, appLogger)
+				if err != nil {
+					appLogger.Error("Failed to start upload worker after join", "error", err)
+					return
+				}
+				uploadWorker = worker
+			}()
 		}
 
 		w.Header().Set("Content-Type", "application/json")
