@@ -5004,25 +5004,25 @@ window.top.location.href = '/proxy/%s/';
 
 		// Persist server settings to config store so they survive restarts
 		if agentConfigStore != nil {
-			serverSettings := map[string]interface{}{
-				"url":                  in.ServerURL,
-				"name":                 agentName,
-				"ca_path":              in.CAPath,
-				"insecure_skip_verify": in.Insecure,
-				"enabled":              true,
-			}
-			if agentID != "" {
-				serverSettings["agent_id"] = agentID
-			}
+			uploadInterval := 0
+			heartbeatInterval := 0
 			if agentConfig != nil {
-				if agentConfig.Server.UploadInterval > 0 {
-					serverSettings["upload_interval"] = agentConfig.Server.UploadInterval
-				}
-				if agentConfig.Server.HeartbeatInterval > 0 {
-					serverSettings["heartbeat_interval"] = agentConfig.Server.HeartbeatInterval
-				}
+				uploadInterval = agentConfig.Server.UploadInterval
+				heartbeatInterval = agentConfig.Server.HeartbeatInterval
 			}
-			_ = agentConfigStore.SetConfigValue("server", serverSettings)
+			persisted := ServerConnectionConfig{
+				Enabled:            true,
+				URL:                in.ServerURL,
+				Name:               agentName,
+				CAPath:             in.CAPath,
+				InsecureSkipVerify: in.Insecure,
+				UploadInterval:     uploadInterval,
+				HeartbeatInterval:  heartbeatInterval,
+				AgentID:            agentID,
+			}
+			if err := agentConfigStore.SetConfigValue("server", persisted); err != nil {
+				appLogger.Warn("Failed to persist server settings", "error", err)
+			}
 		}
 
 		// Save the agent token to disk
