@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gosnmp/gosnmp"
@@ -72,15 +73,31 @@ func TestQueryDevice_EmptyIP(t *testing.T) {
 func TestQueryDevice_SNMPGetSuccess(t *testing.T) {
 	t.Parallel()
 
-	// Mock SNMP client with test PDUs (matching HP GetSerialOIDs)
-	mockClient := &mockSNMPClient{
-		getResult: &gosnmp.SnmpPacket{
-			Variables: []gosnmp.SnmpPDU{
-				{Name: ".1.3.6.1.2.1.43.5.1.1.17.1", Type: gosnmp.OctetString, Value: []byte("SN12345")},
-				{Name: ".1.3.6.1.4.1.11.2.3.9.1.2.1", Type: gosnmp.OctetString, Value: []byte("SERIAL_HP")},
-				{Name: ".1.3.6.1.4.1.11.2.3.9.1.2.2", Type: gosnmp.OctetString, Value: []byte("SERIAL_HP2")},
-			},
+	preflight := &gosnmp.SnmpPacket{
+		Variables: []gosnmp.SnmpPDU{
+			{Name: ".1.3.6.1.2.1.1.2.0", Type: gosnmp.OctetString, Value: []byte(".1.3.6.1.4.1.11")},
+			{Name: ".1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("HP LaserJet")},
+			{Name: ".1.3.6.1.2.1.25.3.2.1.3.1", Type: gosnmp.OctetString, Value: []byte("HP Model")},
 		},
+	}
+
+	expectedOIDs := buildQueryOIDs(QueryMinimal)
+	batches := clusterOIDs(expectedOIDs, defaultOIDBatchSize)
+	batchPackets := make([]*gosnmp.SnmpPacket, 0, len(batches))
+	for _, batch := range batches {
+		vars := make([]gosnmp.SnmpPDU, len(batch))
+		for i, oid := range batch {
+			value := []byte("GENERIC")
+			if oid == "1.3.6.1.2.1.43.5.1.1.17.1" {
+				value = []byte("SN12345")
+			}
+			vars[i] = gosnmp.SnmpPDU{Name: oid, Type: gosnmp.OctetString, Value: value}
+		}
+		batchPackets = append(batchPackets, &gosnmp.SnmpPacket{Variables: vars})
+	}
+
+	mockClient := &mockSNMPClient{
+		getResults: append([]*gosnmp.SnmpPacket{preflight}, batchPackets...),
 	}
 
 	// Mock client factory
@@ -104,8 +121,8 @@ func TestQueryDevice_SNMPGetSuccess(t *testing.T) {
 		t.Errorf("expected IP 10.0.0.1, got %s", result.IP)
 	}
 
-	if len(result.PDUs) != 3 {
-		t.Errorf("expected 3 PDUs, got %d", len(result.PDUs))
+	if len(result.PDUs) != len(expectedOIDs) {
+		t.Errorf("expected %d PDUs, got %d", len(expectedOIDs), len(result.PDUs))
 	}
 
 	if result.Profile != QueryMinimal {
@@ -170,7 +187,7 @@ func TestQueryDevice_SNMPError(t *testing.T) {
 		t.Fatal("expected error from SNMP GET failure")
 	}
 
-	if err.Error() != "SNMP GET failed: SNMP timeout" {
+	if !strings.Contains(err.Error(), "SNMP timeout") {
 		t.Errorf("unexpected error message: %v", err)
 	}
 }
