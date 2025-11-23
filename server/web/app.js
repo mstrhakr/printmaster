@@ -50,7 +50,7 @@ let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
 let settingsSubtabsInitialized = false;
-let activeSettingsView = 'fleet';
+let activeSettingsView = 'server';
 let activeLogView = 'system';
 const AUDIT_SEVERITY_VALUES = ['error', 'warn', 'info'];
 const AUDIT_AUTO_REFRESH_INTERVAL_MS = 15000;
@@ -648,8 +648,8 @@ function initSettingsSubTabs() {
 
 function switchSettingsView(view, force = false) {
     // valid views: server | fleet | sso
-    let normalized = 'fleet';
-    if (view === 'server') normalized = 'server';
+    let normalized = 'server';
+    if (view === 'fleet') normalized = 'fleet';
     else if (view === 'sso') normalized = 'sso';
     const previous = activeSettingsView;
     activeSettingsView = normalized;
