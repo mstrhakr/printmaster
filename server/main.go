@@ -2259,6 +2259,8 @@ func setupRoutes(cfg *Config) {
 	// Agent API (v1)
 	http.HandleFunc("/api/v1/agents/register", handleAgentRegister) // No auth - this generates token
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
+	http.HandleFunc("/api/v1/agents/device-auth/start", handleAgentDeviceAuthStart)
+	http.HandleFunc("/api/v1/agents/device-auth/poll", handleAgentDeviceAuthPoll)
 	http.HandleFunc("/api/v1/agents/list", requireWebAuth(handleAgentsList)) // List all agents (for UI)
 	http.HandleFunc("/api/v1/agents/", requireWebAuth(handleAgentDetails))   // Get single agent details (for UI)
 	// Agent WebSocket channel uses its own token handshake; do not require UI auth here.
@@ -2364,6 +2366,8 @@ func setupRoutes(cfg *Config) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(content)
 	})
+	http.HandleFunc("/device-auth/", handleDeviceAuthPage)
+	http.HandleFunc("/api/v1/device-auth/requests/", requireWebAuth(handleDeviceAuthRequestRoute))
 	http.HandleFunc("/static/", handleStatic)
 
 	// UI metrics summary endpoint (protected)

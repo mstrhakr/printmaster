@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PrintMaster — Authorize Agent</title>
+    <link rel="stylesheet" href="/static/shared.css" />
+    <link rel="stylesheet" href="/static/style.css" />
+    <script defer src="/static/shared.js"></script>
+    <script defer src="/static/device_auth.js"></script>
+    <style>
+        body {
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            margin: 0;
+            font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        .device-auth-shell {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .device-auth-card {
+            width: 520px;
+            max-width: 100%;
+            background: var(--panel);
+            border-radius: 10px;
+            box-shadow: var(--shadow);
+            padding: 28px 32px;
+        }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 2px 12px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .status-pending { background: rgba(247, 181, 0, 0.15); color: #b97300; }
+        .status-approved { background: rgba(46, 125, 50, 0.18); color: #2e7d32; }
+        .status-rejected { background: rgba(198, 40, 40, 0.15); color: #b71c1c; }
+        .status-expired { background: rgba(158, 158, 158, 0.25); color: #424242; }
+        .field-group { margin-bottom: 16px; }
+        .field-group label { display:block; font-size:13px; color: var(--muted); margin-bottom:6px; }
+        .field-group select,
+        .field-group input,
+        .field-group textarea {
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: var(--text);
+        }
+        .field-group textarea { resize: vertical; min-height: 70px; }
+        .btn-row {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            border: none;
+            border-radius: 6px;
+            padding: 10px 18px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-secondary { background: rgba(255,255,255,0.08); color: var(--text); }
+        .btn-danger { background: rgba(198,40,40,0.2); color: #ff8a80; }
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .meta-item { background: rgba(255,255,255,0.04); padding: 10px; border-radius: 6px; }
+        .meta-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+        .meta-value { font-size: 14px; font-weight: 600; margin-top: 4px; word-break: break-all; }
+        #close_hint { display: none; font-size: 13px; color: var(--muted); margin-top: 12px; }
+        #page_message { margin-bottom: 12px; font-size: 13px; display:none; }
+        #page_message.error { color: var(--danger); }
+        #page_message.success { color: #2e7d32; }
+    </style>
+</head>
+<body data-device-code="{{.Code}}">
+    <div class="device-auth-shell">
+        <div class="device-auth-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div>
+                    <h2 style="margin:0 0 6px 0;">Authorize agent</h2>
+                    <p style="margin:0;color:var(--muted);font-size:14px;">Review the details below, select a tenant, and approve to issue a join token.</p>
+                </div>
+                <div class="status-badge status-pending" id="status_badge">Pending</div>
+            </div>
+
+            <div style="margin:18px 0 12px 0;font-size:14px;">
+                Request code: <strong id="code_badge">{{.Code}}</strong>
+            </div>
+
+            <div class="meta-grid" id="agent_meta">
+                <div class="meta-item">
+                    <div class="meta-label">Agent Name</div>
+                    <div class="meta-value" id="agent_name">—</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Agent ID</div>
+                    <div class="meta-value" id="agent_id">—</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Version</div>
+                    <div class="meta-value" id="agent_version">—</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Hostname</div>
+                    <div class="meta-value" id="agent_host">—</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Platform</div>
+                    <div class="meta-value" id="agent_platform">—</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Requester IP</div>
+                    <div class="meta-value" id="agent_ip">—</div>
+                </div>
+            </div>
+
+            <div id="page_message"></div>
+
+            <form id="approve_form">
+                <div class="field-group">
+                    <label for="tenant_select">Assign to tenant</label>
+                    <select id="tenant_select" required>
+                        <option value="" disabled selected>Select a tenant…</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <label for="agent_name_input">Display name (optional)</label>
+                    <input id="agent_name_input" type="text" placeholder="Front Desk Agent" />
+                </div>
+                <div class="btn-row">
+                    <button type="button" class="btn btn-secondary" id="refresh_btn">Refresh</button>
+                    <button type="button" class="btn btn-danger" id="reject_btn">Reject</button>
+                    <button type="submit" class="btn btn-primary" id="approve_btn">Approve</button>
+                </div>
+            </form>
+
+            <p id="close_hint">You can close this tab now. If it does not close automatically, use the close button in your browser.</p>
+        </div>
+    </div>
+</body>
+</html>
