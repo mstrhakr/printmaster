@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -246,6 +247,76 @@ func (c *ServerClient) RegisterWithToken(ctx context.Context, joinToken string, 
 	}
 
 	return resp.AgentToken, resp.TenantID, nil
+}
+
+// DeviceAuthStartRequest captures the metadata sent to the server when initiating
+// a device-authorization flow from the agent UI.
+type DeviceAuthStartRequest struct {
+	AgentID      string `json:"agent_id"`
+	AgentName    string `json:"agent_name,omitempty"`
+	AgentVersion string `json:"agent_version,omitempty"`
+	Hostname     string `json:"hostname,omitempty"`
+	Platform     string `json:"platform,omitempty"`
+}
+
+// DeviceAuthStartResponse mirrors the server payload returned after creating a
+// device authorization request.
+type DeviceAuthStartResponse struct {
+	Success      bool   `json:"success"`
+	Code         string `json:"code"`
+	PollToken    string `json:"poll_token"`
+	ExpiresAt    string `json:"expires_at"`
+	AuthorizeURL string `json:"authorize_url"`
+	Message      string `json:"message"`
+}
+
+// DeviceAuthPollResponse captures the status returned while polling an ongoing
+// device authorization exchange.
+type DeviceAuthPollResponse struct {
+	Success   bool   `json:"success"`
+	Status    string `json:"status"`
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	JoinToken string `json:"join_token,omitempty"`
+	TenantID  string `json:"tenant_id,omitempty"`
+	AgentName string `json:"agent_name,omitempty"`
+}
+
+// DeviceAuthStart begins the login-based onboarding handshake by creating a
+// short-lived approval code on the server.
+func (c *ServerClient) DeviceAuthStart(ctx context.Context, req DeviceAuthStartRequest) (*DeviceAuthStartResponse, error) {
+	var resp DeviceAuthStartResponse
+	if err := c.doRequest(ctx, http.MethodPost, "/api/v1/agents/device-auth/start", req, &resp, false); err != nil {
+		return nil, fmt.Errorf("device auth start failed: %w", err)
+	}
+	if !resp.Success {
+		if resp.Message != "" {
+			return nil, fmt.Errorf("device auth start failed: %s", resp.Message)
+		}
+		return nil, fmt.Errorf("device auth start failed")
+	}
+	return &resp, nil
+}
+
+// DeviceAuthPoll checks the server for updates about a pending device
+// authorization request using the opaque poll token issued during start.
+func (c *ServerClient) DeviceAuthPoll(ctx context.Context, pollToken string) (*DeviceAuthPollResponse, error) {
+	cleanToken := strings.TrimSpace(pollToken)
+	if cleanToken == "" {
+		return nil, fmt.Errorf("poll token required")
+	}
+	var resp DeviceAuthPollResponse
+	payload := map[string]string{"poll_token": cleanToken}
+	if err := c.doRequest(ctx, http.MethodPost, "/api/v1/agents/device-auth/poll", payload, &resp, false); err != nil {
+		return nil, fmt.Errorf("device auth poll failed: %w", err)
+	}
+	if !resp.Success {
+		if resp.Message != "" {
+			return nil, fmt.Errorf("device auth poll failed: %s", resp.Message)
+		}
+		return nil, fmt.Errorf("device auth poll failed")
+	}
+	return &resp, nil
 }
 
 // Heartbeat sends a keep-alive signal to the server and returns any managed settings snapshot metadata.

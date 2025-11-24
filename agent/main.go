@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
@@ -925,6 +926,170 @@ func startServerUploadWorker(
 
 	broadcastServerStatus(agentCfg, dataDir, "upload_worker_started", true)
 	return uploadWorker, nil
+}
+
+type serverJoinParams struct {
+	ServerURL string
+	Token     string
+	CAPath    string
+	Insecure  bool
+	AgentName string
+}
+
+type serverJoinResult struct {
+	TenantID   string
+	AgentToken string
+	AgentName  string
+	AgentID    string
+}
+
+type joinError struct {
+	status int
+	err    error
+}
+
+func (e *joinError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *joinError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func newJoinError(status int, err error) error {
+	if err == nil {
+		err = fmt.Errorf("unknown join error")
+	}
+	return &joinError{status: status, err: err}
+}
+
+func joinErrorStatus(err error) int {
+	var je *joinError
+	if errors.As(err, &je) {
+		return je.status
+	}
+	return http.StatusInternalServerError
+}
+
+func resolveAgentDisplayName(agentCfg *AgentConfig, candidate string) string {
+	if name := strings.TrimSpace(candidate); name != "" {
+		return name
+	}
+	if agentCfg != nil {
+		if cfgName := strings.TrimSpace(agentCfg.Server.Name); cfgName != "" {
+			return cfgName
+		}
+	}
+	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
+		return strings.TrimSpace(host)
+	}
+	return "PrintMaster Agent"
+}
+
+func performServerJoin(
+	reqCtx context.Context,
+	appCtx context.Context,
+	params serverJoinParams,
+	agentCfg *AgentConfig,
+	cfgStore storage.AgentConfigStore,
+	deviceStore storage.DeviceStore,
+	settings *SettingsManager,
+	logger Logger,
+	isSvc bool,
+) (*serverJoinResult, error) {
+	serverURL := strings.TrimSpace(params.ServerURL)
+	joinToken := strings.TrimSpace(params.Token)
+	if serverURL == "" {
+		return nil, newJoinError(http.StatusBadRequest, fmt.Errorf("server_url required"))
+	}
+	if joinToken == "" {
+		return nil, newJoinError(http.StatusBadRequest, fmt.Errorf("token required"))
+	}
+	dataDir, err := config.GetDataDirectory("agent", isSvc)
+	if err != nil {
+		return nil, newJoinError(http.StatusInternalServerError, fmt.Errorf("failed to determine data directory: %w", err))
+	}
+	agentID, err := LoadOrGenerateAgentID(dataDir)
+	if err != nil {
+		return nil, newJoinError(http.StatusInternalServerError, fmt.Errorf("failed to load or generate agent id: %w", err))
+	}
+	caPath := strings.TrimSpace(params.CAPath)
+	agentName := resolveAgentDisplayName(agentCfg, params.AgentName)
+	client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", caPath, params.Insecure)
+	agentToken, tenantID, err := client.RegisterWithToken(reqCtx, joinToken, Version)
+	if err != nil {
+		return nil, newJoinError(http.StatusBadGateway, err)
+	}
+	if agentCfg != nil {
+		agentCfg.Server.Enabled = true
+		agentCfg.Server.URL = serverURL
+		agentCfg.Server.Name = agentName
+		agentCfg.Server.CAPath = caPath
+		agentCfg.Server.InsecureSkipVerify = params.Insecure
+		agentCfg.Server.AgentID = agentID
+	}
+	if cfgStore != nil {
+		uploadInterval := 0
+		heartbeatInterval := 0
+		if agentCfg != nil {
+			uploadInterval = agentCfg.Server.UploadInterval
+			heartbeatInterval = agentCfg.Server.HeartbeatInterval
+		}
+		persisted := ServerConnectionConfig{
+			Enabled:            true,
+			URL:                serverURL,
+			Name:               agentName,
+			CAPath:             caPath,
+			InsecureSkipVerify: params.Insecure,
+			UploadInterval:     uploadInterval,
+			HeartbeatInterval:  heartbeatInterval,
+			AgentID:            agentID,
+		}
+		if err := cfgStore.SetConfigValue("server", persisted); err != nil {
+			if logger != nil {
+				logger.Warn("Failed to persist server settings", "error", err)
+			}
+		}
+	}
+	if err := SaveServerToken(dataDir, agentToken); err != nil {
+		return nil, newJoinError(http.StatusInternalServerError, fmt.Errorf("failed to save server token: %w", err))
+	}
+	if err := SaveServerJoinToken(dataDir, joinToken); err != nil {
+		return nil, newJoinError(http.StatusInternalServerError, fmt.Errorf("failed to save join token: %w", err))
+	}
+	uploadWorkerMu.RLock()
+	existingWorker := uploadWorker
+	uploadWorkerMu.RUnlock()
+	if existingWorker != nil && existingWorker.client != nil {
+		existingWorker.client.SetToken(agentToken)
+		existingWorker.client.BaseURL = serverURL
+	} else {
+		go func() {
+			worker, err := startServerUploadWorker(appCtx, agentCfg, dataDir, deviceStore, settings, logger)
+			if err != nil {
+				if logger != nil {
+					logger.Error("Failed to start upload worker after join", "error", err)
+				}
+				return
+			}
+			uploadWorkerMu.Lock()
+			uploadWorker = worker
+			uploadWorkerMu.Unlock()
+		}()
+	}
+	broadcastServerStatus(agentCfg, dataDir, "joined", true)
+	return &serverJoinResult{
+		TenantID:   tenantID,
+		AgentToken: agentToken,
+		AgentName:  agentName,
+		AgentID:    agentID,
+	}, nil
 }
 
 func filterAgentLocalDeveloper(src map[string]interface{}) map[string]interface{} {
@@ -5198,6 +5363,7 @@ window.top.location.href = '/proxy/%s/';
 			Token     string `json:"token"`
 			CAPath    string `json:"ca_path,omitempty"`
 			Insecure  bool   `json:"insecure,omitempty"`
+			AgentName string `json:"agent_name,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
@@ -5210,114 +5376,170 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
-		// Ensure data directory and agent id
+		result, err := performServerJoin(
+			r.Context(),
+			ctx,
+			serverJoinParams{
+				ServerURL: in.ServerURL,
+				Token:     in.Token,
+				CAPath:    in.CAPath,
+				Insecure:  in.Insecure,
+				AgentName: in.AgentName,
+			},
+			agentConfig,
+			agentConfigStore,
+			deviceStore,
+			settingsManager,
+			appLogger,
+			isService,
+		)
+		if err != nil {
+			status := joinErrorStatus(err)
+			w.WriteHeader(status)
+			w.Write([]byte(`{"error":"` + err.Error() + `"}`))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":     true,
+			"tenant_id":   result.TenantID,
+			"agent_token": result.AgentToken,
+		})
+	})
+
+	http.HandleFunc("/settings/device-auth/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			ServerURL string `json:"server_url"`
+			CAPath    string `json:"ca_path,omitempty"`
+			Insecure  bool   `json:"insecure,omitempty"`
+			AgentName string `json:"agent_name,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"invalid json"}`))
+			return
+		}
+		serverURL := strings.TrimSpace(in.ServerURL)
+		if serverURL == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"server_url required"}`))
+			return
+		}
 		dataDir, err := config.GetDataDirectory("agent", isService)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to determine data directory"}`))
 			return
 		}
-
 		agentID, err := LoadOrGenerateAgentID(dataDir)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to load or generate agent id"}`))
 			return
 		}
-
-		// Use configured agent name if available, otherwise hostname
-		agentName := ""
-		if agentConfig != nil && agentConfig.Server.Name != "" {
-			agentName = agentConfig.Server.Name
-		} else {
-			h, _ := os.Hostname()
-			agentName = h
+		agentName := resolveAgentDisplayName(agentConfig, in.AgentName)
+		hostname, _ := os.Hostname()
+		reqBody := agent.DeviceAuthStartRequest{
+			AgentID:      agentID,
+			AgentName:    agentName,
+			AgentVersion: Version,
+			Hostname:     hostname,
+			Platform:     runtime.GOOS,
 		}
-
-		// Create a temporary client to call the central server register-with-token API
-		sc := agent.NewServerClientWithName(in.ServerURL, agentID, agentName, "", in.CAPath, in.Insecure)
-		reqCtx := r.Context()
-		agentToken, tenantID, err := sc.RegisterWithToken(reqCtx, in.Token, Version)
+		client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", strings.TrimSpace(in.CAPath), in.Insecure)
+		respBody, err := client.DeviceAuthStart(r.Context(), reqBody)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)
-			w.Write([]byte(`{"error":"failed to register with server: ` + err.Error() + `"}`))
+			w.Write([]byte(`{"error":"` + err.Error() + `"}`))
 			return
 		}
-
-		// Update in-memory configuration to reflect new server settings
-		if agentConfig != nil {
-			agentConfig.Server.Enabled = true
-			agentConfig.Server.URL = in.ServerURL
-			agentConfig.Server.Name = agentName
-			agentConfig.Server.CAPath = in.CAPath
-			agentConfig.Server.InsecureSkipVerify = in.Insecure
-			agentConfig.Server.AgentID = agentID
-		}
-
-		// Persist server settings to config store so they survive restarts
-		if agentConfigStore != nil {
-			uploadInterval := 0
-			heartbeatInterval := 0
-			if agentConfig != nil {
-				uploadInterval = agentConfig.Server.UploadInterval
-				heartbeatInterval = agentConfig.Server.HeartbeatInterval
-			}
-			persisted := ServerConnectionConfig{
-				Enabled:            true,
-				URL:                in.ServerURL,
-				Name:               agentName,
-				CAPath:             in.CAPath,
-				InsecureSkipVerify: in.Insecure,
-				UploadInterval:     uploadInterval,
-				HeartbeatInterval:  heartbeatInterval,
-				AgentID:            agentID,
-			}
-			if err := agentConfigStore.SetConfigValue("server", persisted); err != nil {
-				appLogger.Warn("Failed to persist server settings", "error", err)
-			}
-		}
-
-		// Save the agent token to disk
-		if err := SaveServerToken(dataDir, agentToken); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":"failed to save server token"}`))
+		if respBody == nil {
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte(`{"error":"server returned empty response"}`))
 			return
 		}
-
-		if err := SaveServerJoinToken(dataDir, in.Token); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(`{"error":"failed to save join token"}`))
-			return
-		}
-
-		// If upload worker exists, update its client with the new token and base URL
-		uploadWorkerMu.RLock()
-		existingWorker := uploadWorker
-		uploadWorkerMu.RUnlock()
-		if existingWorker != nil && existingWorker.client != nil {
-			existingWorker.client.SetToken(agentToken)
-			existingWorker.client.BaseURL = in.ServerURL
-		} else {
-			go func() {
-				worker, err := startServerUploadWorker(ctx, agentConfig, dataDir, deviceStore, settingsManager, appLogger)
-				if err != nil {
-					appLogger.Error("Failed to start upload worker after join", "error", err)
-					return
-				}
-				uploadWorkerMu.Lock()
-				uploadWorker = worker
-				uploadWorkerMu.Unlock()
-			}()
-		}
-
-		broadcastServerStatus(agentConfig, dataDir, "joined", true)
-
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":     true,
-			"tenant_id":   tenantID,
-			"agent_token": agentToken,
+			"success":       true,
+			"code":          respBody.Code,
+			"poll_token":    respBody.PollToken,
+			"expires_at":    respBody.ExpiresAt,
+			"authorize_url": respBody.AuthorizeURL,
+			"agent_id":      agentID,
+			"agent_name":    agentName,
 		})
+	})
+
+	http.HandleFunc("/settings/device-auth/poll", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			ServerURL string `json:"server_url"`
+			PollToken string `json:"poll_token"`
+			CAPath    string `json:"ca_path,omitempty"`
+			Insecure  bool   `json:"insecure,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"invalid json"}`))
+			return
+		}
+		serverURL := strings.TrimSpace(in.ServerURL)
+		pollToken := strings.TrimSpace(in.PollToken)
+		if serverURL == "" || pollToken == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"server_url and poll_token required"}`))
+			return
+		}
+		dataDir, err := config.GetDataDirectory("agent", isService)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to determine data directory"}`))
+			return
+		}
+		agentID, err := LoadOrGenerateAgentID(dataDir)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to load or generate agent id"}`))
+			return
+		}
+		agentName := resolveAgentDisplayName(agentConfig, "")
+		client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", strings.TrimSpace(in.CAPath), in.Insecure)
+		respBody, err := client.DeviceAuthPoll(r.Context(), pollToken)
+		if err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte(`{"error":"` + err.Error() + `"}`))
+			return
+		}
+		if respBody == nil {
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte(`{"error":"server returned empty response"}`))
+			return
+		}
+		out := map[string]interface{}{
+			"success": respBody.Success,
+			"status":  respBody.Status,
+			"code":    respBody.Code,
+			"message": respBody.Message,
+		}
+		if respBody.JoinToken != "" {
+			out["join_token"] = respBody.JoinToken
+		}
+		if respBody.TenantID != "" {
+			out["tenant_id"] = respBody.TenantID
+		}
+		if respBody.AgentName != "" {
+			out["agent_name"] = respBody.AgentName
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
 	})
 
 	// Legacy subnet scan endpoint (deprecated, use /settings/discovery)

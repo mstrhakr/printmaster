@@ -22,7 +22,7 @@
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <h1 style="margin: 0;">PrintMaster Agent UI</h1>
             <div class="server-status-control" data-role="admin" style="display:none">
-                <button id="join_token_btn" data-role="admin" style="display:none" class="modal-button modal-button-primary" title="Join a server using a join token">Join Server</button>
+                <button id="join_token_btn" data-role="admin" style="display:none" class="modal-button modal-button-primary" title="Join a server with login approval">Join Server</button>
                 <span id="server_status_badge" class="server-status-badge" aria-live="polite">Disconnected</span>
             </div>
         </div>
@@ -1162,6 +1162,61 @@
             <div class="modal-buttons">
                 <button id="confirm_modal_cancel" class="modal-button modal-button-secondary">Cancel</button>
                 <button id="confirm_modal_confirm" class="modal-button modal-button-primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Device Authorization Modal -->
+    <div id="device_auth_modal" class="modal-overlay" style="display:none;">
+        <div class="device-auth-dialog">
+            <button class="modal-close-x" id="device_auth_close_x" title="Close">&times;</button>
+            <h3 style="margin-top:0;color:var(--highlight)">Login-Based Server Onboarding</h3>
+            <p class="device-auth-subtitle">Start approval on another device and an administrator can approve this agent without sharing join tokens.</p>
+
+            <div class="device-auth-field">
+                <label for="device_auth_server_url">Server URL</label>
+                <input id="device_auth_server_url" type="text" placeholder="https://printmaster.example:9443" />
+            </div>
+
+            <div class="device-auth-field-grid">
+                <div class="device-auth-field">
+                    <label for="device_auth_agent_name">Display name (optional)</label>
+                    <input id="device_auth_agent_name" type="text" placeholder="Front Desk Agent" />
+                </div>
+                <div class="device-auth-field">
+                    <label for="device_auth_ca_path">Custom CA path (optional)</label>
+                    <input id="device_auth_ca_path" type="text" placeholder="C:\\path\\to\\ca.pem" />
+                </div>
+            </div>
+
+            <label class="device-auth-checkbox">
+                <input type="checkbox" id="device_auth_insecure" />
+                <span>Allow insecure TLS / skip certificate verification (not recommended)</span>
+            </label>
+
+            <div class="device-auth-actions">
+                <button id="device_auth_start_btn" class="modal-button modal-button-primary">Start approval</button>
+                <button id="device_auth_restart_btn" class="modal-button modal-button-secondary" disabled>Reset</button>
+            </div>
+
+            <div id="device_auth_pending" class="device-auth-pending hidden">
+                <div class="device-auth-status">
+                    <span id="device_auth_status_badge" class="device-auth-badge device-auth-status-pending">Pending</span>
+                    <span id="device_auth_status_text">Waiting for approval…</span>
+                </div>
+                <div class="device-auth-code" id="device_auth_code">••••••</div>
+                <div class="device-auth-meta">
+                    <a id="device_auth_authorize_link" href="#" target="_blank" rel="noopener" class="device-auth-link disabled">Open approval page</a>
+                    <span>Expires: <strong id="device_auth_expires">—</strong></span>
+                </div>
+                <p class="device-auth-hint">Share this code with an administrator or open the link on another device to approve the agent.</p>
+            </div>
+
+            <div id="device_auth_message" class="device-auth-message"></div>
+
+            <div class="device-auth-footer">
+                <button id="device_auth_code_btn" class="modal-button modal-button-secondary">Enter join code</button>
+                <button id="device_auth_cancel_btn" class="modal-button">Close</button>
             </div>
         </div>
     </div>

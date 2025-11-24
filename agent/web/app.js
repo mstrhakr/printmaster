@@ -3506,6 +3506,18 @@ if (autoSave) {
 let currentServerStatus = null;
 const LAST_SERVER_URL_KEY = 'pm:last-server-url';
 
+const deviceAuthState = {
+    pollTimer: null,
+    pollToken: '',
+    serverURL: '',
+    caPath: '',
+    insecure: false,
+    agentName: '',
+    authorizeURL: ''
+};
+
+const DEVICE_AUTH_POLL_INTERVAL = 3500;
+
 function rememberServerURL(url) {
     try {
         if (url) {
@@ -3520,6 +3532,13 @@ function getRememberedServerURL() {
     } catch (_) {
         return null;
     }
+}
+
+function defaultServerURL() {
+    if (currentServerStatus && currentServerStatus.url) {
+        return currentServerStatus.url;
+    }
+    return getRememberedServerURL() || 'https://';
 }
 let serverStatusFetchPromise = null;
 const SERVER_STATUS_BADGE_META = {
@@ -3564,11 +3583,12 @@ function updateServerStatusBadge(status) {
 function applyServerConnectionStatus(status, options = {}) {
     const btn = document.getElementById('join_token_btn');
     currentServerStatus = status || null;
-    if (!btn) return;
     const connected = !!(currentServerStatus && currentServerStatus.enabled && currentServerStatus.url);
-    btn.dataset.mode = connected ? 'connected' : 'standalone';
-    btn.textContent = connected ? 'Server Info' : 'Join Server';
-    btn.title = connected ? 'View current server connection' : 'Join a server using a join token';
+    if (btn) {
+        btn.dataset.mode = connected ? 'connected' : 'standalone';
+        btn.textContent = connected ? 'Server Info' : 'Join Server';
+        btn.title = connected ? 'View current server connection' : 'Join a server with login approval';
+    }
     populateServerInfoModal(currentServerStatus);
     updateServerStatusBadge(currentServerStatus);
 }
@@ -3645,6 +3665,38 @@ async function evaluateProbeResult(probe) {
     return summary;
 }
 
+async function submitJoinRequest(serverURL, joinToken, options = {}) {
+    const payload = {
+        server_url: serverURL,
+        token: joinToken,
+        insecure: !!options.insecure
+    };
+    if (options.caPath) {
+        payload.ca_path = options.caPath;
+    }
+    if (options.agentName) {
+        payload.agent_name = options.agentName;
+    }
+
+    const resp = await fetch('/settings/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || resp.statusText || 'join failed');
+    }
+    const body = await resp.json();
+    if (!body || body.success !== true) {
+        const errMsg = body && body.error ? body.error : 'join failed';
+        throw new Error(errMsg);
+    }
+    rememberServerURL(serverURL);
+    await refreshServerConnectionUI({ silent: true });
+    return body;
+}
+
 async function runJoinWorkflow(defaultURL) {
     try {
         const remembered = defaultURL || getRememberedServerURL() || 'https://';
@@ -3672,20 +3724,9 @@ async function runJoinWorkflow(defaultURL) {
 
         window.__pm_shared.showToast('Joining server...', 'info', 3000);
 
-        const resp = await fetch('/settings/join', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ server_url: normalizedServer, token: token, insecure: insecure })
-        });
-        if (!resp.ok) {
-            const txt = await resp.text();
-            throw new Error(txt || resp.statusText || 'join failed');
-        }
-        const body = await resp.json();
+        const body = await submitJoinRequest(normalizedServer, token, { insecure });
         if (body && body.success) {
             window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
-            rememberServerURL(normalizedServer);
-            await refreshServerConnectionUI();
             return true;
         }
     } catch (err) {
@@ -3693,6 +3734,332 @@ async function runJoinWorkflow(defaultURL) {
         return false;
     }
     return false;
+}
+
+function openDeviceAuthModal(defaultURL) {
+    const modal = document.getElementById('device_auth_modal');
+    if (!modal) return;
+    resetDeviceAuthModal({ preserveFields: true });
+    const serverInput = document.getElementById('device_auth_server_url');
+    const preferred = defaultURL || serverInput?.value || defaultServerURL();
+    if (serverInput && preferred) {
+        serverInput.value = preferred;
+    }
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+    if (serverInput) {
+        setTimeout(() => serverInput.focus(), 30);
+    }
+}
+
+function closeDeviceAuthModal() {
+    const modal = document.getElementById('device_auth_modal');
+    if (!modal) return;
+    resetDeviceAuthModal({ preserveFields: true });
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+}
+
+function openJoinCodeFlowFromDeviceAuth() {
+    const serverInput = document.getElementById('device_auth_server_url');
+    const url = (serverInput && serverInput.value) ? serverInput.value : defaultServerURL();
+    if (url) {
+        rememberServerURL(url);
+    }
+    closeDeviceAuthModal();
+    setTimeout(() => {
+        runJoinWorkflow(url && url.trim() ? url : defaultServerURL());
+    }, 150);
+}
+
+function resetDeviceAuthModal(options = {}) {
+    const { preserveFields = true } = options;
+    stopDeviceAuthPolling();
+    deviceAuthState.pollToken = '';
+    deviceAuthState.serverURL = '';
+    deviceAuthState.caPath = '';
+    deviceAuthState.insecure = false;
+    deviceAuthState.agentName = '';
+    deviceAuthState.authorizeURL = '';
+    const pending = document.getElementById('device_auth_pending');
+    if (pending) pending.classList.add('hidden');
+    updateDeviceAuthStatusBadge('pending', 'Waiting for approval…');
+    const codeEl = document.getElementById('device_auth_code');
+    if (codeEl) codeEl.textContent = '••••••';
+    const linkEl = document.getElementById('device_auth_authorize_link');
+    if (linkEl) {
+        linkEl.href = '#';
+        linkEl.classList.add('disabled');
+    }
+    const expiresEl = document.getElementById('device_auth_expires');
+    if (expiresEl) expiresEl.textContent = '—';
+    const startBtn = document.getElementById('device_auth_start_btn');
+    if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start approval';
+    }
+    const restartBtn = document.getElementById('device_auth_restart_btn');
+    if (restartBtn) restartBtn.disabled = true;
+    if (!preserveFields) {
+        const serverInput = document.getElementById('device_auth_server_url');
+        const agentNameInput = document.getElementById('device_auth_agent_name');
+        const caPathInput = document.getElementById('device_auth_ca_path');
+        const insecureInput = document.getElementById('device_auth_insecure');
+        if (serverInput) serverInput.value = '';
+        if (agentNameInput) agentNameInput.value = '';
+        if (caPathInput) caPathInput.value = '';
+        if (insecureInput) insecureInput.checked = false;
+    }
+    setDeviceAuthMessage('', 'info');
+}
+
+function setDeviceAuthMessage(text, kind = 'info') {
+    const messageEl = document.getElementById('device_auth_message');
+    if (!messageEl) return;
+    if (!text) {
+        messageEl.textContent = '';
+        messageEl.className = 'device-auth-message';
+        return;
+    }
+    messageEl.textContent = text;
+    messageEl.className = 'device-auth-message ' + kind;
+}
+
+function updateDeviceAuthStatusBadge(status, text) {
+    const badge = document.getElementById('device_auth_status_badge');
+    const label = document.getElementById('device_auth_status_text');
+    if (!badge || !label) return;
+    const map = {
+        pending: { label: 'Pending', className: 'device-auth-status-pending', hint: 'Waiting for approval…' },
+        approved: { label: 'Approved', className: 'device-auth-status-approved', hint: 'Approved' },
+        rejected: { label: 'Rejected', className: 'device-auth-status-rejected', hint: 'Rejected' },
+        expired: { label: 'Expired', className: 'device-auth-status-expired', hint: 'Expired' }
+    };
+    const meta = map[status] || map.pending;
+    badge.textContent = meta.label;
+    badge.className = 'device-auth-badge ' + meta.className;
+    label.textContent = text || meta.hint;
+}
+
+async function startDeviceAuthFlow() {
+    const serverInput = document.getElementById('device_auth_server_url');
+    const agentNameInput = document.getElementById('device_auth_agent_name');
+    const caPathInput = document.getElementById('device_auth_ca_path');
+    const insecureInput = document.getElementById('device_auth_insecure');
+    const startBtn = document.getElementById('device_auth_start_btn');
+    if (!serverInput || !startBtn) return;
+    const serverURL = (serverInput.value || '').trim();
+    if (!serverURL) {
+        setDeviceAuthMessage('Enter the server URL before starting approval.', 'error');
+        return;
+    }
+    rememberServerURL(serverURL);
+    const caPath = (caPathInput?.value || '').trim();
+    const agentName = (agentNameInput?.value || '').trim();
+    const insecure = !!(insecureInput?.checked);
+    setDeviceAuthMessage('Requesting approval from server…', 'info');
+    startBtn.disabled = true;
+    startBtn.textContent = 'Starting…';
+    try {
+        const resp = await fetch('/settings/device-auth/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                server_url: serverURL,
+                agent_name: agentName || undefined,
+                ca_path: caPath || undefined,
+                insecure: insecure
+            })
+        });
+        if (!resp.ok) {
+            const txt = await resp.text();
+            throw new Error(txt || resp.statusText || 'device auth start failed');
+        }
+        const data = await resp.json();
+        deviceAuthState.pollToken = data.poll_token;
+        deviceAuthState.serverURL = serverURL;
+        deviceAuthState.caPath = caPath;
+        deviceAuthState.insecure = insecure;
+        deviceAuthState.agentName = agentName;
+        deviceAuthState.authorizeURL = data.authorize_url || '';
+        const pending = document.getElementById('device_auth_pending');
+        if (pending) pending.classList.remove('hidden');
+        const codeEl = document.getElementById('device_auth_code');
+        if (codeEl) codeEl.textContent = data.code || '———';
+        const linkEl = document.getElementById('device_auth_authorize_link');
+        if (linkEl) {
+            if (deviceAuthState.authorizeURL) {
+                linkEl.href = deviceAuthState.authorizeURL;
+                linkEl.classList.remove('disabled');
+            } else {
+                linkEl.href = '#';
+                linkEl.classList.add('disabled');
+            }
+        }
+        const expiresEl = document.getElementById('device_auth_expires');
+        if (expiresEl) {
+            expiresEl.textContent = data.expires_at ? new Date(data.expires_at).toLocaleString() : '—';
+        }
+        updateDeviceAuthStatusBadge('pending', data.message || 'Waiting for approval…');
+        setDeviceAuthMessage('Waiting for approval…', 'info');
+        const restartBtn = document.getElementById('device_auth_restart_btn');
+        if (restartBtn) restartBtn.disabled = false;
+        startBtn.textContent = 'Awaiting approval';
+        startDeviceAuthPolling();
+    } catch (err) {
+        setDeviceAuthMessage(err && err.message ? err.message : 'Failed to start approval', 'error');
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start approval';
+    }
+}
+
+function startDeviceAuthPolling() {
+    stopDeviceAuthPolling();
+    deviceAuthState.pollTimer = window.setInterval(pollDeviceAuthStatus, DEVICE_AUTH_POLL_INTERVAL);
+    pollDeviceAuthStatus();
+}
+
+function stopDeviceAuthPolling() {
+    if (deviceAuthState.pollTimer) {
+        clearInterval(deviceAuthState.pollTimer);
+        deviceAuthState.pollTimer = null;
+    }
+}
+
+async function pollDeviceAuthStatus() {
+    if (!deviceAuthState.pollToken || !deviceAuthState.serverURL) {
+        stopDeviceAuthPolling();
+        return;
+    }
+    try {
+        const payload = {
+            server_url: deviceAuthState.serverURL,
+            poll_token: deviceAuthState.pollToken,
+            insecure: !!deviceAuthState.insecure
+        };
+        if (deviceAuthState.caPath) {
+            payload.ca_path = deviceAuthState.caPath;
+        }
+        const resp = await fetch('/settings/device-auth/poll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+            const txt = await resp.text();
+            throw new Error(txt || resp.statusText || 'device auth poll failed');
+        }
+        const data = await resp.json();
+        const status = (data.status || 'pending').toLowerCase();
+        updateDeviceAuthStatusBadge(status, data.message || '');
+        if (status === 'pending') {
+            setDeviceAuthMessage('Still waiting for approval…', 'info');
+            return;
+        }
+        if (status === 'approved') {
+            if (data.join_token) {
+                stopDeviceAuthPolling();
+                setDeviceAuthMessage('Approval granted. Completing join…', 'success');
+                await finalizeDeviceAuthJoin(data.join_token, data.agent_name);
+                return;
+            }
+            stopDeviceAuthPolling();
+            setDeviceAuthMessage(data.message || 'Approval succeeded but server did not return a join token.', 'error');
+            const startBtn = document.getElementById('device_auth_start_btn');
+            if (startBtn) {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start approval';
+            }
+            return;
+        }
+        if (status === 'rejected' || status === 'expired') {
+            stopDeviceAuthPolling();
+            const msg = data.message || (status === 'rejected' ? 'Request rejected' : 'Request expired');
+            setDeviceAuthMessage(msg, 'error');
+            const startBtn = document.getElementById('device_auth_start_btn');
+            if (startBtn) {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start approval';
+            }
+            return;
+        }
+        stopDeviceAuthPolling();
+        const fallback = data.message || ('Unexpected status: ' + status);
+        setDeviceAuthMessage(fallback, 'error');
+        const startBtn = document.getElementById('device_auth_start_btn');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Start approval';
+        }
+    } catch (err) {
+        stopDeviceAuthPolling();
+        setDeviceAuthMessage(err && err.message ? err.message : 'Failed to poll approval status', 'error');
+        const startBtn = document.getElementById('device_auth_start_btn');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Start approval';
+        }
+    }
+}
+
+async function finalizeDeviceAuthJoin(joinToken, approvedName) {
+    const startBtn = document.getElementById('device_auth_start_btn');
+    if (startBtn) {
+        startBtn.disabled = true;
+        startBtn.textContent = 'Completing…';
+    }
+    try {
+        const result = await submitJoinRequest(deviceAuthState.serverURL, joinToken, {
+            insecure: deviceAuthState.insecure,
+            caPath: deviceAuthState.caPath,
+            agentName: approvedName || deviceAuthState.agentName
+        });
+        window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Joined server. Tenant: ' + (result.tenant_id || 'unknown'), 'success', 4000);
+        updateDeviceAuthStatusBadge('approved', 'Join complete');
+        setDeviceAuthMessage('Joined server successfully.', 'success');
+        try {
+            await refreshServerConnectionUI({ silent: true });
+        } catch (_) {}
+        setTimeout(() => {
+            closeDeviceAuthModal();
+        }, 1500);
+    } catch (err) {
+        setDeviceAuthMessage('Approval succeeded but join failed: ' + (err && err.message ? err.message : err), 'error');
+        if (startBtn) {
+            startBtn.disabled = false;
+            startBtn.textContent = 'Try again';
+        }
+    }
+}
+
+function initDeviceAuthModal() {
+    const modal = document.getElementById('device_auth_modal');
+    if (!modal) return;
+    const closeButtons = ['device_auth_close_x', 'device_auth_cancel_btn'];
+    closeButtons.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('click', closeDeviceAuthModal);
+        }
+    });
+    modal.addEventListener('click', evt => {
+        if (evt.target === modal) {
+            closeDeviceAuthModal();
+        }
+    });
+    const startBtn = document.getElementById('device_auth_start_btn');
+    if (startBtn) {
+        startBtn.addEventListener('click', startDeviceAuthFlow);
+    }
+    const restartBtn = document.getElementById('device_auth_restart_btn');
+    if (restartBtn) {
+        restartBtn.addEventListener('click', () => resetDeviceAuthModal({ preserveFields: true }));
+    }
+    const codeBtn = document.getElementById('device_auth_code_btn');
+    if (codeBtn) {
+        codeBtn.addEventListener('click', openJoinCodeFlowFromDeviceAuth);
+    }
+    resetDeviceAuthModal({ preserveFields: true });
 }
 
 async function refreshServerConnectionUI(options = {}) {
@@ -3823,9 +4190,11 @@ function initServerConnectionControls() {
             if (btn.dataset.mode === 'connected') {
                 openServerInfoModal();
             } else {
-                runJoinWorkflow();
+                openDeviceAuthModal(defaultServerURL());
             }
         });
+
+        initDeviceAuthModal();
 
         const overlay = document.getElementById('server_info_modal');
         if (overlay) {

@@ -2003,6 +2003,190 @@ input[type="checkbox"]:indeterminate::before {
   transform: translateY(-1px);
 }
 
+.device-auth-dialog {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+  width: min(520px, 94vw);
+  box-shadow: var(--shadow-lg);
+  position: relative;
+}
+
+.device-auth-subtitle {
+  margin: 0 0 16px 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.device-auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.device-auth-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.device-auth-field input {
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.device-auth-field-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.device-auth-field-grid .device-auth-field {
+  flex: 1 1 220px;
+  margin-bottom: 12px;
+}
+
+.device-auth-checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.device-auth-checkbox input {
+  margin-top: 4px;
+}
+
+.device-auth-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.device-auth-pending {
+  border: 1px dashed var(--border);
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  margin-top: 6px;
+}
+
+.device-auth-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.device-auth-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 2px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.device-auth-status-pending {
+  background: rgba(247, 181, 0, 0.18);
+  color: #b97300;
+}
+
+.device-auth-status-approved {
+  background: rgba(46, 125, 50, 0.18);
+  color: #2e7d32;
+}
+
+.device-auth-status-rejected {
+  background: rgba(198, 40, 40, 0.18);
+  color: #b71c1c;
+}
+
+.device-auth-status-expired {
+  background: rgba(158, 158, 158, 0.2);
+  color: #616161;
+}
+
+.device-auth-code {
+  text-align: center;
+  font-size: 32px;
+  letter-spacing: 0.35em;
+  margin: 10px 0;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.device-auth-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.device-auth-link {
+  color: var(--highlight);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.device-auth-link.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.device-auth-hint {
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.device-auth-message {
+  margin-top: 16px;
+  font-size: 14px;
+}
+
+.device-auth-message.success {
+  color: #2e7d32;
+}
+
+.device-auth-message.error {
+  color: #ff8a80;
+}
+
+.device-auth-message.info {
+  color: var(--muted);
+}
+
+.device-auth-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+@media (max-width: 600px) {
+  .device-auth-field-grid {
+    flex-direction: column;
+  }
+}
+
 .modal-button-secondary {
   background: transparent;
   color: var(--text);
