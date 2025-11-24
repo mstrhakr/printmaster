@@ -43,10 +43,34 @@ type UploadWorker struct {
 	lastHeartbeat     time.Time
 	lastDeviceUpload  time.Time
 	lastMetricsUpload time.Time
+	running           bool
 
 	// Lifecycle
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+}
+
+// UploadWorkerStatus surfaces internal worker timings for diagnostics.
+type UploadWorkerStatus struct {
+	Running           bool      `json:"running"`
+	LastHeartbeat     time.Time `json:"last_heartbeat"`
+	LastDeviceUpload  time.Time `json:"last_device_upload"`
+	LastMetricsUpload time.Time `json:"last_metrics_upload"`
+}
+
+// Status returns snapshot information about the worker lifecycle and recent activity.
+func (w *UploadWorker) Status() UploadWorkerStatus {
+	if w == nil {
+		return UploadWorkerStatus{}
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return UploadWorkerStatus{
+		Running:           w.running,
+		LastHeartbeat:     w.lastHeartbeat,
+		LastDeviceUpload:  w.lastDeviceUpload,
+		LastMetricsUpload: w.lastMetricsUpload,
+	}
 }
 
 func (w *UploadWorker) currentSettingsVersion() string {
@@ -149,6 +173,10 @@ func (w *UploadWorker) Start(ctx context.Context, version string) error {
 	w.wg.Add(1)
 	go w.uploadLoop()
 
+	w.mu.Lock()
+	w.running = true
+	w.mu.Unlock()
+
 	w.logger.Info("Upload worker started",
 		"heartbeat_interval", w.heartbeatInterval,
 		"upload_interval", w.uploadInterval,
@@ -171,6 +199,9 @@ func (w *UploadWorker) Stop() {
 	w.wsClientMu.Unlock()
 
 	w.wg.Wait()
+	w.mu.Lock()
+	w.running = false
+	w.mu.Unlock()
 	w.logger.Info("Upload worker stopped")
 }
 

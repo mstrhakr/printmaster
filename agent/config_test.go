@@ -430,6 +430,33 @@ func TestSaveServerTokenCreatesDirectory(t *testing.T) {
 	}
 }
 
+func TestDeleteServerToken(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	tokenPath := filepath.Join(tempDir, "agent_token")
+	if err := os.WriteFile(tokenPath, []byte("token"), 0600); err != nil {
+		t.Fatalf("failed to seed token file: %v", err)
+	}
+
+	if err := DeleteServerToken(tempDir); err != nil {
+		t.Fatalf("expected delete to succeed: %v", err)
+	}
+
+	if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
+		t.Fatalf("expected token file to be removed, got err=%v", err)
+	}
+
+	// Second delete should be a no-op
+	if err := DeleteServerToken(tempDir); err != nil {
+		t.Fatalf("expected idempotent delete, got %v", err)
+	}
+
+	if err := DeleteServerToken(""); err == nil {
+		t.Fatalf("expected error when data directory missing")
+	}
+}
+
 func TestLoadServerJoinToken(t *testing.T) {
 	t.Parallel()
 

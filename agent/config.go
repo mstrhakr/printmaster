@@ -213,6 +213,18 @@ func SaveServerToken(dataDir, token string) error {
 	return os.WriteFile(tokenPath, []byte(token), 0600)
 }
 
+// DeleteServerToken removes the persisted server authentication token, if present.
+func DeleteServerToken(dataDir string) error {
+	if strings.TrimSpace(dataDir) == "" {
+		return fmt.Errorf("data directory not specified for token removal")
+	}
+	tokenPath := filepath.Join(dataDir, "agent_token")
+	if err := os.Remove(tokenPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // LoadServerJoinToken loads the stored server join token from disk (if any).
 func LoadServerJoinToken(dataDir string) string {
 	if dataDir == "" {

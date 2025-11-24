@@ -189,55 +189,6 @@ async function clearDiscovered(evt) {
 
 // Update the discovered and saved printers UI by querying the backend and
 // rendering cards using the shared card renderers in `common/web/cards.js`.
-function initJoinWithTokenButton() {
-    try {
-        // Wire existing button (placed in HTML next to title) so we don't
-        // create duplicate fixed-position elements.
-        const btn = document.getElementById('join_token_btn');
-        if (!btn) return;
-    // Ensure prominent styling (use existing modal primary styles)
-    btn.classList.add('modal-button', 'modal-button-primary');
-
-        btn.addEventListener('click', async function () {
-            const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', 'https://');
-            if (!server) return;
-            const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
-            if (!token) return;
-
-            // Optional: ask for CA path and insecure flag (advanced)
-            const confirmInsecure = await window.__pm_shared.showConfirm(
-                'If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.',
-                'Self-signed certificate',
-                false
-            );
-            const insecure = !!confirmInsecure;
-
-            // Show a progress toast
-            window.__pm_shared.showToast('Joining server...', 'info', 3000);
-
-            try {
-                const resp = await fetch('/settings/join', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ server_url: server, token: token, insecure: insecure })
-                });
-                if (!resp.ok) {
-                    const txt = await resp.text();
-                    throw new Error(txt || resp.statusText || 'join failed');
-                }
-                const body = await resp.json();
-                if (body && body.success) {
-                    window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
-                }
-            } catch (err) {
-                window.__pm_shared.showToast('Failed to join server: ' + (err && err.message ? err.message : err), 'error', 4000);
-            }
-        });
-    } catch (e) {
-        try { window.__pm_shared.warn && window.__pm_shared.warn('initJoinWithTokenButton failed', e); } catch (ex) {}
-    }
-}
-
 function updatePrinters() {
     try {
         const showKnownDevices = document.getElementById('show_saved_in_discovered')?.checked || false;
@@ -3541,52 +3492,191 @@ if (autoSave) {
     toggleAutoSave();
 }
 
-// Small helper: wire the existing "Join Server" button (placed in HTML next to title).
-function initJoinWithTokenButton() {
+let currentServerStatus = null;
+
+async function runJoinWorkflow(defaultURL) {
     try {
-        const btn = document.getElementById('join_token_btn');
-        if (!btn) return;
-        // Ensure prominent styling (primary class should exist in CSS)
-        btn.classList.add('primary');
+        const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', defaultURL || 'https://');
+        if (!server) return false;
+        const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
+        if (!token) return false;
 
-        btn.addEventListener('click', async function () {
-            const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', 'https://');
-            if (!server) return;
-            const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
-            if (!token) return;
+        const confirmInsecure = await window.__pm_shared.showConfirm(
+            'If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.',
+            'Self-signed certificate',
+            false
+        );
+        const insecure = !!confirmInsecure;
 
-            const confirmInsecure = await window.__pm_shared.showConfirm(
-                'If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.',
-                'Self-signed certificate',
-                false
-            );
-            const insecure = !!confirmInsecure;
+        window.__pm_shared.showToast('Joining server...', 'info', 3000);
 
-            window.__pm_shared.showToast('Joining server...', 'info', 3000);
-
-            try {
-                const resp = await fetch('/settings/join', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ server_url: server, token: token, insecure: insecure })
-                });
-                if (!resp.ok) {
-                    const txt = await resp.text();
-                    throw new Error(txt || resp.statusText || 'join failed');
-                }
-                const body = await resp.json();
-                if (body && body.success) {
-                    window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
-                }
-            } catch (err) {
-                window.__pm_shared.showToast('Failed to join server: ' + (err && err.message ? err.message : err), 'error', 4000);
-            }
+        const resp = await fetch('/settings/join', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ server_url: server, token: token, insecure: insecure })
         });
-    } catch (e) {
-        try { window.__pm_shared.warn && window.__pm_shared.warn('initJoinWithTokenButton failed', e); } catch (ex) {}
+        if (!resp.ok) {
+            const txt = await resp.text();
+            throw new Error(txt || resp.statusText || 'join failed');
+        }
+        const body = await resp.json();
+        if (body && body.success) {
+            window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
+            await refreshServerConnectionUI();
+            return true;
+        }
+    } catch (err) {
+        window.__pm_shared.showToast('Failed to join server: ' + (err && err.message ? err.message : err), 'error', 4000);
+        return false;
+    }
+    return false;
+}
+
+async function refreshServerConnectionUI() {
+    const btn = document.getElementById('join_token_btn');
+    if (!btn) return;
+    try {
+        const resp = await fetch('/settings/server');
+        if (!resp.ok) {
+            throw new Error('status ' + resp.status);
+        }
+        const data = await resp.json();
+        currentServerStatus = data || null;
+        const connected = !!(data && data.enabled && data.url);
+        btn.dataset.mode = connected ? 'connected' : 'standalone';
+        btn.textContent = connected ? 'Server Info' : 'Join Server';
+        btn.title = connected ? 'View current server connection' : 'Join a server using a join token';
+        populateServerInfoModal(currentServerStatus);
+    } catch (err) {
+        currentServerStatus = null;
+        btn.dataset.mode = 'standalone';
+        btn.textContent = 'Join Server';
+        btn.title = 'Join a server using a join token';
+        try { window.__pm_shared.warn('Failed to load server status', err); } catch (e) {}
     }
 }
 
-// Initialize join button on DOMContentLoaded
-try { document.addEventListener('DOMContentLoaded', initJoinWithTokenButton); } catch (e) {}
+function populateServerInfoModal(status) {
+    const info = status || {};
+    const connected = !!info.connected;
+    const setField = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    const statusEl = document.getElementById('server_info_status');
+    if (statusEl) {
+        statusEl.textContent = connected ? 'Connected' : 'Not connected';
+        statusEl.classList.toggle('connected', connected);
+    }
+    setField('server_info_url', info.url || 'Not configured');
+    setField('server_info_agent_id', info.agent_id || 'Not generated yet');
+    setField('server_info_name', info.name || 'Using system hostname');
+    setField('server_info_insecure', info.insecure_skip_verify ? 'TLS verification is skipped' : 'TLS verification enforced');
+    setField('server_info_ca_path', info.ca_path || 'Not configured');
+    const heartbeat = info.heartbeat_interval > 0 ? info.heartbeat_interval + 's' : 'default';
+    const upload = info.upload_interval > 0 ? info.upload_interval + 's' : 'default';
+    setField('server_info_intervals', 'Heartbeat: ' + heartbeat + ' • Upload: ' + upload);
+    setField('server_info_last_heartbeat', describeServerTimestamp(info.last_heartbeat));
+    setField('server_info_last_upload', describeServerTimestamp(info.last_device_upload));
+    setField('server_info_last_metrics', describeServerTimestamp(info.last_metrics_upload));
+    setField('server_info_agent_token', info.has_agent_token ? 'Yes' : 'No');
+    setField('server_info_join_token', info.has_join_token ? 'Yes' : 'No');
+}
+
+function describeServerTimestamp(value) {
+    if (!value) return 'Never';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Never';
+    const formatter = window.__pm_shared && typeof window.__pm_shared.formatRelativeTime === 'function'
+        ? window.__pm_shared.formatRelativeTime
+        : null;
+    const relative = formatter ? formatter(date.toISOString()) : '';
+    const absolute = date.toLocaleString();
+    return relative ? relative + ' — ' + absolute : absolute;
+}
+
+function openServerInfoModal() {
+    populateServerInfoModal(currentServerStatus);
+    const modal = document.getElementById('server_info_modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+}
+
+function closeServerInfoModal() {
+    const modal = document.getElementById('server_info_modal');
+    if (!modal) return;
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+}
+
+async function handleServerRejoin() {
+    const defaultURL = currentServerStatus && currentServerStatus.url ? currentServerStatus.url : 'https://';
+    const joined = await runJoinWorkflow(defaultURL);
+    if (joined) {
+        closeServerInfoModal();
+    }
+}
+
+async function handleServerUnjoin() {
+    const confirmed = await window.__pm_shared.showConfirm(
+        'This will stop uploads and remove stored tokens. You can rejoin later with a new join token.',
+        'Unjoin server',
+        true
+    );
+    if (!confirmed) return;
+    try {
+        const resp = await fetch('/settings/server', { method: 'DELETE' });
+        if (!resp.ok) {
+            const txt = await resp.text();
+            throw new Error(txt || resp.statusText || 'unjoin failed');
+        }
+        window.__pm_shared.showToast('Server connection removed', 'success', 3000);
+        closeServerInfoModal();
+        await refreshServerConnectionUI();
+    } catch (err) {
+        window.__pm_shared.showToast('Failed to unjoin server: ' + (err && err.message ? err.message : err), 'error', 4000);
+    }
+}
+
+function initServerConnectionControls() {
+    try {
+        const btn = document.getElementById('join_token_btn');
+        if (!btn) return;
+        btn.classList.add('modal-button', 'modal-button-primary');
+        btn.dataset.mode = 'standalone';
+        btn.addEventListener('click', () => {
+            if (btn.dataset.mode === 'connected') {
+                openServerInfoModal();
+            } else {
+                runJoinWorkflow();
+            }
+        });
+
+        const overlay = document.getElementById('server_info_modal');
+        if (overlay) {
+            overlay.addEventListener('click', evt => {
+                if (evt.target === overlay) closeServerInfoModal();
+            });
+        }
+        ['server_info_close_btn', 'server_info_close_x'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', closeServerInfoModal);
+        });
+        const rejoinBtn = document.getElementById('server_info_rejoin_btn');
+        if (rejoinBtn) {
+            rejoinBtn.addEventListener('click', handleServerRejoin);
+        }
+        const unjoinBtn = document.getElementById('server_info_unjoin_btn');
+        if (unjoinBtn) {
+            unjoinBtn.addEventListener('click', handleServerUnjoin);
+        }
+
+        refreshServerConnectionUI();
+    } catch (e) {
+        try { window.__pm_shared.warn('initServerConnectionControls failed', e); } catch (err) {}
+    }
+}
+
+try { document.addEventListener('DOMContentLoaded', initServerConnectionControls); } catch (e) {}
 

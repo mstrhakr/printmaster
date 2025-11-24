@@ -146,9 +146,10 @@ func (c *staticResourceCache) Set(key string, data []byte, contentType string, h
 	}
 }
 
-var staticCache = newStaticResourceCache()
-
 var (
+	staticCache    = newStaticResourceCache()
+	uploadWorkerMu sync.RWMutex
+	uploadWorker   *UploadWorker
 	// deviceStore is shared across the agent for persistence access
 	deviceStore storage.DeviceStore
 	// agentConfigStore stores user-configurable settings/ranges
@@ -642,6 +643,107 @@ func applyServerConfigFromStore(agentCfg *AgentConfig, store storage.AgentConfig
 			"enabled", agentCfg.Server.Enabled,
 			"insecure_skip_verify", agentCfg.Server.InsecureSkipVerify)
 	}
+}
+
+type serverConnectionStatus struct {
+	Enabled            bool       `json:"enabled"`
+	URL                string     `json:"url"`
+	Name               string     `json:"name"`
+	AgentID            string     `json:"agent_id"`
+	InsecureSkipVerify bool       `json:"insecure_skip_verify"`
+	CAPath             string     `json:"ca_path"`
+	UploadInterval     int        `json:"upload_interval"`
+	HeartbeatInterval  int        `json:"heartbeat_interval"`
+	Connected          bool       `json:"connected"`
+	LastHeartbeat      *time.Time `json:"last_heartbeat,omitempty"`
+	LastDeviceUpload   *time.Time `json:"last_device_upload,omitempty"`
+	LastMetricsUpload  *time.Time `json:"last_metrics_upload,omitempty"`
+	HasAgentToken      bool       `json:"has_agent_token"`
+	HasJoinToken       bool       `json:"has_join_token"`
+}
+
+func snapshotServerConnectionStatus(agentCfg *AgentConfig, dataDir string) serverConnectionStatus {
+	status := serverConnectionStatus{}
+	if agentCfg != nil {
+		status.Enabled = agentCfg.Server.Enabled
+		status.URL = agentCfg.Server.URL
+		status.Name = agentCfg.Server.Name
+		status.AgentID = agentCfg.Server.AgentID
+		status.InsecureSkipVerify = agentCfg.Server.InsecureSkipVerify
+		status.CAPath = agentCfg.Server.CAPath
+		status.UploadInterval = agentCfg.Server.UploadInterval
+		status.HeartbeatInterval = agentCfg.Server.HeartbeatInterval
+	}
+
+	uploadWorkerMu.RLock()
+	worker := uploadWorker
+	uploadWorkerMu.RUnlock()
+	if worker != nil {
+		wStatus := worker.Status()
+		status.Connected = status.Enabled && wStatus.Running
+		status.LastHeartbeat = timePtr(wStatus.LastHeartbeat)
+		status.LastDeviceUpload = timePtr(wStatus.LastDeviceUpload)
+		status.LastMetricsUpload = timePtr(wStatus.LastMetricsUpload)
+	} else {
+		status.Connected = false
+	}
+
+	if dataDir != "" {
+		status.HasAgentToken = LoadServerToken(dataDir) != ""
+		status.HasJoinToken = LoadServerJoinToken(dataDir) != ""
+	}
+
+	return status
+}
+
+func timePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	value := t
+	return &value
+}
+
+func disconnectFromServer(agentCfg *AgentConfig, dataDir string) error {
+	if appLogger != nil {
+		appLogger.Info("Disconnecting agent from server")
+	}
+	uploadWorkerMu.Lock()
+	if uploadWorker != nil {
+		uploadWorker.Stop()
+		uploadWorker = nil
+	}
+	uploadWorkerMu.Unlock()
+
+	if strings.TrimSpace(dataDir) != "" {
+		if err := DeleteServerToken(dataDir); err != nil {
+			return fmt.Errorf("failed to remove server token: %w", err)
+		}
+		if err := SaveServerJoinToken(dataDir, ""); err != nil {
+			return fmt.Errorf("failed to clear join token: %w", err)
+		}
+	}
+
+	if agentCfg != nil {
+		agentCfg.Server.Enabled = false
+		agentCfg.Server.URL = ""
+		agentCfg.Server.Name = ""
+		agentCfg.Server.CAPath = ""
+		agentCfg.Server.InsecureSkipVerify = false
+		agentCfg.Server.Token = ""
+	}
+
+	if agentConfigStore != nil {
+		persisted := ServerConnectionConfig{}
+		if agentCfg != nil {
+			persisted.AgentID = agentCfg.Server.AgentID
+		}
+		if err := agentConfigStore.SetConfigValue("server", persisted); err != nil {
+			return fmt.Errorf("failed to persist server disconnect: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // startServerUploadWorker encapsulates upload worker bootstrap (agent
@@ -2523,7 +2625,6 @@ func runInteractive(ctx context.Context, configFlag string) {
 	}
 
 	// Load server configuration from TOML and start upload worker
-	var uploadWorker *UploadWorker
 	if agentConfig != nil && agentConfig.Server.Enabled {
 		dataDir, err := config.GetDataDirectory("agent", isService)
 		if err != nil {
@@ -2537,7 +2638,9 @@ func runInteractive(ctx context.Context, configFlag string) {
 				appLogger.Error("Failed to start upload worker", "error", err)
 				return
 			}
+			uploadWorkerMu.Lock()
 			uploadWorker = worker
+			uploadWorkerMu.Unlock()
 		}()
 	}
 
@@ -4933,6 +5036,37 @@ window.top.location.href = '/proxy/%s/';
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 
+	http.HandleFunc("/settings/server", func(w http.ResponseWriter, r *http.Request) {
+		dataDir, err := config.GetDataDirectory("agent", isService)
+		if err != nil {
+			http.Error(w, "failed to determine data directory", http.StatusInternalServerError)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			status := snapshotServerConnectionStatus(agentConfig, dataDir)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(status)
+			return
+		case http.MethodDelete:
+			if err := disconnectFromServer(agentConfig, dataDir); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			status := snapshotServerConnectionStatus(agentConfig, dataDir)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"success": true,
+				"status":  status,
+			})
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	})
+
 	// Join the central server using a join token issued by the server.
 	// Body: {"server_url":"https://central:9443","token":"<raw join token>","ca_path":"/path/to/ca.pem","insecure":false}
 	http.HandleFunc("/settings/join", func(w http.ResponseWriter, r *http.Request) {
@@ -5039,9 +5173,12 @@ window.top.location.href = '/proxy/%s/';
 		}
 
 		// If upload worker exists, update its client with the new token and base URL
-		if uploadWorker != nil && uploadWorker.client != nil {
-			uploadWorker.client.SetToken(agentToken)
-			uploadWorker.client.BaseURL = in.ServerURL
+		uploadWorkerMu.RLock()
+		existingWorker := uploadWorker
+		uploadWorkerMu.RUnlock()
+		if existingWorker != nil && existingWorker.client != nil {
+			existingWorker.client.SetToken(agentToken)
+			existingWorker.client.BaseURL = in.ServerURL
 		} else {
 			go func() {
 				worker, err := startServerUploadWorker(ctx, agentConfig, dataDir, deviceStore, settingsManager, appLogger)
@@ -5049,7 +5186,9 @@ window.top.location.href = '/proxy/%s/';
 					appLogger.Error("Failed to start upload worker after join", "error", err)
 					return
 				}
+				uploadWorkerMu.Lock()
 				uploadWorker = worker
+				uploadWorkerMu.Unlock()
 			}()
 		}
 
@@ -5267,9 +5406,12 @@ window.top.location.href = '/proxy/%s/';
 	appLogger.Info("Shutdown signal received, stopping servers...")
 
 	// Stop background services first (quick operations)
+	uploadWorkerMu.Lock()
 	if uploadWorker != nil {
 		uploadWorker.Stop()
+		uploadWorker = nil
 	}
+	uploadWorkerMu.Unlock()
 	if sseHub != nil {
 		sseHub.Stop()
 	}

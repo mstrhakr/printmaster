@@ -1957,6 +1957,92 @@ input[type="checkbox"]:indeterminate::before {
   transform: translateY(-1px);
 }
 
+#server_info_modal {
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+}
+
+#server_info_modal.active {
+  display: flex;
+}
+
+.server-info-dialog {
+  width: min(540px, 92%);
+  background: rgba(7, 54, 66, 0.98);
+  border: 1px solid rgba(38, 139, 210, 0.4);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.45);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.server-status-chip {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(220, 50, 47, 0.18);
+  color: #fdf6e3;
+  text-transform: uppercase;
+}
+
+.server-status-chip.connected {
+  background: rgba(42, 161, 152, 0.28);
+  color: #2aa198;
+}
+
+.server-info-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin: 6px 0 4px 0;
+}
+
+@media (min-width: 540px) {
+  .server-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.server-info-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(38, 139, 210, 0.2);
+  background: rgba(0, 43, 54, 0.7);
+  min-height: 68px;
+}
+
+.server-info-field .label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.server-info-field code {
+  font-family: var(--font-mono, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace);
+  font-size: 13px;
+  color: var(--highlight);
+  word-break: break-all;
+}
+
+.server-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
 @keyframes modal-fade-in {
   from {
     opacity: 0;
