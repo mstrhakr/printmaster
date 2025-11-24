@@ -97,13 +97,6 @@ func ensureDeviceAuthStore() *deviceAuthStore {
 	return deviceAuthInst
 }
 
-func resetDeviceAuthStore() {
-	deviceAuthStoreMu.Lock()
-	defer deviceAuthStoreMu.Unlock()
-	deviceAuthInst = newDeviceAuthStore()
-	go deviceAuthInst.cleanupLoop()
-}
-
 func (s *deviceAuthStore) cleanupLoop() {
 	ticker := time.NewTicker(deviceAuthCleanupInterval)
 	defer ticker.Stop()
@@ -143,25 +136,6 @@ func (s *deviceAuthStore) Create(meta deviceAuthMetadata) *deviceAuthRequest {
 	s.byPoll[req.PollToken] = req
 	s.mu.Unlock()
 	return req
-}
-
-func (s *deviceAuthStore) getByCode(code string) (*deviceAuthRequest, bool) {
-	if s == nil {
-		return nil, false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	req, ok := s.byCode[strings.ToUpper(code)]
-	if !ok {
-		return nil, false
-	}
-	if req.Status != deviceAuthStatusExpired && time.Now().UTC().After(req.ExpiresAt) {
-		req.Status = deviceAuthStatusExpired
-		req.Message = "Request expired"
-		delete(s.byCode, strings.ToUpper(code))
-		delete(s.byPoll, req.PollToken)
-	}
-	return req, ok
 }
 
 func (s *deviceAuthStore) snapshot(code string) (*deviceAuthRequest, bool) {
