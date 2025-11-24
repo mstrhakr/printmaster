@@ -3407,27 +3407,10 @@ func injectProxyMetaAndBase(body []byte, proxyBase string, agentID string, targe
 
 	// Replace absolute origin occurrences (http(s)://host:port) and protocol-relative //host:port
 	if u, err := url.Parse(targetURL); err == nil {
-		origins := []string{u.Scheme + "://" + u.Host}
-		protoRels := []string{"//" + u.Host}
-		if !strings.Contains(u.Host, ":") {
-			defaultPort := ""
-			switch strings.ToLower(u.Scheme) {
-			case "http":
-				defaultPort = "80"
-			case "https":
-				defaultPort = "443"
-			}
-			if defaultPort != "" {
-				origins = append(origins, fmt.Sprintf("%s://%s:%s", u.Scheme, u.Host, defaultPort))
-				protoRels = append(protoRels, fmt.Sprintf("//%s:%s", u.Host, defaultPort))
-			}
-		}
-		for _, origin := range origins {
-			bodyStr = strings.ReplaceAll(bodyStr, origin, proxyBase)
-		}
-		for _, protoRel := range protoRels {
-			bodyStr = strings.ReplaceAll(bodyStr, protoRel, proxyBase)
-		}
+		origin := u.Scheme + "://" + u.Host
+		bodyStr = strings.ReplaceAll(bodyStr, origin, proxyBase)
+		protoRel := "//" + u.Host
+		bodyStr = strings.ReplaceAll(bodyStr, protoRel, proxyBase)
 	}
 
 	// Rewrite common root-absolute attributes so they route through the proxy.
@@ -3522,27 +3505,10 @@ func rewriteProxyJS(body []byte, proxyBase string, targetURL string) []byte {
 
 	// Replace absolute origin occurrences
 	if u, err := url.Parse(targetURL); err == nil {
-		origins := []string{u.Scheme + "://" + u.Host}
-		protoRels := []string{"//" + u.Host}
-		if !strings.Contains(u.Host, ":") {
-			defaultPort := ""
-			switch strings.ToLower(u.Scheme) {
-			case "http":
-				defaultPort = "80"
-			case "https":
-				defaultPort = "443"
-			}
-			if defaultPort != "" {
-				origins = append(origins, fmt.Sprintf("%s://%s:%s", u.Scheme, u.Host, defaultPort))
-				protoRels = append(protoRels, fmt.Sprintf("//%s:%s", u.Host, defaultPort))
-			}
-		}
-		for _, origin := range origins {
-			s = strings.ReplaceAll(s, origin, proxyBase)
-		}
-		for _, protoRel := range protoRels {
-			s = strings.ReplaceAll(s, protoRel, proxyBase)
-		}
+		origin := u.Scheme + "://" + u.Host
+		s = strings.ReplaceAll(s, origin, proxyBase)
+		protoRel := "//" + u.Host
+		s = strings.ReplaceAll(s, protoRel, proxyBase)
 	}
 
 	// JS fetch() common patterns
