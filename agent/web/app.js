@@ -3620,8 +3620,8 @@ async function handleServerRejoin() {
 
 async function handleServerUnjoin() {
     const confirmed = await window.__pm_shared.showConfirm(
-        'This will stop uploads and remove stored tokens. You can rejoin later with a new join token.',
-        'Unjoin server',
+		'Disconnecting will stop uploads and remove stored server tokens. You can reconnect later with a new join token.',
+		'Disconnect from server',
         true
     );
     if (!confirmed) return;
@@ -3629,13 +3629,13 @@ async function handleServerUnjoin() {
         const resp = await fetch('/settings/server', { method: 'DELETE' });
         if (!resp.ok) {
             const txt = await resp.text();
-            throw new Error(txt || resp.statusText || 'unjoin failed');
+			throw new Error(txt || resp.statusText || 'disconnect failed');
         }
         window.__pm_shared.showToast('Server connection removed', 'success', 3000);
         closeServerInfoModal();
         await refreshServerConnectionUI();
     } catch (err) {
-        window.__pm_shared.showToast('Failed to unjoin server: ' + (err && err.message ? err.message : err), 'error', 4000);
+		window.__pm_shared.showToast('Failed to disconnect from server: ' + (err && err.message ? err.message : err), 'error', 4000);
     }
 }
 
