@@ -396,7 +396,7 @@ func TestHandleAgentDownloadLatestProxy(t *testing.T) {
 	serverVersion = "1.2.3"
 	t.Cleanup(func() { serverVersion = origVersion })
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		expectedPath := "/v1.2.3/printmaster-agent-v1.2.3-windows-amd64.exe"
+		expectedPath := "/agent-v1.2.3/printmaster-agent-v1.2.3-windows-amd64.exe"
 		if r.URL.Path != expectedPath {
 			t.Fatalf("unexpected upstream path: %s", r.URL.Path)
 		}
@@ -442,7 +442,10 @@ func TestHandleAgentDownloadLatestRedirect(t *testing.T) {
 		t.Fatalf("expected 302 got %d", rw.Code)
 	}
 	loc := rw.Header().Get("Location")
-	if !strings.Contains(loc, "printmaster-agent-v2.0.0-windows-amd64.exe") {
+	if !strings.Contains(loc, "/agent-v2.0.0/") {
 		t.Fatalf("unexpected redirect location: %s", loc)
+	}
+	if !strings.Contains(loc, "printmaster-agent-v2.0.0-windows-amd64.exe") {
+		t.Fatalf("missing expected asset in redirect: %s", loc)
 	}
 }

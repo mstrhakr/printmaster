@@ -1272,6 +1272,7 @@ func handleAgentDownloadLatest(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(tag, "v") {
 		tag = "v" + tag
 	}
+	releaseTag := "agent-" + tag
 
 	ext := ""
 	if platform == "windows" {
@@ -1279,7 +1280,7 @@ func handleAgentDownloadLatest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	asset := fmt.Sprintf("printmaster-agent-%s-%s-%s%s", tag, platform, arch, ext)
-	redirectURL := fmt.Sprintf("%s/%s/%s", releaseAssetBaseURL, tag, asset)
+	redirectURL := fmt.Sprintf("%s/%s/%s", releaseAssetBaseURL, releaseTag, asset)
 
 	if !proxyDownload {
 		// Use 302/Found to allow capable clients to follow to GitHub directly.
