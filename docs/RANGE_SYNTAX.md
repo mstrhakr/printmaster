@@ -20,4 +20,4 @@ Error reporting
 - The server returns a parse error which includes the offending line and a short message. The UI shows an alert for parse failures.
 
 Persistence
-- Saved ranges are persisted to `config.json` in the agent's working directory using `SaveConfig`/`LoadConfig` helpers.
+- Saved ranges are stored in the agent's SQLite `agent_config` table and loaded automatically on startup; edits flow through the web UI or API rather than flat files.

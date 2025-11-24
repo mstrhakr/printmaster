@@ -1,6 +1,7 @@
 # PrintMaster Roadmap to 1.0 and Beyond
 
-**Current Version**: 0.3.3 (November 2025)  
+**Current Release**: Agent 0.9.14 / Server 0.9.14 (November 23, 2025)  
+**Historical Baseline in this doc**: 0.3.3 (kept for context)  
 **Target**: 1.0.0 (Stable Production Release)
 
 ---
@@ -38,8 +39,24 @@
 - ✅ Comprehensive test suite (22 tests: 14 server + 8 client)
 - **Released**: November 2025
 
+### ✅ 0.9.x - Schema & Upload Hardening (Current Release)
+**Focus**: Ship stable builds with schema v8, rotation safety nets, and the refactored build/release tooling.
+
+**Highlights (shipped in 0.9.14):**
+- ✅ Database schema v8 (metrics tiering: raw/hourly/daily/monthly)
+- ✅ Automatic database rotation on migration failure + user notifications
+- ✅ Count-based backup cleanup (10 files cap)
+- ✅ Build system refactor (debug vs. release profiles)
+- ✅ Clean semantic versioning + release automation
+- ✅ Metrics/device table separation with enhanced SNMP collection
+- ✅ Agent/server version parity enforced through shared tooling
+
+**Next Stop**: 0.10.0 discovery/settings polish (see sections below).
+
 ### ⚡ 0.3.x - Current Development (In Progress)
-**Focus**: Schema stability, database rotation, metrics improvements
+> **Historical note:** The 0.3.x plan below represents the original pre-release roadmap. Items not already delivered in 0.9.14 roll into the upcoming 0.10.0 milestone.
+
+**Focus**: Schema stability, database rotation, metrics improvements (superseded by 0.9.x release)
 
 **Completed in 0.3.x:**
 - ✅ Database schema v8 (metrics tiering: raw/hourly/daily/monthly)
@@ -51,7 +68,7 @@
 - ✅ Metrics separation from device table
 - ✅ Enhanced SNMP metrics collection
 
-**Current Version**: 0.3.3 (November 6, 2025)
+**Status**: Superseded (shipped across 0.7.0–0.9.14)
 
 ### 🎯 0.4.0 - Discovery Methods & Live Detection
 **Status**: Planned  

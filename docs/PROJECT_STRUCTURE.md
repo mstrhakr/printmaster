@@ -2,186 +2,95 @@
 
 ```
 printmaster/
-├── agent/                          # Go agent (main application)
-│   ├── main.go                     # HTTP server, UI, API endpoints
-│   ├── config.json                 # Configuration file
-│   ├── discover.go                 # Legacy discovery wrapper (deprecated)
-│   ├── scanner_api.go              # Bridge to scanner package
-│   ├── agent/                      # Discovery and detection logic
-│   │   ├── detect.go               # Main Discover() function, IP enumeration
-│   │   ├── probe.go                # TCP/ICMP probing
-│   │   ├── parse.go                # SNMP PDU parsing
-│   │   ├── snmp.go                 # Legacy SNMP operations
-│   │   ├── mdns.go                 # mDNS/Bonjour discovery
-│   │   ├── ssdp.go                 # SSDP/UPnP discovery
-│   │   ├── wsdiscovery.go          # WS-Discovery protocol
-│   │   ├── snmptraps.go            # SNMP trap listener
-│   │   ├── llmnr.go                # LLMNR name resolution
-│   │   ├── arp.go                  # ARP table reading
-│   │   ├── merge.go                # Device data merging
-│   │   ├── types.go                # Data structures
-│   │   └── ...
-│   ├── scanner/                    # SNMP scanning and device querying
-│   │   ├── detector.go             # Device type detection
-│   │   ├── pipeline.go             # Multi-stage scan orchestration
-│   │   ├── query.go                # SNMP query execution
-│   │   ├── snmp.go                 # Low-level SNMP wrapper
-│   │   ├── enumerator.go           # IP range enumeration
-│   │   └── vendor/                 # Vendor-specific profiles
-│   │       ├── hp.go
-│   │       ├── canon.go
-│   │       ├── brother.go
-│   │       ├── generic.go
-│   │       └── registry.go
-│   ├── logger/                     # Structured logging
-│   │   ├── logger.go               # Logger implementation
-│   │   └── logger_test.go
-│   ├── storage/                    # SQLite database persistence
-│   │   ├── sqlite.go               # Database operations
-│   │   ├── device.go               # Device CRUD operations
-│   │   ├── agent_config.go         # Settings storage
-│   │   └── ...
-│   ├── util/                       # Utility functions
-│   │   ├── helpers.go              # String/numeric parsing
-│   │   └── secret.go               # Encryption utilities
-│   ├── tools/                      # Development tools
-│   │   ├── aggregate_mib_walks.go
-│   │   ├── scan_mib_walks.go
-│   │   └── ...
-│   └── logs/                       # Log files and diagnostics
-├── docs/                           # Documentation
-│   ├── AGENT_MODULE.md             # Agent package documentation
-│   ├── SCANNER_MODULE.md           # Scanner package documentation
-│   ├── LOGGER_MODULE.md            # Logger package documentation
-│   ├── SETTINGS_TODO.md            # Unimplemented settings tracker
-│   ├── LIVE_DISCOVERY_TODO.md      # Discovery method status
-│   ├── API_REFERENCE.md            # HTTP API documentation
-│   ├── CONFIGURATION.md            # Config file reference
-│   ├── PROJECT_STRUCTURE.md        # This file
-│   └── ...
-├── dev/                            # Development utilities
-│   └── launch.ps1                  # Launch script for debugging
-├── build.ps1                       # Build script
-└── README.md                       # Project overview
+├── agent/                        # Agent service and embedded UI (Go)
+│   ├── main.go                   # Agent entrypoint
+│   ├── config.go / config.toml   # Agent configuration loader + sample
+│   ├── agent/                    # Discovery + protocol workers (mDNS, SSDP, etc.)
+│   ├── scanner/                  # SNMP pipeline, vendor registry, metrics extraction
+│   ├── storage/                  # Embedded SQLite schema + migrations
+│   ├── proxy/ / supplies/        # Proxy tunnel + consumables helpers
+│   ├── featureflags/             # Toggle definitions used by agent UI
+│   ├── web/                      # Embedded UI assets (built into the binary)
+│   └── docs/                     # Agent-specific reference material
+├── server/                       # Multi-agent server/API hub (Go)
+│   ├── main.go                   # Server entrypoint
+│   ├── config.go / config.toml   # Server configuration + defaults
+│   ├── websocket.go              # Agent tunnel / live proxy handling
+│   ├── storage/                  # Server persistence + tenancy data
+│   ├── authz/, logger/, tls.go   # Auxiliary subsystems
+│   └── web/                      # Server UI + static assets
+├── common/                       # Shared Go modules (config, logger, snmp, util, web)
+├── docs/                         # Architecture + operations documentation
+├── dev/                          # Local developer scripts (e.g., launch.ps1)
+├── scripts/                      # Operational PowerShell helpers (kill, update, etc.)
+├── tools/                        # Standalone utilities and generators
+├── tests/                        # Integration / e2e test harnesses
+├── static/                       # Third-party front-end assets (e.g., flatpickr)
+├── ui/                           # Legacy UI experiments (kept for reference)
+├── logs/, test-results/          # Output folders (ignored in git)
+├── build.ps1 / release.ps1       # Build + release orchestration
+└── README.md                     # High-level overview
 ```
 
 ## Module Descriptions
 
-### Agent (`agent/agent/`)
-Discovery protocols and device detection logic. Handles network scanning, protocol listeners (mDNS, SSDP, WS-Discovery, SNMP traps), IP enumeration, and device probing.
+### Agent (`agent/`)
+Single-binary agent that discovers printers, collects metrics, persists to SQLite, and serves the embedded UI. Key subpackages:
 
-**Key Files**: `detect.go`, `probe.go`, `mdns.go`, `ssdp.go`, `wsdiscovery.go`
+- `agent/agent/`: discovery workers (TCP probing, mDNS, SSDP, WS-Discovery, SNMP traps, range parsing).
+- `agent/scanner/`: multi-stage SNMP scan pipeline and vendor-specific profiles.
+- `agent/storage/`: schema v8+, metrics tiering, configuration/state persistence.
+- `agent/web/`: React/HTMX UI bundled via `//go:embed`.
 
-**Documentation**: [agent/agent/README.md](../agent/agent/README.md)
+### Server (`server/`)
+Central service coordinating multiple agents, providing RBAC, WebSocket tunneling, and consolidated UI/APIs. Uses its own SQLite database and mirrors the agent’s config model via `config.toml`.
 
-### Scanner (`agent/scanner/`)
-SNMP querying, vendor detection, and printer information extraction. Multi-stage pipeline for efficient scanning with vendor-specific OID profiles.
+### Common (`common/`)
+Shared Go modules consumed by both binaries (config loader, logger, SNMP abstractions, settings helpers, shared web components, WebSocket utilities). This keeps cross-cutting concerns in one place.
 
-**Key Files**: `detector.go`, `pipeline.go`, `query.go`, `vendor/*.go`
+### Documentation (`docs/` and `agent/docs/`)
+`docs/` holds architecture, roadmap, deployment, and operator guides. `agent/docs/` contains deep dives (MIB profiles, SNMP research) that are specific to the agent runtime.
 
-**Documentation**: [agent/scanner/README.md](../agent/scanner/README.md)
+### Tooling & Automation
+- `build.ps1`, `release.ps1`, `status.ps1`, `version.ps1`: primary automation entrypoints.
+- `dev/launch.ps1`: developer convenience launcher (tests + run agent).
+- `package.json` + `playwright.config.js`: UI tests (Jest/Playwright).
+- `.vscode/tasks.json` (generated) + VS Code tasks listed in `BUILD_WORKFLOW.md`.
 
-### Logger (`agent/logger/`)
-Structured logging with SSE streaming. Provides level-based logging (ERROR/WARN/INFO/DEBUG), rate limiting, ring buffer, and real-time UI updates.
+### Tests & Fixtures
+- Go unit tests live beside their packages.
+- `tests/` (with supporting `test-results/`) will hold cross-component or UI regression suites.
+- `common/web/__tests__` contains Playwright specs invoked via `npm run test:playwright`.
 
-**Key Files**: `logger.go`
+## Architecture Principles (Current)
 
-**Documentation**: [agent/logger/README.md](../agent/logger/README.md)
+- **Separation of Concerns**: discovery vs. SNMP pipeline vs. persistence vs. UI.
+- **Shared foundations**: anything reusable lives in `common/` to keep agent/server parity.
+- **Context-aware operations**: network calls propagate `context.Context` for cancellation.
+- **Embedded assets**: both binaries embed their UI/static files to stay single-file deployable.
 
-### Storage (`agent/storage/`)
-SQLite database layer for device persistence and settings storage. Handles device CRUD operations, scan history, and configuration management.
+Data flow (agent):
 
-**Key Files**: `sqlite.go`, `device.go`, `agent_config.go`
-
-**Documentation**: [agent/storage/README.md](../agent/storage/README.md)
-
-### Utilities (`agent/util/`)
-Shared helper functions for string parsing, numeric coercion, and encryption.
-
-**Key Files**: `helpers.go`, `secret.go`
-
-### Tools (`agent/tools/`)
-Development utilities for MIB analysis, test data generation, and debugging.
-
-## Architecture Principles
-
-### Separation of Concerns
-- **Agent**: Network discovery and protocol handling
-- **Scanner**: SNMP operations and data parsing
-- **Logger**: Centralized logging infrastructure
-- **Storage**: Data persistence layer
-
-### Data Flow
 ```
-Network Discovery (agent) 
-    → IP candidates 
-    → Probing (agent) 
-    → SNMP Query (scanner) 
-    → Parse Results (scanner/vendor) 
-    → Store (storage)
+Discovery (agent/agent) → Candidate hosts → SNMP pipeline (agent/scanner)
+    → Vendor parsers → Metrics/device records → SQLite (agent/storage) → UI/API
 ```
 
-### Testing Strategy
-- Unit tests for parsing logic (`parse_test.go`)
-- Integration tests with real SNMP data (`replay_parse_test.go`)
-- Vendor module tests (`scanner/*_test.go`)
-- Logger behavior tests (`logger_test.go`)
+## Development Workflow (Quick Reference)
 
-## Key Design Decisions
-
-### Scanner Refactor (Completed Nov 2, 2025)
-- Moved from monolithic `snmp.go` to modular vendor system
-- Created vendor-specific OID profiles (HP, Canon, Brother, etc.)
-- Implemented multi-stage pipeline (liveness → detection → deep scan)
-- Separated concerns: agent (discovery) vs scanner (querying)
-
-### Logging Refactor (Completed Nov 2, 2025)
-- Replaced polling-based log system with SSE streaming
-- Introduced structured logger with level-based filtering
-- Added rate limiting to prevent log spam
-- Removed callback-based logging in favor of global logger
-
-### Storage Layer
-- SQLite for embedded database (no external dependencies)
-- Upsert operations for device updates
-- Settings stored in database (overrides config.json)
-- Scan history tracking for reporting
-
-## Development Workflow
-
-### Build
-```powershell
-.\build.ps1 agent
-```
-
-### Run
-```powershell
-cd agent
-go run . -port 8080
-```
-
-### Test
-```powershell
-cd agent
-go test ./... -v
-```
-
-### Debug
-```powershell
-.\dev\launch.ps1
-```
+- Build: `./build.ps1 agent`, `./build.ps1 server`, or `./build.ps1 both`.
+- Test: `cd agent && go test ./...`, `cd server && go test ./...`, or run VS Code “Test: Agent/Server”.
+- Release: `./release.ps1 agent|server|both <patch|minor|major>` (handles VERSION bumping, tagging, artifacts).
+- Debug: `./dev/launch.ps1` for the agent; server tasks defined in `.vscode/launch.json`.
 
 ## Related Documentation
 
-### Module Documentation
-- [Agent Overview](../agent/README.md) - Quick start and architecture summary
-- [Agent Module](../agent/agent/README.md) - Discovery and detection
-- [Scanner Module](../agent/scanner/README.md) - SNMP and vendor profiles  
-- [Logger Module](../agent/logger/README.md) - Logging system
-- [Storage Module](../agent/storage/README.md) - Database persistence
+- [Agent README](../agent/README.md)
+- [Server README](../server/README.md)
+- [Configuration Guide](CONFIGURATION.md)
+- [Build Workflow](BUILD_WORKFLOW.md)
+- [Roadmap](ROADMAP.md)
+- [Deployment Guides](SERVICE_DEPLOYMENT.md, AGENT_DEPLOYMENT.md)
+- [Storage Schema Notes](DATABASE_ROTATION.md)
 
-### Feature Documentation
-- [API Reference](API_REFERENCE.md) - HTTP endpoints
-- [Configuration](CONFIGURATION.md) - Config file format
-- [Settings TODO](SETTINGS_TODO.md) - Future features
-- [Live Discovery](LIVE_DISCOVERY_TODO.md) - Discovery method status
+> Need a document not listed here? Check `docs/README.md` (coming soon) for a living index of authoritative references.

@@ -2,43 +2,53 @@
 
 ## Database-First Approach
 
-PrintMaster stores all settings in SQLite databases:
-- **devices.db** - Device profiles and scan history
-- **agent.db** - Agent configuration and settings
-
-All configuration is managed through the web UI Settings tab and persists across restarts.
-
-## config.ini Override (Optional)
-
-For deployment-specific overrides without modifying the database, create a `config.ini` file in the agent directory. See `config.ini.example` for available settings.
-
-The agent loads settings in this order:
-1. Database defaults
-2. Stored database values
-3. config.ini overrides (if file exists)
-
-This allows you to:
-- Deploy with environment-specific settings (SNMP community, regex patterns, etc.)
-- Override database settings without UI changes
-- Keep deployment configs in version control
-
-## Example config.ini
-
-```ini
-# SNMP Settings
-snmp_community=private
-snmp_timeout_ms=3000
-snmp_retries=2
-
-# Asset ID extraction (regex for extracting asset tags from SNMP fields)
-asset_id_regex=\bAST-\d{6}\b
-
-# Debug
 debug_logging=false
 dump_parse_debug=false
-
-# Performance
 discover_concurrency=100
+PrintMaster stores durable settings in SQLite:
+- **devices.db** – Device profiles and scan history
+- **agent.db** – Agent configuration, IP ranges, managed settings snapshots
+
+The UI remains the primary place to edit discovery settings, schedules, and ranges. Configuration files act as boot-time defaults/overrides.
+
+## `config.toml` Override (Optional)
+
+Deployments that need immutable defaults (e.g., SNMP communities, server URLs) can drop a `config.toml` next to the binary. Reference `agent/config.example.toml` or `server/config.example.toml` for all fields.
+
+Load order for the agent:
+1. Built-in defaults (see `DefaultAgentConfig`)
+2. `config.toml` (if present or pointed to via env/flag)
+3. Environment variables (component-prefixed)
+4. Database-stored settings (UI overrides, managed snapshots)
+
+This allows you to:
+- Keep golden values in version control without editing the DB directly
+- Provide different defaults per environment/site
+- Layer runtime overrides through environment variables or server-managed settings
+
+## Example `config.toml`
+
+```toml
+asset_id_regex = "\\bAST-\\d{6}\\b"
+discovery_concurrency = 100
+
+[snmp]
+	community = "private"
+	timeout_ms = 3000
+	retries = 2
+
+[logging]
+	level = "debug"
+
+[web]
+	http_port = 8080
+	https_port = 8443
+	enable_tls = false
+
+[server]
+	enabled = true
+	url = "https://printmaster.example.com:9443"
+	name = "HQ Agent"
 ```
 
 ## Settings via UI
@@ -52,7 +62,7 @@ All changes are immediately saved to the database.
 
 ## Legacy Note
 
-The `dev_settings.json` file is no longer used. Settings have been migrated to the database. If you have an existing `dev_settings.json`, delete it - the agent now uses database + optional config.ini.
+`dev_settings.json` and `config.ini` were removed. If you still have those files, delete them and migrate any values into `config.toml` or the Settings UI.
 
 ## Environment variables (CLI / Docker friendly)
 

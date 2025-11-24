@@ -107,7 +107,7 @@ printmaster-agent
 C:\ProgramData\PrintMaster\
 ├── agent.db              # Agent configuration
 ├── devices.db            # Device database
-├── config.json           # Configuration file
+├── config.toml           # Configuration file (TOML)
 └── logs\                 # Log files
     ├── agent.log
     └── ...
@@ -191,7 +191,7 @@ sudo journalctl -u printmaster-agent -f
 **File Paths**
 ```
 /etc/printmaster/
-└── config.json           # Configuration
+└── config.toml           # Configuration (optional override)
 
 /var/lib/printmaster/
 ├── agent.db
@@ -258,7 +258,7 @@ sudo chown -R printmaster:printmaster /var/log/printmaster
 /Library/Application Support/PrintMaster/
 ├── agent.db
 ├── devices.db
-└── config.json
+└── config.toml
 
 /Library/Logs/PrintMaster/
 ├── agent.log
@@ -278,52 +278,49 @@ sudo chown -R printmaster:printmaster /var/log/printmaster
 
 ## Configuration
 
-### Config File Format (`config.json`)
-```json
-{
-  "server": {
-    "bind_address": "127.0.0.1",
-    "port": 8080,
-    "enable_tls": false,
-    "cert_file": "",
-    "key_file": ""
-  },
-  "snmp": {
-    "community": "public",
-    "timeout_seconds": 5,
-    "retries": 3
-  },
-  "discovery": {
-    "auto_discover": true,
-    "interval_minutes": 15,
-    "subnet_scan": true,
-    "mdns_enabled": false,
-    "ws_discovery_enabled": false
-  },
-  "metrics": {
-    "enabled": true,
-    "collection_interval_minutes": 60
-  },
-  "retention": {
-    "scan_history_days": 90,
-    "metrics_history_days": 365,
-    "hidden_devices_days": 30
-  },
-  "logging": {
-    "level": "info",
-    "file": "auto",
-    "max_size_mb": 100,
-    "max_backups": 5
-  }
-}
+### Config File Format (`config.toml`)
+
+> Reference: `agent/config.example.toml`
+
+```toml
+asset_id_regex = "\\b\\d{5}\\b"
+discovery_concurrency = 50
+epson_remote_mode_enabled = false
+
+[snmp]
+  community = "public"
+  timeout_ms = 2000
+  retries = 1
+
+[server]
+  enabled = false
+  url = "https://printmaster.example.com:9443"
+  name = "Warehouse Agent"
+  upload_interval_seconds = 300
+  heartbeat_interval_seconds = 60
+
+[database]
+  path = ""  # default platform path if empty
+
+[logging]
+  level = "info"
+
+[web]
+  http_port = 8080
+  https_port = 8443
+  enable_tls = false
+  
+  [web.auth]
+    mode = "local"
+    allow_local_admin = true
 ```
 
 ### Environment Variable Overrides
-```bash
-PRINTMASTER_PORT=8080
-PRINTMASTER_CONFIG=/path/to/config.json
-PRINTMASTER_DB_PATH=/path/to/db
-PRINTMASTER_LOG_LEVEL=debug
+```powershell
+# Preferred precedence: AGENT_CONFIG > AGENT_CONFIG_PATH > CONFIG > CONFIG_PATH
+$env:AGENT_CONFIG = 'C:\\ProgramData\\PrintMaster\\config.toml'
+$env:AGENT_DB_PATH = 'C:\\ProgramData\\PrintMaster\\agent.db'
+$env:AGENT_LOG_LEVEL = 'debug'
 ```
 
 ## Implementation Details
