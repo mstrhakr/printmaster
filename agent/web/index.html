@@ -19,9 +19,12 @@
 <body>
     <div class="header-flex"
         style="display: flex; align-items: center; margin-bottom: 12px; justify-content: space-between;">
-        <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <h1 style="margin: 0;">PrintMaster Agent UI</h1>
-            <button id="join_token_btn" data-role="admin" style="display:none" class="modal-button modal-button-primary" title="Join a server using a join token">Join Server</button>
+            <div class="server-status-control" data-role="admin" style="display:none">
+                <button id="join_token_btn" data-role="admin" style="display:none" class="modal-button modal-button-primary" title="Join a server using a join token">Join Server</button>
+                <span id="server_status_badge" class="server-status-badge" aria-live="polite">Disconnected</span>
+            </div>
         </div>
         <label class="theme-toggle">
             <input type="checkbox" id="theme-toggle-checkbox">

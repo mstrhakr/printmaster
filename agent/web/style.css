@@ -133,6 +133,20 @@
   }
 }
 
+@keyframes server-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(42, 161, 152, 0.6);
+  }
+
+  70% {
+    box-shadow: 0 0 0 8px rgba(42, 161, 152, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(42, 161, 152, 0);
+  }
+}
+
 /* View Transitions API - Expanding circle theme change */
 ::view-transition-old(root),
 ::view-transition-new(root) {
@@ -189,6 +203,60 @@
 
 .hidden {
   display: none !important;
+}
+
+.server-status-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.server-status-badge {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(88, 110, 117, 0.25);
+  border: 1px solid rgba(88, 110, 117, 0.4);
+  color: var(--text);
+  text-transform: uppercase;
+  transition: background var(--transition-normal), border var(--transition-normal), color var(--transition-normal);
+}
+
+.server-status-badge::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.server-status-badge.server-status-live {
+  background: rgba(42, 161, 152, 0.15);
+  border-color: rgba(42, 161, 152, 0.6);
+  color: #2aa198;
+}
+
+.server-status-badge.server-status-live::before {
+  animation: server-status-pulse 1.8s ease-in-out infinite;
+}
+
+.server-status-badge.server-status-connected {
+  background: rgba(181, 137, 0, 0.18);
+  border-color: rgba(181, 137, 0, 0.6);
+  color: var(--accent);
+}
+
+.server-status-badge.server-status-disconnected {
+  background: rgba(220, 50, 47, 0.12);
+  border-color: rgba(220, 50, 47, 0.55);
+  color: #dc322f;
 }
 
 /* Custom Lock Button */

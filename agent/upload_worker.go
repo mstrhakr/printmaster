@@ -52,10 +52,12 @@ type UploadWorker struct {
 
 // UploadWorkerStatus surfaces internal worker timings for diagnostics.
 type UploadWorkerStatus struct {
-	Running           bool      `json:"running"`
-	LastHeartbeat     time.Time `json:"last_heartbeat"`
-	LastDeviceUpload  time.Time `json:"last_device_upload"`
-	LastMetricsUpload time.Time `json:"last_metrics_upload"`
+	Running            bool      `json:"running"`
+	LastHeartbeat      time.Time `json:"last_heartbeat"`
+	LastDeviceUpload   time.Time `json:"last_device_upload"`
+	LastMetricsUpload  time.Time `json:"last_metrics_upload"`
+	WebSocketEnabled   bool      `json:"websocket_enabled"`
+	WebSocketConnected bool      `json:"websocket_connected"`
 }
 
 // Status returns snapshot information about the worker lifecycle and recent activity.
@@ -64,13 +66,21 @@ func (w *UploadWorker) Status() UploadWorkerStatus {
 		return UploadWorkerStatus{}
 	}
 	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return UploadWorkerStatus{
+	status := UploadWorkerStatus{
 		Running:           w.running,
 		LastHeartbeat:     w.lastHeartbeat,
 		LastDeviceUpload:  w.lastDeviceUpload,
 		LastMetricsUpload: w.lastMetricsUpload,
+		WebSocketEnabled:  w.useWebSocket,
 	}
+	w.mu.RUnlock()
+	w.wsClientMu.RLock()
+	wsClient := w.wsClient
+	w.wsClientMu.RUnlock()
+	if wsClient != nil && wsClient.IsConnected() {
+		status.WebSocketConnected = true
+	}
+	return status
 }
 
 func (w *UploadWorker) currentSettingsVersion() string {

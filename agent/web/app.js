@@ -3493,6 +3493,44 @@ if (autoSave) {
 }
 
 let currentServerStatus = null;
+const SERVER_STATUS_BADGE_META = {
+    live: {
+        label: 'Live',
+        title: 'Real-time WebSocket connection active'
+    },
+    connected: {
+        label: 'Connected',
+        title: 'HTTP fallback active'
+    },
+    disconnected: {
+        label: 'Disconnected',
+        title: 'No server connection'
+    }
+};
+
+function deriveServerConnectionMode(status) {
+    if (!status || !status.enabled || !status.url) {
+        return 'disconnected';
+    }
+    const mode = (status.connection_mode || '').trim().toLowerCase();
+    if (mode === 'live' || mode === 'connected' || mode === 'disconnected') {
+        return mode;
+    }
+    return status.connected ? 'connected' : 'disconnected';
+}
+
+function updateServerStatusBadge(status) {
+    const badge = document.getElementById('server_status_badge');
+    if (!badge) return;
+    const mode = deriveServerConnectionMode(status);
+    const meta = SERVER_STATUS_BADGE_META[mode] || SERVER_STATUS_BADGE_META.disconnected;
+    badge.textContent = meta.label;
+    badge.title = meta.title;
+    badge.setAttribute('data-mode', mode);
+    ['live', 'connected', 'disconnected'].forEach(state => badge.classList.remove('server-status-' + state));
+    badge.classList.add('server-status-' + mode);
+    badge.style.display = 'inline-flex';
+}
 
 async function runJoinWorkflow(defaultURL) {
     try {
@@ -3547,26 +3585,36 @@ async function refreshServerConnectionUI() {
         btn.textContent = connected ? 'Server Info' : 'Join Server';
         btn.title = connected ? 'View current server connection' : 'Join a server using a join token';
         populateServerInfoModal(currentServerStatus);
+        updateServerStatusBadge(currentServerStatus);
     } catch (err) {
         currentServerStatus = null;
         btn.dataset.mode = 'standalone';
         btn.textContent = 'Join Server';
         btn.title = 'Join a server using a join token';
         try { window.__pm_shared.warn('Failed to load server status', err); } catch (e) {}
+        updateServerStatusBadge(null);
     }
 }
 
 function populateServerInfoModal(status) {
     const info = status || {};
     const connected = !!info.connected;
+    const connectionMode = deriveServerConnectionMode(info);
     const setField = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
     };
     const statusEl = document.getElementById('server_info_status');
     if (statusEl) {
-        statusEl.textContent = connected ? 'Connected' : 'Not connected';
-        statusEl.classList.toggle('connected', connected);
+        let statusLabel = 'Disconnected';
+        if (connectionMode === 'live') {
+            statusLabel = 'Live (WebSocket)';
+        } else if (connectionMode === 'connected') {
+            statusLabel = 'Connected';
+        }
+        statusEl.textContent = statusLabel;
+        statusEl.classList.toggle('connected', connectionMode !== 'disconnected');
+        statusEl.setAttribute('data-mode', connectionMode);
     }
     setField('server_info_url', info.url || 'Not configured');
     setField('server_info_agent_id', info.agent_id || 'Not generated yet');

@@ -655,11 +655,14 @@ type serverConnectionStatus struct {
 	UploadInterval     int        `json:"upload_interval"`
 	HeartbeatInterval  int        `json:"heartbeat_interval"`
 	Connected          bool       `json:"connected"`
+	ConnectionMode     string     `json:"connection_mode"`
 	LastHeartbeat      *time.Time `json:"last_heartbeat,omitempty"`
 	LastDeviceUpload   *time.Time `json:"last_device_upload,omitempty"`
 	LastMetricsUpload  *time.Time `json:"last_metrics_upload,omitempty"`
 	HasAgentToken      bool       `json:"has_agent_token"`
 	HasJoinToken       bool       `json:"has_join_token"`
+	WebSocketEnabled   bool       `json:"websocket_enabled"`
+	WebSocketConnected bool       `json:"websocket_connected"`
 }
 
 func snapshotServerConnectionStatus(agentCfg *AgentConfig, dataDir string) serverConnectionStatus {
@@ -684,9 +687,21 @@ func snapshotServerConnectionStatus(agentCfg *AgentConfig, dataDir string) serve
 		status.LastHeartbeat = timePtr(wStatus.LastHeartbeat)
 		status.LastDeviceUpload = timePtr(wStatus.LastDeviceUpload)
 		status.LastMetricsUpload = timePtr(wStatus.LastMetricsUpload)
+		status.WebSocketEnabled = wStatus.WebSocketEnabled
+		status.WebSocketConnected = wStatus.WebSocketConnected
 	} else {
 		status.Connected = false
 	}
+	mode := "disconnected"
+	if status.Enabled && status.URL != "" {
+		if status.Connected {
+			mode = "connected"
+			if status.WebSocketEnabled && status.WebSocketConnected {
+				mode = "live"
+			}
+		}
+	}
+	status.ConnectionMode = mode
 
 	if dataDir != "" {
 		status.HasAgentToken = LoadServerToken(dataDir) != ""
