@@ -1866,6 +1866,17 @@ eventSource.addEventListener('connected', (e) => {
     window.__pm_shared.log('SSE connected:', e.data);
     // Load initial logs when connected
     updateLog();
+    refreshServerConnectionUI({ silent: true });
+});
+
+eventSource.addEventListener('server_status', (e) => {
+    try {
+        const payload = JSON.parse(e.data || '{}');
+        const status = payload && (payload.status || payload);
+        applyServerConnectionStatus(status, { silent: true });
+    } catch (err) {
+        try { window.__pm_shared.warn('Failed to parse server_status event', err); } catch (_) {}
+    }
 });
 
 eventSource.addEventListener('log_entry', (e) => {
@@ -3493,6 +3504,7 @@ if (autoSave) {
 }
 
 let currentServerStatus = null;
+let serverStatusFetchPromise = null;
 const SERVER_STATUS_BADGE_META = {
     live: {
         label: 'Live',
@@ -3530,6 +3542,18 @@ function updateServerStatusBadge(status) {
     ['live', 'connected', 'disconnected'].forEach(state => badge.classList.remove('server-status-' + state));
     badge.classList.add('server-status-' + mode);
     badge.style.display = 'inline-flex';
+}
+
+function applyServerConnectionStatus(status, options = {}) {
+    const btn = document.getElementById('join_token_btn');
+    currentServerStatus = status || null;
+    if (!btn) return;
+    const connected = !!(currentServerStatus && currentServerStatus.enabled && currentServerStatus.url);
+    btn.dataset.mode = connected ? 'connected' : 'standalone';
+    btn.textContent = connected ? 'Server Info' : 'Join Server';
+    btn.title = connected ? 'View current server connection' : 'Join a server using a join token';
+    populateServerInfoModal(currentServerStatus);
+    updateServerStatusBadge(currentServerStatus);
 }
 
 async function runJoinWorkflow(defaultURL) {
@@ -3570,30 +3594,29 @@ async function runJoinWorkflow(defaultURL) {
     return false;
 }
 
-async function refreshServerConnectionUI() {
-    const btn = document.getElementById('join_token_btn');
-    if (!btn) return;
-    try {
-        const resp = await fetch('/settings/server');
-        if (!resp.ok) {
-            throw new Error('status ' + resp.status);
-        }
-        const data = await resp.json();
-        currentServerStatus = data || null;
-        const connected = !!(data && data.enabled && data.url);
-        btn.dataset.mode = connected ? 'connected' : 'standalone';
-        btn.textContent = connected ? 'Server Info' : 'Join Server';
-        btn.title = connected ? 'View current server connection' : 'Join a server using a join token';
-        populateServerInfoModal(currentServerStatus);
-        updateServerStatusBadge(currentServerStatus);
-    } catch (err) {
-        currentServerStatus = null;
-        btn.dataset.mode = 'standalone';
-        btn.textContent = 'Join Server';
-        btn.title = 'Join a server using a join token';
-        try { window.__pm_shared.warn('Failed to load server status', err); } catch (e) {}
-        updateServerStatusBadge(null);
+async function refreshServerConnectionUI(options = {}) {
+    if (serverStatusFetchPromise) {
+        return serverStatusFetchPromise;
     }
+    const { silent } = options;
+    serverStatusFetchPromise = (async () => {
+        try {
+            const resp = await fetch('/settings/server');
+            if (!resp.ok) {
+                throw new Error('status ' + resp.status);
+            }
+            const data = await resp.json();
+            applyServerConnectionStatus(data, { silent });
+        } catch (err) {
+            if (!silent) {
+                try { window.__pm_shared.warn('Failed to load server status', err); } catch (e) {}
+            }
+            applyServerConnectionStatus(null, { silent: true });
+        } finally {
+            serverStatusFetchPromise = null;
+        }
+    })();
+    return serverStatusFetchPromise;
 }
 
 function populateServerInfoModal(status) {

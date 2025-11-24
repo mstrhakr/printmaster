@@ -665,6 +665,11 @@ type serverConnectionStatus struct {
 	WebSocketConnected bool       `json:"websocket_connected"`
 }
 
+var (
+	serverStatusMu          sync.Mutex
+	serverStatusFingerprint string
+)
+
 func snapshotServerConnectionStatus(agentCfg *AgentConfig, dataDir string) serverConnectionStatus {
 	status := serverConnectionStatus{}
 	if agentCfg != nil {
@@ -709,6 +714,77 @@ func snapshotServerConnectionStatus(agentCfg *AgentConfig, dataDir string) serve
 	}
 
 	return status
+}
+
+func serverStatusHash(status serverConnectionStatus) string {
+	data, err := json.Marshal(status)
+	if err != nil {
+		return fmt.Sprintf("fallback:%v:%v", status.Enabled, time.Now().UnixNano())
+	}
+	return string(data)
+}
+
+func setServerStatusFingerprint(status serverConnectionStatus) {
+	serverStatusMu.Lock()
+	defer serverStatusMu.Unlock()
+	serverStatusFingerprint = serverStatusHash(status)
+}
+
+func markServerStatusFingerprint(status serverConnectionStatus) bool {
+	hash := serverStatusHash(status)
+	serverStatusMu.Lock()
+	defer serverStatusMu.Unlock()
+	if hash == serverStatusFingerprint {
+		return false
+	}
+	serverStatusFingerprint = hash
+	return true
+}
+
+func broadcastServerStatusSnapshot(status serverConnectionStatus, reason string) {
+	if sseHub == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"status": status,
+	}
+	if reason != "" {
+		payload["reason"] = reason
+	}
+	sseHub.Broadcast(SSEEvent{Type: "server_status", Data: payload})
+}
+
+func broadcastServerStatus(agentCfg *AgentConfig, dataDir string, reason string, force bool) {
+	if sseHub == nil {
+		return
+	}
+	status := snapshotServerConnectionStatus(agentCfg, dataDir)
+	if force {
+		setServerStatusFingerprint(status)
+		broadcastServerStatusSnapshot(status, reason)
+		return
+	}
+	if markServerStatusFingerprint(status) {
+		broadcastServerStatusSnapshot(status, reason)
+	}
+}
+
+func startServerStatusMonitor(ctx context.Context, agentCfg *AgentConfig, dataDir string, interval time.Duration) {
+	if agentCfg == nil || dataDir == "" {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				broadcastServerStatus(agentCfg, dataDir, "", false)
+			}
+		}
+	}()
 }
 
 func timePtr(t time.Time) *time.Time {
@@ -758,6 +834,7 @@ func disconnectFromServer(agentCfg *AgentConfig, dataDir string) error {
 		}
 	}
 
+	broadcastServerStatus(agentCfg, dataDir, "disconnected", true)
 	return nil
 }
 
@@ -846,6 +923,7 @@ func startServerUploadWorker(
 		}
 	}
 
+	broadcastServerStatus(agentCfg, dataDir, "upload_worker_started", true)
 	return uploadWorker, nil
 }
 
@@ -1642,6 +1720,8 @@ func runInteractive(ctx context.Context, configFlag string) {
 
 	// Secret key for encrypting local credentials
 	dataDir := filepath.Dir(dbPath)
+	broadcastServerStatus(agentConfig, dataDir, "initial", true)
+	startServerStatusMonitor(ctx, agentConfig, dataDir, 5*time.Second)
 	secretPath := filepath.Join(dataDir, "agent_secret.key")
 	secretKey, skErr := commonutil.LoadOrCreateKey(secretPath)
 	if skErr != nil {
@@ -5206,6 +5286,8 @@ window.top.location.href = '/proxy/%s/';
 				uploadWorkerMu.Unlock()
 			}()
 		}
+
+		broadcastServerStatus(agentConfig, dataDir, "joined", true)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
