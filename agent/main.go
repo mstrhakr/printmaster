@@ -5164,6 +5164,29 @@ window.top.location.href = '/proxy/%s/';
 
 	// Join the central server using a join token issued by the server.
 	// Body: {"server_url":"https://central:9443","token":"<raw join token>","ca_path":"/path/to/ca.pem","insecure":false}
+	http.HandleFunc("/settings/probe-server", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			ServerURL string `json:"server_url"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			return
+		}
+		result, err := probeServer(r.Context(), in.ServerURL)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	})
+
 	http.HandleFunc("/settings/join", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.WriteHeader(http.StatusMethodNotAllowed)

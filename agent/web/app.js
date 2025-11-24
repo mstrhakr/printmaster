@@ -3504,6 +3504,23 @@ if (autoSave) {
 }
 
 let currentServerStatus = null;
+const LAST_SERVER_URL_KEY = 'pm:last-server-url';
+
+function rememberServerURL(url) {
+    try {
+        if (url) {
+            localStorage.setItem(LAST_SERVER_URL_KEY, url);
+        }
+    } catch (_) {}
+}
+
+function getRememberedServerURL() {
+    try {
+        return localStorage.getItem(LAST_SERVER_URL_KEY);
+    } catch (_) {
+        return null;
+    }
+}
 let serverStatusFetchPromise = null;
 const SERVER_STATUS_BADGE_META = {
     live: {
@@ -3556,26 +3573,109 @@ function applyServerConnectionStatus(status, options = {}) {
     updateServerStatusBadge(currentServerStatus);
 }
 
-async function runJoinWorkflow(defaultURL) {
-    try {
-        const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', defaultURL || 'https://');
-        if (!server) return false;
-        const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
-        if (!token) return false;
+async function probeServerConnection(serverUrl) {
+    const resp = await fetch('/settings/probe-server', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server_url: serverUrl })
+    });
+    if (!resp.ok) {
+        const txt = await resp.text();
+        throw new Error(txt || resp.statusText || 'probe failed');
+    }
+    return resp.json();
+}
 
-        const confirmInsecure = await window.__pm_shared.showConfirm(
-            'If your server uses a self-signed cert, you may need to provide a CA on the agent or allow insecure TLS. Click OK to continue (you will be prompted to set insecure=true), Cancel to proceed normally.',
-            'Self-signed certificate',
+function summarizeCertificate(cert) {
+    if (!cert) return 'Unknown certificate';
+    const parts = [];
+    parts.push(`Subject: ${cert.subject}`);
+    parts.push(`Issuer: ${cert.issuer}`);
+    if (cert.not_before && cert.not_after) {
+        parts.push(`Valid: ${new Date(cert.not_before).toLocaleString()} - ${new Date(cert.not_after).toLocaleString()}`);
+    }
+    if (cert.dns_names && cert.dns_names.length) {
+        parts.push(`DNS Names: ${cert.dns_names.join(', ')}`);
+    }
+    return parts.join('\n');
+}
+
+async function evaluateProbeResult(probe) {
+    const summary = { ok: true, insecure: false };
+    if (!probe) {
+        return summary;
+    }
+    const tls = probe.tls || {};
+    if (tls.enabled) {
+        if (tls.valid) {
+            return summary;
+        }
+        if (tls.error_code === 'unknown_authority') {
+            const proceed = await window.__pm_shared.showConfirm(
+                'The server presented a certificate that is not trusted by this system.\n' +
+                summarizeCertificate(tls.certificate) +
+                '\n\nClick OK to continue with TLS verification disabled (not recommended).',
+                'Untrusted certificate',
+                false
+            );
+            if (!proceed) {
+                return { ok: false, insecure: false };
+            }
+            summary.insecure = true;
+            return summary;
+        }
+        return { ok: false, insecure: false, message: 'TLS verification failed: ' + (tls.error || tls.error_code || 'unknown error') };
+    }
+
+    if (!probe.reachable) {
+        return { ok: false, insecure: false, message: 'Unable to reach the server.' };
+    }
+
+    if (probe.scheme === 'http') {
+        const proceed = await window.__pm_shared.showConfirm(
+            'The server appears to be using HTTP without TLS. Continue anyway?',
+            'Insecure connection',
             false
         );
-        const insecure = !!confirmInsecure;
+        if (!proceed) {
+            return { ok: false, insecure: false };
+        }
+    }
+
+    return summary;
+}
+
+async function runJoinWorkflow(defaultURL) {
+    try {
+        const remembered = defaultURL || getRememberedServerURL() || 'https://';
+        const server = await window.__pm_shared.showPrompt('Server base URL (e.g. https://printmaster.example:9443):', remembered);
+        if (!server) return false;
+
+        window.__pm_shared.showToast('Validating server...', 'info', 2000);
+        let normalizedServer = server;
+        let insecure = false;
+        const probe = await probeServerConnection(server);
+        if (probe && probe.server_url) {
+            normalizedServer = probe.server_url;
+        }
+        const probeResult = await evaluateProbeResult(probe);
+        if (!probeResult.ok) {
+            if (probeResult.message) {
+                window.__pm_shared.showToast(probeResult.message, 'error', 4000);
+            }
+            return false;
+        }
+        insecure = !!probeResult.insecure;
+
+        const token = await window.__pm_shared.showPrompt('Join token (copy on create):', '');
+        if (!token) return false;
 
         window.__pm_shared.showToast('Joining server...', 'info', 3000);
 
         const resp = await fetch('/settings/join', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ server_url: server, token: token, insecure: insecure })
+            body: JSON.stringify({ server_url: normalizedServer, token: token, insecure: insecure })
         });
         if (!resp.ok) {
             const txt = await resp.text();
@@ -3584,6 +3684,7 @@ async function runJoinWorkflow(defaultURL) {
         const body = await resp.json();
         if (body && body.success) {
             window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
+            rememberServerURL(normalizedServer);
             await refreshServerConnectionUI();
             return true;
         }
@@ -3682,7 +3783,9 @@ function closeServerInfoModal() {
 }
 
 async function handleServerRejoin() {
-    const defaultURL = currentServerStatus && currentServerStatus.url ? currentServerStatus.url : 'https://';
+    const defaultURL = currentServerStatus && currentServerStatus.url
+        ? currentServerStatus.url
+        : (getRememberedServerURL() || 'https://');
     const joined = await runJoinWorkflow(defaultURL);
     if (joined) {
         closeServerInfoModal();
