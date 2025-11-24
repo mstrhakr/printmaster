@@ -380,8 +380,8 @@ jobs:
         for dir in */; do
           name="${dir%/}"
           
-          # Find the binary file inside
-          binary=$(find "$dir" -type f \( -executable -o -name "*.exe" \) | head -n 1)
+          # Find the binary file inside (artifact download strips exec bits, so match by name)
+          binary=$(find "$dir" -maxdepth 1 -type f -name "printmaster-*" | head -n 1)
           
           if [ -z "$binary" ]; then
             echo "Warning: No binary found in $dir"
