@@ -1084,14 +1084,14 @@ insecure_skip_verify = true
 Set-Content -Path $configPath -Value $configContent -Encoding UTF8
 
 Write-Host "Installing PrintMaster Agent service..."
-& $agentExe --service install
+& $agentExe --service install --quiet
 if ($LASTEXITCODE -ne 0) {
 	Write-Error "Service installation failed with exit code $LASTEXITCODE"
 	exit $LASTEXITCODE
 }
 
 Write-Host "Starting PrintMaster Agent service..."
-& $agentExe --service start
+& $agentExe --service start --quiet
 if ($LASTEXITCODE -ne 0) {
 	Write-Warning "Service installed but failed to start (exit code $LASTEXITCODE). Use 'Get-Service PrintMasterAgent' for status."
 } else {
