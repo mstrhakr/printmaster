@@ -48,6 +48,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] Add rollout control settings (staggered deployment, max concurrent updates, jitter, emergency abort flag) to prevent bandwidth saturation.
 - [ ] Add agent-side configuration fields for local override, defaulting to fleet settings when connected.
 - [ ] Expose settings in server admin UI + API.
+- [ ] Add and validate tests for this phase.
 
 ### Phase 2 – Release Intake & Manifests
 
@@ -56,6 +57,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] Store artifacts in a versioned cache with integrity data (SHA-256, upstream signature if available).
 - [ ] Introduce manifest-signing module (Ed25519 key generation, rotation, storage) and embed public key in agent + server binaries.
 - [ ] Provide CLI/admin endpoints to rotate signing keys and regenerate manifests.
+- [ ] Add and validate tests for this phase.
 
 ### Phase 3 – Installer Repackaging Service
 
@@ -63,6 +65,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] Ensure sensitive data (tokens) are encrypted at rest within server cache.
 - [ ] Add authenticated download endpoints for the customized installers + raw update bundles.
 - [ ] Surface "Download installer" button in server UI referencing those endpoints.
+- [ ] Add and validate tests for this phase.
 
 ### Phase 4 – Server Self-Update (Non-Docker)
 
@@ -71,6 +74,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] Integrate with Windows service + Linux systemd to perform controlled restart and rollback on failure.
 - [ ] Detect Docker environments and disable automated self-update, displaying guidance instead.
 - [ ] Record and expose self-update history/status in UI/logs.
+- [ ] Add and validate tests for this phase.
 
 ### Phase 5 – Agent Auto-Update Worker
 
@@ -82,6 +86,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] Post-update health check: verify server connectivity and basic functionality after restart; trigger rollback if checks fail.
 - [ ] Keep previous version for rollback; automatically retry on transient failures.
 - [ ] Report progress and telemetry to server (e.g., pending/downloading/installing/restarting/done, download time, success/failure) for UI consumption and metrics.
+- [ ] Add and validate tests for this phase.
 
 ### Phase 6 – UI & Operational UX
 
@@ -91,6 +96,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] Add telemetry dashboard showing update success rate, average download time, rollback frequency per version.
 - [ ] Agent UI: settings page showing current policy, next scheduled check, and last update result (read-only unless override enabled).
 - [ ] Notification/log integration (e.g., toasts, audit log entries) for update events with changelog snippets.
+- [ ] Add and validate tests for this phase.
 
 ### Phase 7 – Testing & Rollout
 
@@ -98,6 +104,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] End-to-end tests (possibly via CI) that spin up server + agent, trigger update, and assert version change.
 - [ ] Documentation updates (admin guide, deployment notes) covering new features.
 - [ ] Gradual rollout plan (beta fleet, staged deployment) before enabling for all installations.
+- [ ] Add and validate tests for this phase.
 
 ## Edge Cases & Notes
 
