@@ -42,9 +42,40 @@ epson_remote_mode_enabled = false
   # Authentication token (if server requires it)
   token = ""
 
+[auto_update]
+  # inherit  -> follow fleet policy when connected (default)
+  # local    -> always use the local_policy block below
+  # disabled -> never auto-update unless triggered manually
+  mode = "inherit"
+
+  [auto_update.local_policy]
+    # Number of days between update checks when falling back to local policy
+    update_check_days = 7
+    version_pin_strategy = "minor"
+    allow_major_upgrade = false
+    target_version = ""
+    collect_telemetry = true
+
+    [auto_update.local_policy.maintenance_window]
+      enabled = false
+      timezone = ""
+      start_hour = 0
+      start_min = 0
+      end_hour = 0
+      end_min = 0
+      days_of_week = []
+
+    [auto_update.local_policy.rollout_control]
+      staggered = true
+      max_concurrent = 0
+      batch_size = 0
+      delay_between_waves = 0
+      jitter_seconds = 0
+      emergency_abort = false
+
 [database]
   # SQLite database path (blank = use default location)
-  path = "C:\temp\printmaster\agent\test_db\"
+  path = 'C:\temp\printmaster\agent\test_db\'
 
 [logging]
   # Log level: debug, info, warn, error

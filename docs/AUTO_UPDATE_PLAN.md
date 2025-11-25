@@ -43,12 +43,12 @@ This document captures the agreed strategy for server- and agent-driven updates,
 
 ### Phase 1 – Foundations & Policy
 
-- [ ] Define fleet-level auto-update settings (cadence, version pinning strategy: major/minor/patch, allow-major-upgrade flag) in server storage schema.
-- [ ] Add maintenance window scheduling (time-of-day preferences, timezone support) to avoid business-hour disruptions.
-- [ ] Add rollout control settings (staggered deployment, max concurrent updates, jitter, emergency abort flag) to prevent bandwidth saturation.
-- [ ] Add agent-side configuration fields for local override, defaulting to fleet settings when connected.
-- [ ] Expose settings in server admin UI + API.
-- [ ] Add and validate tests for this phase.
+- [x] Define fleet-level auto-update settings (cadence, version pinning strategy: major/minor/patch, allow-major-upgrade flag) in server storage schema.
+- [x] Add maintenance window scheduling (time-of-day preferences, timezone support) to avoid business-hour disruptions.
+- [x] Add rollout control settings (staggered deployment, max concurrent updates, jitter, emergency abort flag) to prevent bandwidth saturation.
+- [x] Add agent-side configuration fields for local override, defaulting to fleet settings when connected.
+- [x] Expose settings in server admin UI + API.
+- [x] Add and validate tests for this phase.
 
 ### Phase 2 – Release Intake & Manifests
 

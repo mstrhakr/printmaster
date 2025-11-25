@@ -34,6 +34,7 @@ import (
 	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
+	updatepolicy "printmaster/server/updatepolicy"
 	"runtime"
 	"sort"
 	"strconv"
@@ -2313,6 +2314,26 @@ func setupRoutes(cfg *Config) {
 		RegisterTenantAlias: true,
 	})
 	logInfo("Settings routes registered", "enabled", featureEnabled)
+
+	updatePolicyAPI := updatepolicy.NewAPI(serverStore, updatepolicy.APIOptions{
+		AuthMiddleware: requireWebAuth,
+		Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
+			return authorizeRequest(r, action, resource)
+		},
+		ActorResolver: func(r *http.Request) string {
+			if principal := getPrincipal(r); principal != nil && principal.User != nil {
+				return principal.User.Username
+			}
+			return ""
+		},
+		AuditLogger: logRequestAudit,
+	})
+	updatePolicyAPI.RegisterRoutes(updatepolicy.RouteConfig{
+		Mux:                 http.DefaultServeMux,
+		FeatureEnabled:      featureEnabled,
+		RegisterTenantAlias: true,
+	})
+	logInfo("Update policy routes registered", "enabled", featureEnabled)
 
 	// Server settings (read/write via sanitized API)
 	http.HandleFunc("/api/v1/server/settings", requireWebAuth(handleServerSettings))

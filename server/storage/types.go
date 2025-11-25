@@ -318,6 +318,12 @@ type Store interface {
 	UpsertTenantSettings(ctx context.Context, rec *TenantSettingsRecord) error
 	DeleteTenantSettings(ctx context.Context, tenantID string) error
 	ListTenantSettings(ctx context.Context) ([]*TenantSettingsRecord, error)
+
+	// Fleet update policy management
+	GetFleetUpdatePolicy(ctx context.Context, tenantID string) (*FleetUpdatePolicy, error)
+	UpsertFleetUpdatePolicy(ctx context.Context, policy *FleetUpdatePolicy) error
+	DeleteFleetUpdatePolicy(ctx context.Context, tenantID string) error
+	ListFleetUpdatePolicies(ctx context.Context) ([]*FleetUpdatePolicy, error)
 }
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.

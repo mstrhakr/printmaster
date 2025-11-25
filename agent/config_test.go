@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"printmaster/common/config"
+	"printmaster/common/updatepolicy"
 )
 
 func TestDefaultAgentConfig(t *testing.T) {
@@ -62,6 +63,13 @@ func TestDefaultAgentConfig(t *testing.T) {
 	if cfg.Logging.Level != "info" {
 		t.Errorf("expected default log level to be 'info', got %s", cfg.Logging.Level)
 	}
+
+	if cfg.AutoUpdate.Mode != updatepolicy.AgentOverrideInherit {
+		t.Errorf("expected default auto-update mode inherit, got %s", cfg.AutoUpdate.Mode)
+	}
+	if cfg.AutoUpdate.LocalPolicy.UpdateCheckDays != 7 {
+		t.Errorf("expected default local update cadence 7 days, got %d", cfg.AutoUpdate.LocalPolicy.UpdateCheckDays)
+	}
 }
 
 func TestLoadAgentConfig(t *testing.T) {
@@ -87,6 +95,16 @@ agent_id = "test-agent-001"
 ca_path = "/path/to/ca.crt"
 upload_interval_seconds = 600
 heartbeat_interval_seconds = 120
+
+	[auto_update]
+	mode = "local"
+
+		[auto_update.local_policy]
+		update_check_days = 3
+		version_pin_strategy = "patch"
+		allow_major_upgrade = true
+		target_version = "0.9.42"
+		collect_telemetry = false
 
 [web]
 http_port = 9090
@@ -147,6 +165,24 @@ level = "debug"
 	if !cfg.EpsonRemoteModeEnabled {
 		t.Error("expected Epson remote mode to be enabled when set in config")
 	}
+	if cfg.AutoUpdate.Mode != updatepolicy.AgentOverrideLocal {
+		t.Errorf("expected auto-update mode local, got %s", cfg.AutoUpdate.Mode)
+	}
+	if cfg.AutoUpdate.LocalPolicy.UpdateCheckDays != 3 {
+		t.Errorf("expected local update cadence 3 days, got %d", cfg.AutoUpdate.LocalPolicy.UpdateCheckDays)
+	}
+	if cfg.AutoUpdate.LocalPolicy.VersionPinStrategy != updatepolicy.VersionPinPatch {
+		t.Errorf("expected local pin strategy patch, got %s", cfg.AutoUpdate.LocalPolicy.VersionPinStrategy)
+	}
+	if !cfg.AutoUpdate.LocalPolicy.AllowMajorUpgrade {
+		t.Error("expected local policy to allow major upgrades")
+	}
+	if cfg.AutoUpdate.LocalPolicy.TargetVersion != "0.9.42" {
+		t.Errorf("expected target version 0.9.42, got %s", cfg.AutoUpdate.LocalPolicy.TargetVersion)
+	}
+	if cfg.AutoUpdate.LocalPolicy.CollectTelemetry {
+		t.Error("expected telemetry disabled in local policy")
+	}
 }
 
 func TestLoadAgentConfigWithEnvOverrides(t *testing.T) {
@@ -168,7 +204,7 @@ timeout_ms = 2000
 	}
 
 	// Save original environment
-	envVars := []string{"ASSET_ID_REGEX", "SNMP_COMMUNITY", "SNMP_TIMEOUT_MS", "SNMP_RETRIES", "SERVER_ENABLED", "SERVER_URL", "WEB_HTTP_PORT", "EPSON_REMOTE_MODE_ENABLED"}
+	envVars := []string{"ASSET_ID_REGEX", "SNMP_COMMUNITY", "SNMP_TIMEOUT_MS", "SNMP_RETRIES", "SERVER_ENABLED", "SERVER_URL", "WEB_HTTP_PORT", "EPSON_REMOTE_MODE_ENABLED", "AUTO_UPDATE_MODE"}
 	originalEnv := make(map[string]string)
 	for _, key := range envVars {
 		originalEnv[key] = os.Getenv(key)
@@ -183,6 +219,7 @@ timeout_ms = 2000
 	os.Setenv("SERVER_URL", "https://env.example.com")
 	os.Setenv("WEB_HTTP_PORT", "7070")
 	os.Setenv("EPSON_REMOTE_MODE_ENABLED", "true")
+	os.Setenv("AUTO_UPDATE_MODE", "disabled")
 
 	// Restore original environment
 	defer func() {
@@ -225,6 +262,9 @@ timeout_ms = 2000
 	}
 	if !cfg.EpsonRemoteModeEnabled {
 		t.Error("expected Epson remote mode to be enabled via env override")
+	}
+	if cfg.AutoUpdate.Mode != updatepolicy.AgentOverrideNever {
+		t.Errorf("expected auto-update mode disabled via env override, got %s", cfg.AutoUpdate.Mode)
 	}
 }
 

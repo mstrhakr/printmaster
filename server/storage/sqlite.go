@@ -331,6 +331,54 @@ func (s *SQLiteStore) initSchema() error {
 		updated_by TEXT,
 		FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 	);
+
+	-- Fleet update policy table (per-tenant auto-update configuration)
+	CREATE TABLE IF NOT EXISTS fleet_update_policies (
+		tenant_id TEXT PRIMARY KEY,
+		update_check_days INTEGER NOT NULL DEFAULT 0,
+		version_pin_strategy TEXT NOT NULL DEFAULT 'minor',
+		allow_major_upgrade INTEGER NOT NULL DEFAULT 0,
+		target_version TEXT,
+		maintenance_window_enabled INTEGER NOT NULL DEFAULT 0,
+		maintenance_window_start_hour INTEGER DEFAULT 2,
+		maintenance_window_start_min INTEGER DEFAULT 0,
+		maintenance_window_end_hour INTEGER DEFAULT 4,
+		maintenance_window_end_min INTEGER DEFAULT 0,
+		maintenance_window_timezone TEXT DEFAULT 'UTC',
+		maintenance_window_days TEXT,
+		rollout_staggered INTEGER NOT NULL DEFAULT 0,
+		rollout_max_concurrent INTEGER DEFAULT 0,
+		rollout_batch_size INTEGER DEFAULT 0,
+		rollout_delay_between_waves INTEGER DEFAULT 300,
+		rollout_jitter_seconds INTEGER DEFAULT 60,
+		rollout_emergency_abort INTEGER NOT NULL DEFAULT 0,
+		collect_telemetry INTEGER NOT NULL DEFAULT 1,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS fleet_update_policy_global (
+		singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+		update_check_days INTEGER NOT NULL DEFAULT 0,
+		version_pin_strategy TEXT NOT NULL DEFAULT 'minor',
+		allow_major_upgrade INTEGER NOT NULL DEFAULT 0,
+		target_version TEXT,
+		maintenance_window_enabled INTEGER NOT NULL DEFAULT 0,
+		maintenance_window_start_hour INTEGER DEFAULT 2,
+		maintenance_window_start_min INTEGER DEFAULT 0,
+		maintenance_window_end_hour INTEGER DEFAULT 4,
+		maintenance_window_end_min INTEGER DEFAULT 0,
+		maintenance_window_timezone TEXT DEFAULT 'UTC',
+		maintenance_window_days TEXT,
+		rollout_staggered INTEGER NOT NULL DEFAULT 0,
+		rollout_max_concurrent INTEGER DEFAULT 0,
+		rollout_batch_size INTEGER DEFAULT 0,
+		rollout_delay_between_waves INTEGER DEFAULT 300,
+		rollout_jitter_seconds INTEGER DEFAULT 60,
+		rollout_emergency_abort INTEGER NOT NULL DEFAULT 0,
+		collect_telemetry INTEGER NOT NULL DEFAULT 1,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -776,6 +824,13 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+func nullString(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{Valid: false}
+	}
+	return sql.NullString{String: s, Valid: true}
 }
 
 func (s *SQLiteStore) backfillUserTenantMappings() {
@@ -2327,6 +2382,422 @@ func (s *SQLiteStore) ListTenantSettings(ctx context.Context) ([]*TenantSettings
 		records = append(records, rec)
 	}
 	return records, rows.Err()
+}
+
+// GetFleetUpdatePolicy retrieves the update policy for a tenant.
+func (s *SQLiteStore) GetFleetUpdatePolicy(ctx context.Context, tenantID string) (*FleetUpdatePolicy, error) {
+	if tenantID == GlobalFleetPolicyTenantID {
+		return s.getGlobalFleetUpdatePolicy(ctx)
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT tenant_id, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+		       maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+		       maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+		       maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+		       rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+		       collect_telemetry, updated_at
+		FROM fleet_update_policies
+		WHERE tenant_id = ?
+	`, tenantID)
+
+	var (
+		tid                   string
+		updateCheckDays       int
+		pinStrategy           string
+		allowMajor            int
+		targetVersion         sql.NullString
+		mwEnabled             int
+		mwStartHour           int
+		mwStartMin            int
+		mwEndHour             int
+		mwEndMin              int
+		mwTimezone            string
+		mwDaysJSON            sql.NullString
+		rolloutStaggered      int
+		rolloutMaxConcurrent  int
+		rolloutBatchSize      int
+		rolloutDelayWaves     int
+		rolloutJitterSec      int
+		rolloutEmergencyAbort int
+		collectTelemetry      int
+		updatedAt             time.Time
+	)
+
+	if err := row.Scan(&tid, &updateCheckDays, &pinStrategy, &allowMajor, &targetVersion,
+		&mwEnabled, &mwStartHour, &mwStartMin, &mwEndHour, &mwEndMin, &mwTimezone, &mwDaysJSON,
+		&rolloutStaggered, &rolloutMaxConcurrent, &rolloutBatchSize, &rolloutDelayWaves,
+		&rolloutJitterSec, &rolloutEmergencyAbort, &collectTelemetry, &updatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var daysOfWeek []int
+	if mwDaysJSON.Valid && mwDaysJSON.String != "" {
+		if err := json.Unmarshal([]byte(mwDaysJSON.String), &daysOfWeek); err != nil {
+			return nil, fmt.Errorf("failed to decode days_of_week: %w", err)
+		}
+	}
+
+	policy := &FleetUpdatePolicy{
+		TenantID:  tid,
+		UpdatedAt: updatedAt,
+		PolicySpec: PolicySpec{
+			UpdateCheckDays:    updateCheckDays,
+			VersionPinStrategy: VersionPinStrategy(pinStrategy),
+			AllowMajorUpgrade:  allowMajor != 0,
+			TargetVersion:      targetVersion.String,
+			CollectTelemetry:   collectTelemetry != 0,
+			MaintenanceWindow: MaintenanceWindow{
+				Enabled:    mwEnabled != 0,
+				StartHour:  mwStartHour,
+				StartMin:   mwStartMin,
+				EndHour:    mwEndHour,
+				EndMin:     mwEndMin,
+				Timezone:   mwTimezone,
+				DaysOfWeek: daysOfWeek,
+			},
+			RolloutControl: RolloutControl{
+				Staggered:         rolloutStaggered != 0,
+				MaxConcurrent:     rolloutMaxConcurrent,
+				BatchSize:         rolloutBatchSize,
+				DelayBetweenWaves: rolloutDelayWaves,
+				JitterSeconds:     rolloutJitterSec,
+				EmergencyAbort:    rolloutEmergencyAbort != 0,
+			},
+		},
+	}
+
+	return policy, nil
+}
+
+func (s *SQLiteStore) getGlobalFleetUpdatePolicy(ctx context.Context) (*FleetUpdatePolicy, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+		       maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+		       maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+		       maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+		       rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+		       collect_telemetry, updated_at
+		FROM fleet_update_policy_global
+		WHERE singleton = 1
+	`)
+
+	var (
+		updateCheckDays       int
+		pinStrategy           string
+		allowMajor            int
+		targetVersion         sql.NullString
+		mwEnabled             int
+		mwStartHour           int
+		mwStartMin            int
+		mwEndHour             int
+		mwEndMin              int
+		mwTimezone            string
+		mwDaysJSON            sql.NullString
+		rolloutStaggered      int
+		rolloutMaxConcurrent  int
+		rolloutBatchSize      int
+		rolloutDelayWaves     int
+		rolloutJitterSec      int
+		rolloutEmergencyAbort int
+		collectTelemetry      int
+		updatedAt             time.Time
+	)
+
+	if err := row.Scan(&updateCheckDays, &pinStrategy, &allowMajor, &targetVersion,
+		&mwEnabled, &mwStartHour, &mwStartMin, &mwEndHour, &mwEndMin, &mwTimezone, &mwDaysJSON,
+		&rolloutStaggered, &rolloutMaxConcurrent, &rolloutBatchSize, &rolloutDelayWaves,
+		&rolloutJitterSec, &rolloutEmergencyAbort, &collectTelemetry, &updatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var daysOfWeek []int
+	if mwDaysJSON.Valid && mwDaysJSON.String != "" {
+		if err := json.Unmarshal([]byte(mwDaysJSON.String), &daysOfWeek); err != nil {
+			return nil, fmt.Errorf("failed to decode days_of_week: %w", err)
+		}
+	}
+
+	policy := &FleetUpdatePolicy{
+		TenantID:  GlobalFleetPolicyTenantID,
+		UpdatedAt: updatedAt,
+		PolicySpec: PolicySpec{
+			UpdateCheckDays:    updateCheckDays,
+			VersionPinStrategy: VersionPinStrategy(pinStrategy),
+			AllowMajorUpgrade:  allowMajor != 0,
+			TargetVersion:      targetVersion.String,
+			CollectTelemetry:   collectTelemetry != 0,
+			MaintenanceWindow: MaintenanceWindow{
+				Enabled:    mwEnabled != 0,
+				StartHour:  mwStartHour,
+				StartMin:   mwStartMin,
+				EndHour:    mwEndHour,
+				EndMin:     mwEndMin,
+				Timezone:   mwTimezone,
+				DaysOfWeek: daysOfWeek,
+			},
+			RolloutControl: RolloutControl{
+				Staggered:         rolloutStaggered != 0,
+				MaxConcurrent:     rolloutMaxConcurrent,
+				BatchSize:         rolloutBatchSize,
+				DelayBetweenWaves: rolloutDelayWaves,
+				JitterSeconds:     rolloutJitterSec,
+				EmergencyAbort:    rolloutEmergencyAbort != 0,
+			},
+		},
+	}
+
+	return policy, nil
+}
+
+// UpsertFleetUpdatePolicy creates or updates a tenant's update policy.
+func (s *SQLiteStore) UpsertFleetUpdatePolicy(ctx context.Context, policy *FleetUpdatePolicy) error {
+	if policy == nil {
+		return fmt.Errorf("policy cannot be nil")
+	}
+
+	if policy.TenantID == GlobalFleetPolicyTenantID {
+		return s.upsertGlobalFleetUpdatePolicy(ctx, policy)
+	}
+
+	daysJSON, err := json.Marshal(policy.MaintenanceWindow.DaysOfWeek)
+	if err != nil {
+		return fmt.Errorf("failed to encode days_of_week: %w", err)
+	}
+
+	policy.UpdatedAt = time.Now().UTC()
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO fleet_update_policies (
+			tenant_id, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+			maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+			maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+			maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+			rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+			collect_telemetry, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(tenant_id) DO UPDATE SET
+			update_check_days = excluded.update_check_days,
+			version_pin_strategy = excluded.version_pin_strategy,
+			allow_major_upgrade = excluded.allow_major_upgrade,
+			target_version = excluded.target_version,
+			maintenance_window_enabled = excluded.maintenance_window_enabled,
+			maintenance_window_start_hour = excluded.maintenance_window_start_hour,
+			maintenance_window_start_min = excluded.maintenance_window_start_min,
+			maintenance_window_end_hour = excluded.maintenance_window_end_hour,
+			maintenance_window_end_min = excluded.maintenance_window_end_min,
+			maintenance_window_timezone = excluded.maintenance_window_timezone,
+			maintenance_window_days = excluded.maintenance_window_days,
+			rollout_staggered = excluded.rollout_staggered,
+			rollout_max_concurrent = excluded.rollout_max_concurrent,
+			rollout_batch_size = excluded.rollout_batch_size,
+			rollout_delay_between_waves = excluded.rollout_delay_between_waves,
+			rollout_jitter_seconds = excluded.rollout_jitter_seconds,
+			rollout_emergency_abort = excluded.rollout_emergency_abort,
+			collect_telemetry = excluded.collect_telemetry,
+			updated_at = excluded.updated_at
+	`,
+		policy.TenantID,
+		policy.UpdateCheckDays,
+		string(policy.VersionPinStrategy),
+		boolToInt(policy.AllowMajorUpgrade),
+		nullString(policy.TargetVersion),
+		boolToInt(policy.MaintenanceWindow.Enabled),
+		policy.MaintenanceWindow.StartHour,
+		policy.MaintenanceWindow.StartMin,
+		policy.MaintenanceWindow.EndHour,
+		policy.MaintenanceWindow.EndMin,
+		policy.MaintenanceWindow.Timezone,
+		string(daysJSON),
+		boolToInt(policy.RolloutControl.Staggered),
+		policy.RolloutControl.MaxConcurrent,
+		policy.RolloutControl.BatchSize,
+		policy.RolloutControl.DelayBetweenWaves,
+		policy.RolloutControl.JitterSeconds,
+		boolToInt(policy.RolloutControl.EmergencyAbort),
+		boolToInt(policy.CollectTelemetry),
+		policy.UpdatedAt,
+	)
+
+	return err
+}
+
+func (s *SQLiteStore) upsertGlobalFleetUpdatePolicy(ctx context.Context, policy *FleetUpdatePolicy) error {
+	if policy == nil {
+		return fmt.Errorf("policy cannot be nil")
+	}
+
+	daysJSON, err := json.Marshal(policy.MaintenanceWindow.DaysOfWeek)
+	if err != nil {
+		return fmt.Errorf("failed to encode days_of_week: %w", err)
+	}
+
+	policy.UpdatedAt = time.Now().UTC()
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO fleet_update_policy_global (
+			singleton, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+			maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+			maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+			maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+			rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+			collect_telemetry, updated_at
+		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(singleton) DO UPDATE SET
+			update_check_days = excluded.update_check_days,
+			version_pin_strategy = excluded.version_pin_strategy,
+			allow_major_upgrade = excluded.allow_major_upgrade,
+			target_version = excluded.target_version,
+			maintenance_window_enabled = excluded.maintenance_window_enabled,
+			maintenance_window_start_hour = excluded.maintenance_window_start_hour,
+			maintenance_window_start_min = excluded.maintenance_window_start_min,
+			maintenance_window_end_hour = excluded.maintenance_window_end_hour,
+			maintenance_window_end_min = excluded.maintenance_window_end_min,
+			maintenance_window_timezone = excluded.maintenance_window_timezone,
+			maintenance_window_days = excluded.maintenance_window_days,
+			rollout_staggered = excluded.rollout_staggered,
+			rollout_max_concurrent = excluded.rollout_max_concurrent,
+			rollout_batch_size = excluded.rollout_batch_size,
+			rollout_delay_between_waves = excluded.rollout_delay_between_waves,
+			rollout_jitter_seconds = excluded.rollout_jitter_seconds,
+			rollout_emergency_abort = excluded.rollout_emergency_abort,
+			collect_telemetry = excluded.collect_telemetry,
+			updated_at = excluded.updated_at
+	`,
+		policy.UpdateCheckDays,
+		string(policy.VersionPinStrategy),
+		boolToInt(policy.AllowMajorUpgrade),
+		nullString(policy.TargetVersion),
+		boolToInt(policy.MaintenanceWindow.Enabled),
+		policy.MaintenanceWindow.StartHour,
+		policy.MaintenanceWindow.StartMin,
+		policy.MaintenanceWindow.EndHour,
+		policy.MaintenanceWindow.EndMin,
+		policy.MaintenanceWindow.Timezone,
+		string(daysJSON),
+		boolToInt(policy.RolloutControl.Staggered),
+		policy.RolloutControl.MaxConcurrent,
+		policy.RolloutControl.BatchSize,
+		policy.RolloutControl.DelayBetweenWaves,
+		policy.RolloutControl.JitterSeconds,
+		boolToInt(policy.RolloutControl.EmergencyAbort),
+		boolToInt(policy.CollectTelemetry),
+		policy.UpdatedAt,
+	)
+
+	return err
+}
+
+// DeleteFleetUpdatePolicy removes a tenant's update policy.
+func (s *SQLiteStore) DeleteFleetUpdatePolicy(ctx context.Context, tenantID string) error {
+	if tenantID == GlobalFleetPolicyTenantID {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM fleet_update_policy_global WHERE singleton = 1`)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM fleet_update_policies WHERE tenant_id = ?`, tenantID)
+	return err
+}
+
+// ListFleetUpdatePolicies returns all configured update policies.
+func (s *SQLiteStore) ListFleetUpdatePolicies(ctx context.Context) ([]*FleetUpdatePolicy, error) {
+	var policies []*FleetUpdatePolicy
+	if globalPolicy, err := s.getGlobalFleetUpdatePolicy(ctx); err != nil {
+		return nil, err
+	} else if globalPolicy != nil {
+		policies = append(policies, globalPolicy)
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tenant_id, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+		       maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+		       maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+		       maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+		       rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+		       collect_telemetry, updated_at
+		FROM fleet_update_policies
+		ORDER BY tenant_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			tid                   string
+			updateCheckDays       int
+			pinStrategy           string
+			allowMajor            int
+			targetVersion         sql.NullString
+			mwEnabled             int
+			mwStartHour           int
+			mwStartMin            int
+			mwEndHour             int
+			mwEndMin              int
+			mwTimezone            string
+			mwDaysJSON            sql.NullString
+			rolloutStaggered      int
+			rolloutMaxConcurrent  int
+			rolloutBatchSize      int
+			rolloutDelayWaves     int
+			rolloutJitterSec      int
+			rolloutEmergencyAbort int
+			collectTelemetry      int
+			updatedAt             time.Time
+		)
+
+		if err := rows.Scan(&tid, &updateCheckDays, &pinStrategy, &allowMajor, &targetVersion,
+			&mwEnabled, &mwStartHour, &mwStartMin, &mwEndHour, &mwEndMin, &mwTimezone, &mwDaysJSON,
+			&rolloutStaggered, &rolloutMaxConcurrent, &rolloutBatchSize, &rolloutDelayWaves,
+			&rolloutJitterSec, &rolloutEmergencyAbort, &collectTelemetry, &updatedAt); err != nil {
+			return nil, err
+		}
+
+		var daysOfWeek []int
+		if mwDaysJSON.Valid && mwDaysJSON.String != "" {
+			if err := json.Unmarshal([]byte(mwDaysJSON.String), &daysOfWeek); err != nil {
+				return nil, fmt.Errorf("failed to decode days_of_week: %w", err)
+			}
+		}
+
+		policy := &FleetUpdatePolicy{
+			TenantID:  tid,
+			UpdatedAt: updatedAt,
+			PolicySpec: PolicySpec{
+				UpdateCheckDays:    updateCheckDays,
+				VersionPinStrategy: VersionPinStrategy(pinStrategy),
+				AllowMajorUpgrade:  allowMajor != 0,
+				TargetVersion:      targetVersion.String,
+				CollectTelemetry:   collectTelemetry != 0,
+				MaintenanceWindow: MaintenanceWindow{
+					Enabled:    mwEnabled != 0,
+					StartHour:  mwStartHour,
+					StartMin:   mwStartMin,
+					EndHour:    mwEndHour,
+					EndMin:     mwEndMin,
+					Timezone:   mwTimezone,
+					DaysOfWeek: daysOfWeek,
+				},
+				RolloutControl: RolloutControl{
+					Staggered:         rolloutStaggered != 0,
+					MaxConcurrent:     rolloutMaxConcurrent,
+					BatchSize:         rolloutBatchSize,
+					DelayBetweenWaves: rolloutDelayWaves,
+					JitterSeconds:     rolloutJitterSec,
+					EmergencyAbort:    rolloutEmergencyAbort != 0,
+				},
+			},
+		}
+
+		policies = append(policies, policy)
+	}
+
+	return policies, rows.Err()
 }
 
 // Close closes the database connection

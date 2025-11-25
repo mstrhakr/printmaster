@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"printmaster/common/config"
+	"printmaster/common/updatepolicy"
 )
 
 // AgentConfig represents the agent configuration
@@ -17,6 +18,7 @@ type AgentConfig struct {
 	Concurrency            int                    `toml:"discovery_concurrency"`
 	SNMP                   SNMPConfig             `toml:"snmp"`
 	Server                 ServerConnectionConfig `toml:"server"`
+	AutoUpdate             AutoUpdateConfig       `toml:"auto_update"`
 	Database               config.DatabaseConfig  `toml:"database"`
 	Logging                config.LoggingConfig   `toml:"logging"`
 	Web                    WebConfig              `toml:"web"`
@@ -41,6 +43,13 @@ type ServerConnectionConfig struct {
 	HeartbeatInterval  int    `toml:"heartbeat_interval_seconds"`
 	Token              string `toml:"token"`    // Stored after registration
 	AgentID            string `toml:"agent_id"` // Stable UUID (auto-generated, do not edit)
+}
+
+// AutoUpdateConfig captures agent-side override preferences that determine how
+// it should behave relative to the fleet's policy.
+type AutoUpdateConfig struct {
+	Mode        updatepolicy.AgentOverrideMode `toml:"mode"`
+	LocalPolicy updatepolicy.PolicySpec        `toml:"local_policy"`
 }
 
 // WebConfig holds web UI settings
@@ -86,6 +95,7 @@ func DefaultAgentConfig() *AgentConfig {
 			Token:              "",
 			AgentID:            "", // Will be auto-generated on first run
 		},
+		AutoUpdate: defaultAutoUpdateConfig(),
 		Database: config.DatabaseConfig{
 			Path: "", // Will use default platform-specific path
 		},
@@ -175,11 +185,15 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 		lower := strings.ToLower(val)
 		cfg.EpsonRemoteModeEnabled = (lower == "1" || lower == "true" || lower == "yes")
 	}
+	if val := os.Getenv("AUTO_UPDATE_MODE"); val != "" {
+		cfg.AutoUpdate.Mode = normalizeAutoUpdateMode(val)
+	}
 
 	// Apply common environment variable overrides (component-specific prefixed env var supported)
 	config.ApplyDatabaseEnvOverrides(&cfg.Database, "AGENT")
 	config.ApplyLoggingEnvOverrides(&cfg.Logging)
 
+	cfg.AutoUpdate.Mode = normalizeAutoUpdateMode(string(cfg.AutoUpdate.Mode))
 	return cfg, nil
 }
 

@@ -2865,6 +2865,47 @@ const SETTINGS_SECTION_LABELS = {
 };
 const SETTINGS_SECTION_ORDER = ['discovery', 'developer', 'security'];
 
+const DEFAULT_UPDATE_POLICY_SPEC = {
+    update_check_days: 7,
+    version_pin_strategy: 'minor',
+    allow_major_upgrade: false,
+    target_version: '',
+    collect_telemetry: true,
+    maintenance_window: {
+        enabled: false,
+        timezone: 'UTC',
+        start_hour: 0,
+        start_min: 0,
+        end_hour: 6,
+        end_min: 0,
+        days_of_week: []
+    },
+    rollout_control: {
+        staggered: true,
+        max_concurrent: 0,
+        batch_size: 0,
+        delay_between_waves: 300,
+        jitter_seconds: 60,
+        emergency_abort: true
+    }
+};
+
+const POLICY_VERSION_PIN_OPTIONS = [
+    { value: 'major', label: 'Major (stay on v0.x)' },
+    { value: 'minor', label: 'Minor (stay on v0.9.x)' },
+    { value: 'patch', label: 'Patch (stay on v0.9.14)' }
+];
+
+const POLICY_DAYS_OF_WEEK = [
+    { value: 0, label: 'Sun' },
+    { value: 1, label: 'Mon' },
+    { value: 2, label: 'Tue' },
+    { value: 3, label: 'Wed' },
+    { value: 4, label: 'Thu' },
+    { value: 5, label: 'Fri' },
+    { value: 6, label: 'Sat' }
+];
+
 const settingsUIState = {
     initialized: false,
     loading: false,
@@ -2875,15 +2916,21 @@ const settingsUIState = {
     globalSnapshot: null,
     globalDraft: null,
     globalDirty: false,
+    globalSettingsDirty: false,
     tenantList: [],
     selectedTenantId: '',
     tenantSnapshot: null,
     tenantDraft: null,
     tenantOverridesDraft: {},
     tenantDirty: false,
+    tenantSettingsDirty: false,
     saving: false,
     eventsBound: false,
-    lockedKeys: new Set() // Keys locked by environment variables
+    lockedKeys: new Set(), // Keys locked by environment variables
+    updatePolicy: {
+        global: createPolicyState(),
+        tenant: createPolicyState()
+    }
 };
 
 function resolveTenantId(record) {
@@ -2902,6 +2949,119 @@ function normalizeTenantList(list) {
         normalized.push({ ...item, id });
     });
     return normalized;
+}
+
+function createPolicyState() {
+    return {
+        policy: clonePolicySpec(DEFAULT_UPDATE_POLICY_SPEC),
+        originalPolicy: clonePolicySpec(DEFAULT_UPDATE_POLICY_SPEC),
+        enabled: false,
+        originalEnabled: false,
+        dirty: false,
+        loaded: false
+    };
+}
+
+function clonePolicySpec(spec) {
+    return JSON.parse(JSON.stringify(spec || DEFAULT_UPDATE_POLICY_SPEC));
+}
+
+function normalizePolicySpec(spec) {
+    const normalized = clonePolicySpec(DEFAULT_UPDATE_POLICY_SPEC);
+    if (!spec || typeof spec !== 'object') {
+        return normalized;
+    }
+    if (Number.isFinite(Number(spec.update_check_days))) {
+        normalized.update_check_days = Number(spec.update_check_days);
+    }
+    if (typeof spec.version_pin_strategy === 'string') {
+        const value = spec.version_pin_strategy.toLowerCase();
+        normalized.version_pin_strategy = POLICY_VERSION_PIN_OPTIONS.some(opt => opt.value === value) ? value : normalized.version_pin_strategy;
+    }
+    if (typeof spec.allow_major_upgrade === 'boolean') {
+        normalized.allow_major_upgrade = spec.allow_major_upgrade;
+    }
+    if (typeof spec.target_version === 'string') {
+        normalized.target_version = spec.target_version;
+    }
+    if (typeof spec.collect_telemetry === 'boolean') {
+        normalized.collect_telemetry = spec.collect_telemetry;
+    }
+    if (spec.maintenance_window && typeof spec.maintenance_window === 'object') {
+        const mw = spec.maintenance_window;
+        if (typeof mw.enabled === 'boolean') normalized.maintenance_window.enabled = mw.enabled;
+        if (typeof mw.timezone === 'string') normalized.maintenance_window.timezone = mw.timezone;
+        if (Number.isFinite(Number(mw.start_hour))) normalized.maintenance_window.start_hour = Number(mw.start_hour);
+        if (Number.isFinite(Number(mw.start_min))) normalized.maintenance_window.start_min = Number(mw.start_min);
+        if (Number.isFinite(Number(mw.end_hour))) normalized.maintenance_window.end_hour = Number(mw.end_hour);
+        if (Number.isFinite(Number(mw.end_min))) normalized.maintenance_window.end_min = Number(mw.end_min);
+        if (Array.isArray(mw.days_of_week)) {
+            normalized.maintenance_window.days_of_week = normalizePolicyDays(mw.days_of_week);
+        }
+    }
+    if (spec.rollout_control && typeof spec.rollout_control === 'object') {
+        const rc = spec.rollout_control;
+        if (typeof rc.staggered === 'boolean') normalized.rollout_control.staggered = rc.staggered;
+        if (Number.isFinite(Number(rc.max_concurrent))) normalized.rollout_control.max_concurrent = Number(rc.max_concurrent);
+        if (Number.isFinite(Number(rc.batch_size))) normalized.rollout_control.batch_size = Number(rc.batch_size);
+        if (Number.isFinite(Number(rc.delay_between_waves))) normalized.rollout_control.delay_between_waves = Number(rc.delay_between_waves);
+        if (Number.isFinite(Number(rc.jitter_seconds))) normalized.rollout_control.jitter_seconds = Number(rc.jitter_seconds);
+        if (typeof rc.emergency_abort === 'boolean') normalized.rollout_control.emergency_abort = rc.emergency_abort;
+    }
+    return normalized;
+}
+
+function normalizePolicyDays(days) {
+    if (!Array.isArray(days)) {
+        return [];
+    }
+    const normalized = Array.from(new Set(days.map(val => Number(val)).filter(val => Number.isFinite(val) && val >= 0 && val <= 6))).sort((a, b) => a - b);
+    return normalized;
+}
+
+function getPolicyState(scope) {
+    if (!settingsUIState.updatePolicy) {
+        settingsUIState.updatePolicy = { global: createPolicyState(), tenant: createPolicyState() };
+    }
+    return settingsUIState.updatePolicy[scope] || null;
+}
+
+function applyPolicySnapshot(scope, enabled, policySpec) {
+    const state = getPolicyState(scope);
+    if (!state) return;
+    state.policy = clonePolicySpec(policySpec);
+    state.originalPolicy = clonePolicySpec(policySpec);
+    state.enabled = !!enabled;
+    state.originalEnabled = !!enabled;
+    state.dirty = false;
+    state.loaded = true;
+    syncSettingsDirtyFlags();
+}
+
+function recomputePolicyDirty(scope) {
+    const state = getPolicyState(scope);
+    if (!state) return;
+    const policyChanged = state.enabled && !deepEqual(state.policy, state.originalPolicy);
+    const enabledChanged = state.enabled !== state.originalEnabled;
+    state.dirty = policyChanged || enabledChanged;
+    syncSettingsDirtyFlags();
+}
+
+function resetPolicyDraft(scope) {
+    const state = getPolicyState(scope);
+    if (!state) return;
+    state.policy = clonePolicySpec(state.originalPolicy);
+    state.enabled = state.originalEnabled;
+    state.dirty = false;
+    syncSettingsDirtyFlags();
+}
+
+function syncSettingsDirtyFlags() {
+    const policy = settingsUIState.updatePolicy || {};
+    const globalPolicyDirty = policy.global ? policy.global.dirty : false;
+    const tenantPolicyDirty = policy.tenant ? policy.tenant.dirty : false;
+    settingsUIState.globalDirty = !!(settingsUIState.globalSettingsDirty || globalPolicyDirty);
+    settingsUIState.tenantDirty = !!(settingsUIState.tenantSettingsDirty || tenantPolicyDirty);
 }
 
 function getSettingsPayload(record) {
@@ -2955,7 +3115,9 @@ function updateSettingsTenantDirectory(rawList) {
         settingsUIState.tenantSnapshot = null;
         settingsUIState.tenantDraft = null;
         settingsUIState.tenantOverridesDraft = {};
-        settingsUIState.tenantDirty = false;
+        settingsUIState.tenantSettingsDirty = false;
+        applyPolicySnapshot('tenant', false, DEFAULT_UPDATE_POLICY_SPEC);
+        syncSettingsDirtyFlags();
     }
     if (!settingsUIState.initialized) {
         return;
@@ -3002,6 +3164,7 @@ async function bootstrapSettingsUI() {
     await loadSettingsSchema();
     await loadSettingsSources(); // Fetch locked keys
     await loadGlobalSettingsSnapshot();
+    await loadGlobalUpdatePolicy();
     await loadTenantDirectory();
     if (settingsUIState.tenantList.length > 0) {
         settingsUIState.selectedTenantId = settingsUIState.tenantList[0].id;
@@ -3074,7 +3237,24 @@ async function loadGlobalSettingsSnapshot() {
     const snapshot = await fetchJSON('/api/v1/settings/global');
     settingsUIState.globalSnapshot = snapshot;
     settingsUIState.globalDraft = cloneSettings(getSettingsPayload(snapshot));
-    settingsUIState.globalDirty = false;
+    settingsUIState.globalSettingsDirty = false;
+    syncSettingsDirtyFlags();
+}
+
+async function loadGlobalUpdatePolicy() {
+    const state = getPolicyState('global');
+    if (!state) return;
+    try {
+        const resp = await fetchJSON('/api/v1/update-policies/global');
+        const policy = resp && resp.policy ? normalizePolicySpec(resp.policy) : clonePolicySpec(DEFAULT_UPDATE_POLICY_SPEC);
+        applyPolicySnapshot('global', true, policy);
+    } catch (err) {
+        if (err && err.status === 404) {
+            applyPolicySnapshot('global', false, DEFAULT_UPDATE_POLICY_SPEC);
+            return;
+        }
+        throw err;
+    }
 }
 
 async function loadTenantDirectory() {
@@ -3095,7 +3275,11 @@ async function loadTenantSnapshot(tenantId) {
         settingsUIState.tenantSnapshot = null;
         settingsUIState.tenantDraft = null;
         settingsUIState.tenantOverridesDraft = {};
-        settingsUIState.tenantDirty = false;
+        settingsUIState.tenantSettingsDirty = false;
+        if (settingsUIState.updatePolicy && settingsUIState.updatePolicy.tenant) {
+            settingsUIState.updatePolicy.tenant = createPolicyState();
+        }
+        syncSettingsDirtyFlags();
         return;
     }
     const snapshot = await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`);
@@ -3104,7 +3288,29 @@ async function loadTenantSnapshot(tenantId) {
     const tenantSettings = snapshot ? getSettingsPayload(snapshot) : baseline;
     settingsUIState.tenantDraft = cloneSettings(Object.keys(tenantSettings).length ? tenantSettings : baseline);
     settingsUIState.tenantOverridesDraft = cloneSettings(getOverridesPayload(snapshot));
-    settingsUIState.tenantDirty = false;
+    settingsUIState.tenantSettingsDirty = false;
+    syncSettingsDirtyFlags();
+    await loadTenantUpdatePolicy(tenantId);
+}
+
+async function loadTenantUpdatePolicy(tenantId) {
+    const state = getPolicyState('tenant');
+    if (!state) return;
+    if (!tenantId) {
+        applyPolicySnapshot('tenant', false, DEFAULT_UPDATE_POLICY_SPEC);
+        return;
+    }
+    try {
+        const resp = await fetchJSON(`/api/v1/update-policies/${encodeURIComponent(tenantId)}`);
+        const policy = resp && resp.policy ? normalizePolicySpec(resp.policy) : clonePolicySpec(DEFAULT_UPDATE_POLICY_SPEC);
+        applyPolicySnapshot('tenant', true, policy);
+    } catch (err) {
+        if (err && err.status === 404) {
+            applyPolicySnapshot('tenant', false, DEFAULT_UPDATE_POLICY_SPEC);
+            return;
+        }
+        throw err;
+    }
 }
 
 function renderSettingsUI() {
@@ -3146,6 +3352,8 @@ function bindSettingsEvents() {
         formRoot.addEventListener('input', handleSettingsFieldChange);
         formRoot.addEventListener('change', handleSettingsFieldChange);
         formRoot.addEventListener('click', handleSettingsFieldClick);
+        formRoot.addEventListener('input', handlePolicyFieldChange);
+        formRoot.addEventListener('change', handlePolicyFieldChange);
     }
     const saveBtn = document.getElementById('settings_save_btn');
     if (saveBtn) saveBtn.addEventListener('click', handleSettingsSave);
@@ -3232,6 +3440,7 @@ function renderSettingsForm() {
     if (!root.children.length) {
         root.innerHTML = '<div class="muted-text">No server-managed settings are available in this build.</div>';
     }
+    refreshPolicyPanel();
 }
 
 function renderSettingsFieldRow(field, value, scope) {
@@ -3289,6 +3498,342 @@ function renderSettingsFieldRow(field, value, scope) {
     row.appendChild(label);
     row.appendChild(control);
     return row;
+}
+
+function refreshPolicyPanel() {
+    const root = document.getElementById('settings_form_root');
+    if (!root) return;
+    const existing = document.getElementById('auto_update_policy_section');
+    if (existing) {
+        existing.remove();
+    }
+    renderUpdatePolicySection(root);
+}
+
+function renderUpdatePolicySection(root) {
+    if (!root) return;
+    const panel = document.createElement('div');
+    panel.className = 'settings-section-panel auto-update-policy';
+    panel.id = 'auto_update_policy_section';
+
+    const header = document.createElement('div');
+    header.className = 'settings-section-header';
+    header.innerHTML = `<h4>Auto-Update Policy</h4><p>Control how often agents check for updates, which versions they target, and how rollouts are staged.</p>`;
+    panel.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'settings-field-list auto-update-field-list';
+    const scope = settingsUIState.scope;
+    const policyState = getPolicyState(scope);
+    const canEdit = userCan('settings.write');
+
+    if (scope === 'tenant' && !settingsUIState.selectedTenantId) {
+        body.innerHTML = '<div class="muted-text">Select a customer to manage auto-update overrides.</div>';
+        panel.appendChild(body);
+        root.appendChild(panel);
+        return;
+    }
+
+    if (!policyState || !policyState.loaded) {
+        body.innerHTML = '<div class="muted-text">Loading auto-update policy…</div>';
+        panel.appendChild(body);
+        root.appendChild(panel);
+        return;
+    }
+
+    const toggleRow = document.createElement('div');
+    toggleRow.className = 'settings-field-row';
+    const toggleLabel = document.createElement('div');
+    toggleLabel.className = 'settings-field-label';
+    const toggleTitle = scope === 'global' ? 'Enforce auto-update policy' : 'Override global policy';
+    const toggleDescription = scope === 'global'
+        ? 'Applies to every tenant unless a specific override is configured.'
+        : 'Only configure when this customer needs a different cadence than the global defaults.';
+    toggleLabel.innerHTML = `<div class="field-title">${escapeHtml(toggleTitle)}</div><div class="field-description">${escapeHtml(toggleDescription)}</div>`;
+    const toggleControl = document.createElement('div');
+    toggleControl.className = 'settings-field-control';
+    const toggle = document.createElement('label');
+    toggle.className = 'mini-toggle-container settings-toggle';
+    const toggleInput = document.createElement('input');
+    toggleInput.type = 'checkbox';
+    toggleInput.checked = !!policyState.enabled;
+    toggleInput.disabled = !canEdit;
+    toggleInput.dataset.policyToggle = 'enabled';
+    toggleInput.dataset.policyScope = scope;
+    const toggleState = document.createElement('span');
+    toggleState.className = 'settings-toggle-state';
+    toggleState.textContent = policyState.enabled ? 'Enabled' : 'Disabled';
+    toggleInput.addEventListener('change', () => {
+        toggleState.textContent = toggleInput.checked ? 'Enabled' : 'Disabled';
+    });
+    toggle.appendChild(toggleInput);
+    toggle.appendChild(toggleState);
+    toggleControl.appendChild(toggle);
+    toggleRow.appendChild(toggleLabel);
+    toggleRow.appendChild(toggleControl);
+    body.appendChild(toggleRow);
+
+    if (!policyState.enabled) {
+        const inheritMsg = document.createElement('div');
+        inheritMsg.className = 'muted-text';
+        inheritMsg.textContent = scope === 'global'
+            ? 'No global auto-update policy is currently enforced. Agents will rely on their local override settings.'
+            : 'This customer currently inherits the global auto-update policy.';
+        body.appendChild(inheritMsg);
+        panel.appendChild(body);
+        root.appendChild(panel);
+        return;
+    }
+
+    appendPolicyInputs(body, scope, policyState, canEdit);
+    panel.appendChild(body);
+    root.appendChild(panel);
+}
+
+function appendPolicyInputs(container, scope, policyState, canEdit) {
+    const policy = policyState.policy || DEFAULT_UPDATE_POLICY_SPEC;
+    const disabled = !canEdit || !policyState.enabled;
+
+    container.appendChild(buildPolicyRow('Check cadence (days)', 'Set to 0 to pause unattended update checks.',
+        createPolicyNumberInput(scope, 'update_check_days', policy.update_check_days, disabled, 0, 365)));
+
+    container.appendChild(buildPolicyRow('Version pin strategy', 'Controls whether agents stay on major, minor, or patch lines.',
+        createPolicySelectInput(scope, 'version_pin_strategy', policy.version_pin_strategy, disabled, POLICY_VERSION_PIN_OPTIONS)));
+
+    container.appendChild(buildPolicyRow('Allow major upgrades', 'When disabled, agents will not cross major version boundaries unless forced manually.',
+        createPolicyCheckboxInput(scope, 'allow_major_upgrade', policy.allow_major_upgrade, disabled)));
+
+    container.appendChild(buildPolicyRow('Target version (optional)', 'Provide an exact semantic version to pin the fleet. Leave blank to follow the latest allowed version.',
+        createPolicyTextInput(scope, 'target_version', policy.target_version, disabled)));
+
+    container.appendChild(buildPolicyRow('Collect telemetry during rollout', 'Allows the server to gather anonymized update metrics for dashboards.',
+        createPolicyCheckboxInput(scope, 'collect_telemetry', policy.collect_telemetry, disabled)));
+
+    container.appendChild(buildPolicySubheader('Maintenance Window'));
+    const mwDisabled = disabled;
+    container.appendChild(buildPolicyRow('Window enabled', 'Restrict updates to a specific time window in the tenant\'s timezone.',
+        createPolicyCheckboxInput(scope, 'maintenance_window.enabled', policy.maintenance_window.enabled, mwDisabled)));
+
+    const maintenanceInputsDisabled = mwDisabled || !policy.maintenance_window.enabled;
+    container.appendChild(buildPolicyRow('Timezone', 'IANA timezone such as UTC or America/New_York.',
+        createPolicyTextInput(scope, 'maintenance_window.timezone', policy.maintenance_window.timezone, maintenanceInputsDisabled)));
+
+    const startWrapper = document.createElement('div');
+    startWrapper.className = 'policy-inline-inputs';
+    startWrapper.appendChild(createPolicyNumberInput(scope, 'maintenance_window.start_hour', policy.maintenance_window.start_hour, maintenanceInputsDisabled, 0, 23));
+    startWrapper.appendChild(document.createTextNode(' : '));
+    startWrapper.appendChild(createPolicyNumberInput(scope, 'maintenance_window.start_min', policy.maintenance_window.start_min, maintenanceInputsDisabled, 0, 59));
+    container.appendChild(buildPolicyRow('Start time (HH:MM)', '24-hour format.', startWrapper));
+
+    const endWrapper = document.createElement('div');
+    endWrapper.className = 'policy-inline-inputs';
+    endWrapper.appendChild(createPolicyNumberInput(scope, 'maintenance_window.end_hour', policy.maintenance_window.end_hour, maintenanceInputsDisabled, 0, 23));
+    endWrapper.appendChild(document.createTextNode(' : '));
+    endWrapper.appendChild(createPolicyNumberInput(scope, 'maintenance_window.end_min', policy.maintenance_window.end_min, maintenanceInputsDisabled, 0, 59));
+    container.appendChild(buildPolicyRow('End time (HH:MM)', '24-hour format.', endWrapper));
+
+    container.appendChild(buildPolicyRow('Days of week', 'Select one or more days for maintenance.',
+        createPolicyDaysControl(scope, policy.maintenance_window.days_of_week, maintenanceInputsDisabled)));
+
+    container.appendChild(buildPolicySubheader('Rollout Control'));
+    const rolloutDisabled = disabled;
+    container.appendChild(buildPolicyRow('Staggered rollout', 'Disabling pushes updates to all agents simultaneously.',
+        createPolicyCheckboxInput(scope, 'rollout_control.staggered', policy.rollout_control.staggered, rolloutDisabled)));
+    container.appendChild(buildPolicyRow('Max concurrent agents', 'Limit the number of agents updating at the same time (0 = auto).',
+        createPolicyNumberInput(scope, 'rollout_control.max_concurrent', policy.rollout_control.max_concurrent, rolloutDisabled, 0, 10000)));
+    container.appendChild(buildPolicyRow('Batch size', 'Number of agents per wave when staggering.',
+        createPolicyNumberInput(scope, 'rollout_control.batch_size', policy.rollout_control.batch_size, rolloutDisabled, 0, 10000)));
+    container.appendChild(buildPolicyRow('Delay between waves (seconds)', 'Pause between staggered batches.',
+        createPolicyNumberInput(scope, 'rollout_control.delay_between_waves', policy.rollout_control.delay_between_waves, rolloutDisabled, 0, 86400)));
+    container.appendChild(buildPolicyRow('Jitter (seconds)', 'Randomized delay added to reduce thundering herds.',
+        createPolicyNumberInput(scope, 'rollout_control.jitter_seconds', policy.rollout_control.jitter_seconds, rolloutDisabled, 0, 3600)));
+    container.appendChild(buildPolicyRow('Emergency abort available', 'Allow admins to stop an in-flight rollout from the UI.',
+        createPolicyCheckboxInput(scope, 'rollout_control.emergency_abort', policy.rollout_control.emergency_abort, rolloutDisabled)));
+}
+
+function buildPolicyRow(label, description, controlElement) {
+    const row = document.createElement('div');
+    row.className = 'settings-field-row';
+    const labelEl = document.createElement('div');
+    labelEl.className = 'settings-field-label';
+    labelEl.innerHTML = `<div class="field-title">${escapeHtml(label)}</div><div class="field-description">${escapeHtml(description || '')}</div>`;
+    const control = document.createElement('div');
+    control.className = 'settings-field-control';
+    control.appendChild(controlElement);
+    row.appendChild(labelEl);
+    row.appendChild(control);
+    return row;
+}
+
+function buildPolicySubheader(title) {
+    const divider = document.createElement('div');
+    divider.className = 'policy-subheader';
+    divider.textContent = title;
+    return divider;
+}
+
+function createPolicyNumberInput(scope, path, value, disabled, min, max) {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = value === null || value === undefined ? '' : value;
+    if (min !== undefined) input.min = min;
+    if (max !== undefined) input.max = max;
+    input.dataset.policyPath = path;
+    input.dataset.policyType = 'number';
+    input.dataset.policyScope = scope;
+    input.disabled = !!disabled;
+    return input;
+}
+
+function createPolicyTextInput(scope, path, value, disabled) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = value === null || value === undefined ? '' : value;
+    input.dataset.policyPath = path;
+    input.dataset.policyType = 'text';
+    input.dataset.policyScope = scope;
+    input.disabled = !!disabled;
+    return input;
+}
+
+function createPolicySelectInput(scope, path, value, disabled, options) {
+    const select = document.createElement('select');
+    (options || []).forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.label;
+        if (option.value === value) {
+            opt.selected = true;
+        }
+        select.appendChild(opt);
+    });
+    select.dataset.policyPath = path;
+    select.dataset.policyType = 'text';
+    select.dataset.policyScope = scope;
+    select.disabled = !!disabled;
+    return select;
+}
+
+function createPolicyCheckboxInput(scope, path, checked, disabled) {
+    const toggle = document.createElement('label');
+    toggle.className = 'mini-toggle-container settings-toggle';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = !!checked;
+    input.disabled = !!disabled;
+    input.dataset.policyPath = path;
+    input.dataset.policyType = 'bool';
+    input.dataset.policyScope = scope;
+    const state = document.createElement('span');
+    state.className = 'settings-toggle-state';
+    state.textContent = checked ? 'Enabled' : 'Disabled';
+    input.addEventListener('change', () => {
+        state.textContent = input.checked ? 'Enabled' : 'Disabled';
+    });
+    toggle.appendChild(input);
+    toggle.appendChild(state);
+    return toggle;
+}
+
+function createPolicyDaysControl(scope, selectedDays, disabled) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'policy-days-container';
+    wrapper.classList.toggle('disabled', !!disabled);
+    const daySet = new Set(Array.isArray(selectedDays) ? selectedDays : []);
+    POLICY_DAYS_OF_WEEK.forEach(day => {
+        const chip = document.createElement('label');
+        chip.className = 'policy-day-chip';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = daySet.has(day.value);
+        input.disabled = !!disabled;
+        input.dataset.policyScope = scope;
+        input.dataset.policyDay = String(day.value);
+        chip.appendChild(input);
+        const text = document.createElement('span');
+        text.textContent = day.label;
+        chip.appendChild(text);
+        syncPolicyDayChipState(input);
+        wrapper.appendChild(chip);
+    });
+    return wrapper;
+}
+
+function syncPolicyDayChipState(input) {
+    if (!input) return;
+    const chip = input.closest('.policy-day-chip');
+    if (!chip) return;
+    chip.classList.toggle('selected', !!input.checked);
+    chip.classList.toggle('disabled', input.disabled);
+}
+
+function handlePolicyFieldChange(event) {
+    const target = event.target;
+    if (!target || !target.dataset) {
+        return;
+    }
+    if (target.dataset.policyToggle) {
+        handlePolicyToggleChange(target);
+        return;
+    }
+    if (Object.prototype.hasOwnProperty.call(target.dataset, 'policyDay')) {
+        handlePolicyDayToggle(target);
+        return;
+    }
+    if (!target.dataset.policyPath) {
+        return;
+    }
+    const scope = resolvePolicyScope(target.dataset.policyScope);
+    const state = getPolicyState(scope);
+    if (!state || !state.policy) {
+        return;
+    }
+    const type = target.dataset.policyType || target.type || 'text';
+    const value = readInputValue(target, type);
+    setNestedValue(state.policy, target.dataset.policyPath, value);
+    recomputePolicyDirty(scope);
+    updateActionButtons();
+    if (target.dataset.policyPath === 'maintenance_window.enabled') {
+        refreshPolicyPanel();
+    }
+}
+
+function handlePolicyToggleChange(input) {
+    const scope = resolvePolicyScope(input.dataset.policyScope);
+    const state = getPolicyState(scope);
+    if (!state) return;
+    state.enabled = !!input.checked;
+    recomputePolicyDirty(scope);
+    updateActionButtons();
+    refreshPolicyPanel();
+}
+
+function handlePolicyDayToggle(input) {
+    const scope = resolvePolicyScope(input.dataset.policyScope);
+    const state = getPolicyState(scope);
+    if (!state) return;
+    const rawValue = Number(input.dataset.policyDay);
+    if (!Number.isFinite(rawValue)) {
+        return;
+    }
+    const current = getValueByPath(state.policy, 'maintenance_window.days_of_week');
+    const next = new Set(Array.isArray(current) ? current : []);
+    if (input.checked) {
+        next.add(rawValue);
+    } else {
+        next.delete(rawValue);
+    }
+    setNestedValue(state.policy, 'maintenance_window.days_of_week', Array.from(next).sort((a, b) => a - b));
+    recomputePolicyDirty(scope);
+    updateActionButtons();
+    syncPolicyDayChipState(input);
+}
+
+function resolvePolicyScope(scopeHint) {
+    if (scopeHint === 'global' || scopeHint === 'tenant') {
+        return scopeHint;
+    }
+    return settingsUIState.scope === 'tenant' ? 'tenant' : 'global';
 }
 
 function createInputForField(field, value) {
@@ -3379,7 +3924,8 @@ function readInputValue(input, fieldType) {
 function updateGlobalDraft(path, value) {
     setNestedValue(settingsUIState.globalDraft, path, value);
     const baseline = getSettingsPayload(settingsUIState.globalSnapshot);
-    settingsUIState.globalDirty = !deepEqual(settingsUIState.globalDraft, baseline);
+    settingsUIState.globalSettingsDirty = !deepEqual(settingsUIState.globalDraft, baseline);
+    syncSettingsDirtyFlags();
     updateActionButtons();
 }
 
@@ -3395,8 +3941,9 @@ function updateTenantDraft(path, value) {
         setNestedValue(settingsUIState.tenantOverridesDraft, path, value);
     }
     const originalOverrides = getOverridesPayload(settingsUIState.tenantSnapshot);
-    settingsUIState.tenantDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
+    settingsUIState.tenantSettingsDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
     renderOverrideSummary();
+    syncSettingsDirtyFlags();
     updateActionButtons();
 }
 
@@ -3456,14 +4003,32 @@ async function saveGlobalSettings() {
     if (!settingsUIState.globalDirty) {
         return;
     }
-    await fetchJSON('/api/v1/settings/global', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsUIState.globalDraft)
-    });
-    await loadGlobalSettingsSnapshot();
-    if (settingsUIState.selectedTenantId) {
-        await loadTenantSnapshot(settingsUIState.selectedTenantId);
+    const pending = [];
+    const settingsChanged = !!settingsUIState.globalSettingsDirty;
+    const policyState = getPolicyState('global');
+    const policyChanged = !!(policyState && policyState.dirty);
+    if (settingsChanged) {
+        pending.push(fetchJSON('/api/v1/settings/global', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settingsUIState.globalDraft)
+        }));
+    }
+    if (policyChanged) {
+        pending.push(savePolicyChanges('global'));
+    }
+    if (!pending.length) {
+        return;
+    }
+    await Promise.all(pending);
+    if (settingsChanged) {
+        await loadGlobalSettingsSnapshot();
+        if (settingsUIState.selectedTenantId) {
+            await loadTenantSnapshot(settingsUIState.selectedTenantId);
+        }
+    }
+    if (policyChanged) {
+        await loadGlobalUpdatePolicy();
     }
     renderSettingsUI();
     window.__pm_shared.showToast('Global settings saved', 'success');
@@ -3475,34 +4040,82 @@ async function saveTenantSettings() {
         return;
     }
     const tenantId = settingsUIState.selectedTenantId;
-    const overrides = cloneSettings(settingsUIState.tenantOverridesDraft);
-    if (flattenOverrides(overrides).length === 0) {
-        await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, { method: 'DELETE' });
-    } else {
-        await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(overrides)
-        });
+    if (!settingsUIState.tenantDirty) {
+        return;
     }
+    const pending = [];
+    const settingsChanged = !!settingsUIState.tenantSettingsDirty;
+    const policyState = getPolicyState('tenant');
+    const policyChanged = !!(policyState && policyState.dirty);
+    if (settingsChanged) {
+        const overrides = cloneSettings(settingsUIState.tenantOverridesDraft);
+        if (flattenOverrides(overrides).length === 0) {
+            pending.push(fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, { method: 'DELETE' }));
+        } else {
+            pending.push(fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(overrides)
+            }));
+        }
+    }
+    if (policyChanged) {
+        pending.push(savePolicyChanges('tenant', tenantId));
+    }
+    if (!pending.length) {
+        return;
+    }
+    await Promise.all(pending);
     await loadTenantSnapshot(tenantId);
     renderSettingsUI();
-    window.__pm_shared.showToast('Tenant overrides saved', 'success');
+    window.__pm_shared.showToast('Tenant configuration saved', 'success');
+}
+
+async function savePolicyChanges(scope, tenantId) {
+    const state = getPolicyState(scope);
+    if (!state || !state.dirty) {
+        return;
+    }
+    let endpoint = '/api/v1/update-policies/global';
+    if (scope === 'tenant') {
+        if (!tenantId) {
+            throw new Error('Tenant ID is required to save tenant policy overrides');
+        }
+        endpoint = `/api/v1/update-policies/${encodeURIComponent(tenantId)}`;
+    }
+    if (!state.enabled) {
+        try {
+            await fetchJSON(endpoint, { method: 'DELETE' });
+        } catch (err) {
+            if (!err || err.status !== 404) {
+                throw err;
+            }
+        }
+        return;
+    }
+    await fetchJSON(endpoint, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policy: clonePolicySpec(state.policy) })
+    });
 }
 
 function handleDiscardChanges(event) {
     event.preventDefault();
     if (settingsUIState.scope === 'global') {
         settingsUIState.globalDraft = cloneSettings(getSettingsPayload(settingsUIState.globalSnapshot));
-        settingsUIState.globalDirty = false;
+        settingsUIState.globalSettingsDirty = false;
+        resetPolicyDraft('global');
     } else {
         const tenantSettings = settingsUIState.tenantSnapshot
             ? getSettingsPayload(settingsUIState.tenantSnapshot)
             : getSettingsPayload(settingsUIState.globalSnapshot);
         settingsUIState.tenantDraft = cloneSettings(tenantSettings);
         settingsUIState.tenantOverridesDraft = cloneSettings(getOverridesPayload(settingsUIState.tenantSnapshot));
-        settingsUIState.tenantDirty = false;
+        settingsUIState.tenantSettingsDirty = false;
+        resetPolicyDraft('tenant');
     }
+    syncSettingsDirtyFlags();
     renderSettingsUI();
 }
 
