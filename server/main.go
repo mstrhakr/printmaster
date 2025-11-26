@@ -31,6 +31,7 @@ import (
 	sharedweb "printmaster/common/web"
 	wscommon "printmaster/common/ws"
 	authz "printmaster/server/authz"
+	releases "printmaster/server/releases"
 	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
@@ -270,6 +271,7 @@ var (
 	serverConfig        *Config              // Loaded server configuration (accessible to handlers)
 	serverLogDir        string               // Directory containing server logs for UI fetches
 	configSourceTracker *ConfigSourceTracker // Tracks which keys were set by env vars
+	releaseManager      *releases.Manager
 )
 
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
@@ -555,6 +557,23 @@ func runServer(ctx context.Context, configFlag string) {
 	})
 
 	logInfo("Database initialized successfully")
+
+	releaseManager, err = releases.NewManager(serverStore, serverLogger, releases.ManagerOptions{})
+	if err != nil {
+		logWarn("Release manifest manager disabled", "error", err)
+	} else if _, err := releaseManager.EnsureActiveKey(ctx); err != nil {
+		logWarn("Failed to ensure signing key", "error", err)
+	}
+
+	if worker, err := releases.NewIntakeWorker(serverStore, serverLogger, releases.Options{
+		GitHubToken:     os.Getenv("GITHUB_TOKEN"),
+		UserAgent:       fmt.Sprintf("printmaster-server/%s release-intake", Version),
+		ManifestManager: releaseManager,
+	}); err != nil {
+		logWarn("Release intake worker disabled", "error", err)
+	} else {
+		go worker.Run(ctx)
+	}
 
 	// Bootstrap initial admin user. Default to ADMIN_USER=admin and ADMIN_PASSWORD=printmaster
 	adminUser := os.Getenv("ADMIN_USER")
@@ -2334,6 +2353,19 @@ func setupRoutes(cfg *Config) {
 		RegisterTenantAlias: true,
 	})
 	logInfo("Update policy routes registered", "enabled", featureEnabled)
+
+	if releaseManager != nil {
+		releaseAPI := releases.NewAPI(releaseManager, releases.APIOptions{
+			AuthMiddleware: requireWebAuth,
+			Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
+				return authorizeRequest(r, action, resource)
+			},
+		})
+		releaseAPI.RegisterRoutes(http.DefaultServeMux)
+		logInfo("Release routes registered", "enabled", true)
+	} else {
+		logWarn("Release routes disabled", "reason", "release manager unavailable")
+	}
 
 	// Server settings (read/write via sanitized API)
 	http.HandleFunc("/api/v1/server/settings", requireWebAuth(handleServerSettings))

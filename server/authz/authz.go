@@ -53,6 +53,9 @@ const (
 
 	ActionLogsRead      Action = "logs.read"
 	ActionAuditLogsRead Action = "audit.logs.read"
+
+	ActionReleasesRead  Action = "releases.read"
+	ActionReleasesWrite Action = "releases.write"
 )
 
 // ResourceRef carries contextual identifiers relevant for authorization checks.

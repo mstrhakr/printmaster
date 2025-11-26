@@ -52,12 +52,17 @@ This document captures the agreed strategy for server- and agent-driven updates,
 
 ### Phase 2 – Release Intake & Manifests
 
-- [ ] Implement server job to fetch official release metadata + artifacts for each supported platform.
-- [ ] Fetch and cache release notes/changelogs alongside artifacts for UI display and audit logs.
-- [ ] Store artifacts in a versioned cache with integrity data (SHA-256, upstream signature if available).
-- [ ] Introduce manifest-signing module (Ed25519 key generation, rotation, storage) and embed public key in agent + server binaries.
-- [ ] Provide CLI/admin endpoints to rotate signing keys and regenerate manifests.
-- [ ] Add and validate tests for this phase.
+- [x] Implement server job to fetch official release metadata + artifacts for each supported platform.
+- [x] Fetch and cache release notes/changelogs alongside artifacts for UI display and audit logs.
+- [x] Store artifacts in a versioned cache with integrity data (SHA-256, upstream signature if available).
+- [x] Introduce manifest-signing module (Ed25519 key generation, rotation, storage) and embed public key in agent + server binaries.
+- [x] Provide CLI/admin endpoints to rotate signing keys and regenerate manifests.
+- [x] Add and validate tests for this phase.
+
+**Phase 2 Notes:**
+- Server exposes `/api/v1/releases/signing-keys` (list/rotate) and `/api/v1/releases/manifests` routes gated behind `releases.read/release.write` scopes.
+- Release intake worker now ensures manifests are generated for every cached artifact; regeneration re-signs existing manifests on key rotation.
+- Tests cover storage schema v5, manager rotation/regeneration, and HTTP handlers to prevent regressions.
 
 ### Phase 3 – Installer Repackaging Service
 

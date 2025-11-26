@@ -29,7 +29,7 @@ type SQLiteStore struct {
 	dbPath string
 }
 
-const schemaVersion = 3
+const schemaVersion = 5
 
 // Optional package-level logger that can be set by the application (server)
 var Log *logger.Logger
@@ -379,6 +379,61 @@ func (s *SQLiteStore) initSchema() error {
 		collect_telemetry INTEGER NOT NULL DEFAULT 1,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+
+	-- Release artifact cache (phase 2 auto-update intake)
+	CREATE TABLE IF NOT EXISTS release_artifacts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		component TEXT NOT NULL,
+		version TEXT NOT NULL,
+		platform TEXT NOT NULL,
+		arch TEXT NOT NULL,
+		channel TEXT NOT NULL DEFAULT 'stable',
+		source_url TEXT NOT NULL,
+		cache_path TEXT,
+		sha256 TEXT,
+		size_bytes INTEGER NOT NULL DEFAULT 0,
+		release_notes TEXT,
+		published_at DATETIME,
+		downloaded_at DATETIME,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(component, version, platform, arch)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_release_artifacts_component ON release_artifacts(component);
+
+	CREATE TABLE IF NOT EXISTS signing_keys (
+		id TEXT PRIMARY KEY,
+		algorithm TEXT NOT NULL,
+		public_key TEXT NOT NULL,
+		private_key TEXT NOT NULL,
+		notes TEXT,
+		active INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		rotated_at DATETIME
+	);
+
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_signing_keys_active ON signing_keys(active)
+		WHERE active = 1;
+
+	CREATE TABLE IF NOT EXISTS release_manifests (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		component TEXT NOT NULL,
+		version TEXT NOT NULL,
+		platform TEXT NOT NULL,
+		arch TEXT NOT NULL,
+		channel TEXT NOT NULL DEFAULT 'stable',
+		manifest_version TEXT NOT NULL,
+		manifest_json TEXT NOT NULL,
+		signature TEXT NOT NULL,
+		signing_key_id TEXT NOT NULL,
+		generated_at DATETIME NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(component, version, platform, arch)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_release_manifests_component ON release_manifests(component);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -831,6 +886,13 @@ func nullString(s string) sql.NullString {
 		return sql.NullString{Valid: false}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+func nullTime(t time.Time) sql.NullTime {
+	if t.IsZero() {
+		return sql.NullTime{Valid: false}
+	}
+	return sql.NullTime{Time: t, Valid: true}
 }
 
 func (s *SQLiteStore) backfillUserTenantMappings() {
@@ -2798,6 +2860,455 @@ func (s *SQLiteStore) ListFleetUpdatePolicies(ctx context.Context) ([]*FleetUpda
 	}
 
 	return policies, rows.Err()
+}
+
+// UpsertReleaseArtifact stores or updates metadata for a cached release artifact.
+func (s *SQLiteStore) UpsertReleaseArtifact(ctx context.Context, artifact *ReleaseArtifact) error {
+	if artifact == nil {
+		return fmt.Errorf("artifact cannot be nil")
+	}
+	if artifact.Component == "" || artifact.Version == "" || artifact.Platform == "" || artifact.Arch == "" {
+		return fmt.Errorf("artifact missing required identity fields")
+	}
+	if artifact.Channel == "" {
+		artifact.Channel = "stable"
+	}
+	if artifact.SourceURL == "" {
+		return fmt.Errorf("artifact source url required")
+	}
+	artifact.UpdatedAt = time.Now().UTC()
+	if artifact.CreatedAt.IsZero() {
+		artifact.CreatedAt = artifact.UpdatedAt
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO release_artifacts (
+			component, version, platform, arch, channel, source_url,
+			cache_path, sha256, size_bytes, release_notes, published_at,
+			downloaded_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(component, version, platform, arch) DO UPDATE SET
+			channel = excluded.channel,
+			source_url = excluded.source_url,
+			cache_path = excluded.cache_path,
+			sha256 = excluded.sha256,
+			size_bytes = excluded.size_bytes,
+			release_notes = excluded.release_notes,
+			published_at = excluded.published_at,
+			downloaded_at = excluded.downloaded_at,
+			updated_at = excluded.updated_at
+	`,
+		artifact.Component,
+		artifact.Version,
+		artifact.Platform,
+		artifact.Arch,
+		artifact.Channel,
+		artifact.SourceURL,
+		nullString(artifact.CachePath),
+		nullString(artifact.SHA256),
+		artifact.SizeBytes,
+		nullString(artifact.ReleaseNotes),
+		nullTime(artifact.PublishedAt),
+		nullTime(artifact.DownloadedAt),
+		artifact.CreatedAt,
+		artifact.UpdatedAt,
+	)
+	return err
+}
+
+// GetReleaseArtifact returns the cached artifact metadata for the requested tuple.
+func (s *SQLiteStore) GetReleaseArtifact(ctx context.Context, component, version, platform, arch string) (*ReleaseArtifact, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, component, version, platform, arch, channel, source_url,
+		       cache_path, sha256, size_bytes, release_notes, published_at,
+		       downloaded_at, created_at, updated_at
+		FROM release_artifacts
+		WHERE component = ? AND version = ? AND platform = ? AND arch = ?
+	`, component, version, platform, arch)
+	return scanReleaseArtifact(row)
+}
+
+// ListReleaseArtifacts lists cached artifacts for a component ordered by recency.
+func (s *SQLiteStore) ListReleaseArtifacts(ctx context.Context, component string, limit int) ([]*ReleaseArtifact, error) {
+	query := `
+		SELECT id, component, version, platform, arch, channel, source_url,
+		       cache_path, sha256, size_bytes, release_notes, published_at,
+		       downloaded_at, created_at, updated_at
+		FROM release_artifacts
+		WHERE (? = '' OR component = ?)
+		ORDER BY created_at DESC, version DESC
+	`
+	var rows *sql.Rows
+	var err error
+	if limit > 0 {
+		query += " LIMIT ?"
+		rows, err = s.db.QueryContext(ctx, query, component, component, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, query, component, component)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var artifacts []*ReleaseArtifact
+	for rows.Next() {
+		artifact, serr := scanReleaseArtifact(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	return artifacts, rows.Err()
+}
+
+func scanReleaseArtifact(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*ReleaseArtifact, error) {
+	var (
+		id                   int64
+		component            string
+		version              string
+		platform             string
+		arch                 string
+		channel              string
+		sourceURL            string
+		cachePath            sql.NullString
+		sha                  sql.NullString
+		sizeBytes            int64
+		releaseNotes         sql.NullString
+		publishedAt          sql.NullTime
+		downloadedAt         sql.NullTime
+		createdAt, updatedAt time.Time
+	)
+
+	if err := scanner.Scan(&id, &component, &version, &platform, &arch, &channel, &sourceURL,
+		&cachePath, &sha, &sizeBytes, &releaseNotes, &publishedAt, &downloadedAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+
+	artifact := &ReleaseArtifact{
+		ID:        id,
+		Component: component,
+		Version:   version,
+		Platform:  platform,
+		Arch:      arch,
+		Channel:   channel,
+		SourceURL: sourceURL,
+		SizeBytes: sizeBytes,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	}
+	if cachePath.Valid {
+		artifact.CachePath = cachePath.String
+	}
+	if sha.Valid {
+		artifact.SHA256 = sha.String
+	}
+	if releaseNotes.Valid {
+		artifact.ReleaseNotes = releaseNotes.String
+	}
+	if publishedAt.Valid {
+		artifact.PublishedAt = publishedAt.Time
+	}
+	if downloadedAt.Valid {
+		artifact.DownloadedAt = downloadedAt.Time
+	}
+	return artifact, nil
+}
+
+// CreateSigningKey persists a new signing key record.
+func (s *SQLiteStore) CreateSigningKey(ctx context.Context, key *SigningKey) error {
+	if key == nil {
+		return fmt.Errorf("signing key cannot be nil")
+	}
+	if key.ID == "" || key.Algorithm == "" {
+		return fmt.Errorf("signing key id and algorithm required")
+	}
+	if key.PublicKey == "" || key.PrivateKey == "" {
+		return fmt.Errorf("signing key material incomplete")
+	}
+	if key.CreatedAt.IsZero() {
+		key.CreatedAt = time.Now().UTC()
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO signing_keys (id, algorithm, public_key, private_key, notes, active, created_at, rotated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		key.ID,
+		key.Algorithm,
+		key.PublicKey,
+		key.PrivateKey,
+		nullString(key.Notes),
+		boolToInt(key.Active),
+		key.CreatedAt,
+		nullTime(key.RotatedAt),
+	)
+	return err
+}
+
+// GetSigningKey loads key metadata (including private material) by id.
+func (s *SQLiteStore) GetSigningKey(ctx context.Context, id string) (*SigningKey, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at
+		FROM signing_keys WHERE id = ?
+	`, id)
+	return scanSigningKey(row)
+}
+
+// GetActiveSigningKey retrieves the currently active signing key.
+func (s *SQLiteStore) GetActiveSigningKey(ctx context.Context) (*SigningKey, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at
+		FROM signing_keys WHERE active = 1 LIMIT 1
+	`)
+	return scanSigningKey(row)
+}
+
+// ListSigningKeys returns signing key metadata ordered by creation recency.
+func (s *SQLiteStore) ListSigningKeys(ctx context.Context, limit int) ([]*SigningKey, error) {
+	query := `
+		SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at
+		FROM signing_keys
+		ORDER BY created_at DESC
+	`
+	var rows *sql.Rows
+	var err error
+	if limit > 0 {
+		query += " LIMIT ?"
+		rows, err = s.db.QueryContext(ctx, query, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, query)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []*SigningKey
+	for rows.Next() {
+		key, serr := scanSigningKey(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+// SetSigningKeyActive marks the provided key as active and deactivates others.
+func (s *SQLiteStore) SetSigningKeyActive(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("signing key id required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE signing_keys
+		SET active = 0, rotated_at = CASE WHEN rotated_at IS NULL THEN CURRENT_TIMESTAMP ELSE rotated_at END
+		WHERE active = 1 AND id != ?
+	`, id); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE signing_keys
+		SET active = 1, rotated_at = NULL
+		WHERE id = ?
+	`, id)
+	if err != nil {
+		return err
+	}
+	affected, aerr := result.RowsAffected()
+	if aerr != nil {
+		return aerr
+	}
+	if affected == 0 {
+		return fmt.Errorf("signing key %s not found", id)
+	}
+	return tx.Commit()
+}
+
+// UpsertReleaseManifest stores the signed manifest for an artifact tuple.
+func (s *SQLiteStore) UpsertReleaseManifest(ctx context.Context, manifest *ReleaseManifest) error {
+	if manifest == nil {
+		return fmt.Errorf("manifest cannot be nil")
+	}
+	if manifest.Component == "" || manifest.Version == "" || manifest.Platform == "" || manifest.Arch == "" {
+		return fmt.Errorf("manifest identity incomplete")
+	}
+	if manifest.Channel == "" {
+		manifest.Channel = "stable"
+	}
+	if manifest.ManifestVersion == "" || manifest.ManifestJSON == "" || manifest.Signature == "" {
+		return fmt.Errorf("manifest payload incomplete")
+	}
+	if manifest.SigningKeyID == "" {
+		return fmt.Errorf("manifest missing signing key reference")
+	}
+	manifest.UpdatedAt = time.Now().UTC()
+	if manifest.CreatedAt.IsZero() {
+		manifest.CreatedAt = manifest.UpdatedAt
+	}
+	if manifest.GeneratedAt.IsZero() {
+		manifest.GeneratedAt = manifest.UpdatedAt
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO release_manifests (
+			component, version, platform, arch, channel,
+			manifest_version, manifest_json, signature, signing_key_id,
+			generated_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(component, version, platform, arch) DO UPDATE SET
+			channel = excluded.channel,
+			manifest_version = excluded.manifest_version,
+			manifest_json = excluded.manifest_json,
+			signature = excluded.signature,
+			signing_key_id = excluded.signing_key_id,
+			generated_at = excluded.generated_at,
+			updated_at = excluded.updated_at
+	`,
+		manifest.Component,
+		manifest.Version,
+		manifest.Platform,
+		manifest.Arch,
+		manifest.Channel,
+		manifest.ManifestVersion,
+		manifest.ManifestJSON,
+		manifest.Signature,
+		manifest.SigningKeyID,
+		manifest.GeneratedAt,
+		manifest.CreatedAt,
+		manifest.UpdatedAt,
+	)
+	return err
+}
+
+// GetReleaseManifest fetches the manifest envelope for the given artifact tuple.
+func (s *SQLiteStore) GetReleaseManifest(ctx context.Context, component, version, platform, arch string) (*ReleaseManifest, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, component, version, platform, arch, channel,
+		       manifest_version, manifest_json, signature, signing_key_id,
+		       generated_at, created_at, updated_at
+		FROM release_manifests
+		WHERE component = ? AND version = ? AND platform = ? AND arch = ?
+	`, component, version, platform, arch)
+	return scanReleaseManifest(row)
+}
+
+// ListReleaseManifests enumerates manifests optionally filtered by component.
+func (s *SQLiteStore) ListReleaseManifests(ctx context.Context, component string, limit int) ([]*ReleaseManifest, error) {
+	query := `
+		SELECT id, component, version, platform, arch, channel,
+		       manifest_version, manifest_json, signature, signing_key_id,
+		       generated_at, created_at, updated_at
+		FROM release_manifests
+		WHERE (? = '' OR component = ?)
+		ORDER BY generated_at DESC, version DESC
+	`
+	var rows *sql.Rows
+	var err error
+	if limit > 0 {
+		query += " LIMIT ?"
+		rows, err = s.db.QueryContext(ctx, query, component, component, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, query, component, component)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var manifests []*ReleaseManifest
+	for rows.Next() {
+		manifest, serr := scanReleaseManifest(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		manifests = append(manifests, manifest)
+	}
+	return manifests, rows.Err()
+}
+
+func scanSigningKey(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*SigningKey, error) {
+	var (
+		id         string
+		algorithm  string
+		publicKey  string
+		privateKey string
+		notes      sql.NullString
+		active     int
+		createdAt  time.Time
+		rotatedAt  sql.NullTime
+	)
+	if err := scanner.Scan(&id, &algorithm, &publicKey, &privateKey, &notes, &active, &createdAt, &rotatedAt); err != nil {
+		return nil, err
+	}
+	key := &SigningKey{
+		ID:         id,
+		Algorithm:  algorithm,
+		PublicKey:  publicKey,
+		PrivateKey: privateKey,
+		Active:     active == 1,
+		CreatedAt:  createdAt,
+	}
+	if notes.Valid {
+		key.Notes = notes.String
+	}
+	if rotatedAt.Valid {
+		key.RotatedAt = rotatedAt.Time
+	}
+	return key, nil
+}
+
+func scanReleaseManifest(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*ReleaseManifest, error) {
+	var (
+		id              int64
+		component       string
+		version         string
+		platform        string
+		arch            string
+		channel         string
+		manifestVersion string
+		manifestJSON    string
+		signature       string
+		signingKeyID    string
+		generatedAt     time.Time
+		createdAt       time.Time
+		updatedAt       time.Time
+	)
+	if err := scanner.Scan(&id, &component, &version, &platform, &arch, &channel,
+		&manifestVersion, &manifestJSON, &signature, &signingKeyID,
+		&generatedAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	return &ReleaseManifest{
+		ID:              id,
+		Component:       component,
+		Version:         version,
+		Platform:        platform,
+		Arch:            arch,
+		Channel:         channel,
+		ManifestVersion: manifestVersion,
+		ManifestJSON:    manifestJSON,
+		Signature:       signature,
+		SigningKeyID:    signingKeyID,
+		GeneratedAt:     generatedAt,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
+	}, nil
 }
 
 // Close closes the database connection

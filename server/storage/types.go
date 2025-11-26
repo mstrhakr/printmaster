@@ -324,6 +324,21 @@ type Store interface {
 	UpsertFleetUpdatePolicy(ctx context.Context, policy *FleetUpdatePolicy) error
 	DeleteFleetUpdatePolicy(ctx context.Context, tenantID string) error
 	ListFleetUpdatePolicies(ctx context.Context) ([]*FleetUpdatePolicy, error)
+
+	// Release intake & caching
+	UpsertReleaseArtifact(ctx context.Context, artifact *ReleaseArtifact) error
+	GetReleaseArtifact(ctx context.Context, component, version, platform, arch string) (*ReleaseArtifact, error)
+	ListReleaseArtifacts(ctx context.Context, component string, limit int) ([]*ReleaseArtifact, error)
+
+	// Release manifest signing
+	CreateSigningKey(ctx context.Context, key *SigningKey) error
+	GetSigningKey(ctx context.Context, id string) (*SigningKey, error)
+	GetActiveSigningKey(ctx context.Context) (*SigningKey, error)
+	ListSigningKeys(ctx context.Context, limit int) ([]*SigningKey, error)
+	SetSigningKeyActive(ctx context.Context, id string) error
+	UpsertReleaseManifest(ctx context.Context, manifest *ReleaseManifest) error
+	GetReleaseManifest(ctx context.Context, component, version, platform, arch string) (*ReleaseManifest, error)
+	ListReleaseManifests(ctx context.Context, component string, limit int) ([]*ReleaseManifest, error)
 }
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.
@@ -341,4 +356,52 @@ type TenantSettingsRecord struct {
 	Overrides     map[string]interface{} `json:"overrides"`
 	UpdatedAt     time.Time              `json:"updated_at"`
 	UpdatedBy     string                 `json:"updated_by,omitempty"`
+}
+
+// ReleaseArtifact captures cached release metadata and on-disk artifact state.
+type ReleaseArtifact struct {
+	ID           int64     `json:"id"`
+	Component    string    `json:"component"`
+	Version      string    `json:"version"`
+	Platform     string    `json:"platform"`
+	Arch         string    `json:"arch"`
+	Channel      string    `json:"channel"`
+	SourceURL    string    `json:"source_url"`
+	CachePath    string    `json:"cache_path"`
+	SHA256       string    `json:"sha256"`
+	SizeBytes    int64     `json:"size_bytes"`
+	ReleaseNotes string    `json:"release_notes"`
+	PublishedAt  time.Time `json:"published_at"`
+	DownloadedAt time.Time `json:"downloaded_at"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// SigningKey captures an Ed25519 key pair used for manifest signing.
+type SigningKey struct {
+	ID         string    `json:"id"`
+	Algorithm  string    `json:"algorithm"`
+	PublicKey  string    `json:"public_key"`
+	PrivateKey string    `json:"-"`
+	Notes      string    `json:"notes,omitempty"`
+	Active     bool      `json:"active"`
+	CreatedAt  time.Time `json:"created_at"`
+	RotatedAt  time.Time `json:"rotated_at,omitempty"`
+}
+
+// ReleaseManifest represents the signed manifest payload for a cached artifact.
+type ReleaseManifest struct {
+	ID              int64     `json:"id"`
+	Component       string    `json:"component"`
+	Version         string    `json:"version"`
+	Platform        string    `json:"platform"`
+	Arch            string    `json:"arch"`
+	Channel         string    `json:"channel"`
+	ManifestVersion string    `json:"manifest_version"`
+	ManifestJSON    string    `json:"manifest_json"`
+	Signature       string    `json:"signature"`
+	SigningKeyID    string    `json:"signing_key_id"`
+	GeneratedAt     time.Time `json:"generated_at"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
