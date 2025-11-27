@@ -85,3 +85,15 @@ func normalizeAutoUpdateMode(value string) updatepolicy.AgentOverrideMode {
 		return updatepolicy.AgentOverrideInherit
 	}
 }
+
+// GetAutoUpdateMode returns the current override mode.
+// Implements autoupdate.AutoUpdateConfigProvider.
+func (cfg AutoUpdateConfig) GetAutoUpdateMode() updatepolicy.AgentOverrideMode {
+	return normalizeAutoUpdateMode(string(cfg.Mode))
+}
+
+// GetLocalPolicy returns the local policy spec.
+// Implements autoupdate.AutoUpdateConfigProvider.
+func (cfg AutoUpdateConfig) GetLocalPolicy() updatepolicy.PolicySpec {
+	return clonePolicySpec(cfg.LocalPolicy)
+}

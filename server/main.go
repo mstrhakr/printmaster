@@ -2356,6 +2356,11 @@ func setupRoutes(cfg *Config) {
 		handleAgentWebSocket(w, r, serverStore)
 	})
 
+	// Agent update endpoints (authenticated by agent token)
+	http.HandleFunc("/api/v1/agents/update/manifest", requireAuth(handleAgentUpdateManifest))
+	http.HandleFunc("/api/v1/agents/update/download/", requireAuth(handleAgentUpdateDownload))
+	http.HandleFunc("/api/v1/agents/update/telemetry", requireAuth(handleAgentUpdateTelemetry))
+
 	// Tenancy & join-token routes. The register-with-token path must remain
 	// available even if admins disable tenancy, so register routes always and
 	// let the package guard admin handlers via SetEnabled.
@@ -5180,4 +5185,175 @@ func removeEmptyInstallerDirs(cacheDir string) int {
 		}
 	}
 	return removed
+}
+
+// handleAgentUpdateManifest returns the latest update manifest for the requesting agent.
+func handleAgentUpdateManifest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		AgentID   string `json:"agent_id"`
+		Component string `json:"component"`
+		Platform  string `json:"platform"`
+		Arch      string `json:"arch"`
+		Channel   string `json:"channel"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Component == "" {
+		req.Component = "agent"
+	}
+	if req.Channel == "" {
+		req.Channel = "stable"
+	}
+
+	// Fetch matching manifest from release manager
+	if releaseManager == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": "release manager not initialized",
+		})
+		return
+	}
+
+	manifest, err := releaseManager.GetLatestManifest(r.Context(), req.Component, req.Platform, req.Arch, req.Channel)
+	if err != nil {
+		logWarn("Failed to get agent update manifest", "error", err, "component", req.Component, "platform", req.Platform)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	// Add download URL if not present
+	if manifest != nil && manifest.DownloadURL == "" {
+		manifest.DownloadURL = fmt.Sprintf("/api/v1/agents/update/download/%s/%s/%s-%s",
+			manifest.Component, manifest.Version, manifest.Platform, manifest.Arch)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"manifest": manifest,
+	})
+}
+
+// handleAgentUpdateDownload streams the update artifact to the agent.
+// Supports HTTP Range requests for resumable downloads.
+// URL pattern: /api/v1/agents/update/download/{component}/{version}/{platform}-{arch}
+func handleAgentUpdateDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse URL: /api/v1/agents/update/download/{component}/{version}/{platform}-{arch}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/agents/update/download/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 3 {
+		http.Error(w, "invalid download path", http.StatusBadRequest)
+		return
+	}
+
+	component := parts[0]
+	version := parts[1]
+	platformArch := parts[2]
+
+	// Split platform-arch
+	dashIdx := strings.LastIndex(platformArch, "-")
+	if dashIdx <= 0 {
+		http.Error(w, "invalid platform-arch format", http.StatusBadRequest)
+		return
+	}
+	platform := platformArch[:dashIdx]
+	arch := platformArch[dashIdx+1:]
+
+	// Get artifact from release manager
+	if releaseManager == nil {
+		http.Error(w, "release manager not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	artifact, err := serverStore.GetReleaseArtifact(r.Context(), component, version, platform, arch)
+	if err != nil {
+		logWarn("Agent update artifact not found", "component", component, "version", version, "platform", platform, "arch", arch, "error", err)
+		http.Error(w, "artifact not found", http.StatusNotFound)
+		return
+	}
+
+	if artifact.CachePath == "" {
+		http.Error(w, "artifact not cached", http.StatusServiceUnavailable)
+		return
+	}
+
+	file, err := os.Open(artifact.CachePath)
+	if err != nil {
+		logWarn("Failed to open artifact cache", "path", artifact.CachePath, "error", err)
+		http.Error(w, "artifact unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, "failed to stat artifact", http.StatusInternalServerError)
+		return
+	}
+
+	// Determine filename for Content-Disposition
+	filename := filepath.Base(artifact.CachePath)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("Content-Type", "application/octet-stream")
+
+	// ServeContent handles Range requests automatically
+	http.ServeContent(w, r, filename, info.ModTime(), file)
+}
+
+// handleAgentUpdateTelemetry receives update progress/status reports from agents.
+func handleAgentUpdateTelemetry(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		AgentID        string                 `json:"agent_id"`
+		RunID          string                 `json:"run_id,omitempty"`
+		Status         string                 `json:"status"`
+		CurrentVersion string                 `json:"current_version"`
+		TargetVersion  string                 `json:"target_version,omitempty"`
+		ErrorCode      string                 `json:"error_code,omitempty"`
+		ErrorMessage   string                 `json:"error_message,omitempty"`
+		Timestamp      time.Time              `json:"timestamp"`
+		Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Log telemetry for monitoring/alerting
+	logInfo("Agent update telemetry",
+		"agent_id", req.AgentID,
+		"status", req.Status,
+		"current_version", req.CurrentVersion,
+		"target_version", req.TargetVersion,
+		"error_code", req.ErrorCode,
+	)
+
+	// TODO: Store telemetry for dashboards/reporting
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+	})
 }

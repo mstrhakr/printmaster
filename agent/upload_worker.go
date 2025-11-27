@@ -83,6 +83,14 @@ func (w *UploadWorker) Status() UploadWorkerStatus {
 	return status
 }
 
+// Client returns the underlying ServerClient for reuse by other subsystems.
+func (w *UploadWorker) Client() *agent.ServerClient {
+	if w == nil {
+		return nil
+	}
+	return w.client
+}
+
 func (w *UploadWorker) currentSettingsVersion() string {
 	if w.settings == nil {
 		return ""
