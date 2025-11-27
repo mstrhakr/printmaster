@@ -70,40 +70,12 @@
           </Directory>
         </Directory>
       </Directory>
-      <Directory Id="ProgramMenuFolder">
-        <Directory Id="PMProgramMenu" Name="PrintMaster">
-          <Component Id="AgentShortcuts" Guid="{5C7C8A44-22E0-41CE-AEFC-6381B72DD0D2}" Win64="yes">
-            <Shortcut Id="StartAgentShortcut"
-                      Directory="PMProgramMenu"
-                      Name="Start PrintMaster Agent"
-                      Description="Start the PrintMaster Agent service"
-                      Target="[INSTALLDIR]printmaster-agent.exe"
-                      Arguments="--service start"
-                      WorkingDirectory="INSTALLDIR" />
-            <Shortcut Id="StopAgentShortcut"
-                      Directory="PMProgramMenu"
-                      Name="Stop PrintMaster Agent"
-                      Description="Stop the PrintMaster Agent service"
-                      Target="[INSTALLDIR]printmaster-agent.exe"
-                      Arguments="--service stop"
-                      WorkingDirectory="INSTALLDIR" />
-            <RemoveFolder Id="RemovePMProgramMenu" On="uninstall" />
-            <RegistryValue Root="HKLM"
-                           Key="Software\PrintMaster\Installer"
-                           Name="Shortcuts"
-                           Type="integer"
-                           Value="1"
-                           KeyPath="yes" />
-          </Component>
-        </Directory>
-      </Directory>
     </Directory>
 
     <Feature Id="AgentFeature" Title="PrintMaster Agent" Level="1" Absent="disallow">
       <ComponentRef Id="AgentBinaryComponent" />
       <ComponentRef Id="BootstrapFiles" />
       <ComponentRef Id="AgentDataDirs" />
-      <ComponentRef Id="AgentShortcuts" />
     </Feature>
   </Product>
 </Wix>
