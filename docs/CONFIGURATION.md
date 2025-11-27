@@ -114,6 +114,18 @@ All responses return the persisted policy plus metadata (tenant id and
 `updated_at`). A `404` indicates that the tenant has not configured a fleet
 policy and agents will fall back to their local override.
 
+### Server Self-Update Controls
+
+The server binary now exposes a `server.self_update_enabled` flag (default
+`true`) that allows future self-update workers to download and stage signed
+builds. Set this to `false` in `server/config.toml` or via the
+`SERVER_SELF_UPDATE_ENABLED` environment variable to keep the feature disabled.
+
+For deployment models where the process should never attempt to update itself
+— such as Docker or orchestrated services — set the environment variable
+`PM_DISABLE_SELFUPDATE=true`. That env guard is evaluated at runtime and takes
+priority over configuration files.
+
 ## Settings via UI
 
 Most users should configure settings through the web UI:

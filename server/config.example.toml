@@ -17,6 +17,9 @@
   # Bind address (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
   bind_address = "0.0.0.0"
 
+  # Allow the server to download and stage signed updates when supported
+  self_update_enabled = true
+
 [security]
   # Enable authentication rate limiting to block brute force attacks
   rate_limit_enabled = true

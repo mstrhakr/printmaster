@@ -29,7 +29,7 @@ type SQLiteStore struct {
 	dbPath string
 }
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 // Optional package-level logger that can be set by the application (server)
 var Log *logger.Logger
@@ -459,6 +459,28 @@ func (s *SQLiteStore) initSchema() error {
 
 	       CREATE INDEX IF NOT EXISTS idx_installer_bundles_tenant ON installer_bundles(tenant_id);
 	       CREATE INDEX IF NOT EXISTS idx_installer_bundles_expires ON installer_bundles(expires_at);
+
+	CREATE TABLE IF NOT EXISTS self_update_runs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		status TEXT NOT NULL,
+		requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		started_at DATETIME,
+		completed_at DATETIME,
+		current_version TEXT,
+		target_version TEXT,
+		channel TEXT NOT NULL DEFAULT 'stable',
+		platform TEXT,
+		arch TEXT,
+		release_artifact_id INTEGER,
+		error_code TEXT,
+		error_message TEXT,
+		metadata_json TEXT,
+		requested_by TEXT,
+		FOREIGN KEY(release_artifact_id) REFERENCES release_artifacts(id) ON DELETE SET NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_self_update_runs_requested_at ON self_update_runs(requested_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_self_update_runs_status ON self_update_runs(status);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -928,6 +950,29 @@ func nullInt64(v int64) sql.NullInt64 {
 		return sql.NullInt64{Valid: false}
 	}
 	return sql.NullInt64{Int64: v, Valid: true}
+}
+
+func encodeMetadata(meta map[string]any) (sql.NullString, error) {
+	if len(meta) == 0 {
+		return sql.NullString{Valid: false}, nil
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return sql.NullString{}, fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+	return sql.NullString{String: string(data), Valid: true}, nil
+}
+
+func decodeMetadata(raw sql.NullString) map[string]any {
+	if !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return nil
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(raw.String), &meta); err != nil {
+		logWarn("Failed to decode self-update metadata", "error", err)
+		return nil
+	}
+	return meta
 }
 
 func (s *SQLiteStore) backfillUserTenantMappings() {
@@ -3468,6 +3513,148 @@ func (s *SQLiteStore) DeleteExpiredInstallerBundles(ctx context.Context, cutoff 
 	return result.RowsAffected()
 }
 
+// CreateSelfUpdateRun persists a new self-update run record.
+func (s *SQLiteStore) CreateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun) error {
+	if run == nil {
+		return fmt.Errorf("self-update run cannot be nil")
+	}
+	if run.Status == "" {
+		run.Status = SelfUpdateStatusPending
+	}
+	if run.Channel == "" {
+		run.Channel = "stable"
+	}
+	if run.RequestedAt.IsZero() {
+		run.RequestedAt = time.Now().UTC()
+	}
+	metaJSON, err := encodeMetadata(run.Metadata)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO self_update_runs (
+			status, requested_at, started_at, completed_at,
+			current_version, target_version, channel, platform, arch,
+			release_artifact_id, error_code, error_message, metadata_json, requested_by
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		string(run.Status),
+		run.RequestedAt,
+		nullTime(run.StartedAt),
+		nullTime(run.CompletedAt),
+		run.CurrentVersion,
+		run.TargetVersion,
+		run.Channel,
+		run.Platform,
+		run.Arch,
+		nullInt64(run.ReleaseArtifactID),
+		nullString(run.ErrorCode),
+		nullString(run.ErrorMessage),
+		metaJSON,
+		nullString(run.RequestedBy),
+	)
+	if err != nil {
+		return err
+	}
+	if id, err := result.LastInsertId(); err == nil {
+		run.ID = id
+	}
+	return nil
+}
+
+// UpdateSelfUpdateRun updates an existing run record.
+func (s *SQLiteStore) UpdateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun) error {
+	if run == nil {
+		return fmt.Errorf("self-update run cannot be nil")
+	}
+	if run.ID == 0 {
+		return fmt.Errorf("self-update run id required")
+	}
+	if run.Channel == "" {
+		run.Channel = "stable"
+	}
+	metaJSON, err := encodeMetadata(run.Metadata)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		UPDATE self_update_runs SET
+			status = ?,
+			started_at = ?,
+			completed_at = ?,
+			current_version = ?,
+			target_version = ?,
+			channel = ?,
+			platform = ?,
+			arch = ?,
+			release_artifact_id = ?,
+			error_code = ?,
+			error_message = ?,
+			metadata_json = ?,
+			requested_by = ?
+		WHERE id = ?
+	`,
+		string(run.Status),
+		nullTime(run.StartedAt),
+		nullTime(run.CompletedAt),
+		run.CurrentVersion,
+		run.TargetVersion,
+		run.Channel,
+		run.Platform,
+		run.Arch,
+		nullInt64(run.ReleaseArtifactID),
+		nullString(run.ErrorCode),
+		nullString(run.ErrorMessage),
+		metaJSON,
+		nullString(run.RequestedBy),
+		run.ID,
+	)
+	return err
+}
+
+// GetSelfUpdateRun returns a single self-update run by id.
+func (s *SQLiteStore) GetSelfUpdateRun(ctx context.Context, id int64) (*SelfUpdateRun, error) {
+	if id == 0 {
+		return nil, fmt.Errorf("self-update run id required")
+	}
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, status, requested_at, started_at, completed_at,
+		       current_version, target_version, channel, platform, arch,
+		       release_artifact_id, error_code, error_message, metadata_json, requested_by
+		FROM self_update_runs
+		WHERE id = ?
+	`, id)
+	return scanSelfUpdateRun(row)
+}
+
+// ListSelfUpdateRuns returns the most recent self-update runs.
+func (s *SQLiteStore) ListSelfUpdateRuns(ctx context.Context, limit int) ([]*SelfUpdateRun, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, status, requested_at, started_at, completed_at,
+		       current_version, target_version, channel, platform, arch,
+		       release_artifact_id, error_code, error_message, metadata_json, requested_by
+		FROM self_update_runs
+		ORDER BY requested_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var runs []*SelfUpdateRun
+	for rows.Next() {
+		run, serr := scanSelfUpdateRun(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
 func scanInstallerBundle(scanner interface {
 	Scan(dest ...interface{}) error
 }) (*InstallerBundle, error) {
@@ -3521,6 +3708,62 @@ func scanInstallerBundle(scanner interface {
 		bundle.ExpiresAt = expiresAt.Time
 	}
 	return bundle, nil
+}
+
+func scanSelfUpdateRun(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*SelfUpdateRun, error) {
+	var (
+		id                int64
+		status            string
+		requestedAt       time.Time
+		startedAt         sql.NullTime
+		completedAt       sql.NullTime
+		currentVersion    sql.NullString
+		targetVersion     sql.NullString
+		channel           sql.NullString
+		platform          sql.NullString
+		arch              sql.NullString
+		releaseArtifactID sql.NullInt64
+		errorCode         sql.NullString
+		errorMessage      sql.NullString
+		metadataJSON      sql.NullString
+		requestedBy       sql.NullString
+	)
+	if err := scanner.Scan(&id, &status, &requestedAt, &startedAt, &completedAt, &currentVersion, &targetVersion, &channel, &platform, &arch, &releaseArtifactID, &errorCode, &errorMessage, &metadataJSON, &requestedBy); err != nil {
+		return nil, err
+	}
+	run := &SelfUpdateRun{
+		ID:             id,
+		Status:         SelfUpdateStatus(status),
+		RequestedAt:    requestedAt,
+		CurrentVersion: currentVersion.String,
+		TargetVersion:  targetVersion.String,
+		Channel:        channel.String,
+		Platform:       platform.String,
+		Arch:           arch.String,
+		Metadata:       decodeMetadata(metadataJSON),
+		RequestedBy:    requestedBy.String,
+	}
+	if startedAt.Valid {
+		run.StartedAt = startedAt.Time
+	}
+	if completedAt.Valid {
+		run.CompletedAt = completedAt.Time
+	}
+	if releaseArtifactID.Valid {
+		run.ReleaseArtifactID = releaseArtifactID.Int64
+	}
+	if errorCode.Valid {
+		run.ErrorCode = errorCode.String
+	}
+	if errorMessage.Valid {
+		run.ErrorMessage = errorMessage.String
+	}
+	if !requestedBy.Valid {
+		run.RequestedBy = ""
+	}
+	return run, nil
 }
 
 // Close closes the database connection

@@ -72,14 +72,24 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - [ ] Surface "Download installer" button in server UI referencing those endpoints.
 - [ ] Add and validate tests for this phase.
 
+**Phase 3 Notes:**
+- Packager manager scaffolding is in place with cache TTL enforcement, builder registry, and encryption-at-rest. Remaining work covers config injection, fleet-aware repackaging, API surface, and UI hooks.
+
 ### Phase 4 – Server Self-Update (Non-Docker)
 
-- [ ] Add component that checks for new server version respecting target minor.
-- [ ] Download + verify manifest/hash, stage binary, back up current version.
-- [ ] Integrate with Windows service + Linux systemd to perform controlled restart and rollback on failure.
-- [ ] Detect Docker environments and disable automated self-update, displaying guidance instead.
-- [ ] Record and expose self-update history/status in UI/logs.
-- [ ] Add and validate tests for this phase.
+- [x] Add component that checks for new server version respecting target minor. *(Target-minor enforcement still TODO; current implementation compares semantic versions and records skipped/pending runs.)*
+- [x] Download + verify manifest/hash, stage binary, back up current version.
+- [x] Integrate with Windows service + Linux systemd to perform controlled restart and rollback on failure.
+- [x] Detect Docker environments and disable automated self-update, displaying guidance instead.
+- [x] Record and expose self-update history/status in UI/logs.
+- [x] Add and validate tests for this phase.
+
+**Phase 4 Notes:**
+- `selfupdate.Manager` now creates `self_update_runs` records each tick, evaluates cached release artifacts (platform/channel aware), stages newer versions by copying the cached artifact into a run-scoped staging directory, validates the SHA-256 from the manifest, and keeps a backup of the current binary for rollback.
+- Runtime detection now skips self-update work inside container/CI environments so Docker users continue to follow image-based upgrades.
+- A detached helper binary is spawned with a signed instruction file to stop the Windows service or systemd unit, replace the on-disk binary, restart it, and roll back to the backup if the restart fails. Helper runs record success/failure back into `self_update_runs` so history is persisted automatically.
+- Self-update history is exposed via `GET /api/v1/selfupdate/runs` and displayed in the Settings > Updates panel in the server UI.
+- Tests cover candidate selection, staging/backup flows, container skips, and the new apply-launch handoff.
 
 ### Phase 5 – Agent Auto-Update Worker
 

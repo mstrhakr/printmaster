@@ -147,6 +147,7 @@
                     <button class="subtab settings-subtab active" data-settingsview="server">Server Settings</button>
                     <button class="subtab settings-subtab" data-settingsview="sso">SSO Settings</button>
                     <button class="subtab settings-subtab" data-settingsview="fleet">Fleet Settings</button>
+                    <button class="subtab settings-subtab" data-settingsview="updates">Updates</button>
                 </div>
 
                 <div class="settings-view-panel" data-settingsview-panel="server">
@@ -212,6 +213,28 @@
                         <div class="panel" id="settings_summary_panel">
                             <h4 style="margin-top:0;color:var(--highlight);">Override Summary</h4>
                             <div id="settings_override_list" class="muted-text">Select a tenant to view overrides.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-view-panel hidden" data-settingsview-panel="updates">
+                    <div class="panel">
+                        <h4 style="margin-top:0;color:var(--highlight)">Server Updates</h4>
+                        
+                        <!-- Status Card -->
+                        <div id="selfupdate_status_card" class="card" style="padding:12px;margin-bottom:16px;">
+                            <div class="muted-text">Loading status…</div>
+                        </div>
+
+                        <!-- History Section -->
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                            <div style="font-weight:600;font-size:14px;">Update History</div>
+                            <div style="display:flex;gap:8px;">
+                                <button id="selfupdate_refresh_btn" class="ghost-btn">Refresh</button>
+                            </div>
+                        </div>
+                        <div id="selfupdate_runs_container" class="card" style="padding:12px;overflow:auto;">
+                            <div class="muted-text">Loading update history…</div>
                         </div>
                     </div>
                 </div>

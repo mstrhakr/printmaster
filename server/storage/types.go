@@ -347,6 +347,12 @@ type Store interface {
 	ListInstallerBundles(ctx context.Context, tenantID string, limit int) ([]*InstallerBundle, error)
 	DeleteInstallerBundle(ctx context.Context, id int64) error
 	DeleteExpiredInstallerBundles(ctx context.Context, cutoff time.Time) (int64, error)
+
+	// Self-update tracking
+	CreateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun) error
+	UpdateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun) error
+	GetSelfUpdateRun(ctx context.Context, id int64) (*SelfUpdateRun, error)
+	ListSelfUpdateRuns(ctx context.Context, limit int) ([]*SelfUpdateRun, error)
 }
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.
@@ -433,4 +439,37 @@ type InstallerBundle struct {
 	ExpiresAt        time.Time `json:"expires_at"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// SelfUpdateStatus enumerates lifecycle stages for server self-update attempts.
+type SelfUpdateStatus string
+
+const (
+	SelfUpdateStatusPending     SelfUpdateStatus = "pending"
+	SelfUpdateStatusChecking    SelfUpdateStatus = "checking"
+	SelfUpdateStatusDownloading SelfUpdateStatus = "downloading"
+	SelfUpdateStatusStaging     SelfUpdateStatus = "staging"
+	SelfUpdateStatusApplying    SelfUpdateStatus = "applying"
+	SelfUpdateStatusSucceeded   SelfUpdateStatus = "succeeded"
+	SelfUpdateStatusFailed      SelfUpdateStatus = "failed"
+	SelfUpdateStatusSkipped     SelfUpdateStatus = "skipped"
+)
+
+// SelfUpdateRun tracks each self-update attempt or evaluation performed by the server.
+type SelfUpdateRun struct {
+	ID                int64            `json:"id"`
+	Status            SelfUpdateStatus `json:"status"`
+	RequestedAt       time.Time        `json:"requested_at"`
+	StartedAt         time.Time        `json:"started_at"`
+	CompletedAt       time.Time        `json:"completed_at"`
+	CurrentVersion    string           `json:"current_version"`
+	TargetVersion     string           `json:"target_version"`
+	Channel           string           `json:"channel"`
+	Platform          string           `json:"platform"`
+	Arch              string           `json:"arch"`
+	ReleaseArtifactID int64            `json:"release_artifact_id"`
+	ErrorCode         string           `json:"error_code"`
+	ErrorMessage      string           `json:"error_message"`
+	Metadata          map[string]any   `json:"metadata"`
+	RequestedBy       string           `json:"requested_by"`
 }

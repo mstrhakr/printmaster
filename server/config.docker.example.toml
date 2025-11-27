@@ -18,6 +18,9 @@
   # Bind to all interfaces (required for Docker)
   bind_address = "0.0.0.0"
 
+  # Containers rely on orchestrators for upgrades, keep this disabled
+  self_update_enabled = false
+
 [security]
   # Enable authentication rate limiting
   rate_limit_enabled = true

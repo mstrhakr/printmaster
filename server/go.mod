@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/coreos/go-oidc/v3 v3.16.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/Masterminds/semver v1.4.2
 	github.com/kardianos/service v1.2.4
 	golang.org/x/crypto v0.43.0
 	golang.org/x/oauth2 v0.33.0
@@ -16,7 +17,6 @@ replace printmaster/common => ../common
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
-	github.com/Masterminds/semver v1.4.2 // indirect
 	github.com/asalih/go-mscfb v0.1.1 // indirect
 	github.com/asalih/go-msi v0.1.1 // indirect
 	github.com/bmatcuk/doublestar v1.1.5 // indirect

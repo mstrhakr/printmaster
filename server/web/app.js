@@ -773,10 +773,11 @@ function initSettingsSubTabs() {
 }
 
 function switchSettingsView(view, force = false) {
-    // valid views: server | fleet | sso
+    // valid views: server | fleet | sso | updates
     let normalized = 'server';
     if (view === 'fleet') normalized = 'fleet';
     else if (view === 'sso') normalized = 'sso';
+    else if (view === 'updates') normalized = 'updates';
     const previous = activeSettingsView;
     activeSettingsView = normalized;
 
@@ -805,6 +806,10 @@ function ensureSettingsViewReady(view) {
     if (view === 'server') {
         // Placeholder: fetch and render server settings into server_settings_container
         loadServerSettings();
+        return;
+    }
+    if (view === 'updates') {
+        loadSelfUpdateRuns();
         return;
     }
     // fleet
@@ -1351,6 +1356,192 @@ function switchTab(targetTab) {
         loadUsers();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Self-Update Runs Panel
+// ---------------------------------------------------------------------------
+let selfUpdateRunsInitialized = false;
+let selfUpdateCheckPending = false;
+
+async function loadSelfUpdateRuns() {
+    const statusCard = document.getElementById('selfupdate_status_card');
+    const runsContainer = document.getElementById('selfupdate_runs_container');
+
+    if (!selfUpdateRunsInitialized) {
+        selfUpdateRunsInitialized = true;
+        const refreshBtn = document.getElementById('selfupdate_refresh_btn');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', () => loadSelfUpdateRuns());
+        }
+    }
+
+    // Load status and runs in parallel
+    try {
+        const [statusResp, runsResp] = await Promise.all([
+            fetchJSON('/api/v1/selfupdate/status').catch(err => ({ error: err.message || err })),
+            fetchJSON('/api/v1/selfupdate/runs').catch(err => ({ error: err.message || err }))
+        ]);
+
+        // Render status card
+        if (statusCard) {
+            renderSelfUpdateStatus(statusCard, statusResp);
+        }
+
+        // Render runs table
+        if (runsContainer) {
+            if (runsResp.error) {
+                runsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load history: ${runsResp.error}</div>`;
+            } else {
+                const runs = Array.isArray(runsResp.runs) ? runsResp.runs : [];
+                renderSelfUpdateRuns(runsContainer, runs);
+            }
+        }
+    } catch (err) {
+        const message = err && err.message ? err.message : err;
+        if (statusCard) {
+            statusCard.innerHTML = `<div style="color:var(--danger);">Failed to load status: ${message}</div>`;
+        }
+        if (runsContainer) {
+            runsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load history: ${message}</div>`;
+        }
+    }
+}
+
+function renderSelfUpdateStatus(container, status) {
+    if (!status || status.error) {
+        container.innerHTML = `<div style="color:var(--danger);">Failed to load status: ${status?.error || 'Unknown error'}</div>`;
+        return;
+    }
+
+    const enabledBadge = status.enabled
+        ? '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:var(--success)20;color:var(--success);">Enabled</span>'
+        : '<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:var(--danger)20;color:var(--danger);">Disabled</span>';
+
+    const checkBtn = status.enabled
+        ? `<button id="selfupdate_check_btn" class="modal-button modal-button-primary" style="padding:6px 12px;">Check for Updates</button>`
+        : '';
+
+    container.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-start;">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-weight:600;">Auto-Update:</span>
+                    ${enabledBadge}
+                </div>
+                ${status.disabled_reason ? `<div style="color:var(--muted);font-size:12px;">Reason: ${status.disabled_reason}</div>` : ''}
+                <div style="display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:var(--muted);">
+                    <span><strong>Version:</strong> ${status.current_version || 'Unknown'}</span>
+                    <span><strong>Channel:</strong> ${status.channel || 'stable'}</span>
+                    <span><strong>Platform:</strong> ${status.platform || '?'}/${status.arch || '?'}</span>
+                    <span><strong>Check Interval:</strong> ${status.check_interval || '?'}</span>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                ${checkBtn}
+            </div>
+        </div>
+    `;
+
+    // Bind check button
+    const btn = document.getElementById('selfupdate_check_btn');
+    if (btn) {
+        btn.addEventListener('click', triggerSelfUpdateCheck);
+    }
+}
+
+async function triggerSelfUpdateCheck() {
+    if (selfUpdateCheckPending) return;
+    selfUpdateCheckPending = true;
+
+    const btn = document.getElementById('selfupdate_check_btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Checking…';
+    }
+
+    try {
+        const resp = await fetch('/api/v1/selfupdate/check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin'
+        });
+        const data = await resp.json().catch(() => ({}));
+
+        if (resp.ok) {
+            showToast('Update check initiated', 'success');
+            // Reload after a short delay to show results
+            setTimeout(() => loadSelfUpdateRuns(), 2000);
+        } else {
+            showToast(data.error || 'Failed to start update check', 'error');
+        }
+    } catch (err) {
+        showToast('Failed to start update check', 'error');
+    } finally {
+        selfUpdateCheckPending = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Check for Updates';
+        }
+    }
+}
+
+function renderSelfUpdateRuns(container, runs) {
+    if (!runs || runs.length === 0) {
+        container.innerHTML = '<div class="muted-text">No update attempts recorded.</div>';
+        return;
+    }
+
+    const statusBadge = (status) => {
+        const colors = {
+            'success': 'var(--success)',
+            'failed': 'var(--danger)',
+            'rollback': 'var(--warn)',
+            'pending': 'var(--muted)',
+            'in_progress': 'var(--highlight)',
+        };
+        const color = colors[status] || 'var(--muted)';
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${color}20;color:${color};">${status}</span>`;
+    };
+
+    const formatTime = (ts) => {
+        if (!ts) return '—';
+        const d = new Date(ts);
+        return d.toLocaleString();
+    };
+
+    const rows = runs.map(run => `
+        <tr>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${formatTime(run.started_at)}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${run.from_version || '—'}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${run.to_version || '—'}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${statusBadge(run.status)}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${run.message || ''}">${run.message || '—'}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${formatTime(run.finished_at)}</td>
+        </tr>
+    `).join('');
+
+    container.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="text-align:left;color:var(--muted);border-bottom:2px solid var(--border);">
+                    <th style="padding:8px;">Started</th>
+                    <th style="padding:8px;">From</th>
+                    <th style="padding:8px;">To</th>
+                    <th style="padding:8px;">Status</th>
+                    <th style="padding:8px;">Message</th>
+                    <th style="padding:8px;">Finished</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+    `;
+}
+
+// ---------------------------------------------------------------------------
+// SSO Admin Integration
+// ---------------------------------------------------------------------------
 
 function logSSOWarning(message, err) {
     if (window.__pm_shared && typeof window.__pm_shared.warn === 'function') {

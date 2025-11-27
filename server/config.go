@@ -39,6 +39,7 @@ type ServerConfig struct {
 	BindAddress         string `toml:"bind_address"`    // Address to bind to (default: 0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
 	AutoApproveAgents   bool   `toml:"auto_approve_agents"`
 	AgentTimeoutMinutes int    `toml:"agent_timeout_minutes"`
+	SelfUpdateEnabled   bool   `toml:"self_update_enabled"`
 }
 
 // SecurityConfig holds security and rate limiting settings
@@ -92,6 +93,7 @@ func DefaultConfig() *Config {
 			BindAddress:         "0.0.0.0", // Bind to all interfaces by default
 			AutoApproveAgents:   false,
 			AgentTimeoutMinutes: 15,
+			SelfUpdateEnabled:   true,
 		},
 		Security: SecurityConfig{
 			RateLimitEnabled:       true, // Enable rate limiting by default
@@ -177,6 +179,10 @@ func LoadConfig(configPath string) (*Config, *ConfigSourceTracker, error) {
 			cfg.Server.AgentTimeoutMinutes = v
 			tracker.EnvKeys["server.agent_timeout_minutes"] = true
 		}
+	}
+	if val := os.Getenv("SERVER_SELF_UPDATE_ENABLED"); val != "" {
+		cfg.Server.SelfUpdateEnabled = val == "true" || val == "1"
+		tracker.EnvKeys["server.self_update_enabled"] = true
 	}
 	if val := os.Getenv("TLS_MODE"); val != "" {
 		cfg.TLS.Mode = val

@@ -34,6 +34,7 @@ import (
 	authz "printmaster/server/authz"
 	"printmaster/server/packager"
 	releases "printmaster/server/releases"
+	selfupdate "printmaster/server/selfupdate"
 	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
@@ -280,6 +281,7 @@ var (
 	serverLogDir        string               // Directory containing server logs for UI fetches
 	configSourceTracker *ConfigSourceTracker // Tracks which keys were set by env vars
 	releaseManager      *releases.Manager
+	selfUpdateManager   *selfupdate.Manager // Self-update manager for server binary updates
 )
 
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
@@ -299,10 +301,19 @@ func main() {
 	flag.BoolVar(quiet, "q", false, "Shorthand for --quiet")
 	silent := flag.Bool("silent", false, "Suppress ALL output (complete silence)")
 	flag.BoolVar(silent, "s", false, "Shorthand for --silent")
+	selfUpdateApply := flag.String("selfupdate-apply", "", "Internal use only: path to self-update instruction")
 
 	// Service management flags
 	svcCommand := flag.String("service", "", "Service command: install, uninstall, start, stop, restart, run")
 	flag.Parse()
+
+	if *selfUpdateApply != "" {
+		if err := selfupdate.RunApplyHelper(*selfUpdateApply); err != nil {
+			fmt.Fprintf(os.Stderr, "Self-update helper failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	// Set quiet/silent mode globally for util functions
 	if *silent {
@@ -584,18 +595,18 @@ func runServer(ctx context.Context, configFlag string) {
 	}
 
 	var (
+		dataDir           string
 		installerCacheDir string
 		installerKeyPath  string
 	)
-	if dataDir, derr := config.GetDataDirectory("server", isService); derr == nil {
-		installerCacheDir = filepath.Join(dataDir, "installers")
-		installerKeyPath = filepath.Join(dataDir, "secrets", "installer.key")
+	if resolvedDir, derr := config.GetDataDirectory("server", isService); derr == nil {
+		dataDir = resolvedDir
 	} else {
-		base := filepath.Join(os.TempDir(), "printmaster")
-		installerCacheDir = filepath.Join(base, "installers")
-		installerKeyPath = filepath.Join(base, "secrets", "installer.key")
-		logDebug("Falling back to temp installer cache", "dir", installerCacheDir, "error", derr)
+		dataDir = filepath.Join(os.TempDir(), "printmaster")
+		logDebug("Falling back to temp data directory", "dir", dataDir, "error", derr)
 	}
+	installerCacheDir = filepath.Join(dataDir, "installers")
+	installerKeyPath = filepath.Join(dataDir, "secrets", "installer.key")
 	packagerManager, err := packager.NewManager(serverStore, serverLogger, packager.ManagerOptions{
 		CacheDir:          installerCacheDir,
 		DefaultTTL:        7 * 24 * time.Hour,
@@ -611,6 +622,25 @@ func runServer(ctx context.Context, configFlag string) {
 		tenancy.SetInstallerPackager(packagerManager)
 		logInfo("Installer packager initialized", "cache_dir", installerCacheDir)
 		startInstallerCleanupWorker(ctx, serverStore, installerCacheDir)
+	}
+
+	if manager, err := selfupdate.NewManager(selfupdate.Options{
+		Store:          serverStore,
+		Log:            serverLogger,
+		DataDir:        dataDir,
+		Enabled:        cfg.Server.SelfUpdateEnabled,
+		CurrentVersion: Version,
+		Component:      "server",
+		Channel:        "stable",
+		Platform:       runtime.GOOS,
+		Arch:           runtime.GOARCH,
+		DatabasePath:   cfg.Database.Path,
+		ServiceName:    getServiceConfig().Name,
+	}); err != nil {
+		logWarn("Self-update manager disabled", "error", err)
+	} else {
+		selfUpdateManager = manager
+		manager.Start(ctx)
 	}
 
 	// Bootstrap initial admin user. Default to ADMIN_USER=admin and ADMIN_PASSWORD=printmaster
@@ -2405,6 +2435,11 @@ func setupRoutes(cfg *Config) {
 		logWarn("Release routes disabled", "reason", "release manager unavailable")
 	}
 
+	// Self-update history endpoint
+	http.HandleFunc("/api/v1/selfupdate/runs", requireWebAuth(handleSelfUpdateRuns))
+	http.HandleFunc("/api/v1/selfupdate/status", requireWebAuth(handleSelfUpdateStatus))
+	http.HandleFunc("/api/v1/selfupdate/check", requireWebAuth(handleSelfUpdateCheck))
+
 	// Server settings (read/write via sanitized API)
 	http.HandleFunc("/api/v1/server/settings", requireWebAuth(handleServerSettings))
 
@@ -4192,6 +4227,77 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
 	w.Write(content)
+}
+
+// handleSelfUpdateRuns returns recent self-update run history
+func handleSelfUpdateRuns(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionLogsRead, authz.ResourceRef{}) {
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	runs, err := serverStore.ListSelfUpdateRuns(r.Context(), limit)
+	if err != nil {
+		logWarn("Failed to list self-update runs", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"runs": runs})
+}
+
+// handleSelfUpdateStatus returns current self-update manager status
+func handleSelfUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		return
+	}
+	var status selfupdate.Status
+	if selfUpdateManager != nil {
+		status = selfUpdateManager.Status()
+	} else {
+		status = selfupdate.Status{
+			Enabled:        false,
+			DisabledReason: "manager not initialized",
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// handleSelfUpdateCheck triggers an immediate update check
+func handleSelfUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+		return
+	}
+	if selfUpdateManager == nil {
+		http.Error(w, "self-update manager not available", http.StatusServiceUnavailable)
+		return
+	}
+	if err := selfUpdateManager.CheckNow(r.Context()); err != nil {
+		logWarn("Self-update check failed", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Update check initiated"})
 }
 
 // Minimal logs handler - returns an array of recent server log lines (best-effort)
