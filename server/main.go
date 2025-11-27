@@ -281,7 +281,8 @@ var (
 	serverLogDir        string               // Directory containing server logs for UI fetches
 	configSourceTracker *ConfigSourceTracker // Tracks which keys were set by env vars
 	releaseManager      *releases.Manager
-	selfUpdateManager   *selfupdate.Manager // Self-update manager for server binary updates
+	intakeWorker        *releases.IntakeWorker // Release intake worker for syncing GitHub releases
+	selfUpdateManager   *selfupdate.Manager    // Self-update manager for server binary updates
 )
 
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
@@ -591,7 +592,8 @@ func runServer(ctx context.Context, configFlag string) {
 	}); err != nil {
 		logWarn("Release intake worker disabled", "error", err)
 	} else {
-		go worker.Run(ctx)
+		intakeWorker = worker
+		go intakeWorker.Run(ctx)
 	}
 
 	var (
@@ -2439,6 +2441,9 @@ func setupRoutes(cfg *Config) {
 	} else {
 		logWarn("Release routes disabled", "reason", "release manager unavailable")
 	}
+
+	// Release sync trigger endpoint
+	http.HandleFunc("/api/v1/releases/sync", requireWebAuth(handleReleasesSync))
 
 	// Self-update history endpoint
 	http.HandleFunc("/api/v1/selfupdate/runs", requireWebAuth(handleSelfUpdateRuns))
@@ -5355,5 +5360,33 @@ func handleAgentUpdateTelemetry(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
+	})
+}
+
+// handleReleasesSync triggers an immediate sync of release artifacts from GitHub.
+func handleReleasesSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if intakeWorker == nil {
+		http.Error(w, "release intake worker not initialized", http.StatusServiceUnavailable)
+		return
+	}
+	if err := intakeWorker.RunOnce(r.Context()); err != nil {
+		logWarn("Release sync failed", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+	logInfo("Release sync completed successfully")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "release sync completed",
 	})
 }
