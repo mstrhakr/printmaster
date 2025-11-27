@@ -2442,8 +2442,9 @@ func setupRoutes(cfg *Config) {
 		logWarn("Release routes disabled", "reason", "release manager unavailable")
 	}
 
-	// Release sync trigger endpoint
+	// Release sync trigger and artifacts list endpoints
 	http.HandleFunc("/api/v1/releases/sync", requireWebAuth(handleReleasesSync))
+	http.HandleFunc("/api/v1/releases/artifacts", requireWebAuth(handleReleasesArtifacts))
 
 	// Self-update history endpoint
 	http.HandleFunc("/api/v1/selfupdate/runs", requireWebAuth(handleSelfUpdateRuns))
@@ -5388,5 +5389,71 @@ func handleReleasesSync(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"message": "release sync completed",
+	})
+}
+
+// handleReleasesArtifacts lists cached release artifacts.
+func handleReleasesArtifacts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	component := r.URL.Query().Get("component")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 50
+	if limitStr != "" {
+		if n, err := strconv.Atoi(limitStr); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	artifacts, err := serverStore.ListReleaseArtifacts(r.Context(), component, limit)
+	if err != nil {
+		logWarn("Failed to list release artifacts", "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": "failed to list artifacts",
+		})
+		return
+	}
+
+	// Build response with sanitized paths (don't expose full server filesystem paths)
+	type artifactResponse struct {
+		ID           int64     `json:"id"`
+		Component    string    `json:"component"`
+		Version      string    `json:"version"`
+		Platform     string    `json:"platform"`
+		Arch         string    `json:"arch"`
+		Channel      string    `json:"channel"`
+		SHA256       string    `json:"sha256"`
+		SizeBytes    int64     `json:"size_bytes"`
+		Cached       bool      `json:"cached"`
+		PublishedAt  time.Time `json:"published_at"`
+		DownloadedAt time.Time `json:"downloaded_at"`
+	}
+
+	resp := make([]artifactResponse, 0, len(artifacts))
+	for _, a := range artifacts {
+		resp = append(resp, artifactResponse{
+			ID:           a.ID,
+			Component:    a.Component,
+			Version:      a.Version,
+			Platform:     a.Platform,
+			Arch:         a.Arch,
+			Channel:      a.Channel,
+			SHA256:       a.SHA256,
+			SizeBytes:    a.SizeBytes,
+			Cached:       a.CachePath != "",
+			PublishedAt:  a.PublishedAt,
+			DownloadedAt: a.DownloadedAt,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"artifacts": resp,
+		"count":     len(resp),
 	})
 }

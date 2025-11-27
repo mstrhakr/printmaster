@@ -237,6 +237,18 @@
                             <div class="muted-text">Loading update history…</div>
                         </div>
                     </div>
+
+                    <div class="panel" style="margin-top:16px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                            <h4 style="margin:0;color:var(--highlight)">Cached Release Artifacts</h4>
+                            <div style="display:flex;gap:8px;">
+                                <button id="releases_sync_btn" class="ghost-btn">Sync from GitHub</button>
+                            </div>
+                        </div>
+                        <div id="releases_artifacts_container" class="card" style="padding:12px;overflow:auto;">
+                            <div class="muted-text">Loading cached artifacts…</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </template>

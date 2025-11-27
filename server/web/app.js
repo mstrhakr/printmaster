@@ -1362,6 +1362,7 @@ function switchTab(targetTab) {
 // ---------------------------------------------------------------------------
 let selfUpdateRunsInitialized = false;
 let selfUpdateCheckPending = false;
+let releasesSyncPending = false;
 
 async function loadSelfUpdateRuns() {
     const statusCard = document.getElementById('selfupdate_status_card');
@@ -1373,13 +1374,18 @@ async function loadSelfUpdateRuns() {
         if (refreshBtn) {
             refreshBtn.addEventListener('click', () => loadSelfUpdateRuns());
         }
+        const syncBtn = document.getElementById('releases_sync_btn');
+        if (syncBtn) {
+            syncBtn.addEventListener('click', () => triggerReleasesSync());
+        }
     }
 
-    // Load status and runs in parallel
+    // Load status, runs, and artifacts in parallel
     try {
-        const [statusResp, runsResp] = await Promise.all([
+        const [statusResp, runsResp, artifactsResp] = await Promise.all([
             fetchJSON('/api/v1/selfupdate/status').catch(err => ({ error: err.message || err })),
-            fetchJSON('/api/v1/selfupdate/runs').catch(err => ({ error: err.message || err }))
+            fetchJSON('/api/v1/selfupdate/runs').catch(err => ({ error: err.message || err })),
+            fetchJSON('/api/v1/releases/artifacts').catch(err => ({ error: err.message || err }))
         ]);
 
         // Render status card
@@ -1394,6 +1400,17 @@ async function loadSelfUpdateRuns() {
             } else {
                 const runs = Array.isArray(runsResp.runs) ? runsResp.runs : [];
                 renderSelfUpdateRuns(runsContainer, runs);
+            }
+        }
+
+        // Render artifacts
+        const artifactsContainer = document.getElementById('releases_artifacts_container');
+        if (artifactsContainer) {
+            if (artifactsResp.error) {
+                artifactsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load artifacts: ${artifactsResp.error}</div>`;
+            } else {
+                const artifacts = Array.isArray(artifactsResp.artifacts) ? artifactsResp.artifacts : [];
+                renderReleaseArtifacts(artifactsContainer, artifacts);
             }
         }
     } catch (err) {
@@ -1530,6 +1547,121 @@ function renderSelfUpdateRuns(container, runs) {
                     <th style="padding:8px;">Status</th>
                     <th style="padding:8px;">Message</th>
                     <th style="padding:8px;">Finished</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+    `;
+}
+
+// ---------------------------------------------------------------------------
+// Release Artifacts Display
+// ---------------------------------------------------------------------------
+
+async function triggerReleasesSync() {
+    if (releasesSyncPending) return;
+    releasesSyncPending = true;
+
+    const btn = document.getElementById('releases_sync_btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Syncing…';
+    }
+
+    try {
+        const resp = await fetch('/api/v1/releases/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin'
+        });
+        const data = await resp.json().catch(() => ({}));
+
+        if (resp.ok) {
+            showToast('Release sync completed', 'success');
+            // Reload to show updated artifacts
+            setTimeout(() => loadSelfUpdateRuns(), 500);
+        } else {
+            showToast(data.error || 'Failed to sync releases', 'error');
+        }
+    } catch (err) {
+        showToast('Failed to sync releases', 'error');
+    } finally {
+        releasesSyncPending = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Sync from GitHub';
+        }
+    }
+}
+
+function renderReleaseArtifacts(container, artifacts) {
+    if (!artifacts || artifacts.length === 0) {
+        container.innerHTML = '<div class="muted-text">No cached artifacts. Click "Sync from GitHub" to fetch releases.</div>';
+        return;
+    }
+
+    const formatSize = (bytes) => {
+        if (!bytes || bytes <= 0) return '—';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(1)} ${units[unitIndex]}`;
+    };
+
+    const formatTime = (ts) => {
+        if (!ts || ts === '0001-01-01T00:00:00Z') return '—';
+        const d = new Date(ts);
+        return d.toLocaleDateString();
+    };
+
+    const componentBadge = (component) => {
+        const colors = {
+            'agent': 'var(--highlight)',
+            'server': 'var(--success)'
+        };
+        const color = colors[component] || 'var(--muted)';
+        return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${color}20;color:${color};">${component}</span>`;
+    };
+
+    const cachedBadge = (cached) => {
+        if (cached) {
+            return '<span style="color:var(--success);" title="Binary cached on disk">✓</span>';
+        }
+        return '<span style="color:var(--muted);" title="Not cached">—</span>';
+    };
+
+    // Group artifacts by component and version for a cleaner display
+    const rows = artifacts.map(a => `
+        <tr>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${componentBadge(a.component)}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);font-family:monospace;">${a.version}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${a.platform}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${a.arch}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${a.channel || 'stable'}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);text-align:right;">${formatSize(a.size_bytes)}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);text-align:center;">${cachedBadge(a.cached)}</td>
+            <td style="padding:8px;border-bottom:1px solid var(--border);">${formatTime(a.published_at)}</td>
+        </tr>
+    `).join('');
+
+    container.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="text-align:left;color:var(--muted);border-bottom:2px solid var(--border);">
+                    <th style="padding:8px;">Component</th>
+                    <th style="padding:8px;">Version</th>
+                    <th style="padding:8px;">Platform</th>
+                    <th style="padding:8px;">Arch</th>
+                    <th style="padding:8px;">Channel</th>
+                    <th style="padding:8px;text-align:right;">Size</th>
+                    <th style="padding:8px;text-align:center;">Cached</th>
+                    <th style="padding:8px;">Published</th>
                 </tr>
             </thead>
             <tbody>
