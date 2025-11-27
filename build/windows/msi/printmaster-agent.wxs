@@ -55,8 +55,8 @@
           </Component>
           <Directory Id="AgentConfigDir" Name="config">
             <Component Id="BootstrapFiles" Guid="{0A98592F-A395-4C9F-BA51-AB305D50B5AA}" Win64="yes">
-              <File Id="BootstrapToml" Source="config\bootstrap.toml" KeyPath="yes" />
-              <File Id="BootstrapMetadata" Source="config\metadata.json" />
+              <File Id="BootstrapToml" Source="build\windows\msi\config\bootstrap.toml" KeyPath="yes" />
+              <File Id="BootstrapMetadata" Source="build\windows\msi\config\metadata.json" />
             </Component>
           </Directory>
         </Directory>
