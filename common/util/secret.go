@@ -14,8 +14,13 @@ import (
 // LoadOrCreateKey loads a 32-byte key from file, creating it if missing.
 // The file should be in an application data directory with restricted permissions.
 func LoadOrCreateKey(path string) ([]byte, error) {
-	if b, err := os.ReadFile(path); err == nil && len(b) == 32 {
+	if b, err := os.ReadFile(path); err == nil {
+		if len(b) != 32 {
+			return nil, errors.New("invalid key length")
+		}
 		return b, nil
+	} else if !os.IsNotExist(err) {
+		return nil, err
 	}
 	// generate
 	key := make([]byte, 32)
@@ -72,4 +77,39 @@ func DecryptFromB64(key []byte, b64 string) (string, error) {
 		return "", err
 	}
 	return string(pt), nil
+}
+
+// EncryptBytes encrypts arbitrary binary data and prefixes the nonce for storage.
+func EncryptBytes(key []byte, plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return nil, err
+	}
+	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+	return append(nonce, ciphertext...), nil
+}
+
+// DecryptBytes decrypts a nonce-prefixed AES-GCM payload produced by EncryptBytes.
+func DecryptBytes(key []byte, sealed []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	if len(sealed) < gcm.NonceSize() {
+		return nil, errors.New("ciphertext too short")
+	}
+	nonce, ciphertext := sealed[:gcm.NonceSize()], sealed[gcm.NonceSize():]
+	return gcm.Open(nil, nonce, ciphertext, nil)
 }

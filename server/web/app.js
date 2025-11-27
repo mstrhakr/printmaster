@@ -45,6 +45,14 @@ const mountedTabs = new Set();
 let usersUIInitialized = false;
 let tenantsUIInitialized = false;
 let tenantModalInitialized = false;
+let tenantsSubtabsInitialized = false;
+let activeTenantsView = 'directory';
+let tenantBundlesUIInitialized = false;
+const tenantBundlesState = {
+    selectedTenantId: '',
+    cache: new Map(),
+    loading: false,
+};
 let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
@@ -1429,6 +1437,9 @@ function initTenantsUI(){
     if (tenantsUIInitialized) return;
     tenantsUIInitialized = true;
     initTenantModal();
+    initTenantsSubTabs();
+    initTenantBundlesUI();
+    switchTenantsView(activeTenantsView, true);
     const btn = document.getElementById('new_tenant_btn');
     if(btn){
         btn.addEventListener('click', ()=> openTenantModal());
@@ -1449,6 +1460,79 @@ function initTenantModal(){
     modal.addEventListener('click', (e)=>{
         if (e.target === modal) closeTenantModal();
     });
+}
+
+function initTenantsSubTabs(){
+    if (tenantsSubtabsInitialized) return;
+    const bar = document.getElementById('tenants_subtab_bar');
+    if (!bar) return;
+    tenantsSubtabsInitialized = true;
+    bar.querySelectorAll('.tenants-subtab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.getAttribute('data-tenantsview');
+            switchTenantsView(target);
+        });
+    });
+}
+
+function switchTenantsView(view, force = false){
+    if (!view) return;
+    if (!force && view === activeTenantsView) return;
+    const container = document.querySelector('[data-tab="tenants"]');
+    if (container) {
+        container.querySelectorAll('.tenants-subtab').forEach(btn => {
+            const target = btn.getAttribute('data-tenantsview');
+            if (target === view) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        container.querySelectorAll('[data-tenantsview-panel]').forEach(panel => {
+            const panelView = panel.getAttribute('data-tenantsview-panel');
+            if (panelView === view) {
+                panel.classList.remove('hidden');
+            } else {
+                panel.classList.add('hidden');
+            }
+        });
+    }
+    activeTenantsView = view;
+    if (view === 'bundles') {
+        if (tenantBundlesState.selectedTenantId) {
+            loadTenantBundles(tenantBundlesState.selectedTenantId);
+        } else {
+            renderTenantBundlesMessage('Select a tenant to view installer bundles.');
+        }
+    }
+}
+
+function initTenantBundlesUI(){
+    if (tenantBundlesUIInitialized) return;
+    const select = document.getElementById('tenant_bundles_tenant_select');
+    const table = document.getElementById('tenant_bundles_table');
+    if (!select || !table) return;
+    tenantBundlesUIInitialized = true;
+    select.innerHTML = '<option value="">Select tenant…</option>';
+    select.addEventListener('change', (event) => {
+        tenantBundlesState.selectedTenantId = event.target.value;
+        if (!tenantBundlesState.selectedTenantId) {
+            renderTenantBundlesMessage('Select a tenant to view installer bundles.');
+            return;
+        }
+        loadTenantBundles(tenantBundlesState.selectedTenantId);
+    });
+    const refreshBtn = document.getElementById('tenant_bundles_refresh_btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            if (!tenantBundlesState.selectedTenantId) {
+                renderTenantBundlesMessage('Select a tenant to refresh bundles.');
+                return;
+            }
+            loadTenantBundles(tenantBundlesState.selectedTenantId, { force: true });
+        });
+    }
+    syncTenantBundlesTenantDirectory(window._tenants || []);
 }
 
 function openTenantModal(tenant){
@@ -1817,9 +1901,159 @@ async function loadTenants(){
         syncSSOTenants(data);
         renderTenants(data);
         notifyManagedSettingsTenantDirectory(data);
+        syncTenantBundlesTenantDirectory(data);
     }catch(err){
         el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
     }
+}
+
+function syncTenantBundlesTenantDirectory(list){
+    const select = document.getElementById('tenant_bundles_tenant_select');
+    if (!select) return;
+    const normalized = normalizeTenantList(list);
+    const previous = tenantBundlesState.selectedTenantId;
+    const options = ['<option value="">Select tenant…</option>'];
+    const validIds = new Set();
+    normalized.forEach(tenant => {
+        if (!tenant.id) return;
+        validIds.add(tenant.id);
+        const selected = previous && tenant.id === previous ? ' selected' : '';
+        options.push(`<option value="${escapeHtml(tenant.id)}"${selected}>${escapeHtml(tenant.name || tenant.id)}</option>`);
+    });
+    select.innerHTML = options.join('');
+    tenantBundlesState.cache.forEach((_, key) => {
+        if (!validIds.has(key)) {
+            tenantBundlesState.cache.delete(key);
+        }
+    });
+    if (previous && validIds.has(previous)) {
+        select.value = previous;
+        tenantBundlesState.selectedTenantId = previous;
+        if (activeTenantsView === 'bundles' && tenantBundlesUIInitialized) {
+            loadTenantBundles(previous);
+        }
+        return;
+    }
+    select.value = '';
+    tenantBundlesState.selectedTenantId = '';
+    if (activeTenantsView === 'bundles') {
+        renderTenantBundlesMessage('Select a tenant to view installer bundles.');
+    }
+}
+
+function tenantDisplayNameById(tenantId){
+    if (!tenantId) return '';
+    const list = Array.isArray(window._tenants) ? window._tenants : [];
+    const match = list.find(t => (t.id || t.uuid || '') === tenantId);
+    if (match && match.name) {
+        return match.name;
+    }
+    return tenantId;
+}
+
+async function loadTenantBundles(tenantId, options = {}){
+    const container = document.getElementById('tenant_bundles_table');
+    if (!container) return;
+    const normalizedId = (tenantId || '').trim();
+    if (!normalizedId) {
+        renderTenantBundlesMessage('Select a tenant to view installer bundles.');
+        return;
+    }
+    if (!options.force && tenantBundlesState.cache.has(normalizedId)) {
+        renderTenantBundlesTable(normalizedId, tenantBundlesState.cache.get(normalizedId));
+        return;
+    }
+    tenantBundlesState.loading = true;
+    container.innerHTML = '<div class="muted-text">Loading bundles…</div>';
+    try {
+        const params = new URLSearchParams({ limit: '50' });
+        const response = await fetch(`/api/v1/tenants/${encodeURIComponent(normalizedId)}/bundles?${params.toString()}`);
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        const bundles = await response.json();
+        tenantBundlesState.cache.set(normalizedId, bundles);
+        renderTenantBundlesTable(normalizedId, bundles);
+    } catch (err) {
+        renderTenantBundlesError(err);
+    } finally {
+        tenantBundlesState.loading = false;
+    }
+}
+
+function renderTenantBundlesTable(tenantId, bundles){
+    const container = document.getElementById('tenant_bundles_table');
+    if (!container) return;
+    const tenantName = tenantDisplayNameById(tenantId);
+    if (!Array.isArray(bundles) || bundles.length === 0) {
+        container.innerHTML = `<div class="muted-text">No installer bundles for ${escapeHtml(tenantName || tenantId)} yet.</div>`;
+        return;
+    }
+    const rows = bundles.map(bundle => {
+        if (!bundle) {
+            return '';
+        }
+        const status = bundle.expired ? '<span style="color:var(--danger);">Expired</span>' : '<span style="color:var(--success);">Active</span>';
+        const created = bundle.created_at ? formatDateTime(bundle.created_at) : '—';
+        const expires = bundle.expires_at ? formatDateTime(bundle.expires_at) : '—';
+        const platformBits = [];
+        if (bundle.platform) platformBits.push(escapeHtml(bundle.platform));
+        if (bundle.arch) platformBits.push(escapeHtml(bundle.arch));
+        if (bundle.format) platformBits.push(escapeHtml(bundle.format));
+        const platform = platformBits.length ? platformBits.join(' • ') : '—';
+        const size = typeof bundle.size_bytes === 'number' ? formatBytes(bundle.size_bytes) : '—';
+        const component = escapeHtml(bundle.component || 'agent');
+        const version = bundle.version ? `<div class="muted-text">v${escapeHtml(bundle.version)}</div>` : '';
+        const download = bundle.download_url ? `<a href="${escapeHtml(bundle.download_url)}" target="_blank" rel="noopener">Download</a>` : '<span class="muted-text">Unavailable</span>';
+        return `
+            <tr>
+                <td>
+                    <div class="table-primary">${component}</div>
+                    ${version}
+                    <div class="muted-text">Bundle ID: ${escapeHtml(String(bundle.id || ''))}</div>
+                </td>
+                <td>${platform}</td>
+                <td>${size}</td>
+                <td>${created}</td>
+                <td>${expires}</td>
+                <td>${status}</td>
+                <td>${download}</td>
+            </tr>
+        `;
+    }).join('');
+    container.innerHTML = `
+        <div class="table-wrapper">
+            <table class="simple-table">
+                <thead>
+                    <tr>
+                        <th>Bundle</th>
+                        <th>Platform</th>
+                        <th>Size</th>
+                        <th>Created</th>
+                        <th>Expires</th>
+                        <th>Status</th>
+                        <th>Download</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function renderTenantBundlesMessage(message){
+    const container = document.getElementById('tenant_bundles_table');
+    if (!container) return;
+    container.innerHTML = `<div class="muted-text">${escapeHtml(message || '')}</div>`;
+}
+
+function renderTenantBundlesError(err){
+    const container = document.getElementById('tenant_bundles_table');
+    if (!container) return;
+    const message = err && err.message ? err.message : err;
+    container.innerHTML = `<div style="color:var(--danger);">Failed to load bundles: ${escapeHtml(message || 'unknown error')}</div>`;
 }
 
 function renderTenants(list){
@@ -1995,6 +2229,19 @@ async function revokeToken(id){
 function escapeHtml(s){
     if(!s) return '';
     return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':"&#39;"})[m]; });
+}
+
+function formatBytes(bytes){
+    let value = Number(bytes);
+    if(!isFinite(value) || value <= 0) return '0 B';
+    const units = ['B','KB','MB','GB','TB'];
+    let unitIdx = 0;
+    while(value >= 1024 && unitIdx < units.length - 1){
+        value /= 1024;
+        unitIdx++;
+    }
+    const precision = value >= 10 || unitIdx === 0 ? 0 : 1;
+    return value.toFixed(precision) + ' ' + units[unitIdx];
 }
 
 function formatDateTime(value){
@@ -5009,7 +5256,11 @@ function openAddAgentModal(opts){
         tenantID: opts && opts.tenantID ? opts.tenantID : null,
         ttl: 60,
         one_time: true,
-        token: null
+        token: null,
+        mode: 'token',
+        platform: 'windows',
+        format: 'zip',
+        arch: 'amd64'
     };
     renderAddAgentStep(1);
     const modal = document.getElementById('add_agent_modal');
@@ -5032,6 +5283,19 @@ async function handleAddAgentPrimary(){
         const tenantID = tenantSel ? tenantSel.value : (st.tenantID || null);
         const ttl = ttlEl ? parseInt(ttlEl.value,10) || 60 : 60;
         const one_time = oneTimeEl ? oneTimeEl.checked : true;
+        const platformSel = document.getElementById('add_agent_platform');
+        const formatSel = document.getElementById('add_agent_format');
+        const archSel = document.getElementById('add_agent_arch');
+        const platform = platformSel ? platformSel.value : (st.platform || 'windows');
+        const format = formatSel ? formatSel.value : (st.format || 'zip');
+        const arch = archSel ? archSel.value : (st.arch || 'amd64');
+
+        st.tenantID = tenantID;
+        st.ttl = ttl;
+        st.one_time = one_time;
+        st.platform = platform;
+        st.format = format;
+        st.arch = arch;
 
         // Basic validation
         if(!tenantID){ window.__pm_shared.showAlert('Please select a tenant (customer) to assign this token to.', 'Missing tenant', true, false); return; }
@@ -5047,18 +5311,18 @@ async function handleAddAgentPrimary(){
                 if(!r.ok) throw new Error(await r.text());
                 const data = await r.json();
                 st.token = data.token;
+                st.script = null;
+                st.bundle = null;
+                st.mode = 'token';
                 st.step = 2;
-                st.tenantID = tenantID;
                 window._addAgentState = st;
                 renderAddAgentStep(2);
             }catch(err){
                 window.__pm_shared.showAlert('Failed to create join token: ' + (err && err.message ? err.message : err), 'Error', true, false);
             }
-        } else {
+        } else if(action === 'script'){
             // Generate bootstrap script via server packages API
             try{
-                const platformSel = document.getElementById('add_agent_platform');
-                const platform = platformSel ? platformSel.value : 'linux';
                 const payload = { tenant_id: tenantID, platform: platform, installer_type: 'script', ttl_minutes: ttl };
                 const r = await fetch('/api/v1/packages', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
                 if(!r.ok) {
@@ -5090,13 +5354,43 @@ async function handleAddAgentPrimary(){
                 st.scriptFilename = filename;
                 st.scriptDownloadURL = downloadURL;
                 st.oneLiner = oneLiner;
+                st.bundle = null;
+                st.token = null;
+                st.mode = 'script';
                 st.step = 2;
-                st.tenantID = tenantID;
                 window._addAgentState = st;
                 renderAddAgentStep(2);
             }catch(err){
                 window.__pm_shared.showAlert('Failed to generate bootstrap script: ' + (err && err.message ? err.message : err), 'Error', true, false);
             }
+        } else if(action === 'archive'){
+            try{
+                const payload = {
+                    tenant_id: tenantID,
+                    platform: platform,
+                    installer_type: 'archive',
+                    ttl_minutes: ttl,
+                    format: format,
+                    arch: arch,
+                    component: 'agent'
+                };
+                const r = await fetch('/api/v1/packages', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+                if(!r.ok){
+                    throw new Error(await r.text());
+                }
+                const data = await r.json();
+                st.bundle = data;
+                st.script = null;
+                st.token = null;
+                st.mode = 'archive';
+                st.step = 2;
+                window._addAgentState = st;
+                renderAddAgentStep(2);
+            } catch(err){
+                window.__pm_shared.showAlert('Failed to build installer: ' + (err && err.message ? err.message : err), 'Error', true, false);
+            }
+        } else {
+            window.__pm_shared.showAlert('Unsupported onboarding option selected.', 'Error', true, false);
         }
     } else if(st.step === 2){
         // Done
@@ -5111,17 +5405,48 @@ function renderAddAgentStep(step){
     const content = document.getElementById('add_agent_content');
     const primaryBtn = document.getElementById('add_agent_primary');
     if(!content) return;
-    if(indicator) indicator.textContent = step === 1 ? 'Step 1/2 — Create join token' : 'Step 2/2 — Token (shown once)';
+    if(indicator){
+        if(step === 1){
+            indicator.textContent = 'Step 1/2 — Create onboarding asset';
+        } else {
+            const mode = (window._addAgentState && window._addAgentState.mode) ? window._addAgentState.mode : 'token';
+            let label = 'Token (shown once)';
+            if(mode === 'script') label = 'Bootstrap script';
+            if(mode === 'archive') label = 'Installer download';
+            indicator.textContent = 'Step 2/2 — ' + label;
+        }
+    }
 
     if(step === 1){
         // Tenant select
-        let tenantOptions = '';
+        const state = window._addAgentState || {};
         const tenants = Array.isArray(window._tenants) ? window._tenants : [];
-        if(tenants.length === 0 && window._addAgentState && window._addAgentState.tenantID){
-            tenantOptions = `<option value="${escapeHtml(window._addAgentState.tenantID)}">${escapeHtml(window._addAgentState.tenantID)}</option>`;
+        let tenantOptions = '';
+        if(tenants.length === 0 && state.tenantID){
+            tenantOptions = `<option value="${escapeHtml(state.tenantID)}">${escapeHtml(state.tenantID)}</option>`;
         } else {
-            tenantOptions = tenants.map(t => `<option value="${escapeHtml(t.id||t.uuid||t.name)}">${escapeHtml(t.name||t.id||t.uuid||t.name)}</option>`).join('\n');
+            tenantOptions = tenants.map(t => {
+                const value = t.id || t.uuid || t.name || '';
+                const label = t.name || t.id || t.uuid || value;
+                return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+            }).join('\n');
         }
+        const ttlValue = state.ttl && state.ttl > 0 ? state.ttl : 60;
+        const oneTimeChecked = state.one_time === undefined ? true : !!state.one_time;
+        const defaultPlatform = state.platform || 'windows';
+        const platformOptions = [
+            { value: 'linux', label: 'Linux' },
+            { value: 'windows', label: 'Windows' },
+            { value: 'darwin', label: 'macOS' }
+        ].map(opt => `<option value="${escapeHtml(opt.value)}" ${opt.value === defaultPlatform ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('\n');
+        const formatOptions = [
+            { value: 'zip', label: 'ZIP archive' },
+            { value: 'tar.gz', label: 'TAR.GZ archive' }
+        ].map(opt => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join('\n');
+        const archOptions = [
+            { value: 'amd64', label: 'x86_64 / amd64' },
+            { value: 'arm64', label: 'ARM64 / Apple Silicon' }
+        ].map(opt => `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`).join('\n');
 
         content.innerHTML = `
             <div style="display:flex;flex-direction:column;gap:8px;">
@@ -5131,57 +5456,154 @@ function renderAddAgentStep(step){
                     ${tenantOptions}
                 </select>
 
-                <label style="font-weight:600">Token TTL (minutes)</label>
-                <input id="add_agent_ttl" type="number" value="60" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:120px;" />
+                <label style="font-weight:600">Join token TTL (minutes)</label>
+                <input id="add_agent_ttl" type="number" value="${escapeHtml(String(ttlValue))}" min="1" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:120px;" />
 
                 <label style="display:flex;align-items:center;gap:8px;">
-                    <input id="add_agent_one_time" type="checkbox" checked />
+                    <input id="add_agent_one_time" type="checkbox" ${oneTimeChecked ? 'checked' : ''} />
                     <span style="color:var(--muted)">One-time (single-use) token</span>
                 </label>
 
                 <div style="margin-top:8px;">
                     <div style="font-weight:600;margin-bottom:6px;">Onboarding method</div>
-                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="token" checked /> Show raw token</label>
-                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="script" /> Generate bootstrap script</label>
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="token" ${state.mode === 'token' || !state.mode ? 'checked' : ''} /> Show raw token</label>
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="script" ${state.mode === 'script' ? 'checked' : ''} /> Generate bootstrap script</label>
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="archive" ${state.mode === 'archive' ? 'checked' : ''} /> Build installer archive</label>
                     <div id="add_agent_platform_row" style="margin-top:8px;display:none;">
                         <label style="font-weight:600">Target platform</label>
                         <select id="add_agent_platform" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:180px;">
-                            <option value="linux">Linux</option>
-                            <option value="windows" selected>Windows</option>
-                            <option value="darwin">macOS</option>
+                            ${platformOptions}
                         </select>
+                    </div>
+                    <div id="add_agent_archive_fields" style="margin-top:12px;display:none;">
+                        <label style="font-weight:600">Archive format</label>
+                        <select id="add_agent_format" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:200px;">
+                            ${formatOptions}
+                        </select>
+                        <label style="font-weight:600;margin-top:10px;">Architecture</label>
+                        <select id="add_agent_arch" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:200px;">
+                            ${archOptions}
+                        </select>
+                        <div style="color:var(--muted);font-size:12px;margin-top:6px;">Installer archives include tenant-specific config and expire automatically.</div>
                     </div>
                 </div>
 
-                <div style="color:var(--muted);font-size:13px">This will create a join token that an agent can use to register with the server. The token will be shown once — copy it and deliver it to the agent (or use agent onboarding).</div>
+                <div style="color:var(--muted);font-size:13px">Tokens and installers inherit this TTL. Installer bundles embed the generated join token and may be downloaded from the link shown after build.</div>
             </div>
         `;
-        // Preselect tenant if supplied
-        if(window._addAgentState && window._addAgentState.tenantID){
-            const sel = content.querySelector('#add_agent_tenant');
-            if(sel) sel.value = window._addAgentState.tenantID;
+
+        const tenantSelect = content.querySelector('#add_agent_tenant');
+        if(tenantSelect && state.tenantID){ tenantSelect.value = state.tenantID; }
+        if(tenantSelect){ tenantSelect.addEventListener('change', ()=>{ state.tenantID = tenantSelect.value; }); }
+
+        const ttlInput = content.querySelector('#add_agent_ttl');
+        if(ttlInput){
+            ttlInput.addEventListener('change', ()=>{
+                const parsed = parseInt(ttlInput.value, 10);
+                state.ttl = (isNaN(parsed) || parsed <= 0) ? 60 : parsed;
+                ttlInput.value = state.ttl;
+            });
         }
-        // Wire action radio toggles to show/hide platform and update primary button label
+
+        const oneTimeInput = content.querySelector('#add_agent_one_time');
+        if(oneTimeInput){
+            oneTimeInput.checked = oneTimeChecked;
+            oneTimeInput.addEventListener('change', ()=>{ state.one_time = oneTimeInput.checked; });
+        }
+
+        const platformSelect = content.querySelector('#add_agent_platform');
+        if(platformSelect){
+            platformSelect.value = defaultPlatform;
+            state.platform = platformSelect.value;
+            platformSelect.addEventListener('change', ()=>{
+                state.platform = platformSelect.value;
+            });
+        }
+
+        const formatSelect = content.querySelector('#add_agent_format');
+        if(formatSelect){
+            const selectedFormat = state.format || (state.platform === 'windows' ? 'zip' : 'tar.gz');
+            formatSelect.value = selectedFormat;
+            state.format = formatSelect.value;
+            formatSelect.addEventListener('change', ()=>{ state.format = formatSelect.value; });
+        }
+
+        const archSelect = content.querySelector('#add_agent_arch');
+        if(archSelect){
+            const defaultArch = state.arch || (defaultPlatform === 'darwin' ? 'arm64' : 'amd64');
+            archSelect.value = defaultArch;
+            state.arch = archSelect.value;
+            archSelect.addEventListener('change', ()=>{ state.arch = archSelect.value; });
+        }
+
         const actionRadios = content.querySelectorAll('input[name="add_agent_action"]');
         const platRow = content.querySelector('#add_agent_platform_row');
+        const archiveFields = content.querySelector('#add_agent_archive_fields');
         const updatePrimaryLabel = () => {
             const sel = content.querySelector('input[name="add_agent_action"]:checked');
-            if(!sel) return;
-            if(primaryBtn) primaryBtn.textContent = (sel.value === 'script') ? 'Create Script' : 'Create Token';
+            if(!sel || !primaryBtn) return;
+            if(sel.value === 'script') primaryBtn.textContent = 'Generate Script';
+            else if(sel.value === 'archive') primaryBtn.textContent = 'Build Installer';
+            else primaryBtn.textContent = 'Create Token';
+        };
+        const updateFieldVisibility = () => {
+            const sel = content.querySelector('input[name="add_agent_action"]:checked');
+            const mode = sel ? sel.value : 'token';
+            if(platRow) platRow.style.display = mode === 'token' ? 'none' : '';
+            if(archiveFields) archiveFields.style.display = mode === 'archive' ? '' : 'none';
         };
         actionRadios.forEach(r => r.addEventListener('change', ()=>{
-            if(platRow) platRow.style.display = (r.value === 'script' && r.checked) ? '' : 'none';
+            state.mode = r.value;
             updatePrimaryLabel();
+            updateFieldVisibility();
         }));
-        // Initialize primary button label based on default selection
         updatePrimaryLabel();
+        updateFieldVisibility();
     } else {
         // Step 2: show token
         const token = (window._addAgentState && window._addAgentState.token) ? window._addAgentState.token : '';
-        // If we have a generated script, show it instead of raw token
+        const mode = (window._addAgentState && window._addAgentState.mode) ? window._addAgentState.mode : 'token';
         const script = (window._addAgentState && window._addAgentState.script) ? window._addAgentState.script : null;
         const filename = (window._addAgentState && window._addAgentState.scriptFilename) ? window._addAgentState.scriptFilename : 'bootstrap';
-        if(script){
+        const bundle = (window._addAgentState && window._addAgentState.bundle) ? window._addAgentState.bundle : null;
+        if(mode === 'archive' && bundle){
+            const expires = bundle.expires_at ? new Date(bundle.expires_at).toLocaleString() : 'n/a';
+            const sizeBytes = bundle.size_bytes ? Number(bundle.size_bytes) : 0;
+            const metadata = bundle.metadata || null;
+            const downloadURL = bundle.download_url || '';
+            content.innerHTML = `
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <div class="card" style="padding:12px;">
+                        <div style="font-weight:600;margin-bottom:6px;">Installer ready</div>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;font-size:13px;">
+                            <div><div class="muted-text">Platform</div><div>${escapeHtml(bundle.platform || '')}</div></div>
+                            <div><div class="muted-text">Architecture</div><div>${escapeHtml(bundle.arch || '')}</div></div>
+                            <div><div class="muted-text">Format</div><div>${escapeHtml(bundle.format || '')}</div></div>
+                            <div><div class="muted-text">Size</div><div>${sizeBytes ? formatBytes(sizeBytes) : 'unknown'}</div></div>
+                            <div><div class="muted-text">Expires</div><div>${escapeHtml(expires)}</div></div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button id="add_agent_download_bundle" class="modal-button" ${downloadURL ? '' : 'disabled'}>Download installer</button>
+                        ${ downloadURL ? `<button id="add_agent_copy_bundle" class="modal-button modal-button-secondary">Copy download URL</button>` : '' }
+                        ${ downloadURL ? `<a id="add_agent_open_bundle" class="modal-button" href="${escapeHtml(downloadURL)}" target="_blank" rel="noopener">Open link</a>` : '' }
+                    </div>
+                    ${ metadata ? `<details style="font-size:13px;" open>
+                        <summary style="cursor:pointer;font-weight:600;">Embed metadata</summary>
+                        <pre style="margin-top:6px;white-space:pre-wrap;word-break:break-word;background:var(--panel);padding:12px;border-radius:6px;border:1px dashed var(--border);">${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>
+                    </details>` : '' }
+                    <div style="color:var(--muted);font-size:13px;">Installer bundles expire automatically. Share this download link with trusted recipients only.</div>
+                </div>
+            `;
+            const downloadBtn = document.getElementById('add_agent_download_bundle');
+            if(downloadBtn && downloadURL){ downloadBtn.addEventListener('click', ()=>{ window.open(downloadURL, '_blank', 'noopener'); }); }
+            const copyBtn = document.getElementById('add_agent_copy_bundle');
+            if(copyBtn && downloadURL){
+                copyBtn.addEventListener('click', ()=>{
+                    navigator.clipboard?.writeText(downloadURL).then(()=> window.__pm_shared.showToast('Download link copied','success')).catch(err=> window.__pm_shared.showAlert('Failed to copy link: ' + (err && err.message ? err.message : err), 'Error', true, false));
+                });
+            }
+        } else if(script && mode === 'script'){
             const oneLiner = (window._addAgentState && window._addAgentState.oneLiner) ? window._addAgentState.oneLiner : null;
             content.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:12px;">

@@ -29,7 +29,7 @@ type SQLiteStore struct {
 	dbPath string
 }
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 // Optional package-level logger that can be set by the application (server)
 var Log *logger.Logger
@@ -434,6 +434,31 @@ func (s *SQLiteStore) initSchema() error {
 	);
 
 	CREATE INDEX IF NOT EXISTS idx_release_manifests_component ON release_manifests(component);
+
+	       CREATE TABLE IF NOT EXISTS installer_bundles (
+		       id INTEGER PRIMARY KEY AUTOINCREMENT,
+		       tenant_id TEXT NOT NULL,
+		       component TEXT NOT NULL,
+		       version TEXT NOT NULL,
+		       platform TEXT NOT NULL,
+		       arch TEXT NOT NULL,
+		       format TEXT NOT NULL,
+		       source_artifact_id INTEGER,
+		       config_hash TEXT NOT NULL,
+		       bundle_path TEXT NOT NULL,
+		       size_bytes INTEGER NOT NULL DEFAULT 0,
+	       	encrypted INTEGER NOT NULL DEFAULT 0,
+	       	encryption_key_id TEXT,
+		       metadata_json TEXT,
+		       expires_at DATETIME,
+		       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		       FOREIGN KEY(source_artifact_id) REFERENCES release_artifacts(id) ON DELETE SET NULL,
+		       UNIQUE(tenant_id, component, version, platform, arch, format, config_hash)
+	       );
+
+	       CREATE INDEX IF NOT EXISTS idx_installer_bundles_tenant ON installer_bundles(tenant_id);
+	       CREATE INDEX IF NOT EXISTS idx_installer_bundles_expires ON installer_bundles(expires_at);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -476,6 +501,9 @@ func (s *SQLiteStore) initSchema() error {
 		"ALTER TABLE agents ADD COLUMN last_metrics_sync DATETIME",
 		// users: add email column
 		"ALTER TABLE users ADD COLUMN email TEXT",
+		// installer bundle encryption columns
+		"ALTER TABLE installer_bundles ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE installer_bundles ADD COLUMN encryption_key_id TEXT",
 	}
 
 	for _, stmt := range altStmts {
@@ -893,6 +921,13 @@ func nullTime(t time.Time) sql.NullTime {
 		return sql.NullTime{Valid: false}
 	}
 	return sql.NullTime{Time: t, Valid: true}
+}
+
+func nullInt64(v int64) sql.NullInt64 {
+	if v == 0 {
+		return sql.NullInt64{Valid: false}
+	}
+	return sql.NullInt64{Int64: v, Valid: true}
 }
 
 func (s *SQLiteStore) backfillUserTenantMappings() {
@@ -3309,6 +3344,183 @@ func scanReleaseManifest(scanner interface {
 		CreatedAt:       createdAt,
 		UpdatedAt:       updatedAt,
 	}, nil
+}
+
+// CreateInstallerBundle stores or updates a tenant-scoped installer record.
+func (s *SQLiteStore) CreateInstallerBundle(ctx context.Context, bundle *InstallerBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("installer bundle cannot be nil")
+	}
+	if bundle.TenantID == "" || bundle.Component == "" || bundle.Version == "" || bundle.Platform == "" || bundle.Arch == "" || bundle.Format == "" {
+		return fmt.Errorf("installer bundle missing required identity fields")
+	}
+	if bundle.ConfigHash == "" || bundle.BundlePath == "" {
+		return fmt.Errorf("installer bundle requires config hash and path")
+	}
+	bundle.UpdatedAt = time.Now().UTC()
+	if bundle.CreatedAt.IsZero() {
+		bundle.CreatedAt = bundle.UpdatedAt
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO installer_bundles (
+			tenant_id, component, version, platform, arch, format,
+			source_artifact_id, config_hash, bundle_path, size_bytes,
+			encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(tenant_id, component, version, platform, arch, format, config_hash) DO UPDATE SET
+			source_artifact_id = excluded.source_artifact_id,
+			bundle_path = excluded.bundle_path,
+			size_bytes = excluded.size_bytes,
+			encrypted = excluded.encrypted,
+			encryption_key_id = excluded.encryption_key_id,
+			metadata_json = excluded.metadata_json,
+			expires_at = excluded.expires_at,
+			updated_at = excluded.updated_at
+	`,
+		bundle.TenantID,
+		bundle.Component,
+		bundle.Version,
+		bundle.Platform,
+		bundle.Arch,
+		bundle.Format,
+		nullInt64(bundle.SourceArtifactID),
+		bundle.ConfigHash,
+		bundle.BundlePath,
+		bundle.SizeBytes,
+		boolToInt(bundle.Encrypted),
+		nullString(bundle.EncryptionKeyID),
+		nullString(bundle.MetadataJSON),
+		nullTime(bundle.ExpiresAt),
+		bundle.CreatedAt,
+		bundle.UpdatedAt,
+	)
+	return err
+}
+
+// GetInstallerBundle loads a bundle by numeric id.
+func (s *SQLiteStore) GetInstallerBundle(ctx context.Context, id int64) (*InstallerBundle, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, component, version, platform, arch, format,
+		       source_artifact_id, config_hash, bundle_path, size_bytes,
+		       encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		FROM installer_bundles WHERE id = ?
+	`, id)
+	return scanInstallerBundle(row)
+}
+
+// FindInstallerBundle fetches a bundle by its unique identity tuple.
+func (s *SQLiteStore) FindInstallerBundle(ctx context.Context, tenantID, component, version, platform, arch, format, configHash string) (*InstallerBundle, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, component, version, platform, arch, format,
+		       source_artifact_id, config_hash, bundle_path, size_bytes,
+		       encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		FROM installer_bundles
+		WHERE tenant_id = ? AND component = ? AND version = ? AND platform = ? AND arch = ? AND format = ? AND config_hash = ?
+	`, tenantID, component, version, platform, arch, format, configHash)
+	return scanInstallerBundle(row)
+}
+
+// ListInstallerBundles returns bundles for a tenant ordered by recency.
+func (s *SQLiteStore) ListInstallerBundles(ctx context.Context, tenantID string, limit int) ([]*InstallerBundle, error) {
+	query := `
+		SELECT id, tenant_id, component, version, platform, arch, format,
+		       source_artifact_id, config_hash, bundle_path, size_bytes,
+		       encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		FROM installer_bundles
+		WHERE (? = '' OR tenant_id = ?)
+		ORDER BY created_at DESC
+	`
+	var rows *sql.Rows
+	var err error
+	if limit > 0 {
+		query += " LIMIT ?"
+		rows, err = s.db.QueryContext(ctx, query, tenantID, tenantID, limit)
+	} else {
+		rows, err = s.db.QueryContext(ctx, query, tenantID, tenantID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var bundles []*InstallerBundle
+	for rows.Next() {
+		bundle, serr := scanInstallerBundle(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		bundles = append(bundles, bundle)
+	}
+	return bundles, rows.Err()
+}
+
+// DeleteInstallerBundle removes a bundle by id.
+func (s *SQLiteStore) DeleteInstallerBundle(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM installer_bundles WHERE id = ?`, id)
+	return err
+}
+
+// DeleteExpiredInstallerBundles removes bundles with expires_at before cutoff.
+func (s *SQLiteStore) DeleteExpiredInstallerBundles(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM installer_bundles WHERE expires_at IS NOT NULL AND expires_at <= ?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func scanInstallerBundle(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*InstallerBundle, error) {
+	var (
+		id               int64
+		tenantID         string
+		component        string
+		version          string
+		platform         string
+		arch             string
+		format           string
+		sourceArtifactID sql.NullInt64
+		configHash       string
+		bundlePath       string
+		sizeBytes        int64
+		encryptedInt     int
+		encryptionKeyID  sql.NullString
+		metadataJSON     sql.NullString
+		expiresAt        sql.NullTime
+		createdAt        time.Time
+		updatedAt        time.Time
+	)
+	if err := scanner.Scan(&id, &tenantID, &component, &version, &platform, &arch, &format, &sourceArtifactID, &configHash, &bundlePath, &sizeBytes, &encryptedInt, &encryptionKeyID, &metadataJSON, &expiresAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	bundle := &InstallerBundle{
+		ID:         id,
+		TenantID:   tenantID,
+		Component:  component,
+		Version:    version,
+		Platform:   platform,
+		Arch:       arch,
+		Format:     format,
+		ConfigHash: configHash,
+		BundlePath: bundlePath,
+		SizeBytes:  sizeBytes,
+		Encrypted:  encryptedInt == 1,
+		CreatedAt:  createdAt,
+		UpdatedAt:  updatedAt,
+	}
+	if sourceArtifactID.Valid {
+		bundle.SourceArtifactID = sourceArtifactID.Int64
+	}
+	if encryptionKeyID.Valid {
+		bundle.EncryptionKeyID = encryptionKeyID.String
+	}
+	if metadataJSON.Valid {
+		bundle.MetadataJSON = metadataJSON.String
+	}
+	if expiresAt.Valid {
+		bundle.ExpiresAt = expiresAt.Time
+	}
+	return bundle, nil
 }
 
 // Close closes the database connection

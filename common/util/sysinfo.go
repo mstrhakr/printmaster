@@ -9,26 +9,26 @@ import (
 
 // SystemInfo contains detailed system information
 type SystemInfo struct {
-	OS           string
-	OSVersion    string
-	Arch         string
-	CPUModel     string
-	Hostname     string
-	NumCPU       int
+	OS        string
+	OSVersion string
+	Arch      string
+	CPUModel  string
+	Hostname  string
+	NumCPU    int
 }
 
 // GetSystemInfo returns detailed system information
 func GetSystemInfo() SystemInfo {
 	info := SystemInfo{
-		OS:       runtime.GOOS,
-		Arch:     runtime.GOARCH,
-		NumCPU:   runtime.NumCPU(),
+		OS:     runtime.GOOS,
+		Arch:   runtime.GOARCH,
+		NumCPU: runtime.NumCPU(),
 	}
-	
+
 	info.Hostname, _ = os.Hostname()
 	info.OSVersion = getOSVersion()
 	info.CPUModel = getCPUModel()
-	
+
 	return info
 }
 
@@ -57,7 +57,7 @@ func getWindowsVersion() string {
 		if err != nil {
 			return "Windows"
 		}
-		
+
 		lines := strings.Split(string(output), "\n")
 		caption := ""
 		version := ""
@@ -70,7 +70,7 @@ func getWindowsVersion() string {
 				version = strings.TrimPrefix(line, "Version=")
 			}
 		}
-		
+
 		if caption != "" {
 			return strings.TrimSpace(caption)
 		}
@@ -79,10 +79,10 @@ func getWindowsVersion() string {
 		}
 		return "Windows"
 	}
-	
+
 	versionStr := string(output)
 	versionStr = strings.TrimSpace(versionStr)
-	
+
 	// Parse version string like "Microsoft Windows [Version 10.0.19045.5131]"
 	if strings.Contains(versionStr, "Windows") {
 		// Extract just the meaningful part
@@ -99,7 +99,7 @@ func getWindowsVersion() string {
 			return "Windows Server"
 		}
 	}
-	
+
 	return "Windows"
 }
 
@@ -112,7 +112,7 @@ func getLinuxVersion() string {
 		prettyName := ""
 		name := ""
 		version := ""
-		
+
 		for _, line := range lines {
 			if strings.HasPrefix(line, "PRETTY_NAME=") {
 				prettyName = strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), `"`)
@@ -124,7 +124,7 @@ func getLinuxVersion() string {
 				version = strings.Trim(strings.TrimPrefix(line, "VERSION="), `"`)
 			}
 		}
-		
+
 		if prettyName != "" {
 			return prettyName
 		}
@@ -135,7 +135,7 @@ func getLinuxVersion() string {
 			return name
 		}
 	}
-	
+
 	// Try lsb_release
 	cmd := exec.Command("lsb_release", "-d")
 	output, err := cmd.Output()
@@ -144,7 +144,7 @@ func getLinuxVersion() string {
 		desc = strings.TrimPrefix(desc, "Description:")
 		return strings.TrimSpace(desc)
 	}
-	
+
 	// Fallback
 	return "Linux"
 }
@@ -156,9 +156,9 @@ func getMacOSVersion() string {
 	if err != nil {
 		return "macOS"
 	}
-	
+
 	version := strings.TrimSpace(string(output))
-	
+
 	// Get product name
 	cmd = exec.Command("sw_vers", "-productName")
 	output, err = cmd.Output()
@@ -166,7 +166,7 @@ func getMacOSVersion() string {
 		name := strings.TrimSpace(string(output))
 		return name + " " + version
 	}
-	
+
 	return "macOS " + version
 }
 
@@ -191,7 +191,7 @@ func getWindowsCPU() string {
 	if err != nil {
 		return runtime.GOARCH
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -205,7 +205,7 @@ func getWindowsCPU() string {
 			return strings.TrimSpace(cpu)
 		}
 	}
-	
+
 	return runtime.GOARCH
 }
 
@@ -215,7 +215,7 @@ func getLinuxCPU() string {
 	if err != nil {
 		return runtime.GOARCH
 	}
-	
+
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "model name") {
@@ -230,7 +230,7 @@ func getLinuxCPU() string {
 			}
 		}
 	}
-	
+
 	return runtime.GOARCH
 }
 
@@ -241,7 +241,7 @@ func getMacOSCPU() string {
 	if err != nil {
 		return runtime.GOARCH
 	}
-	
+
 	cpu := strings.TrimSpace(string(output))
 	cpu = strings.ReplaceAll(cpu, "(R)", "")
 	cpu = strings.ReplaceAll(cpu, "(TM)", "")

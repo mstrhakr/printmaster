@@ -102,6 +102,7 @@ var rolePolicies = map[storage.Role][]string{
 		"events.subscribe",
 		"ui.websocket.connect",
 		"agents.*",
+		"packages.generate",
 		"devices.read",
 		"metrics.summary.read",
 		"metrics.history.read",

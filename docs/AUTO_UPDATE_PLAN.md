@@ -67,7 +67,7 @@ This document captures the agreed strategy for server- and agent-driven updates,
 ### Phase 3 – Installer Repackaging Service
 
 - [ ] Build packager that unpacks cached release, injects fleet config (join token, CA path, policy), and repacks per OS (ZIP/TAR/MSI wrapper).
-- [ ] Ensure sensitive data (tokens) are encrypted at rest within server cache.
+- [x] Ensure sensitive data (tokens) are encrypted at rest within server cache.
 - [ ] Add authenticated download endpoints for the customized installers + raw update bundles.
 - [ ] Surface "Download installer" button in server UI referencing those endpoints.
 - [ ] Add and validate tests for this phase.

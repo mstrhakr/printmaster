@@ -9,11 +9,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	authz "printmaster/server/authz"
+	packager "printmaster/server/packager"
 	"printmaster/server/storage"
 )
 
@@ -27,6 +30,19 @@ var dbStore storage.Store
 // token registration endpoint remains reachable even when disabled so
 // agents can always onboard via the new flow.
 var tenancyEnabled bool
+
+type installerBuilder interface {
+	BuildInstaller(context.Context, packager.BuildRequest) (*storage.InstallerBundle, error)
+	OpenBundle(context.Context, *storage.InstallerBundle) (*packager.BundleHandle, error)
+}
+
+// installerPackager orchestrates archive generation for tenant-scoped installers.
+var installerPackager installerBuilder
+
+// SetInstallerPackager allows the server to inject the shared packager.Manager instance.
+func SetInstallerPackager(builder installerBuilder) {
+	installerPackager = builder
+}
 
 // SetEnabled allows the main server to toggle tenancy feature flags at
 // runtime (typically at startup based on configuration).
@@ -118,6 +134,12 @@ type installEntry struct {
 	OneTime   bool
 }
 
+type joinTokenInfo struct {
+	ID        string
+	ExpiresAt time.Time
+	OneTime   bool
+}
+
 type tenantPayload struct {
 	ID           string `json:"id,omitempty"`
 	Name         string `json:"name"`
@@ -128,6 +150,17 @@ type tenantPayload struct {
 	BusinessUnit string `json:"business_unit,omitempty"`
 	BillingCode  string `json:"billing_code,omitempty"`
 	Address      string `json:"address,omitempty"`
+}
+
+type packageRequest struct {
+	TenantID      string `json:"tenant_id"`
+	Platform      string `json:"platform"`
+	InstallerType string `json:"installer_type"`
+	TTLMinutes    int    `json:"ttl_minutes"`
+	Format        string `json:"format"`
+	Component     string `json:"component"`
+	Version       string `json:"version"`
+	Arch          string `json:"arch"`
 }
 
 var installStore = struct {
@@ -143,6 +176,8 @@ var installCleanerOnce sync.Once
 // this via SetServerVersion so the download redirect can choose the matching
 // agent release asset on GitHub.
 var serverVersion string
+
+var versionFileCandidates = []string{"server/VERSION", "VERSION"}
 
 // SetServerVersion sets the server version (called from main at startup).
 func SetServerVersion(v string) {
@@ -175,6 +210,7 @@ func RegisterRoutes(s storage.Store) {
 // routes multiple times on the same mux.
 func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	dbStore = s
+	RegisterTenantSubresource("bundles", handleTenantBundlesSubresource)
 	// Wrap handlers with AuthMiddleware when provided
 	wrap := func(h http.HandlerFunc) http.HandlerFunc {
 		if AuthMiddleware != nil {
@@ -191,6 +227,7 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	mux.HandleFunc("/api/v1/join-token/revoke", wrap(handleRevokeJoinToken))      // POST {"id":"..."}
 	// Package generation (bootstrap script / archive) - admin only
 	mux.HandleFunc("/api/v1/packages", wrap(handleGeneratePackage))
+	mux.HandleFunc("/api/v1/packages/", wrap(handlePackageRoute))
 	// Public redirect to latest agent binary on GitHub releases. This chooses
 	// the release based on the running server version (set by main via
 	// SetServerVersion) and redirects to the appropriate asset for the
@@ -445,6 +482,69 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 			"after":  tenantAuditMetadata(res.Name, res.Description, res.ContactName, res.ContactEmail, res.ContactPhone, res.BusinessUnit, res.BillingCode, res.Address),
 		},
 	})
+}
+
+func handleTenantBundlesSubresource(w http.ResponseWriter, r *http.Request, tenantID, rest string) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if strings.TrimSpace(rest) != "" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if dbStore == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "installer bundles unavailable")
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{tenantID}}) {
+		return
+	}
+	limit := parseBundleListLimit(r.URL.Query().Get("limit"))
+	bundles, err := dbStore.ListInstallerBundles(r.Context(), tenantID, limit)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to list bundles")
+		return
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	baseURL := scheme + "://" + r.Host
+	response := make([]map[string]interface{}, 0, len(bundles))
+	for _, bundle := range bundles {
+		if bundle == nil {
+			continue
+		}
+		item := map[string]interface{}{
+			"id":           bundle.ID,
+			"tenant_id":    bundle.TenantID,
+			"component":    bundle.Component,
+			"version":      bundle.Version,
+			"platform":     bundle.Platform,
+			"arch":         bundle.Arch,
+			"format":       bundle.Format,
+			"size_bytes":   bundle.SizeBytes,
+			"created_at":   bundle.CreatedAt,
+			"expires_at":   bundle.ExpiresAt,
+			"expired":      bundleExpired(bundle),
+			"download_url": fmt.Sprintf("%s/api/v1/packages/%d/download", baseURL, bundle.ID),
+		}
+		if meta, err := decodeBundleMetadata(bundle.MetadataJSON); err == nil && len(meta) > 0 {
+			item["metadata"] = meta
+		}
+		response = append(response, item)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleCreateJoinToken issues a join token. Body: {"tenant_id":"...","ttl_minutes":60,"one_time":false}
@@ -899,32 +999,40 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	var in struct {
-		TenantID      string `json:"tenant_id"`
-		Platform      string `json:"platform"`
-		InstallerType string `json:"installer_type"` // script or archive
-		TTLMinutes    int    `json:"ttl_minutes"`
-	}
+	var in packageRequest
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"error":"invalid json"}`))
 		return
 	}
+	in.TenantID = strings.TrimSpace(in.TenantID)
+	if in.TenantID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":"tenant_id required"}`))
+		return
+	}
 	if in.TTLMinutes <= 0 {
 		in.TTLMinutes = 10
 	}
-	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{strings.TrimSpace(in.TenantID)}}) {
+	platform := normalizePlatform(in.Platform)
+	installerType := strings.ToLower(strings.TrimSpace(in.InstallerType))
+	if installerType == "" {
+		installerType = "script"
+	}
+	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{in.TenantID}}) {
 		return
 	}
-	// Ensure tenant exists
+
+	var tenantRecord *storage.Tenant
 	if dbStore != nil {
-		if _, err := dbStore.GetTenant(r.Context(), in.TenantID); err != nil {
+		tenant, err := dbStore.GetTenant(r.Context(), in.TenantID)
+		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(`{"error":"tenant not found"}`))
 			return
 		}
+		tenantRecord = tenant
 	} else {
-		// In-memory fallback - check tenants map under lock
 		store.mu.Lock()
 		_, ok := store.tenants[in.TenantID]
 		store.mu.Unlock()
@@ -935,15 +1043,18 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create a short-lived one-time join token for the package
 	var rawToken string
+	var tokenMeta joinTokenInfo
 	if dbStore != nil {
-		if _, rt, err := dbStore.CreateJoinToken(r.Context(), in.TenantID, in.TTLMinutes, true); err != nil {
+		jt, rt, err := dbStore.CreateJoinToken(r.Context(), in.TenantID, in.TTLMinutes, true)
+		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to create token"}`))
 			return
-		} else {
-			rawToken = rt
+		}
+		rawToken = rt
+		if jt != nil {
+			tokenMeta = joinTokenInfo{ID: strings.TrimSpace(jt.ID), ExpiresAt: jt.ExpiresAt, OneTime: jt.OneTime}
 		}
 	} else {
 		jt, err := store.CreateJoinToken(in.TenantID, in.TTLMinutes, true)
@@ -953,41 +1064,428 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rawToken = jt.Token
+		tokenMeta = joinTokenInfo{ExpiresAt: jt.ExpiresAt, OneTime: jt.OneTime}
 	}
 
-	// Build server URL from request
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
 	}
 	serverURL := scheme + "://" + r.Host
 
-	// Provide simple script templates for platforms (script installer MVP)
-	installerType := strings.ToLower(in.InstallerType)
-	if installerType == "" {
-		installerType = "script"
-	}
-	platform := strings.ToLower(in.Platform)
 	recordAudit(r, &storage.AuditEntry{
 		Action:     "package.generate",
 		TargetType: "install_package",
-		TargetID:   strings.TrimSpace(in.TenantID),
-		TenantID:   strings.TrimSpace(in.TenantID),
+		TargetID:   in.TenantID,
+		TenantID:   in.TenantID,
 		Details:    "Bootstrap package generated",
 		Metadata: map[string]interface{}{
 			"platform":       platform,
 			"installer_type": installerType,
+			"format":         strings.ToLower(strings.TrimSpace(in.Format)),
 			"ttl_minutes":    in.TTLMinutes,
 		},
 	})
 
-	if installerType == "script" {
-		var script string
-		filename := "bootstrap"
-		switch platform {
-		case "windows", "win", "windows_nt":
-			filename = "install.ps1"
-			pwTemplate := `# PowerShell bootstrap for PrintMaster
+	switch installerType {
+	case "script":
+		script, filename := buildBootstrapScript(platform, serverURL, rawToken)
+		if script == "" || filename == "" {
+			writeJSONError(w, http.StatusInternalServerError, "unable to build bootstrap script")
+			return
+		}
+		code := randomHex(12)
+		oneTimeDownload := true
+		if inOneTime, ok := r.URL.Query()["one_time_download"]; ok && len(inOneTime) > 0 {
+			value := strings.ToLower(strings.TrimSpace(inOneTime[0]))
+			if value == "false" || value == "0" {
+				oneTimeDownload = false
+			}
+		}
+		expiresAt := time.Now().UTC().Add(time.Duration(in.TTLMinutes) * time.Minute)
+		installStore.mu.Lock()
+		installStore.m[code] = installEntry{Script: script, Filename: filename, ExpiresAt: expiresAt, OneTime: oneTimeDownload}
+		installStore.mu.Unlock()
+
+		downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
+		w.Header().Set("Content-Type", "application/json")
+		oneLiner := fmt.Sprintf("curl -fsSL %q | sh", downloadURL)
+		if platform == "windows" {
+			oneLiner = fmt.Sprintf("irm %q | iex", downloadURL)
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"script":       script,
+			"filename":     filename,
+			"download_url": downloadURL,
+			"one_liner":    oneLiner,
+		})
+		return
+	case "archive":
+		if dbStore == nil || installerPackager == nil || tenantRecord == nil {
+			writeJSONError(w, http.StatusServiceUnavailable, "installer packaging unavailable")
+			return
+		}
+		bundle, metadata, err := generateInstallerBundle(r.Context(), r, in, tenantRecord, platform, rawToken, serverURL, tokenMeta)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		resp := map[string]interface{}{
+			"bundle_id":    bundle.ID,
+			"tenant_id":    bundle.TenantID,
+			"component":    bundle.Component,
+			"version":      bundle.Version,
+			"platform":     bundle.Platform,
+			"arch":         bundle.Arch,
+			"format":       bundle.Format,
+			"size_bytes":   bundle.SizeBytes,
+			"expires_at":   bundle.ExpiresAt,
+			"download_url": fmt.Sprintf("%s/api/v1/packages/%d/download", serverURL, bundle.ID),
+		}
+		if len(metadata) > 0 {
+			resp["metadata"] = metadata
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	default:
+		writeJSONError(w, http.StatusBadRequest, "unsupported installer_type")
+		return
+	}
+}
+
+// handlePackageRoute dispatches bundle metadata and download requests under /api/v1/packages/{id}
+func handlePackageRoute(w http.ResponseWriter, r *http.Request) {
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
+	if dbStore == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "installer bundles unavailable")
+		return
+	}
+	trimmed := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/packages/"), "/")
+	if trimmed == "" {
+		http.NotFound(w, r)
+		return
+	}
+	parts := strings.Split(trimmed, "/")
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || id <= 0 {
+		writeJSONError(w, http.StatusBadRequest, "invalid package id")
+		return
+	}
+	bundle, err := dbStore.GetInstallerBundle(r.Context(), id)
+	if err != nil || bundle == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{bundle.TenantID}}) {
+		return
+	}
+	if len(parts) == 1 || strings.TrimSpace(parts[1]) == "" {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		respondWithBundleMetadata(w, r, bundle)
+		return
+	}
+	sub := strings.ToLower(strings.TrimSpace(parts[1]))
+	switch sub {
+	case "download":
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		serveInstallerBundle(w, r, bundle)
+		return
+	default:
+		http.NotFound(w, r)
+		return
+	}
+}
+
+func respondWithBundleMetadata(w http.ResponseWriter, r *http.Request, bundle *storage.InstallerBundle) {
+	if bundle == nil {
+		http.NotFound(w, r)
+		return
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	baseURL := scheme + "://" + r.Host
+	expired := bundleExpired(bundle)
+	resp := map[string]interface{}{
+		"bundle_id":    bundle.ID,
+		"tenant_id":    bundle.TenantID,
+		"component":    bundle.Component,
+		"version":      bundle.Version,
+		"platform":     bundle.Platform,
+		"arch":         bundle.Arch,
+		"format":       bundle.Format,
+		"size_bytes":   bundle.SizeBytes,
+		"expires_at":   bundle.ExpiresAt,
+		"expired":      expired,
+		"download_url": fmt.Sprintf("%s/api/v1/packages/%d/download", baseURL, bundle.ID),
+	}
+	if meta, err := decodeBundleMetadata(bundle.MetadataJSON); err == nil && len(meta) > 0 {
+		resp["metadata"] = meta
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func serveInstallerBundle(w http.ResponseWriter, r *http.Request, bundle *storage.InstallerBundle) {
+	if bundle == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if bundleExpired(bundle) {
+		writeJSONError(w, http.StatusGone, "installer bundle expired")
+		return
+	}
+	if installerPackager == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "installer packager unavailable")
+		return
+	}
+	handle, err := installerPackager.OpenBundle(r.Context(), bundle)
+	if err != nil {
+		writeJSONError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	defer handle.Close()
+	filename := handle.Name()
+	if strings.TrimSpace(filename) == "" {
+		filename = filepath.Base(bundle.BundlePath)
+	}
+	if strings.TrimSpace(filename) == "" {
+		filename = fmt.Sprintf("installer-%d", bundle.ID)
+	}
+	modTime := handle.ModTime()
+	if modTime.IsZero() {
+		modTime = bundle.UpdatedAt
+	}
+	w.Header().Set("Content-Type", contentTypeForFormat(bundle.Format))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	w.Header().Set("Cache-Control", "no-store")
+	http.ServeContent(w, r, filename, modTime, handle)
+	recordAudit(r, &storage.AuditEntry{
+		Action:     "package.download",
+		TargetType: "install_package",
+		TargetID:   bundle.TenantID,
+		TenantID:   bundle.TenantID,
+		Details:    "Installer bundle downloaded",
+		Metadata: map[string]interface{}{
+			"bundle_id": bundle.ID,
+			"format":    bundle.Format,
+			"component": bundle.Component,
+			"version":   bundle.Version,
+		},
+	})
+}
+
+func contentTypeForFormat(format string) string {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "zip":
+		return "application/zip"
+	case "tar.gz", "tgz":
+		return "application/gzip"
+	case "msi":
+		return "application/x-msi"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// handleInstall serves hosted install scripts by short code. URL: /install/{code}/{filename}
+func handleInstall(w http.ResponseWriter, r *http.Request) {
+	// expect path /install/{code}/{filename}
+	p := strings.TrimPrefix(r.URL.Path, "/install/")
+	parts := strings.SplitN(p, "/", 2)
+	if len(parts) < 1 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+	code := parts[0]
+
+	installStore.mu.Lock()
+	entry, ok := installStore.m[code]
+	// If one-time, remove immediately (we'll serve below)
+	if ok && entry.OneTime {
+		delete(installStore.m, code)
+	}
+	installStore.mu.Unlock()
+	if !ok || time.Now().UTC().After(entry.ExpiresAt) {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Serve script with appropriate content-type based on filename
+	contentType := "text/plain; charset=utf-8"
+	if strings.HasSuffix(entry.Filename, ".sh") {
+		contentType = "application/x-sh"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+entry.Filename+"\"")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	_, _ = w.Write([]byte(entry.Script))
+}
+
+// installCleanupLoop periodically removes expired install entries.
+func installCleanupLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now().UTC()
+		installStore.mu.Lock()
+		for k, v := range installStore.m {
+			if now.After(v.ExpiresAt) {
+				delete(installStore.m, k)
+			}
+		}
+		installStore.mu.Unlock()
+	}
+}
+
+func generateInstallerBundle(ctx context.Context, r *http.Request, req packageRequest, tenant *storage.Tenant, platform, rawToken, serverURL string, tokenMeta joinTokenInfo) (*storage.InstallerBundle, map[string]interface{}, error) {
+	if installerPackager == nil {
+		return nil, nil, fmt.Errorf("installer packager unavailable")
+	}
+	if tenant == nil {
+		return nil, nil, fmt.Errorf("tenant context required")
+	}
+	resolvedPlatform := normalizePlatform(platform)
+	format := strings.ToLower(strings.TrimSpace(req.Format))
+	if format == "" {
+		format = defaultFormatForPlatform(resolvedPlatform)
+	}
+	if format == "" {
+		return nil, nil, fmt.Errorf("installer format required")
+	}
+	component := strings.TrimSpace(req.Component)
+	if component == "" {
+		component = "agent"
+	}
+	version := strings.TrimSpace(req.Version)
+	if version == "" {
+		version = defaultBundleVersion()
+	}
+	if version == "" {
+		return nil, nil, fmt.Errorf("version required")
+	}
+	arch := normalizeArch(req.Arch, resolvedPlatform)
+	if arch == "" {
+		return nil, nil, fmt.Errorf("arch required")
+	}
+	ttl := time.Duration(req.TTLMinutes) * time.Minute
+	if ttl <= 0 {
+		ttl = 10 * time.Minute
+	}
+	effectiveServer := strings.TrimSpace(serverURL)
+	generatedAt := time.Now().UTC()
+	overlayMeta := map[string]interface{}{
+		"tenant_id":           tenant.ID,
+		"tenant_name":         tenant.Name,
+		"platform":            resolvedPlatform,
+		"arch":                arch,
+		"format":              format,
+		"component":           component,
+		"version":             version,
+		"server_url":          effectiveServer,
+		"generated_at":        generatedAt,
+		"server_version":      defaultBundleVersion(),
+		"masked_join_token":   maskTokenValue(rawToken),
+		"join_token_one_time": tokenMeta.OneTime,
+	}
+	if tokenMeta.ID != "" {
+		overlayMeta["join_token_id"] = tokenMeta.ID
+	}
+	if !tokenMeta.ExpiresAt.IsZero() {
+		overlayMeta["join_token_expires_at"] = tokenMeta.ExpiresAt
+	}
+	if r != nil {
+		if addr := strings.TrimSpace(r.RemoteAddr); addr != "" {
+			overlayMeta["request_ip"] = addr
+		}
+		if ua := strings.TrimSpace(r.UserAgent()); ua != "" {
+			overlayMeta["user_agent"] = ua
+		}
+	}
+	overlays, err := buildOverlayFiles(effectiveServer, rawToken, overlayMeta)
+	if err != nil {
+		return nil, nil, err
+	}
+	requestMetadata := map[string]interface{}{
+		"tenant_id":   tenant.ID,
+		"tenant_name": tenant.Name,
+		"platform":    resolvedPlatform,
+		"arch":        arch,
+		"format":      format,
+		"component":   component,
+		"version":     version,
+		"server_url":  effectiveServer,
+	}
+	if tokenMeta.ID != "" {
+		requestMetadata["join_token_id"] = tokenMeta.ID
+	}
+	if !tokenMeta.ExpiresAt.IsZero() {
+		requestMetadata["join_token_expires_at"] = tokenMeta.ExpiresAt
+	}
+	requestMetadata["join_token_one_time"] = tokenMeta.OneTime
+	bundle, err := installerPackager.BuildInstaller(ctx, packager.BuildRequest{
+		TenantID:     tenant.ID,
+		Component:    component,
+		Version:      version,
+		Platform:     resolvedPlatform,
+		Arch:         arch,
+		Format:       format,
+		OverlayFiles: overlays,
+		Metadata:     requestMetadata,
+		TTL:          ttl,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	metadata, _ := decodeBundleMetadata(bundle.MetadataJSON)
+	return bundle, metadata, nil
+}
+
+func buildOverlayFiles(serverURL, rawToken string, meta map[string]interface{}) ([]packager.OverlayFile, error) {
+	config := buildBootstrapConfig(serverURL, rawToken)
+	metaBytes, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	files := []packager.OverlayFile{
+		{Path: "config/bootstrap.toml", Mode: 0o600, Data: config},
+		{Path: "config/metadata.json", Mode: 0o640, Data: metaBytes},
+	}
+	return files, nil
+}
+
+func buildBootstrapConfig(serverURL, token string) []byte {
+	var b strings.Builder
+	b.WriteString("[server]\n")
+	b.WriteString("enabled = true\n")
+	b.WriteString(fmt.Sprintf("url = %q\n", serverURL))
+	b.WriteString("name = \"\"\n")
+	b.WriteString(fmt.Sprintf("token = %q\n", token))
+	b.WriteString("insecure_skip_verify = true\n")
+	return []byte(b.String())
+}
+
+func buildBootstrapScript(platform, serverURL, token string) (string, string) {
+	switch normalizePlatform(platform) {
+	case "windows":
+		return fmt.Sprintf(windowsBootstrapScript, serverURL, token), "install.ps1"
+	default:
+		return fmt.Sprintf(unixBootstrapScript, serverURL, token), "install.sh"
+	}
+}
+
+const windowsBootstrapScript = `# PowerShell bootstrap for PrintMaster
 $ErrorActionPreference = "Stop"
 $server = "%s"
 $token = "%s"
@@ -1100,11 +1598,8 @@ if ($LASTEXITCODE -ne 0) {
 	Write-Host "Logs:        $(Join-Path $configDir 'logs')"
 }
 `
-			script = fmt.Sprintf(pwTemplate, serverURL, rawToken)
-		default:
-			// linux / darwin
-			filename = "install.sh"
-			shTemplate := `#!/bin/sh
+
+const unixBootstrapScript = `#!/bin/sh
 SERVER="%s"
 TOKEN="%s"
 set -e
@@ -1135,100 +1630,117 @@ else
 	/usr/local/bin/pm-agent --config /etc/printmaster/pm-config.json &
 fi
 `
-			script = fmt.Sprintf(shTemplate, serverURL, rawToken)
-		}
 
-		// Create a short-lived install code and store the script for hosting
-		code := randomHex(12) // 24 hex chars
-		oneTimeDownload := true
-		if inOneTime, ok := r.URL.Query()["one_time_download"]; ok && len(inOneTime) > 0 {
-			// allow override via query param (string values like "false")
-			if strings.ToLower(inOneTime[0]) == "false" || strings.ToLower(inOneTime[0]) == "0" {
-				oneTimeDownload = false
-			}
-		}
-		installStore.mu.Lock()
-		installStore.m[code] = installEntry{Script: script, Filename: filename, ExpiresAt: time.Now().UTC().Add(time.Duration(in.TTLMinutes) * time.Minute), OneTime: oneTimeDownload}
-		installStore.mu.Unlock()
+func normalizePlatform(input string) string {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "win", "windows", "windows_nt":
+		return "windows"
+	case "mac", "darwin", "osx":
+		return "darwin"
+	case "linux", "":
+		return "linux"
+	default:
+		return strings.ToLower(strings.TrimSpace(input))
+	}
+}
 
-		downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
-
-		// Respond with JSON containing script and hosted URL for convenience
-		w.Header().Set("Content-Type", "application/json")
-		// Provide a short one-line command that admins can paste into a shell
-		// to fetch and execute the hosted install script. For Windows we emit
-		// an Invoke-RestMethod/Invoke-Expression pattern (`irm <url> | iex`) and
-		// for Unix-like systems we emit `curl -fsSL <url> | sh`.
-		oneLiner := ""
-		switch platform {
-		case "windows":
-			oneLiner = fmt.Sprintf("irm %q | iex", downloadURL)
+func normalizeArch(input, platform string) string {
+	arch := strings.ToLower(strings.TrimSpace(input))
+	switch arch {
+	case "", "x86_64":
+		arch = "amd64"
+	case "aarch64", "arm64":
+		arch = "arm64"
+	case "armv7":
+		arch = "armv7"
+	}
+	if arch == "" {
+		switch normalizePlatform(platform) {
+		case "darwin":
+			arch = "arm64"
 		default:
-			oneLiner = fmt.Sprintf("curl -fsSL %q | sh", downloadURL)
+			arch = "amd64"
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"script":       script,
-			"filename":     filename,
-			"download_url": downloadURL,
-			"one_liner":    oneLiner,
-		})
-		return
 	}
-
-	// For archive type or others, simply respond not implemented for MVP
-	w.WriteHeader(http.StatusNotImplemented)
-	w.Write([]byte(`{"error":"archive generation not implemented yet"}`))
+	return arch
 }
 
-// handleInstall serves hosted install scripts by short code. URL: /install/{code}/{filename}
-func handleInstall(w http.ResponseWriter, r *http.Request) {
-	// expect path /install/{code}/{filename}
-	p := strings.TrimPrefix(r.URL.Path, "/install/")
-	parts := strings.SplitN(p, "/", 2)
-	if len(parts) < 1 || parts[0] == "" {
-		http.NotFound(w, r)
-		return
+func defaultFormatForPlatform(platform string) string {
+	switch normalizePlatform(platform) {
+	case "windows":
+		return "zip"
+	case "darwin":
+		return "tar.gz"
+	default:
+		return "tar.gz"
 	}
-	code := parts[0]
-
-	installStore.mu.Lock()
-	entry, ok := installStore.m[code]
-	// If one-time, remove immediately (we'll serve below)
-	if ok && entry.OneTime {
-		delete(installStore.m, code)
-	}
-	installStore.mu.Unlock()
-	if !ok || time.Now().UTC().After(entry.ExpiresAt) {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Serve script with appropriate content-type based on filename
-	contentType := "text/plain; charset=utf-8"
-	if strings.HasSuffix(entry.Filename, ".sh") {
-		contentType = "application/x-sh"
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", "attachment; filename=\""+entry.Filename+"\"")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Pragma", "no-cache")
-	_, _ = w.Write([]byte(entry.Script))
 }
 
-// installCleanupLoop periodically removes expired install entries.
-func installCleanupLoop() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now().UTC()
-		installStore.mu.Lock()
-		for k, v := range installStore.m {
-			if now.After(v.ExpiresAt) {
-				delete(installStore.m, k)
+func defaultBundleVersion() string {
+	version := strings.TrimSpace(serverVersion)
+	if version != "" && !isDevVersion(version) {
+		return version
+	}
+	for _, candidate := range versionFileCandidates {
+		if data, err := os.ReadFile(candidate); err == nil {
+			fileVersion := strings.TrimSpace(string(data))
+			if fileVersion != "" {
+				return fileVersion
 			}
 		}
-		installStore.mu.Unlock()
 	}
+	return version
+}
+
+func isDevVersion(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "dev", "development", "dirty", "local":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseBundleListLimit(raw string) int {
+	const (
+		defaultLimit = 50
+		maxLimit     = 200
+	)
+	if strings.TrimSpace(raw) == "" {
+		return defaultLimit
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value <= 0 {
+		return defaultLimit
+	}
+	if value > maxLimit {
+		return maxLimit
+	}
+	return value
+}
+
+func bundleExpired(bundle *storage.InstallerBundle) bool {
+	if bundle == nil {
+		return false
+	}
+	return !bundle.ExpiresAt.IsZero() && time.Now().UTC().After(bundle.ExpiresAt)
+}
+
+func decodeBundleMetadata(raw string) (map[string]interface{}, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 // handleAgentDownloadLatest redirects to the latest compatible agent binary
