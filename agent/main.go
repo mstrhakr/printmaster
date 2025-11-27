@@ -30,6 +30,7 @@ import (
 	"path"
 	"path/filepath"
 	"printmaster/agent/agent"
+	"printmaster/agent/autoupdate"
 	"printmaster/agent/featureflags"
 	"printmaster/agent/proxy"
 	"printmaster/agent/scanner"
@@ -162,6 +163,10 @@ var (
 	configEpsonRemoteModeEnabled bool
 	// Global structured logger instance
 	appLogger *logger.Logger
+	// autoUpdateManagerMu protects access to autoUpdateManager
+	autoUpdateManagerMu sync.RWMutex
+	// autoUpdateManager handles agent self-update operations
+	autoUpdateManager *autoupdate.Manager
 	// scannerConfig centralizes runtime-adjustable scanner parameters
 	scannerConfig struct {
 		sync.RWMutex
@@ -2901,6 +2906,9 @@ func runInteractive(ctx context.Context, configFlag string) {
 			uploadWorkerMu.Lock()
 			uploadWorker = worker
 			uploadWorkerMu.Unlock()
+
+			// Start auto-update worker after upload worker is ready
+			go initAutoUpdateWorker(ctx, agentConfig, dataDir, appLogger)
 		}()
 	}
 
@@ -4871,6 +4879,66 @@ window.top.location.href = '/proxy/%s/';
 			"go_version": runtime.Version(),
 			"os":         runtime.GOOS,
 			"arch":       runtime.GOARCH,
+		})
+	})
+
+	// Auto-update status and control endpoint
+	http.HandleFunc("/api/autoupdate/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		autoUpdateManagerMu.RLock()
+		manager := autoUpdateManager
+		autoUpdateManagerMu.RUnlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if manager == nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"enabled":  false,
+				"reason":   "not initialized (no server connection)",
+				"status":   "disabled",
+				"platform": runtime.GOOS,
+				"arch":     runtime.GOARCH,
+			})
+			return
+		}
+
+		status := manager.Status()
+		json.NewEncoder(w).Encode(status)
+	})
+
+	// Trigger an immediate update check
+	http.HandleFunc("/api/autoupdate/check", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		autoUpdateManagerMu.RLock()
+		manager := autoUpdateManager
+		autoUpdateManagerMu.RUnlock()
+
+		if manager == nil {
+			http.Error(w, "auto-update not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Run check in background with a reasonable timeout
+		go func() {
+			checkCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := manager.CheckNow(checkCtx); err != nil && appLogger != nil {
+				appLogger.Warn("Manual update check failed", "error", err)
+			}
+		}()
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "check_triggered",
+			"message": "Update check has been scheduled",
 		})
 	})
 

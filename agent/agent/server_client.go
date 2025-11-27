@@ -585,3 +585,166 @@ func getBuildType() string {
 func getGitCommit() string {
 	return gitCommit
 }
+
+// UpdateManifest represents a signed manifest for an available update.
+type UpdateManifest struct {
+	ManifestVersion string    `json:"manifest_version"`
+	Component       string    `json:"component"`
+	Version         string    `json:"version"`
+	MinorLine       string    `json:"minor_line"`
+	Platform        string    `json:"platform"`
+	Arch            string    `json:"arch"`
+	Channel         string    `json:"channel"`
+	SHA256          string    `json:"sha256"`
+	SizeBytes       int64     `json:"size_bytes"`
+	SourceURL       string    `json:"source_url"`
+	DownloadURL     string    `json:"download_url,omitempty"`
+	PublishedAt     time.Time `json:"published_at,omitempty"`
+	GeneratedAt     time.Time `json:"generated_at"`
+	Signature       string    `json:"signature,omitempty"`
+}
+
+// GetLatestManifest fetches the latest update manifest from the server.
+func (c *ServerClient) GetLatestManifest(ctx context.Context, component, platform, arch, channel string) (*UpdateManifest, error) {
+	type ManifestRequest struct {
+		AgentID   string `json:"agent_id"`
+		Component string `json:"component"`
+		Platform  string `json:"platform"`
+		Arch      string `json:"arch"`
+		Channel   string `json:"channel"`
+	}
+
+	type ManifestResponse struct {
+		Success  bool            `json:"success"`
+		Manifest *UpdateManifest `json:"manifest,omitempty"`
+		Message  string          `json:"message,omitempty"`
+	}
+
+	req := ManifestRequest{
+		AgentID:   c.AgentID,
+		Component: component,
+		Platform:  platform,
+		Arch:      arch,
+		Channel:   channel,
+	}
+
+	var resp ManifestResponse
+	if err := c.doRequest(ctx, "POST", "/api/v1/agents/update/manifest", req, &resp, true); err != nil {
+		return nil, fmt.Errorf("failed to fetch manifest: %w", err)
+	}
+
+	if !resp.Success {
+		if resp.Message != "" {
+			return nil, fmt.Errorf("manifest request failed: %s", resp.Message)
+		}
+		return nil, fmt.Errorf("manifest request failed")
+	}
+
+	if resp.Manifest == nil {
+		return nil, fmt.Errorf("no manifest returned")
+	}
+
+	return resp.Manifest, nil
+}
+
+// DownloadArtifact downloads an update artifact to the specified path.
+// Supports resuming partial downloads via HTTP Range requests.
+// Returns the total bytes downloaded (including resumed bytes).
+func (c *ServerClient) DownloadArtifact(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64) (int64, error) {
+	if manifest == nil {
+		return 0, fmt.Errorf("manifest required")
+	}
+
+	downloadURL := manifest.DownloadURL
+	if downloadURL == "" {
+		// Construct URL from base + version
+		downloadURL = fmt.Sprintf("%s/api/v1/agents/update/download/%s/%s/%s",
+			c.BaseURL, manifest.Component, manifest.Version, manifest.Platform+"-"+manifest.Arch)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Add authorization
+	c.mu.RLock()
+	token := c.Token
+	c.mu.RUnlock()
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	// Add range header for resume
+	if resumeFrom > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", resumeFrom))
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("download request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		return 0, fmt.Errorf("download failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Open destination file
+	flags := os.O_CREATE | os.O_WRONLY
+	if resumeFrom > 0 && resp.StatusCode == http.StatusPartialContent {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+		resumeFrom = 0 // Server didn't support range, start fresh
+	}
+
+	file, err := os.OpenFile(destPath, flags, 0o644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open destination file: %w", err)
+	}
+	defer file.Close()
+
+	written, err := io.Copy(file, resp.Body)
+	if err != nil {
+		return resumeFrom + written, fmt.Errorf("download interrupted: %w", err)
+	}
+
+	return resumeFrom + written, nil
+}
+
+// ReportUpdateStatus sends telemetry about an update operation to the server.
+func (c *ServerClient) ReportUpdateStatus(ctx context.Context, status, runID, currentVersion, targetVersion string, errCode, errMsg string, metadata map[string]interface{}) error {
+	type TelemetryRequest struct {
+		AgentID        string                 `json:"agent_id"`
+		RunID          string                 `json:"run_id,omitempty"`
+		Status         string                 `json:"status"`
+		CurrentVersion string                 `json:"current_version"`
+		TargetVersion  string                 `json:"target_version,omitempty"`
+		ErrorCode      string                 `json:"error_code,omitempty"`
+		ErrorMessage   string                 `json:"error_message,omitempty"`
+		Timestamp      time.Time              `json:"timestamp"`
+		Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	}
+
+	req := TelemetryRequest{
+		AgentID:        c.AgentID,
+		RunID:          runID,
+		Status:         status,
+		CurrentVersion: currentVersion,
+		TargetVersion:  targetVersion,
+		ErrorCode:      errCode,
+		ErrorMessage:   errMsg,
+		Timestamp:      time.Now(),
+		Metadata:       metadata,
+	}
+
+	var resp map[string]interface{}
+	if err := c.doRequest(ctx, "POST", "/api/v1/agents/update/telemetry", req, &resp, true); err != nil {
+		return fmt.Errorf("telemetry report failed: %w", err)
+	}
+
+	return nil
+}

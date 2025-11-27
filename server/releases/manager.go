@@ -173,6 +173,83 @@ func (m *Manager) GetManifest(ctx context.Context, component, version, platform,
 	return m.store.GetReleaseManifest(ctx, component, version, platform, arch)
 }
 
+// AgentUpdateManifest is the JSON structure returned to agents for update checks.
+type AgentUpdateManifest struct {
+	ManifestVersion string    `json:"manifest_version"`
+	Component       string    `json:"component"`
+	Version         string    `json:"version"`
+	MinorLine       string    `json:"minor_line"`
+	Platform        string    `json:"platform"`
+	Arch            string    `json:"arch"`
+	Channel         string    `json:"channel"`
+	SHA256          string    `json:"sha256"`
+	SizeBytes       int64     `json:"size_bytes"`
+	SourceURL       string    `json:"source_url"`
+	DownloadURL     string    `json:"download_url,omitempty"`
+	PublishedAt     time.Time `json:"published_at,omitempty"`
+	GeneratedAt     time.Time `json:"generated_at"`
+	Signature       string    `json:"signature,omitempty"`
+}
+
+// GetLatestManifest returns the latest manifest for the specified component/platform/arch/channel.
+func (m *Manager) GetLatestManifest(ctx context.Context, component, platform, arch, channel string) (*AgentUpdateManifest, error) {
+	// Get all manifests for this component and find the latest matching one
+	manifests, err := m.store.ListReleaseManifests(ctx, component, 100)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list manifests: %w", err)
+	}
+
+	var latest *storage.ReleaseManifest
+	for _, manifest := range manifests {
+		if manifest.Platform != platform || manifest.Arch != arch {
+			continue
+		}
+		if channel != "" && manifest.Channel != channel {
+			continue
+		}
+		if latest == nil || manifest.Version > latest.Version {
+			latest = manifest
+		}
+	}
+
+	if latest == nil {
+		return nil, fmt.Errorf("no manifest found for %s/%s-%s/%s", component, platform, arch, channel)
+	}
+
+	// Get the corresponding artifact for size info
+	artifact, err := m.store.GetReleaseArtifact(ctx, latest.Component, latest.Version, latest.Platform, latest.Arch)
+	if err != nil {
+		m.logDebug("No artifact found for manifest", "component", latest.Component, "version", latest.Version)
+	}
+
+	// Parse minor line from version (e.g., "0.9.16" -> "0.9")
+	minorLine := ""
+	parts := strings.Split(latest.Version, ".")
+	if len(parts) >= 2 {
+		minorLine = parts[0] + "." + parts[1]
+	}
+
+	result := &AgentUpdateManifest{
+		ManifestVersion: latest.ManifestVersion,
+		Component:       latest.Component,
+		Version:         latest.Version,
+		MinorLine:       minorLine,
+		Platform:        latest.Platform,
+		Arch:            latest.Arch,
+		Channel:         latest.Channel,
+		Signature:       latest.Signature,
+		GeneratedAt:     latest.GeneratedAt,
+	}
+
+	if artifact != nil {
+		result.SHA256 = artifact.SHA256
+		result.SizeBytes = artifact.SizeBytes
+		result.SourceURL = artifact.SourceURL
+	}
+
+	return result, nil
+}
+
 func (m *Manager) signArtifactWithKey(ctx context.Context, artifact *storage.ReleaseArtifact, key *storage.SigningKey) (*storage.ReleaseManifest, error) {
 	payload, err := m.buildPayload(artifact)
 	if err != nil {
