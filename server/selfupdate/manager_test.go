@@ -18,15 +18,16 @@ func TestManagerTickSkipsWithoutArtifacts(t *testing.T) {
 	dataDir := t.TempDir()
 	fixed := time.Date(2025, time.November, 27, 12, 0, 0, 0, time.UTC)
 	mgr, err := NewManager(Options{
-		Store:          store,
-		DataDir:        dataDir,
-		Enabled:        true,
-		CurrentVersion: "0.9.5",
-		Platform:       "windows",
-		Arch:           "amd64",
-		ApplyLauncher:  &stubLauncher{},
-		Clock:          func() time.Time { return fixed },
-		CheckEvery:     time.Minute,
+		Store:            store,
+		DataDir:          dataDir,
+		Enabled:          true,
+		CurrentVersion:   "0.9.5",
+		Platform:         "windows",
+		Arch:             "amd64",
+		ApplyLauncher:    &stubLauncher{},
+		Clock:            func() time.Time { return fixed },
+		CheckEvery:       time.Minute,
+		RuntimeSkipCheck: func() string { return "" }, // Bypass CI detection
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -97,16 +98,17 @@ func TestManagerTickSelectsNewerCandidate(t *testing.T) {
 	fixed := time.Date(2025, time.November, 27, 13, 0, 0, 0, time.UTC)
 	launcher := &stubLauncher{meta: map[string]any{"helper_pid": 1337}}
 	mgr, err := NewManager(Options{
-		Store:          store,
-		DataDir:        dataDir,
-		Enabled:        true,
-		CurrentVersion: "0.9.5",
-		Platform:       "windows",
-		Arch:           "amd64",
-		BinaryPath:     binaryPath,
-		ApplyLauncher:  launcher,
-		Clock:          func() time.Time { return fixed },
-		CheckEvery:     time.Minute,
+		Store:            store,
+		DataDir:          dataDir,
+		Enabled:          true,
+		CurrentVersion:   "0.9.5",
+		Platform:         "windows",
+		Arch:             "amd64",
+		BinaryPath:       binaryPath,
+		ApplyLauncher:    launcher,
+		Clock:            func() time.Time { return fixed },
+		CheckEvery:       time.Minute,
+		RuntimeSkipCheck: func() string { return "" }, // Bypass CI detection
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)
@@ -161,16 +163,17 @@ func TestManagerApplyLauncherFailure(t *testing.T) {
 	dataDir := t.TempDir()
 	launcher := &stubLauncher{err: errors.New("boom")}
 	mgr, err := NewManager(Options{
-		Store:          store,
-		DataDir:        dataDir,
-		Enabled:        true,
-		CurrentVersion: "0.9.5",
-		Platform:       "windows",
-		Arch:           "amd64",
-		BinaryPath:     binaryPath,
-		ApplyLauncher:  launcher,
-		Clock:          func() time.Time { return time.Date(2025, time.November, 27, 15, 0, 0, 0, time.UTC) },
-		CheckEvery:     time.Minute,
+		Store:            store,
+		DataDir:          dataDir,
+		Enabled:          true,
+		CurrentVersion:   "0.9.5",
+		Platform:         "windows",
+		Arch:             "amd64",
+		BinaryPath:       binaryPath,
+		ApplyLauncher:    launcher,
+		Clock:            func() time.Time { return time.Date(2025, time.November, 27, 15, 0, 0, 0, time.UTC) },
+		CheckEvery:       time.Minute,
+		RuntimeSkipCheck: func() string { return "" }, // Bypass CI detection
 	})
 	if err != nil {
 		t.Fatalf("NewManager: %v", err)

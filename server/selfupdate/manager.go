@@ -33,44 +33,46 @@ const (
 
 // Options configure the self-update manager lifecycle.
 type Options struct {
-	Store          storage.Store
-	Log            *logger.Logger
-	DataDir        string
-	Enabled        bool
-	CheckEvery     time.Duration
-	Clock          func() time.Time
-	Component      string
-	Channel        string
-	CurrentVersion string
-	Platform       string
-	Arch           string
-	MaxArtifacts   int
-	BinaryPath     string
-	DatabasePath   string
-	ServiceName    string
-	ApplyLauncher  ApplyLauncher
+	Store            storage.Store
+	Log              *logger.Logger
+	DataDir          string
+	Enabled          bool
+	CheckEvery       time.Duration
+	Clock            func() time.Time
+	Component        string
+	Channel          string
+	CurrentVersion   string
+	Platform         string
+	Arch             string
+	MaxArtifacts     int
+	BinaryPath       string
+	DatabasePath     string
+	ServiceName      string
+	ApplyLauncher    ApplyLauncher
+	RuntimeSkipCheck func() string // Returns reason to skip, or "" to proceed. Defaults to runtimeSkipReason.
 }
 
 // Manager coordinates the server self-update workflow.
 type Manager struct {
-	store           storage.Store
-	log             *logger.Logger
-	stateDir        string
-	interval        time.Duration
-	clock           func() time.Time
-	disabledReason  string
-	component       string
-	channel         string
-	currentVersion  string
-	currentSemver   *semver.Version
-	versionParseErr error
-	platform        string
-	arch            string
-	maxArtifacts    int
-	binaryPath      string
-	databasePath    string
-	serviceName     string
-	applier         ApplyLauncher
+	store            storage.Store
+	log              *logger.Logger
+	stateDir         string
+	interval         time.Duration
+	clock            func() time.Time
+	disabledReason   string
+	component        string
+	channel          string
+	currentVersion   string
+	currentSemver    *semver.Version
+	versionParseErr  error
+	platform         string
+	arch             string
+	maxArtifacts     int
+	binaryPath       string
+	databasePath     string
+	serviceName      string
+	applier          ApplyLauncher
+	runtimeSkipCheck func() string
 }
 
 // NewManager validates options, prepares state directories, and returns a manager instance.
@@ -149,26 +151,31 @@ func NewManager(opts Options) (*Manager, error) {
 		}
 		applier = newHelperLauncher(stateDir, binaryPath, serviceName, opts.Log)
 	}
+	runtimeSkipCheck := opts.RuntimeSkipCheck
+	if runtimeSkipCheck == nil {
+		runtimeSkipCheck = runtimeSkipReason
+	}
 	reason := disableReason(opts.Enabled)
 	return &Manager{
-		store:           opts.Store,
-		log:             opts.Log,
-		stateDir:        stateDir,
-		interval:        interval,
-		clock:           clock,
-		disabledReason:  reason,
-		component:       component,
-		channel:         channel,
-		currentVersion:  currentVersion,
-		currentSemver:   parsed,
-		versionParseErr: versionErr,
-		platform:        strings.ToLower(platform),
-		arch:            strings.ToLower(arch),
-		maxArtifacts:    maxArtifacts,
-		binaryPath:      binaryPath,
-		databasePath:    databasePath,
-		serviceName:     serviceName,
-		applier:         applier,
+		store:            opts.Store,
+		log:              opts.Log,
+		stateDir:         stateDir,
+		interval:         interval,
+		clock:            clock,
+		disabledReason:   reason,
+		component:        component,
+		channel:          channel,
+		currentVersion:   currentVersion,
+		currentSemver:    parsed,
+		versionParseErr:  versionErr,
+		platform:         strings.ToLower(platform),
+		arch:             strings.ToLower(arch),
+		maxArtifacts:     maxArtifacts,
+		binaryPath:       binaryPath,
+		databasePath:     databasePath,
+		serviceName:      serviceName,
+		applier:          applier,
+		runtimeSkipCheck: runtimeSkipCheck,
 	}, nil
 }
 
@@ -273,7 +280,7 @@ func (m *Manager) tick(ctx context.Context) {
 		}
 		return
 	}
-	if reason := runtimeSkipReason(); reason != "" {
+	if reason := m.runtimeSkipCheck(); reason != "" {
 		run.Status = storage.SelfUpdateStatusSkipped
 		run.Metadata = mergeMetadata(run.Metadata, map[string]any{
 			"reason": reason,
