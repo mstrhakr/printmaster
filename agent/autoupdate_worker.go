@@ -159,5 +159,41 @@ func initAutoUpdateWorker(
 		autoUpdateManagerMu.Lock()
 		autoUpdateManager = manager
 		autoUpdateManagerMu.Unlock()
+
+		// Register command handler for server-triggered updates
+		agent.SetCommandHandler(func(command string, data map[string]interface{}) {
+			handleServerCommand(ctx, command, data, log)
+		})
+		log.Debug("Registered WebSocket command handler for server commands")
+	}
+}
+
+// handleServerCommand processes commands received from the server via WebSocket
+func handleServerCommand(ctx context.Context, command string, data map[string]interface{}, log *logger.Logger) {
+	log.Info("Processing server command", "command", command)
+
+	switch command {
+	case "check_update":
+		autoUpdateManagerMu.RLock()
+		manager := autoUpdateManager
+		autoUpdateManagerMu.RUnlock()
+
+		if manager == nil {
+			log.Warn("Received check_update command but auto-update manager not available")
+			return
+		}
+
+		// Trigger immediate update check
+		go func() {
+			log.Info("Triggering immediate update check per server request")
+			if err := manager.CheckNow(ctx); err != nil {
+				log.Error("Update check failed", "error", err)
+			} else {
+				log.Info("Update check completed")
+			}
+		}()
+
+	default:
+		log.Warn("Unknown server command", "command", command)
 	}
 }

@@ -917,7 +917,16 @@ func startServerUploadWorker(
 	}
 
 	uploadWorker := NewUploadWorker(serverClient, deviceStore, workerLogger, settings, workerConfig, dataDir)
-	if err := uploadWorker.Start(ctx, Version); err != nil {
+
+	// Build version info for heartbeats
+	versionInfo := &agent.AgentVersionInfo{
+		Version:         Version,
+		ProtocolVersion: "1",
+		BuildType:       BuildType,
+		GitCommit:       GitCommit,
+	}
+
+	if err := uploadWorker.StartWithVersionInfo(ctx, Version, versionInfo); err != nil {
 		return nil, err
 	}
 

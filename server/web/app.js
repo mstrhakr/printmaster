@@ -3235,6 +3235,9 @@ function renderAgentDetailsModal(agent) {
         </div>
         <!-- Action Buttons -->
         <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
+            <button id="agent_check_update_btn" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+                Check for Update
+            </button>
             <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
                 Open Agent UI
             </button>
@@ -3242,6 +3245,8 @@ function renderAgentDetailsModal(agent) {
     `;
     // Attach inline editor handlers now that DOM nodes are present
     try { _attachAgentDetailsNameEditor(agent); } catch (e) { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('attach editor failed', e); }
+    // Attach check for update handler
+    try { _attachAgentUpdateHandler(agent); } catch (e) { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('attach update handler failed', e); }
 }
 
 // After rendering the agent details modal we attach a small inline handler
@@ -3291,6 +3296,41 @@ function _attachAgentDetailsNameEditor(agent) {
         });
     } catch (e) {
         window.__pm_shared.warn('Failed to attach agent details name editor', e);
+    }
+}
+
+function _attachAgentUpdateHandler(agent) {
+    try {
+        const btn = document.getElementById('agent_check_update_btn');
+        if (!btn) return;
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+            try {
+                const res = await fetch(`/api/v1/agents/command/${encodeURIComponent(agent.agent_id)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ command: 'check_update' })
+                });
+                if (!res.ok) {
+                    const txt = await res.text();
+                    throw new Error(txt || 'Request failed');
+                }
+                const data = await res.json();
+                if (data.success) {
+                    window.__pm_shared.showToast('Update check triggered - agent will check for updates', 'success');
+                } else {
+                    window.__pm_shared.showToast(data.error || 'Failed to trigger update check', 'error');
+                }
+            } catch (err) {
+                window.__pm_shared.showToast('Failed to send command: ' + (err.message || err), 'error');
+            } finally {
+                btn.disabled = agent.status !== 'active';
+                btn.textContent = 'Check for Update';
+            }
+        });
+    } catch (e) {
+        window.__pm_shared.warn('Failed to attach agent update handler', e);
     }
 }
 

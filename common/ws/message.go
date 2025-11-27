@@ -32,4 +32,6 @@ const (
 	MessageTypeError         = "error"
 	MessageTypeProxyRequest  = "proxy_request"
 	MessageTypeProxyResponse = "proxy_response"
+	MessageTypeCommand       = "command"        // Server-to-agent command
+	MessageTypeCommandResult = "command_result" // Agent-to-server command response
 )

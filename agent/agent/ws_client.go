@@ -366,6 +366,9 @@ func (ws *WSClient) readLoop() {
 				// Pong received, connection is healthy
 			case wscommon.MessageTypeError:
 				WarnCtx("Server error", "data", msg.Data)
+			case wscommon.MessageTypeCommand:
+				// Handle command from server (e.g., check_update, restart)
+				go ws.handleCommand(msg)
 			case wscommon.MessageTypeProxyRequest:
 				// Handle proxy request from server
 				// Log some request details to help trace proxy issues
@@ -633,4 +636,40 @@ func (ws *WSClient) sendProxyError(requestID string, errorMsg string) {
 	ws.sendProxyResponse(requestID, 502, map[string]string{
 		"Content-Type": "text/plain",
 	}, []byte(errorMsg))
+}
+
+// CommandHandler is called when a command is received from the server
+type CommandHandler func(command string, data map[string]interface{})
+
+// commandHandler is the registered handler for commands
+var commandHandler CommandHandler
+var commandHandlerMu sync.RWMutex
+
+// SetCommandHandler registers a handler for server commands
+func SetCommandHandler(handler CommandHandler) {
+	commandHandlerMu.Lock()
+	commandHandler = handler
+	commandHandlerMu.Unlock()
+}
+
+// handleCommand processes a command message from the server
+func (ws *WSClient) handleCommand(msg wscommon.Message) {
+	command, _ := msg.Data["command"].(string)
+	if command == "" {
+		WarnCtx("Received command message with no command field")
+		return
+	}
+
+	InfoCtx("Received command from server", "command", command)
+
+	// Call registered handler if present
+	commandHandlerMu.RLock()
+	handler := commandHandler
+	commandHandlerMu.RUnlock()
+
+	if handler != nil {
+		handler(command, msg.Data)
+	} else {
+		WarnCtx("No command handler registered", "command", command)
+	}
 }

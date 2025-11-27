@@ -27,6 +27,9 @@ type UploadWorker struct {
 	logger   Logger
 	dataDir  string
 
+	// Version info to include in heartbeats
+	versionInfo *agent.AgentVersionInfo
+
 	// WebSocket client (optional, falls back to HTTP if unavailable)
 	wsClient     *agent.WSClient
 	useWebSocket bool
@@ -158,6 +161,14 @@ func NewUploadWorker(client *agent.ServerClient, store storage.DeviceStore, logg
 
 // Start begins the upload worker goroutines
 func (w *UploadWorker) Start(ctx context.Context, version string) error {
+	return w.StartWithVersionInfo(ctx, version, nil)
+}
+
+// StartWithVersionInfo begins the upload worker with full version metadata
+func (w *UploadWorker) StartWithVersionInfo(ctx context.Context, version string, versionInfo *agent.AgentVersionInfo) error {
+	// Store version info for heartbeats
+	w.versionInfo = versionInfo
+
 	// Ensure agent is registered first
 	if err := w.ensureRegistered(ctx, version); err != nil {
 		return fmt.Errorf("registration failed: %w", err)
@@ -334,7 +345,7 @@ func (w *UploadWorker) sendHeartbeat() {
 	// Fall back to HTTP heartbeat
 	var hbResult *agent.HeartbeatResult
 	err := w.retryWithBackoff(func() error {
-		result, err := w.client.Heartbeat(ctx, w.currentSettingsVersion())
+		result, err := w.client.HeartbeatWithVersion(ctx, w.currentSettingsVersion(), w.versionInfo)
 		if err == nil {
 			hbResult = result
 		}

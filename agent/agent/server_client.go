@@ -319,13 +319,37 @@ func (c *ServerClient) DeviceAuthPoll(ctx context.Context, pollToken string) (*D
 	return &resp, nil
 }
 
+// AgentVersionInfo contains agent version metadata for heartbeat
+type AgentVersionInfo struct {
+	Version         string
+	ProtocolVersion string
+	BuildType       string
+	GitCommit       string
+}
+
 // Heartbeat sends a keep-alive signal to the server and returns any managed settings snapshot metadata.
 func (c *ServerClient) Heartbeat(ctx context.Context, settingsVersion string) (*HeartbeatResult, error) {
+	return c.HeartbeatWithVersion(ctx, settingsVersion, nil)
+}
+
+// HeartbeatWithVersion sends a heartbeat with optional version info to update server-side agent metadata.
+func (c *ServerClient) HeartbeatWithVersion(ctx context.Context, settingsVersion string, versionInfo *AgentVersionInfo) (*HeartbeatResult, error) {
 	type HeartbeatRequest struct {
 		AgentID         string    `json:"agent_id"`
 		Timestamp       time.Time `json:"timestamp"`
 		Status          string    `json:"status"`
 		SettingsVersion string    `json:"settings_version,omitempty"`
+		// Version info - sent to keep server DB up to date after agent updates
+		Version         string `json:"version,omitempty"`
+		ProtocolVersion string `json:"protocol_version,omitempty"`
+		Hostname        string `json:"hostname,omitempty"`
+		IP              string `json:"ip,omitempty"`
+		Platform        string `json:"platform,omitempty"`
+		OSVersion       string `json:"os_version,omitempty"`
+		GoVersion       string `json:"go_version,omitempty"`
+		Architecture    string `json:"architecture,omitempty"`
+		BuildType       string `json:"build_type,omitempty"`
+		GitCommit       string `json:"git_commit,omitempty"`
 	}
 
 	type HeartbeatResponse struct {
@@ -334,11 +358,25 @@ func (c *ServerClient) Heartbeat(ctx context.Context, settingsVersion string) (*
 		SettingsSnapshot *SettingsSnapshot `json:"settings_snapshot,omitempty"`
 	}
 
+	hostname, _ := os.Hostname()
+
 	req := HeartbeatRequest{
 		AgentID:         c.AgentID,
 		Timestamp:       time.Now(),
 		Status:          "active",
 		SettingsVersion: settingsVersion,
+		Hostname:        hostname,
+		Platform:        runtime.GOOS,
+		Architecture:    runtime.GOARCH,
+		GoVersion:       runtime.Version(),
+	}
+
+	// Include version info if provided
+	if versionInfo != nil {
+		req.Version = versionInfo.Version
+		req.ProtocolVersion = versionInfo.ProtocolVersion
+		req.BuildType = versionInfo.BuildType
+		req.GitCommit = versionInfo.GitCommit
 	}
 
 	var resp HeartbeatResponse

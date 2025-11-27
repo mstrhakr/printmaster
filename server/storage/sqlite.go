@@ -1885,6 +1885,40 @@ func (s *SQLiteStore) UpdateAgentHeartbeat(ctx context.Context, agentID string, 
 	return err
 }
 
+// UpdateAgentInfo updates agent metadata (version, platform, etc.) typically on heartbeat
+func (s *SQLiteStore) UpdateAgentInfo(ctx context.Context, agent *Agent) error {
+	query := `UPDATE agents SET 
+		version = COALESCE(NULLIF(?, ''), version),
+		protocol_version = COALESCE(NULLIF(?, ''), protocol_version),
+		hostname = COALESCE(NULLIF(?, ''), hostname),
+		ip = COALESCE(NULLIF(?, ''), ip),
+		platform = COALESCE(NULLIF(?, ''), platform),
+		os_version = COALESCE(NULLIF(?, ''), os_version),
+		go_version = COALESCE(NULLIF(?, ''), go_version),
+		architecture = COALESCE(NULLIF(?, ''), architecture),
+		build_type = COALESCE(NULLIF(?, ''), build_type),
+		git_commit = COALESCE(NULLIF(?, ''), git_commit),
+		last_seen = ?,
+		status = ?
+		WHERE agent_id = ?`
+	_, err := s.db.ExecContext(ctx, query,
+		agent.Version,
+		agent.ProtocolVersion,
+		agent.Hostname,
+		agent.IP,
+		agent.Platform,
+		agent.OSVersion,
+		agent.GoVersion,
+		agent.Architecture,
+		agent.BuildType,
+		agent.GitCommit,
+		time.Now(),
+		agent.Status,
+		agent.AgentID,
+	)
+	return err
+}
+
 // UpdateAgentName updates the stored user-friendly name for an agent
 func (s *SQLiteStore) UpdateAgentName(ctx context.Context, agentID string, name string) error {
 	query := `UPDATE agents SET name = ? WHERE agent_id = ?`

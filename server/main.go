@@ -2403,8 +2403,9 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
 	http.HandleFunc("/api/v1/agents/device-auth/start", handleAgentDeviceAuthStart)
 	http.HandleFunc("/api/v1/agents/device-auth/poll", handleAgentDeviceAuthPoll)
-	http.HandleFunc("/api/v1/agents/list", requireWebAuth(handleAgentsList)) // List all agents (for UI)
-	http.HandleFunc("/api/v1/agents/", requireWebAuth(handleAgentDetails))   // Get single agent details (for UI)
+	http.HandleFunc("/api/v1/agents/list", requireWebAuth(handleAgentsList))       // List all agents (for UI)
+	http.HandleFunc("/api/v1/agents/command/", requireWebAuth(handleAgentCommand)) // Send command to agent (for UI)
+	http.HandleFunc("/api/v1/agents/", requireWebAuth(handleAgentDetails))         // Get single agent details (for UI)
 	// Agent WebSocket channel uses its own token handshake; do not require UI auth here.
 	http.HandleFunc("/api/v1/agents/ws", func(w http.ResponseWriter, r *http.Request) { // WebSocket endpoint
 		handleAgentWebSocket(w, r, serverStore)
@@ -2831,6 +2832,17 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		Timestamp       time.Time `json:"timestamp"`
 		Status          string    `json:"status"`
 		SettingsVersion string    `json:"settings_version,omitempty"`
+		// Version info - sent to keep server DB up to date after agent updates
+		Version         string `json:"version,omitempty"`
+		ProtocolVersion string `json:"protocol_version,omitempty"`
+		Hostname        string `json:"hostname,omitempty"`
+		IP              string `json:"ip,omitempty"`
+		Platform        string `json:"platform,omitempty"`
+		OSVersion       string `json:"os_version,omitempty"`
+		GoVersion       string `json:"go_version,omitempty"`
+		Architecture    string `json:"architecture,omitempty"`
+		BuildType       string `json:"build_type,omitempty"`
+		GitCommit       string `json:"git_commit,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -2841,11 +2853,32 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Get authenticated agent from context
 	agent := r.Context().Value(agentContextKey).(*storage.Agent)
 
-	// Update agent last_seen
+	// Update agent - if version info is provided, update full info; otherwise just heartbeat
 	ctx := context.Background()
-	if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, req.Status); err != nil {
-		logWarn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
-		// Don't fail the request, just log it
+	if req.Version != "" {
+		// Full info update (version changed or first heartbeat with version)
+		agentUpdate := &storage.Agent{
+			AgentID:         agent.AgentID,
+			Version:         req.Version,
+			ProtocolVersion: req.ProtocolVersion,
+			Hostname:        req.Hostname,
+			IP:              req.IP,
+			Platform:        req.Platform,
+			OSVersion:       req.OSVersion,
+			GoVersion:       req.GoVersion,
+			Architecture:    req.Architecture,
+			BuildType:       req.BuildType,
+			GitCommit:       req.GitCommit,
+			Status:          req.Status,
+		}
+		if err := serverStore.UpdateAgentInfo(ctx, agentUpdate); err != nil {
+			logWarn("Failed to update agent info", "agent_id", agent.AgentID, "error", err)
+		}
+	} else {
+		// Simple heartbeat - just update last_seen and status
+		if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, req.Status); err != nil {
+			logWarn("Failed to update heartbeat", "agent_id", agent.AgentID, "error", err)
+		}
 	}
 
 	var snapshot serversettings.AgentSnapshot
@@ -2964,6 +2997,107 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleAgentCommand sends a command to an agent via WebSocket
+// POST /api/v1/agents/command/{agentID}
+// Body: {"command": "check_update" | "restart" | ...}
+func handleAgentCommand(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract agent ID from URL path: /api/v1/agents/command/{agentID}
+	path := r.URL.Path
+	agentID := strings.TrimPrefix(path, "/api/v1/agents/command/")
+	if agentID == "" || agentID == path {
+		http.Error(w, "Agent ID required", http.StatusBadRequest)
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Command string                 `json:"command"`
+		Data    map[string]interface{} `json:"data,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Command == "" {
+		http.Error(w, "command required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate agent exists and user has access
+	ctx := context.Background()
+	agent, err := serverStore.GetAgent(ctx, agentID)
+	if err != nil {
+		http.Error(w, "Agent not found", http.StatusNotFound)
+		return
+	}
+
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !tenantAllowed(scope, agent.TenantID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionAgentsWrite, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
+		return
+	}
+
+	// Check if agent is connected via WebSocket
+	conn, connected := getAgentWSConnection(agentID)
+	if !connected {
+		http.Error(w, "Agent not connected via WebSocket", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Send command via WebSocket
+	msg := wscommon.Message{
+		Type:      wscommon.MessageTypeCommand,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"command": req.Command,
+		},
+	}
+	if req.Data != nil {
+		for k, v := range req.Data {
+			msg.Data[k] = v
+		}
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		logError("Failed to marshal command message", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := conn.WriteRaw(payload, 10*time.Second); err != nil {
+		logWarn("Failed to send command to agent", "agent_id", agentID, "command", req.Command, "error", err)
+		http.Error(w, "Failed to send command", http.StatusInternalServerError)
+		return
+	}
+
+	logInfo("Sent command to agent", "agent_id", agentID, "command", req.Command)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Command '%s' sent to agent", req.Command),
+	})
 }
 
 // Get agent details by ID - for UI display (no auth required for now)
