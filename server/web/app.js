@@ -2125,9 +2125,63 @@ function showSessionsModal(sessions, username){
     });
 }
 
-function openUserModal(){
+// Cached password policy
+let passwordPolicy = null;
+
+async function loadPasswordPolicy() {
+    try {
+        const r = await fetch('/api/v1/users/password-policy');
+        if (r.ok) {
+            passwordPolicy = await r.json();
+            updatePasswordHint();
+        }
+    } catch (err) {
+        console.warn('Failed to load password policy:', err);
+    }
+    return passwordPolicy;
+}
+
+function updatePasswordHint() {
+    const hint = document.getElementById('user_password_hint');
+    if (!hint || !passwordPolicy) return;
+    const parts = [`min ${passwordPolicy.min_length || 8} chars`];
+    if (passwordPolicy.require_uppercase) parts.push('uppercase');
+    if (passwordPolicy.require_lowercase) parts.push('lowercase');
+    if (passwordPolicy.require_number) parts.push('number');
+    if (passwordPolicy.require_special) parts.push('special char');
+    hint.textContent = 'Requirements: ' + parts.join(', ');
+}
+
+function validatePasswordClient(password) {
+    if (!passwordPolicy) return null;
+    const errors = [];
+    if (password.length < (passwordPolicy.min_length || 8)) {
+        errors.push(`at least ${passwordPolicy.min_length || 8} characters`);
+    }
+    if (passwordPolicy.require_uppercase && !/[A-Z]/.test(password)) {
+        errors.push('an uppercase letter');
+    }
+    if (passwordPolicy.require_lowercase && !/[a-z]/.test(password)) {
+        errors.push('a lowercase letter');
+    }
+    if (passwordPolicy.require_number && !/[0-9]/.test(password)) {
+        errors.push('a number');
+    }
+    if (passwordPolicy.require_special && !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+        errors.push('a special character');
+    }
+    if (errors.length > 0) {
+        return 'Password must contain: ' + errors.join(', ');
+    }
+    return null;
+}
+
+async function openUserModal(){
     const modal = document.getElementById('user_modal');
     if(!modal) return;
+    // Load password policy if not cached
+    if (!passwordPolicy) await loadPasswordPolicy();
+    updatePasswordHint();
     // populate tenant select from cached tenants
     const sel = document.getElementById('user_tenant');
     if(sel){
@@ -2141,33 +2195,59 @@ function openUserModal(){
             });
         }
     }
+    // Clear edit mode
+    modal.removeAttribute('data-edit-id');
+    document.getElementById('user_submit').textContent = 'Create';
     // reset fields
     document.getElementById('user_username').value = '';
     document.getElementById('user_email').value = '';
     document.getElementById('user_password').value = '';
     document.getElementById('user_role').value = 'user';
     document.getElementById('user_error').style.display='none';
+    // Update password label for new user
+    const pwLabel = document.querySelector('label[for="user_password"]');
+    if (pwLabel) pwLabel.textContent = 'Password *';
     modal.style.display = 'flex';
     document.getElementById('user_username').focus();
 }
 
 async function submitCreateUser(){
     const modal = document.getElementById('user_modal');
-    const username = document.getElementById('user_username').value || '';
-    const email = document.getElementById('user_email').value || '';
-    const password = document.getElementById('user_password').value || '';
+    const username = document.getElementById('user_username').value.trim();
+    const email = document.getElementById('user_email').value.trim();
+    const password = document.getElementById('user_password').value;
     const role = document.getElementById('user_role').value || 'user';
     const tenant = document.getElementById('user_tenant').value || '';
     const errEl = document.getElementById('user_error');
+    const editId = modal.getAttribute('data-edit-id');
     errEl.style.display='none';
-    if(!username || !password){
-        errEl.textContent = 'Username and password required'; errEl.style.display='block'; return;
+
+    if(!username){
+        errEl.textContent = 'Username is required'; errEl.style.display='block'; return;
     }
+
+    // Password required for new users, optional for edit
+    if(!editId && !password){
+        errEl.textContent = 'Password is required for new users'; errEl.style.display='block'; return;
+    }
+
+    // Validate password if provided
+    if(password){
+        if (!passwordPolicy) await loadPasswordPolicy();
+        const pwError = validatePasswordClient(password);
+        if(pwError){
+            errEl.textContent = pwError;
+            errEl.style.display='block';
+            return;
+        }
+    }
+
     try{
-        const payload = { username, password, role };
+        const payload = { username, role };
         if(email) payload.email = email;
+        if(password) payload.password = password; // Only include if provided
         if(tenant) payload.tenant_id = tenant;
-        const editId = modal.getAttribute('data-edit-id');
+
         let r;
         if(editId) {
             // update existing
@@ -2193,6 +2273,9 @@ async function submitCreateUser(){
 // Open modal for editing an existing user
 async function openUserEditModal(id){
     try{
+        // Load password policy if not cached
+        if (!passwordPolicy) await loadPasswordPolicy();
+        updatePasswordHint();
         const r = await fetch('/api/v1/users/'+encodeURIComponent(id));
         if(!r.ok) throw new Error(await r.text());
         const u = await r.json();
@@ -2205,6 +2288,10 @@ async function openUserEditModal(id){
         // store editing id on modal
         modal.setAttribute('data-edit-id', id);
         document.getElementById('user_submit').textContent = 'Save';
+        document.getElementById('user_error').style.display='none';
+        // Update password label to show it's optional when editing
+        const pwLabel = document.querySelector('label[for="user_password"]');
+        if (pwLabel) pwLabel.textContent = 'Password (leave blank to keep current)';
         modal.style.display = 'flex';
     }catch(err){
         window.__pm_shared.showAlert('Failed to load user: '+(err.message||err), 'Error', true, false);

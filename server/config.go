@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"printmaster/common/config"
 )
@@ -48,6 +49,11 @@ type SecurityConfig struct {
 	RateLimitMaxAttempts   int  `toml:"rate_limit_max_attempts"`   // Max failed attempts before blocking (default: 5)
 	RateLimitBlockMinutes  int  `toml:"rate_limit_block_minutes"`  // Minutes to block after max attempts (default: 5)
 	RateLimitWindowMinutes int  `toml:"rate_limit_window_minutes"` // Minutes window for counting attempts (default: 2)
+	PasswordMinLength      int  `toml:"password_min_length"`       // Minimum password length (default: 8)
+	PasswordRequireUpper   bool `toml:"password_require_upper"`    // Require uppercase letter (default: false)
+	PasswordRequireLower   bool `toml:"password_require_lower"`    // Require lowercase letter (default: false)
+	PasswordRequireNumber  bool `toml:"password_require_number"`   // Require number (default: false)
+	PasswordRequireSpecial bool `toml:"password_require_special"`  // Require special character (default: false)
 }
 
 // TLSConfigTOML holds TLS configuration from TOML
@@ -100,6 +106,11 @@ func DefaultConfig() *Config {
 			RateLimitMaxAttempts:   5,    // 5 failed attempts
 			RateLimitBlockMinutes:  5,    // Block for 5 minutes
 			RateLimitWindowMinutes: 2,    // Within a 2 minute window
+			PasswordMinLength:      8,    // Minimum 8 characters
+			PasswordRequireUpper:   false,
+			PasswordRequireLower:   false,
+			PasswordRequireNumber:  false,
+			PasswordRequireSpecial: false,
 		},
 		TLS: TLSConfigTOML{
 			Mode:   "self-signed",
@@ -273,6 +284,98 @@ func (c *Config) ToTLSConfig() *TLSConfig {
 		ProxyUseHTTPS:     c.Server.ProxyUseHTTPS,
 		BindAddress:       c.Server.BindAddress,
 	}
+}
+
+// ValidatePassword checks if a password meets the configured requirements.
+// Returns nil if valid, or an error describing what's missing.
+func (c *SecurityConfig) ValidatePassword(password string) error {
+	if c == nil {
+		return nil
+	}
+	minLen := c.PasswordMinLength
+	if minLen <= 0 {
+		minLen = 8
+	}
+	if len(password) < minLen {
+		return fmt.Errorf("password must be at least %d characters", minLen)
+	}
+	if c.PasswordRequireUpper {
+		hasUpper := false
+		for _, r := range password {
+			if r >= 'A' && r <= 'Z' {
+				hasUpper = true
+				break
+			}
+		}
+		if !hasUpper {
+			return fmt.Errorf("password must contain at least one uppercase letter")
+		}
+	}
+	if c.PasswordRequireLower {
+		hasLower := false
+		for _, r := range password {
+			if r >= 'a' && r <= 'z' {
+				hasLower = true
+				break
+			}
+		}
+		if !hasLower {
+			return fmt.Errorf("password must contain at least one lowercase letter")
+		}
+	}
+	if c.PasswordRequireNumber {
+		hasNumber := false
+		for _, r := range password {
+			if r >= '0' && r <= '9' {
+				hasNumber = true
+				break
+			}
+		}
+		if !hasNumber {
+			return fmt.Errorf("password must contain at least one number")
+		}
+	}
+	if c.PasswordRequireSpecial {
+		hasSpecial := false
+		for _, r := range password {
+			if (r >= '!' && r <= '/') || (r >= ':' && r <= '@') || (r >= '[' && r <= '`') || (r >= '{' && r <= '~') {
+				hasSpecial = true
+				break
+			}
+		}
+		if !hasSpecial {
+			return fmt.Errorf("password must contain at least one special character")
+		}
+	}
+	return nil
+}
+
+// PasswordRequirements returns a human-readable description of password requirements.
+func (c *SecurityConfig) PasswordRequirements() string {
+	if c == nil {
+		return "Minimum 8 characters"
+	}
+	minLen := c.PasswordMinLength
+	if minLen <= 0 {
+		minLen = 8
+	}
+	parts := []string{fmt.Sprintf("Minimum %d characters", minLen)}
+	if c.PasswordRequireUpper {
+		parts = append(parts, "uppercase letter")
+	}
+	if c.PasswordRequireLower {
+		parts = append(parts, "lowercase letter")
+	}
+	if c.PasswordRequireNumber {
+		parts = append(parts, "number")
+	}
+	if c.PasswordRequireSpecial {
+		parts = append(parts, "special character")
+	}
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	return parts[0] + ", requires: " + strings.Join(parts[1:], ", ")
 }
 
 // WriteDefaultConfig writes a default configuration file

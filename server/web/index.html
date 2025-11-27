@@ -586,9 +586,10 @@
                 <label style="display:block;margin-bottom:6px;">Username</label>
                 <input id="user_username" type="text" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
                 <label style="display:block;margin-bottom:6px;">Email</label>
-                <input id="user_email" type="text" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
-                <label style="display:block;margin-bottom:6px;">Password</label>
-                <input id="user_password" type="password" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
+                <input id="user_email" type="email" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Optional" />
+                <label style="display:block;margin-bottom:6px;">Password <span id="user_password_optional" style="color:var(--muted);font-weight:normal;"></span></label>
+                <input id="user_password" type="password" style="width:100%;padding:8px;margin-bottom:4px;border-radius:4px;border:1px solid var(--border);" />
+                <div id="user_password_hint" style="font-size:12px;color:var(--muted);margin-bottom:8px;">Minimum 8 characters</div>
                 <label style="display:block;margin-bottom:6px;">Role</label>
                 <select id="user_role" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);">
                     <option value="user">User</option>

@@ -1633,6 +1633,43 @@ func authorizeOrReject(w http.ResponseWriter, r *http.Request, action authz.Acti
 	return true
 }
 
+// handlePasswordPolicy returns the current password policy requirements (public endpoint for UI)
+func handlePasswordPolicy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	policy := struct {
+		MinLength      int    `json:"min_length"`
+		RequireUpper   bool   `json:"require_upper"`
+		RequireLower   bool   `json:"require_lower"`
+		RequireNumber  bool   `json:"require_number"`
+		RequireSpecial bool   `json:"require_special"`
+		Description    string `json:"description"`
+	}{
+		MinLength:      8,
+		RequireUpper:   false,
+		RequireLower:   false,
+		RequireNumber:  false,
+		RequireSpecial: false,
+		Description:    "Minimum 8 characters",
+	}
+	if serverConfig != nil {
+		minLen := serverConfig.Security.PasswordMinLength
+		if minLen <= 0 {
+			minLen = 8
+		}
+		policy.MinLength = minLen
+		policy.RequireUpper = serverConfig.Security.PasswordRequireUpper
+		policy.RequireLower = serverConfig.Security.PasswordRequireLower
+		policy.RequireNumber = serverConfig.Security.PasswordRequireNumber
+		policy.RequireSpecial = serverConfig.Security.PasswordRequireSpecial
+		policy.Description = serverConfig.Security.PasswordRequirements()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(policy)
+}
+
 // handleUsers handles GET (list users) and POST (create user) for admin UI
 func handleUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
@@ -1674,6 +1711,13 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 		if req.Username == "" || req.Password == "" {
 			http.Error(w, "username and password required", http.StatusBadRequest)
 			return
+		}
+		// Validate password against policy
+		if serverConfig != nil {
+			if err := serverConfig.Security.ValidatePassword(req.Password); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		role := storage.NormalizeRole(req.Role)
 		tenantIDs := storage.SortTenantIDs(req.TenantIDs)
@@ -1927,6 +1971,13 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			IPAddress: extractClientIP(r),
 		})
 		if req.Password != "" {
+			// Validate password against policy
+			if serverConfig != nil {
+				if err := serverConfig.Security.ValidatePassword(req.Password); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+			}
 			if err := serverStore.UpdateUserPassword(ctx, id, req.Password); err != nil {
 				http.Error(w, "failed to update password", http.StatusInternalServerError)
 				return
@@ -2335,6 +2386,7 @@ func setupRoutes(cfg *Config) {
 	// User management: list/create/update/delete users
 	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
 	http.HandleFunc("/api/v1/users/", requireWebAuth(handleUser))
+	http.HandleFunc("/api/v1/users/password-policy", handlePasswordPolicy)
 	// Sessions management: list and revoke sessions
 	http.HandleFunc("/api/v1/sessions", requireWebAuth(handleListSessions))
 	http.HandleFunc("/api/v1/sessions/", requireWebAuth(handleDeleteSession))
