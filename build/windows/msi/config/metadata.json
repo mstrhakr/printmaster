@@ -1,0 +1,4 @@
+{
+  "placeholder": true,
+  "description": "This metadata file will be overwritten with tenant-specific details during installer repackaging."
+}

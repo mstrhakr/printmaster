@@ -1,0 +1,6 @@
+# Placeholder bootstrap configuration
+# This file is replaced during server-side installer repackaging.
+[server]
+name = ""
+url = ""
+token = ""

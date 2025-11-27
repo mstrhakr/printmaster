@@ -87,6 +87,9 @@ temp/
 # Build output
 dist/
 build/
+!build/windows/
+!build/windows/msi/
+!build/windows/msi/**
 bin/
 
 # Windows service resources (generated)

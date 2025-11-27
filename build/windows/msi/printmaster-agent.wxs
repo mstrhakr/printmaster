@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*"
+           Name="PrintMaster Agent"
+           Language="1033"
+           Version="$(var.ProductVersion)"
+           Manufacturer="PrintMaster"
+           UpgradeCode="{E1F8F20A-5D36-4DF8-879B-A868A69243AC}">
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Platform="x64"
+             InstallPrivileges="elevated" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <MajorUpgrade AllowDowngrades="no"
+                  AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of PrintMaster Agent is already installed." />
+
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/mstrhakr/printmaster" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/mstrhakr/printmaster" />
+
+    <CustomAction Id="InstallService"
+                  FileKey="AgentBinaryFile"
+                  ExeCommand="--service install --quiet"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="check" />
+    <CustomAction Id="StopService"
+                  FileKey="AgentBinaryFile"
+                  ExeCommand="--service stop --quiet"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+    <CustomAction Id="UninstallService"
+                  FileKey="AgentBinaryFile"
+                  ExeCommand="--service uninstall --quiet"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="InstallService" After="InstallFiles">NOT Installed</Custom>
+      <Custom Action="StopService" Before="UninstallService">REMOVE~="ALL"</Custom>
+      <Custom Action="UninstallService" Before="RemoveFiles">REMOVE~="ALL"</Custom>
+    </InstallExecuteSequence>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="PrintMaster">
+          <Component Id="AgentBinaryComponent" Guid="{C1E3E0D2-3E65-4AA7-B7B4-09D0B1E0E0F1}" Win64="yes">
+            <File Id="AgentBinaryFile" Source="$(var.AgentBinaryPath)" KeyPath="yes" Checksum="yes" />
+          </Component>
+          <Directory Id="AgentConfigDir" Name="config">
+            <Component Id="BootstrapFiles" Guid="{0A98592F-A395-4C9F-BA51-AB305D50B5AA}" Win64="yes">
+              <File Id="BootstrapToml" Source="config\bootstrap.toml" KeyPath="yes" />
+              <File Id="BootstrapMetadata" Source="config\metadata.json" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="PMDataRoot" Name="PrintMaster">
+          <Directory Id="PMAgentData" Name="agent">
+            <Component Id="AgentDataDirs" Guid="{DD6E3F60-6588-4D7D-BE18-A14B05326D32}" Win64="yes" Permanent="yes">
+              <CreateFolder />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="PMProgramMenu" Name="PrintMaster">
+          <Component Id="AgentShortcuts" Guid="{5C7C8A44-22E0-41CE-AEFC-6381B72DD0D2}" Win64="yes">
+            <Shortcut Id="StartAgentShortcut"
+                      Directory="PMProgramMenu"
+                      Name="Start PrintMaster Agent"
+                      Description="Start the PrintMaster Agent service"
+                      Target="[INSTALLDIR]printmaster-agent.exe"
+                      Arguments="--service start"
+                      WorkingDirectory="INSTALLDIR" />
+            <Shortcut Id="StopAgentShortcut"
+                      Directory="PMProgramMenu"
+                      Name="Stop PrintMaster Agent"
+                      Description="Stop the PrintMaster Agent service"
+                      Target="[INSTALLDIR]printmaster-agent.exe"
+                      Arguments="--service stop"
+                      WorkingDirectory="INSTALLDIR" />
+            <RemoveFolder Id="RemovePMProgramMenu" On="uninstall" />
+            <RegistryValue Root="HKLM"
+                           Key="Software\PrintMaster\Installer"
+                           Name="Shortcuts"
+                           Type="integer"
+                           Value="1"
+                           KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="AgentFeature" Title="PrintMaster Agent" Level="1" Absent="disallow">
+      <ComponentRef Id="AgentBinaryComponent" />
+      <ComponentRef Id="BootstrapFiles" />
+      <ComponentRef Id="AgentDataDirs" />
+      <ComponentRef Id="AgentShortcuts" />
+    </Feature>
+  </Product>
+</Wix>
