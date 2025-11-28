@@ -1,7 +1,13 @@
 package autoupdate
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -239,4 +245,86 @@ func TestTelemetryAdapter(t *testing.T) {
 	if adapter == nil {
 		t.Fatal("NewTelemetryAdapter returned nil")
 	}
+}
+
+func TestManagerForceInstallLatest(t *testing.T) {
+	dataDir := t.TempDir()
+	binaryName := "agent-test"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(dataDir, binaryName)
+
+	if err := os.WriteFile(binaryPath, []byte("old-binary"), 0o755); err != nil {
+		t.Fatalf("failed to create fake binary: %v", err)
+	}
+
+	payload := []byte("new-agent-binary")
+	sum := sha256.Sum256(payload)
+	manifest := &UpdateManifest{
+		ManifestVersion: "1",
+		Component:       "agent",
+		Version:         "1.0.0",
+		Platform:        runtime.GOOS,
+		Arch:            runtime.GOARCH,
+		Channel:         "stable",
+		SizeBytes:       int64(len(payload)),
+		SHA256:          hex.EncodeToString(sum[:]),
+	}
+
+	client := &forceInstallClient{
+		manifest: manifest,
+		payload:  payload,
+	}
+
+	opts := Options{
+		Enabled:        true,
+		CurrentVersion: "1.0.0",
+		Platform:       runtime.GOOS,
+		Arch:           runtime.GOARCH,
+		Channel:        "stable",
+		DataDir:        dataDir,
+		ServerClient:   client,
+		PolicyProvider: &mockPolicyProvider{enabled: true},
+		BinaryPath:     binaryPath,
+	}
+
+	manager, err := NewManager(opts)
+	if err != nil {
+		t.Fatalf("NewManager error = %v", err)
+	}
+	manager.restartFn = func() error { return nil }
+
+	if err := manager.ForceInstallLatest(context.Background(), "test"); err != nil {
+		t.Fatalf("ForceInstallLatest error = %v", err)
+	}
+
+	updated, err := os.ReadFile(binaryPath)
+	if err != nil {
+		t.Fatalf("failed to read updated binary: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		helperPath := filepath.Join(dataDir, "autoupdate", "update_helper.bat")
+		if _, err := os.Stat(helperPath); err != nil {
+			t.Fatalf("expected update helper script on windows: %v", err)
+		}
+	} else if !bytes.Equal(updated, payload) {
+		t.Fatalf("expected binary to be replaced with payload")
+	}
+}
+
+type forceInstallClient struct {
+	manifest *UpdateManifest
+	payload  []byte
+}
+
+func (m *forceInstallClient) GetLatestManifest(ctx context.Context, component, platform, arch, channel string) (*UpdateManifest, error) {
+	return m.manifest, nil
+}
+
+func (m *forceInstallClient) DownloadArtifact(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64) (int64, error) {
+	if err := os.WriteFile(destPath, m.payload, 0o644); err != nil {
+		return 0, err
+	}
+	return int64(len(m.payload)), nil
 }

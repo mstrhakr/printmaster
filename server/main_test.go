@@ -79,6 +79,7 @@ func TestHandleWebUI_RedirectsWhenUnauthenticated(t *testing.T) {
 }
 
 func TestHandleWebUI_ServesForAuthenticatedUser(t *testing.T) {
+	// Test for authenticated user serving
 	// Note: not parallel due to global serverStore mutation
 	store, err := storage.NewSQLiteStore(":memory:")
 	if err != nil {
@@ -116,6 +117,7 @@ func TestHandleWebUI_ServesForAuthenticatedUser(t *testing.T) {
 }
 
 func TestHealthEndpoint(t *testing.T) {
+	// Test for health endpoint
 	t.Parallel()
 
 	server, _ := setupTestServer(t)
@@ -169,6 +171,7 @@ func TestVersionEndpoint(t *testing.T) {
 }
 
 func TestAgentRegistration(t *testing.T) {
+	// Test for agent registration
 	// Note: Not parallel due to shared global serverStore
 	server, store := setupTestServer(t)
 
@@ -823,6 +826,7 @@ func TestParseDeviceProxyPath(t *testing.T) {
 }
 
 func TestAgentRegistrationWithMetadata(t *testing.T) {
+	// Test for agent registration with metadata
 	// Test that new metadata fields are properly stored
 	server, store := setupTestServer(t)
 
@@ -914,6 +918,7 @@ func TestAgentRegistrationWithMetadata(t *testing.T) {
 }
 
 func TestAgentDetailsEndpoint(t *testing.T) {
+	// Test for agent details endpoint
 	// Test the /api/v1/agents/{id} endpoint
 	_, store := setupTestServer(t)
 	ctx := context.Background()
@@ -1022,6 +1027,7 @@ func TestAgentDetailsNotFound(t *testing.T) {
 }
 
 func TestAgentsListEndpoint(t *testing.T) {
+	// Test for agents list endpoint
 	// Test the /api/v1/agents/list endpoint
 	server, store := setupTestServer(t)
 	ctx := context.Background()
@@ -1092,6 +1098,7 @@ func TestAgentsListEndpoint(t *testing.T) {
 }
 
 func TestAgentsListConnectionType(t *testing.T) {
+	// Test for agents list connection type
 	// Not parallel due to global wsConnections map
 	server, store := setupTestServer(t)
 	ctx := context.Background()
@@ -1190,5 +1197,77 @@ func TestAgentsListConnectionType(t *testing.T) {
 		}
 	} else {
 		t.Errorf("off-agent missing from list response")
+	}
+}
+
+func TestBuildAgentUpdateAuditEntry(t *testing.T) {
+	agent := &storage.Agent{
+		AgentID:  "agent-123",
+		Name:     "HQ Agent",
+		Hostname: "hq-agent.local",
+		TenantID: "tenant-01",
+		Version:  "1.2.3",
+	}
+	meta := map[string]interface{}{"foo": "bar"}
+	entry := buildAgentUpdateAuditEntry(agent, "agent.update.check", "details", meta)
+	if entry == nil {
+		t.Fatalf("expected audit entry")
+	}
+	if entry.TargetID != agent.AgentID {
+		t.Fatalf("expected TargetID %s, got %s", agent.AgentID, entry.TargetID)
+	}
+	if entry.TenantID != agent.TenantID {
+		t.Fatalf("expected TenantID %s, got %s", agent.TenantID, entry.TenantID)
+	}
+	if entry.Metadata["foo"] != "bar" {
+		t.Fatalf("expected metadata foo=bar, got %v", entry.Metadata["foo"])
+	}
+	if entry.Metadata["agent_id"] != agent.AgentID {
+		t.Fatalf("expected metadata agent_id")
+	}
+	if entry.Metadata["agent_name"] != agent.Name {
+		t.Fatalf("expected metadata agent_name")
+	}
+	if entry.Metadata["hostname"] != agent.Hostname {
+		t.Fatalf("expected metadata hostname")
+	}
+	if entry.Metadata["agent_version"] != agent.Version {
+		t.Fatalf("expected metadata agent_version")
+	}
+	if entry.Metadata["agent_display_name"] != agent.Name {
+		t.Fatalf("expected metadata agent_display_name")
+	}
+	meta["foo"] = "baz"
+	if entry.Metadata["foo"] != "bar" {
+		t.Fatalf("expected metadata copy to be isolated")
+	}
+}
+
+func TestDisplayNameForAgent(t *testing.T) {
+	cases := []struct {
+		name  string
+		agent *storage.Agent
+		want  string
+	}{
+		{
+			name:  "prefers name",
+			agent: &storage.Agent{Name: "Agent Friendly", Hostname: "host", AgentID: "id"},
+			want:  "Agent Friendly",
+		},
+		{
+			name:  "falls back to hostname",
+			agent: &storage.Agent{Hostname: "host-only", AgentID: "id"},
+			want:  "host-only",
+		},
+		{
+			name:  "falls back to ID",
+			agent: &storage.Agent{AgentID: "agent-id"},
+			want:  "agent-id",
+		},
+	}
+	for _, tc := range cases {
+		if got := displayNameForAgent(tc.agent); got != tc.want {
+			t.Fatalf("%s: expected %s, got %s", tc.name, tc.want, got)
+		}
 	}
 }

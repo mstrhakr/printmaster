@@ -192,6 +192,26 @@ func handleServerCommand(ctx context.Context, command string, data map[string]in
 				log.Info("Update check completed")
 			}
 		}()
+	case "force_update":
+		autoUpdateManagerMu.RLock()
+		manager := autoUpdateManager
+		autoUpdateManagerMu.RUnlock()
+
+		if manager == nil {
+			log.Warn("Received force_update command but auto-update manager not available")
+			return
+		}
+
+		reason, _ := data["reason"].(string)
+
+		go func() {
+			log.Info("Triggering forced reinstall per server request", "reason", reason)
+			if err := manager.ForceInstallLatest(ctx, reason); err != nil {
+				log.Error("Forced reinstall failed", "error", err)
+			} else {
+				log.Info("Forced reinstall completed")
+			}
+		}()
 
 	default:
 		log.Warn("Unknown server command", "command", command)

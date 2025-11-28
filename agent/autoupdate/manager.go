@@ -90,6 +90,7 @@ type Manager struct {
 	client         UpdateClient
 	policyProvider PolicyProvider
 	telemetry      TelemetrySink
+	restartFn      func() error
 
 	mu             sync.RWMutex
 	status         Status
@@ -175,7 +176,7 @@ func NewManager(opts Options) (*Manager, error) {
 		}
 	}
 
-	return &Manager{
+	mgr := &Manager{
 		log:            opts.Log,
 		stateDir:       stateDir,
 		enabled:        opts.Enabled,
@@ -195,7 +196,11 @@ func NewManager(opts Options) (*Manager, error) {
 		telemetry:      opts.TelemetrySink,
 		status:         StatusIdle,
 		stopCh:         make(chan struct{}),
-	}, nil
+	}
+
+	mgr.restartFn = mgr.restartService
+
+	return mgr, nil
 }
 
 // Start begins the background update worker.
@@ -252,6 +257,67 @@ func (m *Manager) CheckNow(ctx context.Context) error {
 	m.mu.Unlock()
 
 	return m.performCheck(ctx)
+}
+
+// ForceInstallLatest downloads and installs the latest manifest even when the
+// version matches the current build or falls outside normal policy/maintenance windows.
+func (m *Manager) ForceInstallLatest(ctx context.Context, reason string) error {
+	if !m.enabled {
+		if m.disabledReason != "" {
+			return fmt.Errorf("auto-update disabled: %s", m.disabledReason)
+		}
+		return fmt.Errorf("auto-update disabled")
+	}
+
+	if m.client == nil {
+		return fmt.Errorf("update client not configured")
+	}
+
+	m.mu.Lock()
+	if m.status != StatusIdle && m.status != StatusPending {
+		status := m.status
+		m.mu.Unlock()
+		return fmt.Errorf("update operation already in progress: %s", status)
+	}
+	m.status = StatusChecking
+	m.mu.Unlock()
+
+	defer func() {
+		m.mu.RLock()
+		currentStatus := m.status
+		m.mu.RUnlock()
+		if currentStatus == StatusChecking {
+			m.setStatus(StatusIdle)
+		}
+	}()
+
+	manifest, err := m.client.GetLatestManifest(ctx, "agent", m.platform, m.arch, m.channel)
+	if err != nil {
+		m.reportTelemetry(ctx, StatusFailed, ErrCodeServerError, err.Error())
+		return fmt.Errorf("failed to fetch manifest: %w", err)
+	}
+	if manifest == nil {
+		return fmt.Errorf("no manifest available")
+	}
+
+	m.mu.Lock()
+	m.lastCheck = m.clock()
+	m.latestVersion = manifest.Version
+	m.latestManifest = manifest
+	m.mu.Unlock()
+
+	if reason == "" {
+		reason = "manual"
+	}
+	m.logInfo("Force update requested", "current", m.currentVersion, "target", manifest.Version, "reason", reason)
+
+	if err := m.checkDiskSpace(manifest.SizeBytes); err != nil {
+		m.reportTelemetry(ctx, StatusFailed, ErrCodeDiskSpace, err.Error())
+		return err
+	}
+
+	m.setStatus(StatusPending)
+	return m.executeUpdate(ctx, manifest)
 }
 
 func (m *Manager) runLoop(ctx context.Context) {
@@ -466,7 +532,10 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 
 	m.logInfo("Update applied successfully", "from", m.currentVersion, "to", manifest.Version)
 
-	// Trigger restart (this function likely won't return)
+	// Trigger restart (this function likely won't return outside of tests)
+	if m.restartFn != nil {
+		return m.restartFn()
+	}
 	return m.restartService()
 }
 

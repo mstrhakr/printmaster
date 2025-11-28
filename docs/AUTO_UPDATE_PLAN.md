@@ -135,4 +135,12 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - **Version control**: admins can pin to major, minor, or specific patch versions for validation/testing before fleet-wide rollout.
 - **Telemetry feedback loop**: track success rates and download metrics to identify problematic releases early and inform rollout decisions.
 
+## Force Reinstall Controls
+
+- The server UI now exposes a **Force Reinstall** action on each agent detail view. This button is only enabled when the agent maintains an active WebSocket session so the command can be delivered instantly.
+- Clicking the action prompts for confirmation, then issues a `force_update` command over the agent command channel. The payload includes a simple reason tag (currently `server_ui_force_reinstall`) for downstream logging and auditing.
+- Upon receiving the command, the agent's auto-update manager bypasses the usual `isUpdateNeeded` guard and downloads/reinstalls the latest manifest even when the reported version already matches. Maintenance-window and version-pin policies are intentionally skipped for this manual override, but disk-space checks, hashing, staging, and telemetry reporting still run.
+- The force flow reuses the existing download/staging pipeline, so telemetry and log noise remain consistent with regular updates, and the helper restart logic still ensures the service restarts cleanly after the reinstall.
+- Every manual `check_update` or `force_update` invocation now emits a structured audit log entry capturing the actor, agent identity, payload metadata (reason/trigger), and tenant scope so compliance teams can trace both ad-hoc and scheduled rollouts. Future orchestration jobs should call the shared `logAgentUpdateAudit` helper to record automated runs with a `trigger=scheduled` tag.
+
 This plan should be treated as a living document; check off tasks as they land and adjust phases as we learn more from early prototypes.

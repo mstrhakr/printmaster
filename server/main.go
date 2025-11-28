@@ -2337,6 +2337,93 @@ func logRequestAudit(r *http.Request, entry *storage.AuditEntry) {
 	logAuditEntry(ctx, entry)
 }
 
+func metadataWithCommandPayload(payload map[string]interface{}) map[string]interface{} {
+	meta := make(map[string]interface{})
+	if len(payload) > 0 {
+		meta["command_payload"] = payload
+	}
+	return meta
+}
+
+func getCommandStringField(payload map[string]interface{}, key string) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	if value, ok := payload[key].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func logAgentUpdateAuditFromRequest(r *http.Request, agent *storage.Agent, action, details string, metadata map[string]interface{}) {
+	entry := buildAgentUpdateAuditEntry(agent, action, details, metadata)
+	if entry == nil {
+		return
+	}
+	logRequestAudit(r, entry)
+}
+
+func logAgentUpdateAudit(ctx context.Context, agent *storage.Agent, action, details string, metadata map[string]interface{}) {
+	entry := buildAgentUpdateAuditEntry(agent, action, details, metadata)
+	if entry == nil {
+		return
+	}
+	logAuditEntry(ctx, entry)
+}
+
+func buildAgentUpdateAuditEntry(agent *storage.Agent, action, details string, metadata map[string]interface{}) *storage.AuditEntry {
+	if agent == nil {
+		return nil
+	}
+	meta := cloneMetadata(metadata)
+	meta["agent_id"] = agent.AgentID
+	if agent.Name != "" {
+		meta["agent_name"] = agent.Name
+	}
+	if agent.Hostname != "" {
+		meta["hostname"] = agent.Hostname
+	}
+	if agent.Version != "" {
+		meta["agent_version"] = agent.Version
+	}
+
+	meta["agent_display_name"] = displayNameForAgent(agent)
+
+	return &storage.AuditEntry{
+		Action:     action,
+		TargetType: "agent",
+		TargetID:   agent.AgentID,
+		TenantID:   agent.TenantID,
+		Severity:   storage.AuditSeverityInfo,
+		Details:    details,
+		Metadata:   meta,
+	}
+}
+
+func cloneMetadata(src map[string]interface{}) map[string]interface{} {
+	if len(src) == 0 {
+		return map[string]interface{}{}
+	}
+	dup := make(map[string]interface{}, len(src))
+	for k, v := range src {
+		dup[k] = v
+	}
+	return dup
+}
+
+func displayNameForAgent(agent *storage.Agent) string {
+	if agent == nil {
+		return ""
+	}
+	if name := strings.TrimSpace(agent.Name); name != "" {
+		return name
+	}
+	if host := strings.TrimSpace(agent.Hostname); host != "" {
+		return host
+	}
+	return agent.AgentID
+}
+
 // extractClientIP gets the client IP address from the request
 func extractClientIP(r *http.Request) string {
 	// Check X-Forwarded-For header (if behind proxy)
@@ -3093,6 +3180,26 @@ func handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logInfo("Sent command to agent", "agent_id", agentID, "command", req.Command)
+
+	switch req.Command {
+	case "check_update":
+		meta := metadataWithCommandPayload(req.Data)
+		trigger := getCommandStringField(req.Data, "origin")
+		if trigger == "" {
+			trigger = "manual"
+		}
+		meta["trigger"] = trigger
+		logAgentUpdateAuditFromRequest(r, agent, "agent.update.check",
+			fmt.Sprintf("Update check triggered for %s", displayNameForAgent(agent)), meta)
+	case "force_update":
+		meta := metadataWithCommandPayload(req.Data)
+		reason := getCommandStringField(req.Data, "reason")
+		if reason != "" {
+			meta["reason"] = reason
+		}
+		logAgentUpdateAuditFromRequest(r, agent, "agent.update.force",
+			fmt.Sprintf("Forced reinstall triggered for %s", displayNameForAgent(agent)), meta)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

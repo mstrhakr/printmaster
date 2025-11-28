@@ -3406,6 +3406,9 @@ function renderAgentDetailsModal(agent) {
             <button id="agent_check_update_btn" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
                 Check for Update
             </button>
+            <button id="agent_force_update_btn" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+                Force Reinstall
+            </button>
             <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
                 Open Agent UI
             </button>
@@ -3469,34 +3472,72 @@ function _attachAgentDetailsNameEditor(agent) {
 
 function _attachAgentUpdateHandler(agent) {
     try {
-        const btn = document.getElementById('agent_check_update_btn');
-        if (!btn) return;
-        btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            btn.textContent = 'Checking...';
-            try {
-                const res = await fetch(`/api/v1/agents/command/${encodeURIComponent(agent.agent_id)}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ command: 'check_update' })
-                });
-                if (!res.ok) {
-                    const txt = await res.text();
-                    throw new Error(txt || 'Request failed');
+        const checkBtn = document.getElementById('agent_check_update_btn');
+        if (checkBtn) {
+            checkBtn.addEventListener('click', async () => {
+                checkBtn.disabled = true;
+                checkBtn.textContent = 'Checking...';
+                try {
+                    const res = await fetch(`/api/v1/agents/command/${encodeURIComponent(agent.agent_id)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ command: 'check_update' })
+                    });
+                    if (!res.ok) {
+                        const txt = await res.text();
+                        throw new Error(txt || 'Request failed');
+                    }
+                    const data = await res.json();
+                    if (data.success) {
+                        window.__pm_shared.showToast('Update check triggered - agent will check for updates', 'success');
+                    } else {
+                        window.__pm_shared.showToast(data.error || 'Failed to trigger update check', 'error');
+                    }
+                } catch (err) {
+                    window.__pm_shared.showToast('Failed to send command: ' + (err.message || err), 'error');
+                } finally {
+                    checkBtn.disabled = agent.status !== 'active';
+                    checkBtn.textContent = 'Check for Update';
                 }
-                const data = await res.json();
-                if (data.success) {
-                    window.__pm_shared.showToast('Update check triggered - agent will check for updates', 'success');
-                } else {
-                    window.__pm_shared.showToast(data.error || 'Failed to trigger update check', 'error');
+            });
+        }
+
+        const forceBtn = document.getElementById('agent_force_update_btn');
+        if (forceBtn) {
+            forceBtn.addEventListener('click', async () => {
+                if (!window.confirm('Force reinstall this agent? The service will restart and may temporarily disconnect.')) {
+                    return;
                 }
-            } catch (err) {
-                window.__pm_shared.showToast('Failed to send command: ' + (err.message || err), 'error');
-            } finally {
-                btn.disabled = agent.status !== 'active';
-                btn.textContent = 'Check for Update';
-            }
-        });
+                forceBtn.disabled = true;
+                const previousLabel = forceBtn.textContent;
+                forceBtn.textContent = 'Forcing...';
+                try {
+                    const res = await fetch(`/api/v1/agents/command/${encodeURIComponent(agent.agent_id)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            command: 'force_update',
+                            data: { reason: 'server_ui_force_reinstall' }
+                        })
+                    });
+                    if (!res.ok) {
+                        const txt = await res.text();
+                        throw new Error(txt || 'Request failed');
+                    }
+                    const data = await res.json();
+                    if (data.success) {
+                        window.__pm_shared.showToast('Forced reinstall triggered - agent will download the latest build', 'success');
+                    } else {
+                        window.__pm_shared.showToast(data.error || 'Failed to force reinstall', 'error');
+                    }
+                } catch (err) {
+                    window.__pm_shared.showToast('Failed to send force reinstall: ' + (err.message || err), 'error');
+                } finally {
+                    forceBtn.disabled = agent.status !== 'active';
+                    forceBtn.textContent = previousLabel || 'Force Reinstall';
+                }
+            });
+        }
     } catch (e) {
         window.__pm_shared.warn('Failed to attach agent update handler', e);
     }
