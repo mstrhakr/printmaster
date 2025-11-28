@@ -532,7 +532,11 @@ func (s *SQLiteStore) initSchema() error {
 
 	for _, stmt := range altStmts {
 		if _, err := s.db.Exec(stmt); err != nil {
-			// Ignore errors, but log them for visibility during migration
+			if isSQLiteDuplicateColumnErr(err) {
+				logDebug("SQLite migration statement skipped (column already exists)", "stmt", stmt)
+				continue
+			}
+			// Only log unexpected errors as warnings so we do not spam duplicate column output during normal startup
 			logWarn("SQLite migration statement (ignored error)", "stmt", stmt, "error", err)
 		} else {
 			logDebug("SQLite migration statement applied (or already present)", "stmt", stmt)
@@ -573,6 +577,17 @@ func (s *SQLiteStore) initSchema() error {
 	logInfo("Schema initialized for DB", "path", s.dbPath, "schemaVersion", schemaVersion)
 
 	return nil
+}
+
+// isSQLiteDuplicateColumnErr returns true when the provided error indicates an
+// ALTER TABLE attempted to add a column that already exists. These are expected
+// during startup when running best-effort migrations on fresh databases, so we
+// suppress warning logs for them.
+func isSQLiteDuplicateColumnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "duplicate column name")
 }
 
 func (s *SQLiteStore) ensureGlobalSettingsSeed() error {
