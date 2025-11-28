@@ -126,6 +126,32 @@ For deployment models where the process should never attempt to update itself
 `PM_DISABLE_SELFUPDATE=true`. That env guard is evaluated at runtime and takes
 priority over configuration files.
 
+Complementary `[self_update]` fields expose the knobs surfaced in the UI:
+
+```toml
+[self_update]
+channel = "stable"
+max_artifacts = 12
+check_interval_minutes = 360
+```
+
+- `channel`: which signed release channel to track (e.g. `stable`, `beta`).
+- `max_artifacts`: how many cached artifacts are considered when picking an
+	update candidate.
+- `check_interval_minutes`: cadence for the background check worker.
+
+Similarly, the `[releases]` block controls how aggressively we ingest GitHub
+releases for all components:
+
+```toml
+[releases]
+max_releases = 6
+poll_interval_minutes = 240
+```
+
+Lower these values on constrained systems or tighten them when using an
+internal mirror that can handle more frequent polling.
+
 ## Settings via UI
 
 Most users should configure settings through the web UI:

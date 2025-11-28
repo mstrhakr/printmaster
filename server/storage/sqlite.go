@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1564,7 +1566,7 @@ func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, username, role, tenant_id, email, created_at FROM users ORDER BY id DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, username, password_hash, role, tenant_id, email, created_at FROM users ORDER BY id DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -1577,7 +1579,7 @@ func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
 		var tenant sql.NullString
 		var email sql.NullString
 		var created sql.NullTime
-		if err := rows.Scan(&u.ID, &u.Username, &role, &tenant, &email, &created); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &role, &tenant, &email, &created); err != nil {
 			return nil, err
 		}
 		ids := tenantMap[u.ID]
@@ -3829,4 +3831,413 @@ func GetDefaultDBPath() string {
 		home, _ := os.UserHomeDir()
 		return filepath.Join(home, ".local/share/printmaster/server/server.db")
 	}
+}
+
+// GetAggregatedMetrics retrieves fleet-wide aggregated metrics for the dashboard view.
+func (s *SQLiteStore) GetAggregatedMetrics(ctx context.Context, since time.Time, tenantIDs []string) (*AggregatedMetrics, error) {
+	now := time.Now().UTC()
+	agg := &AggregatedMetrics{
+		GeneratedAt: now,
+		RangeStart:  since.UTC(),
+		RangeEnd:    now,
+	}
+
+	allowedTenants := make(map[string]struct{}, len(tenantIDs))
+	for _, id := range tenantIDs {
+		allowedTenants[id] = struct{}{}
+	}
+
+	agents, err := s.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filteredAgents := make([]*Agent, 0, len(agents))
+	agentTenantMap := make(map[string]string, len(agents))
+	for _, a := range agents {
+		if a == nil {
+			continue
+		}
+		if len(tenantIDs) > 0 {
+			if _, ok := allowedTenants[a.TenantID]; !ok {
+				continue
+			}
+		}
+		filteredAgents = append(filteredAgents, a)
+		agentTenantMap[a.AgentID] = a.TenantID
+	}
+	agg.Fleet.Totals.Agents = len(filteredAgents)
+
+	devices, err := s.ListAllDevices(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredDevices := make([]*Device, 0, len(devices))
+	serialMap := make(map[string]struct{}, len(devices))
+	deviceBySerial := make(map[string]*Device, len(devices))
+	for _, d := range devices {
+		if d == nil {
+			continue
+		}
+		if len(tenantIDs) > 0 {
+			if _, ok := agentTenantMap[d.AgentID]; !ok {
+				continue
+			}
+		}
+		filteredDevices = append(filteredDevices, d)
+		serialMap[d.Serial] = struct{}{}
+		deviceBySerial[d.Serial] = d
+
+		hasError, hasWarning, hasJam := classifyStatusMessages(d.StatusMessages)
+		if hasJam {
+			agg.Fleet.Statuses.Jam++
+			agg.Fleet.Statuses.Error++
+		} else if hasError {
+			agg.Fleet.Statuses.Error++
+		} else if hasWarning {
+			agg.Fleet.Statuses.Warning++
+		}
+	}
+	agg.Fleet.Totals.Devices = len(filteredDevices)
+
+	if len(filteredDevices) == 0 {
+		return agg, nil
+	}
+
+	buckets := make(map[time.Time]*fleetMetricBucket)
+	lastValues := make(map[string]*MetricsSnapshot)
+
+	query := `
+		SELECT m.timestamp, m.serial, m.agent_id, m.page_count, m.color_pages, m.mono_pages, m.scan_count, m.toner_levels
+		FROM metrics_history m
+		JOIN agents a ON m.agent_id = a.agent_id
+		WHERE m.timestamp >= ?
+	`
+	args := []interface{}{since.UTC().Format(time.RFC3339Nano)}
+	if len(tenantIDs) > 0 {
+		query += ` AND a.tenant_id IN (` + buildPlaceholderList(len(tenantIDs)) + `)`
+		for _, id := range tenantIDs {
+			args = append(args, id)
+		}
+	}
+	query += ` ORDER BY m.timestamp ASC`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			tsStr    string
+			serial   string
+			agentID  string
+			pc, cp   int64
+			mp, sc   int64
+			tonerRaw sql.NullString
+		)
+		if err := rows.Scan(&tsStr, &serial, &agentID, &pc, &cp, &mp, &sc, &tonerRaw); err != nil {
+			return nil, err
+		}
+		if _, ok := serialMap[serial]; !ok {
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339Nano, tsStr)
+		if err != nil {
+			continue
+		}
+		bucketTime := ts.Truncate(time.Hour)
+		if _, ok := buckets[bucketTime]; !ok {
+			buckets[bucketTime] = &fleetMetricBucket{}
+		}
+		point := buckets[bucketTime]
+
+		if last, ok := lastValues[serial]; ok {
+			if pc >= int64(last.PageCount) {
+				point.total += pc - int64(last.PageCount)
+			}
+			if cp >= int64(last.ColorPages) {
+				point.color += cp - int64(last.ColorPages)
+			}
+			if mp >= int64(last.MonoPages) {
+				point.mono += mp - int64(last.MonoPages)
+			}
+			if sc >= int64(last.ScanCount) {
+				point.scan += sc - int64(last.ScanCount)
+			}
+		}
+
+		var toner map[string]interface{}
+		if tonerRaw.Valid && strings.TrimSpace(tonerRaw.String) != "" {
+			var tmp map[string]interface{}
+			if err := json.Unmarshal([]byte(tonerRaw.String), &tmp); err == nil {
+				toner = tmp
+			}
+		}
+
+		lastValues[serial] = &MetricsSnapshot{
+			Serial:      serial,
+			AgentID:     agentID,
+			Timestamp:   ts,
+			PageCount:   int(pc),
+			ColorPages:  int(cp),
+			MonoPages:   int(mp),
+			ScanCount:   int(sc),
+			TonerLevels: toner,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, d := range filteredDevices {
+		if _, ok := lastValues[d.Serial]; ok {
+			continue
+		}
+		snapshot, err := s.GetLatestMetrics(ctx, d.Serial)
+		if err != nil || snapshot == nil {
+			continue
+		}
+		lastValues[d.Serial] = snapshot
+	}
+
+	if len(buckets) > 0 {
+		ordered := make([]time.Time, 0, len(buckets))
+		for ts := range buckets {
+			ordered = append(ordered, ts)
+		}
+		sort.Slice(ordered, func(i, j int) bool {
+			return ordered[i].Before(ordered[j])
+		})
+		for _, ts := range ordered {
+			bucket := buckets[ts]
+			agg.Fleet.History.TotalImpressions = append(agg.Fleet.History.TotalImpressions, MetricSeriesPoint{Timestamp: ts, Value: bucket.total})
+			agg.Fleet.History.MonoImpressions = append(agg.Fleet.History.MonoImpressions, MetricSeriesPoint{Timestamp: ts, Value: bucket.mono})
+			agg.Fleet.History.ColorImpressions = append(agg.Fleet.History.ColorImpressions, MetricSeriesPoint{Timestamp: ts, Value: bucket.color})
+			agg.Fleet.History.ScanVolume = append(agg.Fleet.History.ScanVolume, MetricSeriesPoint{Timestamp: ts, Value: bucket.scan})
+		}
+	}
+
+	bandCounts := make(map[consumableBand]int)
+	for _, d := range filteredDevices {
+		snapshot := lastValues[d.Serial]
+		if snapshot != nil {
+			agg.Fleet.Totals.PageCount += int64(snapshot.PageCount)
+			agg.Fleet.Totals.ColorPages += int64(snapshot.ColorPages)
+			agg.Fleet.Totals.MonoPages += int64(snapshot.MonoPages)
+			agg.Fleet.Totals.ScanCount += int64(snapshot.ScanCount)
+		}
+		band := classifyConsumableBand(snapshot, deviceBySerial[d.Serial])
+		bandCounts[band]++
+	}
+
+	agg.Fleet.Consumables.Critical = bandCounts[consumableCritical]
+	agg.Fleet.Consumables.Low = bandCounts[consumableLow]
+	agg.Fleet.Consumables.Medium = bandCounts[consumableMedium]
+	agg.Fleet.Consumables.High = bandCounts[consumableHigh]
+	agg.Fleet.Consumables.Unknown = bandCounts[consumableUnknown]
+
+	return agg, nil
+}
+
+// GetDatabaseStats returns high-level counts for observability panels.
+func (s *SQLiteStore) GetDatabaseStats(ctx context.Context) (*DatabaseStats, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*) FROM agents),
+			(SELECT COUNT(*) FROM devices),
+			(SELECT COUNT(*) FROM metrics_history),
+			(SELECT COUNT(*) FROM sessions),
+			(SELECT COUNT(*) FROM users),
+			(SELECT COUNT(*) FROM audit_log),
+			(SELECT COUNT(*) FROM release_artifacts),
+			COALESCE((SELECT SUM(size_bytes) FROM release_artifacts), 0),
+			(SELECT COUNT(*) FROM installer_bundles),
+			COALESCE((SELECT SUM(size_bytes) FROM installer_bundles), 0)
+	`)
+	stats := &DatabaseStats{}
+	if err := row.Scan(
+		&stats.Agents,
+		&stats.Devices,
+		&stats.MetricsSnapshots,
+		&stats.Sessions,
+		&stats.Users,
+		&stats.AuditEntries,
+		&stats.ReleaseArtifacts,
+		&stats.ReleaseBytes,
+		&stats.InstallerBundles,
+		&stats.InstallerBytes,
+	); err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+type fleetMetricBucket struct {
+	total int64
+	mono  int64
+	color int64
+	scan  int64
+}
+
+type consumableBand int
+
+const (
+	consumableUnknown consumableBand = iota
+	consumableHigh
+	consumableMedium
+	consumableLow
+	consumableCritical
+)
+
+func classifyStatusMessages(messages []string) (bool, bool, bool) {
+	var hasError, hasWarning, hasJam bool
+	for _, msg := range messages {
+		lower := strings.ToLower(msg)
+		switch {
+		case strings.Contains(lower, "jam"):
+			hasJam = true
+			hasError = true
+		case strings.Contains(lower, "error") || strings.Contains(lower, "fail") || strings.Contains(lower, "offline"):
+			hasError = true
+		case strings.Contains(lower, "warn") || strings.Contains(lower, "low"):
+			hasWarning = true
+		}
+	}
+	return hasError, hasWarning, hasJam
+}
+
+func classifyConsumableBand(snapshot *MetricsSnapshot, device *Device) consumableBand {
+	if snapshot != nil {
+		if band := bandFromTonerLevels(snapshot.TonerLevels); band != consumableUnknown {
+			return band
+		}
+	}
+	if device != nil {
+		if band := bandFromConsumableStrings(device.Consumables); band != consumableUnknown {
+			return band
+		}
+	}
+	return consumableUnknown
+}
+
+func bandFromTonerLevels(levels map[string]interface{}) consumableBand {
+	if len(levels) == 0 {
+		return consumableUnknown
+	}
+	worst := consumableUnknown
+	for _, raw := range levels {
+		if pct, ok := normalizePercentage(raw); ok {
+			band := bandForPercentage(pct)
+			if band > worst {
+				worst = band
+			}
+		}
+	}
+	return worst
+}
+
+func bandFromConsumableStrings(entries []string) consumableBand {
+	worst := consumableUnknown
+	for _, entry := range entries {
+		lower := strings.ToLower(entry)
+		switch {
+		case strings.Contains(lower, "empty") || strings.Contains(lower, "replace") || strings.Contains(lower, "exhausted") || strings.Contains(lower, "depleted"):
+			if consumableCritical > worst {
+				worst = consumableCritical
+			}
+		case strings.Contains(lower, "very low") || strings.Contains(lower, "near empty"):
+			if consumableCritical > worst {
+				worst = consumableCritical
+			}
+		case strings.Contains(lower, "low"):
+			if consumableLow > worst {
+				worst = consumableLow
+			}
+		case strings.Contains(lower, "medium") || strings.Contains(lower, "half"):
+			if consumableMedium > worst {
+				worst = consumableMedium
+			}
+		case strings.Contains(lower, "high") || strings.Contains(lower, "full") || strings.Contains(lower, "ok") || strings.Contains(lower, "ready"):
+			if consumableHigh > worst {
+				worst = consumableHigh
+			}
+		}
+		if pct, ok := percentFromString(entry); ok {
+			band := bandForPercentage(pct)
+			if band > worst {
+				worst = band
+			}
+		}
+	}
+	return worst
+}
+
+func normalizePercentage(value interface{}) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		if f, err := v.Float64(); err == nil {
+			return f, true
+		}
+	case string:
+		return percentFromString(v)
+	}
+	return 0, false
+}
+
+func percentFromString(s string) (float64, bool) {
+	var buf strings.Builder
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || r == '.' {
+			buf.WriteRune(r)
+			continue
+		}
+		if buf.Len() > 0 {
+			break
+		}
+	}
+	if buf.Len() == 0 {
+		return 0, false
+	}
+	val, err := strconv.ParseFloat(buf.String(), 64)
+	if err != nil {
+		return 0, false
+	}
+	return val, true
+}
+
+func bandForPercentage(pct float64) consumableBand {
+	switch {
+	case pct <= 5:
+		return consumableCritical
+	case pct <= 15:
+		return consumableLow
+	case pct <= 60:
+		return consumableMedium
+	default:
+		return consumableHigh
+	}
+}
+
+func buildPlaceholderList(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('?')
+	}
+	return b.String()
 }

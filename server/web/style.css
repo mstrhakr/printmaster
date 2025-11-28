@@ -1260,6 +1260,215 @@ select:focus {
   font-style: italic;
 }
 
+/* ---------------------------- Metrics Dashboard ---------------------------- */
+.metrics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 0 16px;
+}
+
+.metrics-range-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.metrics-range-controls .ghost-btn {
+  min-width: 48px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.metrics-range-controls .ghost-btn.active {
+  border-color: var(--highlight);
+  color: white;
+  background: rgba(38, 139, 210, 0.2);
+  box-shadow: 0 0 0 1px rgba(38, 139, 210, 0.2);
+}
+
+.metrics-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.metrics-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .metrics-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.metrics-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.metrics-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.metric-card,
+.metric-chart-card {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 14px;
+  box-shadow: var(--shadow-md);
+  color: var(--text);
+  min-height: 120px;
+}
+
+.metric-card.loading,
+.metric-chart-card.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.metric-card .card-title,
+.metric-chart-card .card-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+.metric-kpi-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: white;
+}
+
+.metric-kpi-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.metric-status-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.metric-chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid transparent;
+}
+
+.metric-chip.error {
+  border-color: rgba(220, 50, 47, 0.6);
+  color: #ffb3b0;
+}
+
+.metric-chip.warn {
+  border-color: rgba(203, 75, 22, 0.6);
+  color: #ffcfb3;
+}
+
+.metric-chip.jam {
+  border-color: rgba(181, 137, 0, 0.6);
+  color: #ffe49e;
+}
+
+.metrics-consumable-bars {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.consumable-bar {
+  flex: 1;
+  min-width: 160px;
+}
+
+.consumable-bar label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.consumable-bar progress {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  appearance: none;
+}
+
+.consumable-bar progress::-webkit-progress-bar {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+.consumable-bar progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #dc322f, #cb4b16);
+  border-radius: 999px;
+}
+
+.consumable-bar[data-tier="critical"] progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #dc322f, #ff6b6b);
+}
+
+.consumable-bar[data-tier="low"] progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #cb4b16, #fda085);
+}
+
+.consumable-bar[data-tier="medium"] progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #b58900, #ffd36d);
+}
+
+.consumable-bar[data-tier="high"] progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #2aa198, #68d9c2);
+}
+
+.consumable-bar[data-tier="unknown"] progress::-webkit-progress-value {
+  background: linear-gradient(90deg, #586e75, #93a1a1);
+}
+
+.metric-chart-canvas {
+  width: 100%;
+  height: 220px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.metric-footnote {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
 @media (max-width: 720px) {
   .audit-filter-grid {
     grid-template-columns: minmax(0, 1fr);

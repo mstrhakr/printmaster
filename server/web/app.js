@@ -74,6 +74,24 @@ let auditLastUpdated = null;
 let auditLiveRequested = false;
 let auditDataLoaded = false;
 
+const METRICS_RANGE_WINDOWS = {
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000,
+    '90d': 90 * 24 * 60 * 60 * 1000,
+    '365d': 365 * 24 * 60 * 60 * 1000,
+};
+const METRICS_DEFAULT_RANGE = '24h';
+const FLEET_SERIES_COLORS = ['#7dd3fc', '#f472b6', '#facc15', '#34d399'];
+const metricsVM = {
+    range: METRICS_DEFAULT_RANGE,
+    summary: null,
+    aggregated: null,
+    loading: false,
+    lastFetched: null,
+    error: null,
+};
+
 const SERVER_SETTINGS_SCHEMA = [
     {
         section: 'server',
@@ -147,6 +165,26 @@ const SERVER_SETTINGS_SCHEMA = [
                 helper: 'Changes apply immediately without restarting.',
                 configKey: 'logging.level'
             }
+        ]
+    },
+    {
+        section: 'releases',
+        title: 'Release Intake',
+        description: 'Control how many GitHub releases are cached locally for auto-update and packaging.',
+        fields: [
+            { key: 'max_releases', label: 'Max Releases per Component', type: 'number', min: 1, required: true, helper: 'Upper bound of releases ingested for each component on every sync.', configKey: 'releases.max_releases' },
+            { key: 'poll_interval_minutes', label: 'Sync Interval (minutes)', type: 'number', min: 15, required: true, helper: 'How often the server polls GitHub for new releases.', configKey: 'releases.poll_interval_minutes' }
+        ]
+    },
+    {
+        section: 'self_update',
+        title: 'Server Self-Update',
+        description: 'Adjust how the server checks for and stages new versions.',
+        fields: [
+            { key: 'enabled', label: 'Enable Self-Update', type: 'checkbox', helper: 'Allow the server to download and stage signed updates automatically.', configKey: 'server.self_update_enabled' },
+            { key: 'channel', label: 'Update Channel', type: 'text', placeholder: 'stable', required: true, helper: 'Release channel to follow (e.g. stable, beta).', configKey: 'self_update.channel' },
+            { key: 'max_artifacts', label: 'Max Cached Artifacts', type: 'number', min: 1, required: true, helper: 'Number of newest artifacts evaluated when picking an update candidate.', configKey: 'self_update.max_artifacts' },
+            { key: 'check_interval_minutes', label: 'Check Interval (minutes)', type: 'number', min: 30, required: true, helper: 'Frequency of automatic self-update checks.', configKey: 'self_update.check_interval_minutes' }
         ]
     },
     {
@@ -354,6 +392,13 @@ document.addEventListener('DOMContentLoaded', function () {
         // Load initial data
         loadServerStatus();
         loadAgents();
+        initMetricsRangeControls();
+        loadMetrics();
+        window._metricsInterval = setInterval(() => {
+            if (isMetricsTabActive()) {
+                loadMetrics(true);
+            }
+        }, 60000);
 
         // Set up periodic refresh for server status only
         // Keep the interval ID so we can cancel polling when WebSocket is active
@@ -863,6 +908,8 @@ function normalizeServerSettings(raw) {
     const loggingSection = scoped.logging || {};
     const smtpSection = scoped.smtp || {};
     const databaseSection = scoped.database || {};
+    const releasesSection = scoped.releases || {};
+    const selfUpdateSection = scoped.self_update || {};
     return {
         meta: {
             version: safeStr(scoped.version || 'unknown'),
@@ -906,6 +953,16 @@ function normalizeServerSettings(raw) {
             user: safeStr(smtpSection.user || ''),
             pass: '',
             from: safeStr(smtpSection.from || ''),
+        },
+        releases: {
+            max_releases: safeStr(releasesSection.max_releases),
+            poll_interval_minutes: safeStr(releasesSection.poll_interval_minutes),
+        },
+        self_update: {
+            enabled: safeBool(selfUpdateSection.enabled),
+            channel: safeStr(selfUpdateSection.channel || 'stable') || 'stable',
+            max_artifacts: safeStr(selfUpdateSection.max_artifacts),
+            check_interval_minutes: safeStr(selfUpdateSection.check_interval_minutes),
         },
     };
 }
@@ -1156,6 +1213,23 @@ function validateServerSettingsData() {
             return { ok: false, message: 'You must accept the Let\'s Encrypt terms of service.' };
         }
     }
+    const releases = serverSettingsVM.data.releases || {};
+    if (!releases.max_releases || isNaN(Number(releases.max_releases)) || Number(releases.max_releases) <= 0) {
+        return { ok: false, message: 'Release intake max releases must be a positive number.' };
+    }
+    if (!releases.poll_interval_minutes || isNaN(Number(releases.poll_interval_minutes)) || Number(releases.poll_interval_minutes) <= 0) {
+        return { ok: false, message: 'Release sync interval must be a positive number of minutes.' };
+    }
+    const selfUpdate = serverSettingsVM.data.self_update || {};
+    if (!selfUpdate.channel || String(selfUpdate.channel).trim() === '') {
+        return { ok: false, message: 'Self-update channel cannot be empty.' };
+    }
+    if (!selfUpdate.max_artifacts || isNaN(Number(selfUpdate.max_artifacts)) || Number(selfUpdate.max_artifacts) <= 0) {
+        return { ok: false, message: 'Self-update max artifacts must be a positive number.' };
+    }
+    if (!selfUpdate.check_interval_minutes || isNaN(Number(selfUpdate.check_interval_minutes)) || Number(selfUpdate.check_interval_minutes) <= 0) {
+        return { ok: false, message: 'Self-update check interval must be a positive number of minutes.' };
+    }
     return { ok: true };
 }
 
@@ -1209,6 +1283,16 @@ function buildServerSettingsPayload() {
             user: pickString(data.smtp.user) || '',
             from: pickString(data.smtp.from) || '',
         },
+        releases: {
+            max_releases: parseNumber(data.releases.max_releases),
+            poll_interval_minutes: parseNumber(data.releases.poll_interval_minutes),
+        },
+        self_update: {
+            enabled: Boolean(data.self_update.enabled),
+            channel: pickString(data.self_update.channel),
+            max_artifacts: parseNumber(data.self_update.max_artifacts),
+            check_interval_minutes: parseNumber(data.self_update.check_interval_minutes),
+        },
     };
     if (payload.tls.mode === 'letsencrypt') {
         payload.tls.letsencrypt = {
@@ -1224,6 +1308,16 @@ function buildServerSettingsPayload() {
     if (payload.smtp.port === undefined) {
         delete payload.smtp.port;
     }
+    Object.keys(payload.releases).forEach(key => {
+        if (payload.releases[key] === undefined) {
+            delete payload.releases[key];
+        }
+    });
+    Object.keys(payload.self_update).forEach(key => {
+        if (payload.self_update[key] === undefined) {
+            delete payload.self_update[key];
+        }
+    });
     Object.keys(payload.server).forEach(key => {
         if (payload.server[key] === undefined) {
             delete payload.server[key];
@@ -5420,68 +5514,438 @@ async function loadAuditLogs(options) {
 }
 
 // ====== Metrics ======
-async function loadMetrics() {
+async function loadMetrics(force) {
+    const tab = document.querySelector('[data-tab="metrics"]');
+    if (!tab) return;
+    if (metricsVM.loading && !force) return;
+
+    const since = new Date(Date.now() - getMetricsRangeWindow(metricsVM.range));
+    const params = new URLSearchParams({ since: since.toISOString() });
+
+    metricsVM.loading = true;
+    renderMetricsLoading();
+
     try {
-        const resp = await fetch('/api/metrics');
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
+        const [summaryResp, aggregatedResp] = await Promise.all([
+            fetch('/api/metrics'),
+            fetch(`/api/metrics/aggregated?${params.toString()}`)
+        ]);
 
-        const statsEl = document.getElementById('metrics_stats');
-        const contentEl = document.getElementById('metrics_content');
-
-        if (statsEl) {
-            statsEl.innerHTML = `
-                <div><strong>Agents:</strong> ${data.agents_count}</div>
-                <div><strong>Devices:</strong> ${data.devices_count}</div>
-                <div><strong>Devices with recent metrics (24h):</strong> ${data.devices_with_metrics_24h}</div>
-            `;
+        if (!summaryResp.ok) {
+            throw new Error('Summary request failed: HTTP ' + summaryResp.status);
+        }
+        if (!aggregatedResp.ok) {
+            throw new Error('Aggregated request failed: HTTP ' + aggregatedResp.status);
         }
 
-        if (contentEl) {
-            if (data.recent && Array.isArray(data.recent) && data.recent.length > 0) {
-                const rows = data.recent.map(entry => {
-                    const serial = escapeHtml(entry.serial || '—');
-                    const timestamp = escapeHtml(formatDateTime(entry.timestamp));
-                    const relative = escapeHtml(formatRelativeTime(entry.timestamp));
-                    const pageCount = escapeHtml(formatNumber(entry.page_count));
-                    return `
-                        <tr>
-                            <td>${serial}</td>
-                            <td>
-                                <div class="table-primary">${timestamp}</div>
-                                <div class="muted-text">${relative}</div>
-                            </td>
-                            <td>${pageCount}</td>
-                        </tr>
-                    `;
-                }).join('\n');
+        metricsVM.summary = await summaryResp.json();
+        metricsVM.aggregated = await aggregatedResp.json();
+        metricsVM.lastFetched = new Date();
+        metricsVM.error = null;
 
-                contentEl.innerHTML = `
-                    <div class="table-wrapper">
-                        <table class="simple-table">
-                            <thead>
-                                <tr>
-                                    <th>Device Serial</th>
-                                    <th>Last Metric</th>
-                                    <th>Page Count</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${rows}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            } else {
-                contentEl.innerHTML = '<div class="muted-text" style="padding:12px">No recent metrics available.</div>';
-            }
-        }
+        renderMetricsDashboard();
     } catch (err) {
-        window.__pm_shared.error('Failed to load metrics:', err);
-        const contentEl = document.getElementById('metrics_content');
-        if (contentEl) contentEl.innerHTML = '<div style="color:var(--error);">Failed to load metrics</div>';
+        metricsVM.error = err;
+        renderMetricsError(err);
+    } finally {
+        metricsVM.loading = false;
     }
 }
+
+function renderMetricsLoading() {
+    const statsEl = document.getElementById('metrics_stats');
+    const chartsEl = document.getElementById('metrics_chart_grid');
+    const serverEl = document.getElementById('metrics_server_panel');
+    const consumablesEl = document.getElementById('metrics_consumables');
+    if (statsEl && !metricsVM.summary) {
+        statsEl.innerHTML = '<div class="metric-card loading">Loading metrics…</div>';
+    }
+    if (chartsEl && !metricsVM.aggregated) {
+        chartsEl.innerHTML = '<div class="metric-chart-card loading">Loading throughput data…</div>';
+    }
+    if (serverEl && !metricsVM.aggregated) {
+        serverEl.innerHTML = '<div class="metric-card loading">Collecting server stats…</div>';
+    }
+    if (consumablesEl && !metricsVM.aggregated) {
+        consumablesEl.innerHTML = '<div class="card-title">Consumables</div><div class="muted-text">Loading…</div>';
+    }
+}
+
+function renderMetricsDashboard() {
+    renderMetricsOverview(metricsVM.summary, metricsVM.aggregated);
+    renderFleetCharts(metricsVM.aggregated);
+    renderServerPanel(metricsVM.aggregated?.server);
+    renderConsumables(metricsVM.aggregated?.fleet);
+    renderMetricsActivity(metricsVM.aggregated);
+    updateMetricsRangeButtons();
+}
+
+function renderMetricsOverview(summary, aggregated) {
+    const container = document.getElementById('metrics_stats');
+    if (!container) return;
+    if (!summary || !aggregated) {
+        container.innerHTML = '<div class="metric-card loading">Waiting for fleet data…</div>';
+        return;
+    }
+
+    const totals = aggregated?.fleet?.totals || {};
+    const statuses = aggregated?.fleet?.statuses || {};
+    const history = aggregated?.fleet?.history?.total_impressions || aggregated?.fleet?.history?.TotalImpressions || [];
+    const throughput = calculateThroughput(history);
+    const rangeLabel = metricsRangeLabel(metricsVM.range);
+
+    container.innerHTML = `
+        <div class="metric-card">
+            <div class="card-title">Agents</div>
+            <div class="metric-kpi-value">${formatNumber(totals.agents || summary.agents_count || 0)}</div>
+            <div class="metric-kpi-label">Connected</div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Devices</div>
+            <div class="metric-kpi-value">${formatNumber(totals.devices || summary.devices_count || 0)}</div>
+            <div class="metric-kpi-label">Managed across fleet</div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Throughput (${rangeLabel})</div>
+            <div class="metric-kpi-value">${formatNumber(Math.round(throughput))}</div>
+            <div class="metric-kpi-label">Estimated pages per hour</div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Alerts</div>
+            ${renderMetricsStatusChips(statuses)}
+            <div class="metric-footnote">${metricsVM.lastFetched ? 'Updated ' + formatRelativeTime(metricsVM.lastFetched) : ''}</div>
+        </div>
+    `;
+}
+
+function renderMetricsStatusChips(statuses) {
+    const error = statuses?.error || 0;
+    const warn = statuses?.warning || 0;
+    const jam = statuses?.jam || 0;
+    return `
+        <div class="metric-status-chips">
+            <span class="metric-chip error">Errors <strong>${formatNumber(error)}</strong></span>
+            <span class="metric-chip warn">Warnings <strong>${formatNumber(warn)}</strong></span>
+            <span class="metric-chip jam">Jams <strong>${formatNumber(jam)}</strong></span>
+        </div>
+    `;
+}
+
+function renderFleetCharts(aggregated) {
+    const grid = document.getElementById('metrics_chart_grid');
+    if (!grid) return;
+    const history = aggregated?.fleet?.history;
+    if (!history) {
+        grid.innerHTML = '<div class="metric-chart-card loading">No fleet history yet.</div>';
+        return;
+    }
+
+    const cards = [
+        {
+            id: 'fleet_total_chart',
+            title: 'Total Impressions',
+            series: [{ label: 'Total', color: FLEET_SERIES_COLORS[0], points: toSeriesPoints(history.total_impressions || history.TotalImpressions) }],
+        },
+        {
+            id: 'fleet_color_mono_chart',
+            title: 'Color vs Mono',
+            series: [
+                { label: 'Color', color: FLEET_SERIES_COLORS[1], points: toSeriesPoints(history.color_impressions || history.ColorImpressions) },
+                { label: 'Mono', color: FLEET_SERIES_COLORS[2], points: toSeriesPoints(history.mono_impressions || history.MonoImpressions) },
+            ],
+        },
+        {
+            id: 'fleet_scan_chart',
+            title: 'Scan Volume',
+            series: [{ label: 'Scans', color: FLEET_SERIES_COLORS[3], points: toSeriesPoints(history.scan_volume || history.ScanVolume) }],
+        },
+    ];
+
+    grid.innerHTML = cards.map(card => `
+        <div class="metric-chart-card">
+            <div class="card-title">${card.title}</div>
+            <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
+        </div>
+    `).join('');
+
+    cards.forEach(card => {
+        const canvas = document.getElementById(card.id);
+        if (canvas) {
+            drawFleetChart(canvas, card.series, { label: card.title });
+        }
+    });
+}
+
+function renderServerPanel(server) {
+    const panel = document.getElementById('metrics_server_panel');
+    if (!panel) return;
+    if (!server) {
+        panel.innerHTML = '<div class="metric-card loading">Server metrics unavailable.</div>';
+        return;
+    }
+
+    const runtime = server.runtime || {};
+    const memory = runtime.memory || {};
+    const db = server.database || {};
+    const uptime = formatDuration(server.uptime_seconds);
+    const artifactsBytes = db.release_artifacts_bytes || db.release_bytes || 0;
+    const bundlesBytes = db.installer_bundles_bytes || db.installer_bytes || 0;
+    const cacheBytes = artifactsBytes + bundlesBytes;
+
+    panel.innerHTML = `
+        <div class="metric-card">
+            <div class="card-title">Server Runtime</div>
+            <div class="metric-kpi-value" style="font-size:18px;">${escapeHtml(server.hostname || 'PrintMaster')}</div>
+            <div class="metric-kpi-label">Up ${uptime}, ${escapeHtml(runtime.go_version || 'Go')}</div>
+            <ul style="list-style:none;padding:0;margin:12px 0 0;font-size:13px;line-height:1.6;">
+                <li>Goroutines: <strong>${formatNumber(runtime.num_goroutine || 0)}</strong></li>
+                <li>Heap: <strong>${formatBytes(memory.heap_alloc_bytes || memory.heap_alloc || 0)}</strong></li>
+                <li>Total Alloc: <strong>${formatBytes(memory.total_alloc_bytes || memory.total_alloc || 0)}</strong></li>
+            </ul>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Database</div>
+            ${db ? `
+                <ul style="list-style:none;padding:0;margin:0;font-size:13px;line-height:1.6;">
+                    <li>Agents: <strong>${formatNumber(db.agents || 0)}</strong></li>
+                    <li>Devices: <strong>${formatNumber(db.devices || 0)}</strong></li>
+                    <li>Metrics rows: <strong>${formatNumber(db.metrics_snapshots || 0)}</strong></li>
+                    <li>Sessions: <strong>${formatNumber(db.sessions || 0)}</strong></li>
+                    <li>Users: <strong>${formatNumber(db.users || 0)}</strong></li>
+                    <li>Audit entries: <strong>${formatNumber(db.audit_entries || 0)}</strong></li>
+                    <li>Artifacts: <strong>${formatNumber(db.release_artifacts || 0)}</strong> (${formatBytes(artifactsBytes)})</li>
+                    <li>Installer bundles: <strong>${formatNumber(db.installer_bundles || 0)}</strong> (${formatBytes(bundlesBytes)})</li>
+                    <li>Total cache size: <strong>${formatBytes(cacheBytes)}</strong></li>
+                </ul>
+            ` : '<div class="muted-text">No DB stats available.</div>'}
+        </div>
+    `;
+}
+
+function renderConsumables(fleet) {
+    const card = document.getElementById('metrics_consumables');
+    if (!card) return;
+    card.innerHTML = '<div class="card-title">Consumables</div>';
+    if (!fleet || !fleet.consumables) {
+        card.innerHTML += '<div class="muted-text">No consumable data yet.</div>';
+        return;
+    }
+    const totals = fleet.totals || {};
+    const consumables = fleet.consumables;
+    const totalDevices = Math.max(1, totals.devices || 1);
+    const tiers = [
+        { key: 'critical', label: 'Critical', value: consumables.critical || 0 },
+        { key: 'low', label: 'Low', value: consumables.low || 0 },
+        { key: 'medium', label: 'Medium', value: consumables.medium || 0 },
+        { key: 'high', label: 'High', value: consumables.high || 0 },
+        { key: 'unknown', label: 'Unknown', value: consumables.unknown || 0 },
+    ];
+    const bars = tiers.map(tier => {
+        const pct = Math.round((tier.value / totalDevices) * 100);
+        return `
+            <div class="consumable-bar" data-tier="${tier.key}">
+                <label><span>${tier.label}</span><span>${formatNumber(tier.value)} devices</span></label>
+                <progress value="${pct}" max="100"></progress>
+            </div>
+        `;
+    }).join('');
+    card.innerHTML += `<div class="metrics-consumable-bars">${bars}</div>`;
+}
+
+function renderMetricsActivity(aggregated) {
+    const card = document.getElementById('metrics_activity');
+    if (!card) return;
+    card.innerHTML = '<div class="card-title">Activity</div>';
+    if (!aggregated || !aggregated.fleet) {
+        card.innerHTML += '<div class="muted-text">No activity yet.</div>';
+        return;
+    }
+
+    const totals = aggregated.fleet.totals || {};
+    const history = aggregated.fleet.history?.total_impressions || [];
+    const lastPoint = history[history.length - 1];
+    const periodTotal = history.reduce((sum, pt) => sum + Number(pt?.value || 0), 0);
+    const lastTimestamp = lastPoint ? formatDateTime(lastPoint.timestamp) : 'n/a';
+
+    card.innerHTML += `
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+            <div>Total lifetime pages: <strong>${formatNumber(totals.page_count || 0)}</strong></div>
+            <div>Period pages (${metricsRangeLabel(metricsVM.range)}): <strong>${formatNumber(periodTotal)}</strong></div>
+            <div>Last metric: <strong>${escapeHtml(lastTimestamp)}</strong></div>
+        </div>
+    `;
+}
+
+function renderMetricsError(err) {
+    const statsEl = document.getElementById('metrics_stats');
+    if (statsEl) {
+        statsEl.innerHTML = `<div class="metric-card" style="color:var(--danger);">Failed to load metrics: ${escapeHtml(err?.message || err)}</div>`;
+    }
+    const chartsEl = document.getElementById('metrics_chart_grid');
+    if (chartsEl) {
+        chartsEl.innerHTML = '<div class="metric-chart-card" style="color:var(--danger);">Unable to render charts.</div>';
+    }
+}
+
+function getMetricsRangeWindow(range) {
+    return METRICS_RANGE_WINDOWS[range] || METRICS_RANGE_WINDOWS[METRICS_DEFAULT_RANGE];
+}
+
+function metricsRangeLabel(range) {
+    switch (range) {
+        case '24h': return '24 hours';
+        case '7d': return '7 days';
+        case '30d': return '30 days';
+        case '90d': return '90 days';
+        case '365d': return '1 year';
+        default: return range;
+    }
+}
+
+function initMetricsRangeControls() {
+    const controls = document.getElementById('metrics_range_controls');
+    if (!controls || controls._metricsBound) return;
+    controls._metricsBound = true;
+    controls.addEventListener('click', (evt) => {
+        const btn = evt.target.closest('[data-range]');
+        if (!btn) return;
+        setMetricsRange(btn.getAttribute('data-range'));
+    });
+    updateMetricsRangeButtons();
+}
+
+function setMetricsRange(range) {
+    if (!range || range === metricsVM.range) return;
+    metricsVM.range = range;
+    updateMetricsRangeButtons();
+    loadMetrics(true);
+}
+
+function updateMetricsRangeButtons() {
+    const controls = document.getElementById('metrics_range_controls');
+    if (!controls) return;
+    controls.querySelectorAll('[data-range]').forEach(btn => {
+        if (btn.getAttribute('data-range') === metricsVM.range) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+}
+
+function isMetricsTabActive() {
+    const tab = document.querySelector('[data-tab="metrics"]');
+    return tab && !tab.classList.contains('hidden');
+}
+
+function toSeriesPoints(arr) {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(pt => {
+        const timestamp = pt?.timestamp || pt?.Timestamp;
+        const value = Number(pt?.value ?? pt?.Value ?? 0);
+        const timeMs = timestamp ? new Date(timestamp).getTime() : NaN;
+        return (Number.isFinite(timeMs)) ? { time: timeMs, value } : null;
+    }).filter(Boolean);
+}
+
+function calculateThroughput(series) {
+    if (!Array.isArray(series) || series.length === 0) return 0;
+    const total = series.reduce((sum, pt) => sum + Number(pt?.value || pt?.Value || 0), 0);
+    const hours = getMetricsRangeWindow(metricsVM.range) / (60 * 60 * 1000);
+    return hours > 0 ? total / hours : 0;
+}
+
+function formatDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+        return 'unknown';
+    }
+    const sec = Math.floor(seconds);
+    const days = Math.floor(sec / 86400);
+    const hours = Math.floor((sec % 86400) / 3600);
+    const minutes = Math.floor((sec % 3600) / 60);
+    const parts = [];
+    if (days) parts.push(days + 'd');
+    if (hours) parts.push(hours + 'h');
+    if (!days && !hours && minutes) parts.push(minutes + 'm');
+    if (parts.length === 0) parts.push(sec + 's');
+    return parts.join(' ');
+}
+
+function drawFleetChart(canvas, seriesList, options) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    const points = seriesList.flatMap(s => s.points || []);
+    if (points.length === 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.font = '12px sans-serif';
+        ctx.fillText('No data', 12, rect.height / 2);
+        return;
+    }
+
+    const minTime = Math.min(...points.map(p => p.time));
+    const maxTime = Math.max(...points.map(p => p.time));
+    const minValue = 0;
+    const maxValue = Math.max(...points.map(p => p.value)) || 1;
+    const padding = { top: 20, right: 16, bottom: 26, left: 40 };
+    const width = rect.width - padding.left - padding.right;
+    const height = rect.height - padding.top - padding.bottom;
+
+    const mapX = (time) => padding.left + ((time - minTime) / Math.max(1, maxTime - minTime)) * width;
+    const mapY = (value) => padding.top + height - ((value - minValue) / Math.max(1, maxValue - minValue)) * height;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = padding.top + (height / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(padding.left + width, y);
+        ctx.stroke();
+    }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.moveTo(padding.left, padding.top);
+    ctx.lineTo(padding.left, padding.top + height);
+    ctx.lineTo(padding.left + width, padding.top + height);
+    ctx.stroke();
+
+    seriesList.forEach((series, idx) => {
+        const color = series.color || FLEET_SERIES_COLORS[idx % FLEET_SERIES_COLORS.length];
+        const pts = (series.points || []).filter(p => Number.isFinite(p.time) && Number.isFinite(p.value));
+        if (pts.length === 0) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        pts.forEach((pt, i) => {
+            const x = mapX(pt.time);
+            const y = mapY(pt.value);
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+    });
+
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+        const value = minValue + ((maxValue - minValue) / 4) * i;
+        const y = mapY(value);
+        ctx.fillText(formatNumber(Math.round(value)), padding.left - 6, y + 3);
+    }
+}
+
 
 function renderLogs(logs) {
     const container = document.getElementById('log');

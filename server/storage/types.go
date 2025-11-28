@@ -94,11 +94,118 @@ type Device struct {
 	AgentID string `json:"agent_id"` // Which agent discovered this (server-specific field)
 }
 
-// MetricsSnapshot represents device metrics at a point in time (extends common MetricsSnapshot)
+// MetricsSnapshot represents a point-in-time snapshot of device metrics (base struct)
 type MetricsSnapshot struct {
-	commonstorage.MetricsSnapshot // Embed common fields
+	ID          int64                  `json:"id"`
+	Serial      string                 `json:"serial"`
+	AgentID     string                 `json:"agent_id,omitempty"`
+	Timestamp   time.Time              `json:"timestamp"`
+	PageCount   int                    `json:"page_count,omitempty"`
+	ColorPages  int                    `json:"color_pages,omitempty"`
+	MonoPages   int                    `json:"mono_pages,omitempty"`
+	ScanCount   int                    `json:"scan_count,omitempty"`
+	FaxPages    int                    `json:"fax_pages,omitempty"`
+	TonerLevels map[string]interface{} `json:"toner_levels,omitempty"`
+	Tier        string                 `json:"tier,omitempty"` // raw, hourly, daily, monthly
+}
 
-	AgentID string `json:"agent_id"` // Which agent reported this (server-specific field)
+// MetricSeriesPoint represents a single point in a derived fleet history series.
+type MetricSeriesPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     int64     `json:"value"`
+}
+
+// FleetHistory holds synchronized series for Netdata-style charting.
+type FleetHistory struct {
+	TotalImpressions []MetricSeriesPoint `json:"total_impressions"`
+	MonoImpressions  []MetricSeriesPoint `json:"mono_impressions"`
+	ColorImpressions []MetricSeriesPoint `json:"color_impressions"`
+	ScanVolume       []MetricSeriesPoint `json:"scan_volume"`
+}
+
+// FleetTotals summarizes fleet-wide counts for devices/agents and lifetime usage.
+type FleetTotals struct {
+	Agents     int   `json:"agents"`
+	Devices    int   `json:"devices"`
+	PageCount  int64 `json:"page_count"`
+	ColorPages int64 `json:"color_pages"`
+	MonoPages  int64 `json:"mono_pages"`
+	ScanCount  int64 `json:"scan_count"`
+}
+
+// FleetStatuses captures current device health breakdowns.
+type FleetStatuses struct {
+	Error   int `json:"error"`
+	Warning int `json:"warning"`
+	Jam     int `json:"jam"`
+}
+
+// FleetConsumables buckets devices by toner/ink level severity.
+type FleetConsumables struct {
+	Critical int `json:"critical"`
+	Low      int `json:"low"`
+	Medium   int `json:"medium"`
+	High     int `json:"high"`
+	Unknown  int `json:"unknown"`
+}
+
+// FleetMetrics combines current totals, statuses, consumables, and history.
+type FleetMetrics struct {
+	Totals      FleetTotals      `json:"totals"`
+	Statuses    FleetStatuses    `json:"statuses"`
+	Consumables FleetConsumables `json:"consumables"`
+	History     FleetHistory     `json:"history"`
+}
+
+// AggregatedMetrics describes the fleet view returned by the metrics endpoint.
+type AggregatedMetrics struct {
+	GeneratedAt time.Time    `json:"generated_at"`
+	RangeStart  time.Time    `json:"range_start"`
+	RangeEnd    time.Time    `json:"range_end"`
+	Fleet       FleetMetrics `json:"fleet"`
+	Server      ServerStats  `json:"server"`
+}
+
+// DatabaseStats summarizes high-level counts stored in SQLite.
+type DatabaseStats struct {
+	Agents           int64 `json:"agents"`
+	Devices          int64 `json:"devices"`
+	MetricsSnapshots int64 `json:"metrics_snapshots"`
+	Sessions         int64 `json:"sessions"`
+	Users            int64 `json:"users"`
+	AuditEntries     int64 `json:"audit_entries"`
+	ReleaseArtifacts int64 `json:"release_artifacts"`
+	ReleaseBytes     int64 `json:"release_artifacts_bytes"`
+	InstallerBundles int64 `json:"installer_bundles"`
+	InstallerBytes   int64 `json:"installer_bundles_bytes"`
+}
+
+// MemoryStats reports selected runtime memory gauges.
+type MemoryStats struct {
+	HeapAlloc  uint64 `json:"heap_alloc_bytes"`
+	HeapSys    uint64 `json:"heap_sys_bytes"`
+	StackInUse uint64 `json:"stack_in_use_bytes"`
+	StackSys   uint64 `json:"stack_sys_bytes"`
+	TotalAlloc uint64 `json:"total_alloc_bytes"`
+	Sys        uint64 `json:"sys_bytes"`
+}
+
+// RuntimeStats captures Go runtime health for the server.
+type RuntimeStats struct {
+	GoVersion    string      `json:"go_version"`
+	NumCPU       int         `json:"num_cpu"`
+	NumGoroutine int         `json:"num_goroutine"`
+	StartTime    time.Time   `json:"start_time"`
+	Memory       MemoryStats `json:"memory"`
+}
+
+// ServerStats surfaces process + DB stats for Netdata-like dashboards.
+type ServerStats struct {
+	Hostname      string         `json:"hostname"`
+	UptimeSeconds int64          `json:"uptime_seconds"`
+	GeneratedAt   time.Time      `json:"generated_at"`
+	Runtime       RuntimeStats   `json:"runtime"`
+	Database      *DatabaseStats `json:"database,omitempty"`
 }
 
 // Tenant represents a customer/tenant stored in server DB
@@ -249,6 +356,8 @@ type Store interface {
 	SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) error
 	GetLatestMetrics(ctx context.Context, serial string) (*MetricsSnapshot, error)
 	GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error)
+	GetAggregatedMetrics(ctx context.Context, since time.Time, tenantIDs []string) (*AggregatedMetrics, error)
+	GetDatabaseStats(ctx context.Context) (*DatabaseStats, error)
 
 	// Audit logging
 	SaveAuditEntry(ctx context.Context, entry *AuditEntry) error

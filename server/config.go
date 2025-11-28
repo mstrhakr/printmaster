@@ -22,13 +22,15 @@ func newConfigSourceTracker() *ConfigSourceTracker {
 
 // Config represents the server configuration
 type Config struct {
-	Server   ServerConfig          `toml:"server"`
-	Security SecurityConfig        `toml:"security"`
-	TLS      TLSConfigTOML         `toml:"tls"`
-	Database config.DatabaseConfig `toml:"database"`
-	Logging  config.LoggingConfig  `toml:"logging"`
-	Tenancy  TenancyConfig         `toml:"tenancy"`
-	SMTP     SMTPConfig            `toml:"smtp"`
+	Server     ServerConfig          `toml:"server"`
+	Security   SecurityConfig        `toml:"security"`
+	TLS        TLSConfigTOML         `toml:"tls"`
+	Database   config.DatabaseConfig `toml:"database"`
+	Logging    config.LoggingConfig  `toml:"logging"`
+	Tenancy    TenancyConfig         `toml:"tenancy"`
+	SMTP       SMTPConfig            `toml:"smtp"`
+	Releases   ReleasesConfig        `toml:"releases"`
+	SelfUpdate SelfUpdateConfig      `toml:"self_update"`
 }
 
 // ServerConfig holds server-specific settings
@@ -41,6 +43,19 @@ type ServerConfig struct {
 	AutoApproveAgents   bool   `toml:"auto_approve_agents"`
 	AgentTimeoutMinutes int    `toml:"agent_timeout_minutes"`
 	SelfUpdateEnabled   bool   `toml:"self_update_enabled"`
+}
+
+// ReleasesConfig tunes the GitHub release intake worker.
+type ReleasesConfig struct {
+	MaxReleases         int `toml:"max_releases"`
+	PollIntervalMinutes int `toml:"poll_interval_minutes"`
+}
+
+// SelfUpdateConfig exposes tweakable server auto-update controls.
+type SelfUpdateConfig struct {
+	Channel              string `toml:"channel"`
+	MaxArtifacts         int    `toml:"max_artifacts"`
+	CheckIntervalMinutes int    `toml:"check_interval_minutes"`
 }
 
 // SecurityConfig holds security and rate limiting settings
@@ -137,6 +152,15 @@ func DefaultConfig() *Config {
 			Pass:    "",
 			From:    "",
 		},
+		Releases: ReleasesConfig{
+			MaxReleases:         6,
+			PollIntervalMinutes: 240,
+		},
+		SelfUpdate: SelfUpdateConfig{
+			Channel:              "stable",
+			MaxArtifacts:         12,
+			CheckIntervalMinutes: 360,
+		},
 	}
 }
 
@@ -194,6 +218,38 @@ func LoadConfig(configPath string) (*Config, *ConfigSourceTracker, error) {
 	if val := os.Getenv("SERVER_SELF_UPDATE_ENABLED"); val != "" {
 		cfg.Server.SelfUpdateEnabled = val == "true" || val == "1"
 		tracker.EnvKeys["server.self_update_enabled"] = true
+	}
+	if val := os.Getenv("RELEASES_MAX_RELEASES"); val != "" {
+		var v int
+		if _, err := fmt.Sscanf(val, "%d", &v); err == nil {
+			cfg.Releases.MaxReleases = v
+			tracker.EnvKeys["releases.max_releases"] = true
+		}
+	}
+	if val := os.Getenv("RELEASES_POLL_INTERVAL_MINUTES"); val != "" {
+		var v int
+		if _, err := fmt.Sscanf(val, "%d", &v); err == nil {
+			cfg.Releases.PollIntervalMinutes = v
+			tracker.EnvKeys["releases.poll_interval_minutes"] = true
+		}
+	}
+	if val := os.Getenv("SELF_UPDATE_CHANNEL"); val != "" {
+		cfg.SelfUpdate.Channel = val
+		tracker.EnvKeys["self_update.channel"] = true
+	}
+	if val := os.Getenv("SELF_UPDATE_MAX_ARTIFACTS"); val != "" {
+		var v int
+		if _, err := fmt.Sscanf(val, "%d", &v); err == nil {
+			cfg.SelfUpdate.MaxArtifacts = v
+			tracker.EnvKeys["self_update.max_artifacts"] = true
+		}
+	}
+	if val := os.Getenv("SELF_UPDATE_CHECK_INTERVAL_MINUTES"); val != "" {
+		var v int
+		if _, err := fmt.Sscanf(val, "%d", &v); err == nil {
+			cfg.SelfUpdate.CheckIntervalMinutes = v
+			tracker.EnvKeys["self_update.check_interval_minutes"] = true
+		}
 	}
 	if val := os.Getenv("TLS_MODE"); val != "" {
 		cfg.TLS.Mode = val

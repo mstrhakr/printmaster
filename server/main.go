@@ -2562,6 +2562,7 @@ func setupRoutes(cfg *Config) {
 
 	// UI metrics summary endpoint (protected)
 	http.HandleFunc("/api/metrics", requireWebAuth(handleMetricsSummary))
+	http.HandleFunc("/api/metrics/aggregated", requireWebAuth(handleMetricsAggregated))
 
 	// Serve device metrics history from server DB. If the server has historical
 	// metrics stored (uploaded by agents) this endpoint will return them. The
@@ -3103,7 +3104,7 @@ func handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 // Get agent details by ID - for UI display (no auth required for now)
 // Get agent details and perform management operations scoped by role/tenant.
 func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
-	// Extract agent ID from URL path: /api/v1/agents/{agentID}
+	// Extract agent ID from URL: /api/v1/agents/{agentID}
 	path := r.URL.Path
 	agentID := strings.TrimPrefix(path, "/api/v1/agents/")
 	if agentID == "" || agentID == path {
@@ -3998,33 +3999,39 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If scoped, filter devices to those owned by agents in the user's tenants
+	// If scoped, filter agents/devices to tenant scope
 	if scope != nil {
-		agents, aerr := serverStore.ListAgents(ctx)
-		if aerr != nil {
-			http.Error(w, "Failed to list agents for filtering", http.StatusInternalServerError)
+		agents, err := serverStore.ListAgents(ctx)
+		if err != nil {
+			logError("Failed to list agents", "error", err)
+			http.Error(w, "Failed to list devices", http.StatusInternalServerError)
 			return
 		}
+
+		fAgents := make([]*storage.Agent, 0)
+		for _, a := range agents {
+			if a != nil && tenantAllowed(scope, a.TenantID) {
+				fAgents = append(fAgents, a)
+			}
+		}
+		agents = fAgents
+
 		agentAllowed := make(map[string]struct{}, len(agents))
 		for _, a := range agents {
-			if a == nil {
-				continue
-			}
-			if tenantAllowed(scope, a.TenantID) {
+			if a != nil {
 				agentAllowed[a.AgentID] = struct{}{}
 			}
 		}
-
-		filtered := make([]*storage.Device, 0, len(devices))
+		fDevices := make([]*storage.Device, 0)
 		for _, d := range devices {
 			if d == nil {
 				continue
 			}
 			if _, ok := agentAllowed[d.AgentID]; ok {
-				filtered = append(filtered, d)
+				fDevices = append(fDevices, d)
 			}
 		}
-		devices = filtered
+		devices = fDevices
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -4103,43 +4110,65 @@ func handleMetricsSummary(w http.ResponseWriter, r *http.Request) {
 		devices = fDevices
 	}
 
-	// For a lightweight recent-metrics view, sample up to N devices and fetch their latest metrics
-	const sampleN = 20
-	recent := make([]map[string]interface{}, 0)
-	devicesWithRecent := 0
-	cutoff := time.Now().Add(-24 * time.Hour)
-
-	for i, dev := range devices {
-		if i >= sampleN {
-			break
-		}
-		if dev == nil || dev.Serial == "" {
-			continue
-		}
-		m, err := serverStore.GetLatestMetrics(ctx, dev.Serial)
-		if err != nil {
-			// no metrics for this device or DB error - skip
-			continue
-		}
-		if m.Timestamp.After(cutoff) {
-			devicesWithRecent++
-		}
-		recent = append(recent, map[string]interface{}{
-			"serial":     m.Serial,
-			"timestamp":  m.Timestamp,
-			"page_count": m.PageCount,
-		})
-	}
-
-	resp := map[string]interface{}{
+	// Calculate stats
+	stats := map[string]interface{}{
 		"agents_count":             len(agents),
 		"devices_count":            len(devices),
-		"devices_with_metrics_24h": devicesWithRecent,
-		"recent":                   recent,
+		"devices_with_metrics_24h": 0, // Placeholder
+		"recent":                   []interface{}{},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	json.NewEncoder(w).Encode(stats)
+}
+
+// handleMetricsAggregated returns fleet-wide aggregated metrics for the dashboard
+func handleMetricsAggregated(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionMetricsSummaryRead, authz.ResourceRef{}) {
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse time range
+	sinceStr := r.URL.Query().Get("since")
+	var since time.Time
+	if sinceStr != "" {
+		var err error
+		since, err = time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			// Try parsing without timezone if it fails (some clients might send simplified ISO)
+			since, err = time.Parse("2006-01-02T15:04:05", sinceStr)
+			if err != nil {
+				http.Error(w, "invalid since parameter", http.StatusBadRequest)
+				return
+			}
+		}
+	} else {
+		// Default to 24h
+		since = time.Now().Add(-24 * time.Hour)
+	}
+
+	ctx := context.Background()
+	tenantIDs := principal.AllowedTenantIDs()
+
+	agg, err := serverStore.GetAggregatedMetrics(ctx, since, tenantIDs)
+	if err != nil {
+		logError("Failed to get aggregated metrics", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(agg)
 }
 
 // handleMetricsHistory returns metrics history for a device from server store.

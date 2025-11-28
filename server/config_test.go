@@ -35,7 +35,7 @@ func TestWriteDefaultConfig(t *testing.T) {
 		}
 
 		contentStr := string(content)
-		expectedSections := []string{"[server]", "[tls]", "[database]", "[logging]"}
+		expectedSections := []string{"[server]", "[tls]", "[database]", "[logging]", "[releases]", "[self_update]"}
 		for _, section := range expectedSections {
 			if !strings.Contains(contentStr, section) {
 				t.Errorf("Config file missing expected section: %s", section)
@@ -171,6 +171,12 @@ level = "debug"
 		if cfg.Logging.Level != "debug" {
 			t.Errorf("Logging.Level = %s, want 'debug'", cfg.Logging.Level)
 		}
+		if cfg.Releases.MaxReleases != 6 {
+			t.Errorf("Releases.MaxReleases = %d, want 6 (default)", cfg.Releases.MaxReleases)
+		}
+		if cfg.SelfUpdate.Channel != "stable" {
+			t.Errorf("SelfUpdate.Channel = %s, want 'stable' (default)", cfg.SelfUpdate.Channel)
+		}
 	})
 
 	t.Run("returns defaults when file does not exist", func(t *testing.T) {
@@ -200,6 +206,12 @@ level = "debug"
 		}
 		if cfg.Logging.Level != "info" {
 			t.Errorf("Logging.Level = %s, want 'info' (default)", cfg.Logging.Level)
+		}
+		if cfg.Releases.PollIntervalMinutes != 240 {
+			t.Errorf("Releases.PollIntervalMinutes = %d, want 240 (default)", cfg.Releases.PollIntervalMinutes)
+		}
+		if cfg.SelfUpdate.MaxArtifacts != 12 {
+			t.Errorf("SelfUpdate.MaxArtifacts = %d, want 12 (default)", cfg.SelfUpdate.MaxArtifacts)
 		}
 	})
 }
@@ -236,5 +248,22 @@ func TestDefaultConfig(t *testing.T) {
 	// Verify logging defaults
 	if cfg.Logging.Level != "info" {
 		t.Errorf("Logging.Level = %s, want 'info'", cfg.Logging.Level)
+	}
+
+	// Verify release/self-update defaults
+	if cfg.Releases.MaxReleases != 6 {
+		t.Errorf("Releases.MaxReleases = %d, want 6", cfg.Releases.MaxReleases)
+	}
+	if cfg.Releases.PollIntervalMinutes != 240 {
+		t.Errorf("Releases.PollIntervalMinutes = %d, want 240", cfg.Releases.PollIntervalMinutes)
+	}
+	if cfg.SelfUpdate.Channel != "stable" {
+		t.Errorf("SelfUpdate.Channel = %s, want 'stable'", cfg.SelfUpdate.Channel)
+	}
+	if cfg.SelfUpdate.MaxArtifacts != 12 {
+		t.Errorf("SelfUpdate.MaxArtifacts = %d, want 12", cfg.SelfUpdate.MaxArtifacts)
+	}
+	if cfg.SelfUpdate.CheckIntervalMinutes != 360 {
+		t.Errorf("SelfUpdate.CheckIntervalMinutes = %d, want 360", cfg.SelfUpdate.CheckIntervalMinutes)
 	}
 }

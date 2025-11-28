@@ -91,9 +91,42 @@
 
         <!-- Metrics Tab -->
         <div style="margin-top:12px;" data-tab="metrics" class="hidden">
-            <h3>Metrics</h3>
-            <div id="metrics_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
-            <div id="metrics_content" style="font-size:13px;color:var(--muted)">Loading metrics...</div>
+            <div class="metrics-header">
+                <div>
+                    <h3 style="margin-bottom:4px;">Fleet Metrics</h3>
+                    <div class="muted-text">Netdata-style view of fleet throughput, health, and server stats.</div>
+                </div>
+                <div class="metrics-range-controls" id="metrics_range_controls">
+                    <button class="ghost-btn" data-range="24h">24h</button>
+                    <button class="ghost-btn" data-range="7d">7d</button>
+                    <button class="ghost-btn" data-range="30d">30d</button>
+                    <button class="ghost-btn" data-range="90d">90d</button>
+                    <button class="ghost-btn" data-range="365d">1y</button>
+                </div>
+            </div>
+
+            <div id="metrics_stats" class="metrics-overview-grid">
+                <div class="metric-card loading">Loading fleet overview…</div>
+            </div>
+
+            <div class="metrics-layout">
+                <div class="metrics-charts" id="metrics_chart_grid">
+                    <div class="metric-chart-card loading">Preparing charts…</div>
+                </div>
+                <div class="metrics-side-panel" id="metrics_server_panel">
+                    <div class="metric-card loading">Loading server stats…</div>
+                </div>
+            </div>
+
+            <div id="metrics_consumables" class="metric-card" style="margin-top:12px;">
+                <div class="card-title">Consumables</div>
+                <div class="muted-text">Loading consumable data…</div>
+            </div>
+
+            <div id="metrics_activity" class="metric-card" style="margin-top:12px;">
+                <div class="card-title">Activity Log</div>
+                <div class="muted-text">Waiting for data…</div>
+            </div>
         </div>
 
         <!-- Tenants / Customers Tab (rendered dynamically) -->

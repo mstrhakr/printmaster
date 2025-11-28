@@ -68,3 +68,20 @@
 [tenancy]
   # Enable tenancy (join tokens + Customers UI) by default
   enabled = true
+
+[releases]
+  # Number of releases per component cached locally
+  max_releases = 6
+
+  # Minutes between automatic release syncs
+  poll_interval_minutes = 240
+
+[self_update]
+  # Channel to follow when applying server updates
+  channel = "stable"
+
+  # Limit of cached artifacts considered for update selection
+  max_artifacts = 12
+
+  # Minutes between automatic self-update checks
+  check_interval_minutes = 360

@@ -53,3 +53,14 @@
 [logging]
   # Log level: "debug", "info", "warn", "error"
   level = "info"
+
+[releases]
+  # Keep a smaller cache in container deployments
+  max_releases = 4
+  poll_interval_minutes = 240
+
+[self_update]
+  # Containers typically disable self-update, but channel still required
+  channel = "stable"
+  max_artifacts = 12
+  check_interval_minutes = 360
