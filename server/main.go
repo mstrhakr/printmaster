@@ -2363,14 +2363,6 @@ func logAgentUpdateAuditFromRequest(r *http.Request, agent *storage.Agent, actio
 	logRequestAudit(r, entry)
 }
 
-func logAgentUpdateAudit(ctx context.Context, agent *storage.Agent, action, details string, metadata map[string]interface{}) {
-	entry := buildAgentUpdateAuditEntry(agent, action, details, metadata)
-	if entry == nil {
-		return
-	}
-	logAuditEntry(ctx, entry)
-}
-
 func buildAgentUpdateAuditEntry(agent *storage.Agent, action, details string, metadata map[string]interface{}) *storage.AuditEntry {
 	if agent == nil {
 		return nil
