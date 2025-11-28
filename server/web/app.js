@@ -40,13 +40,53 @@ const TAB_DEFINITIONS = {
     }
 };
 
+const SERVER_UI_STATE_KEYS = {
+    ACTIVE_TAB: 'pm_server_active_tab',
+    SETTINGS_VIEW: 'pm_server_settings_view',
+    LOG_VIEW: 'pm_server_log_view',
+    TENANTS_VIEW: 'pm_server_tenants_view',
+};
+
+const VALID_SETTINGS_VIEWS = ['server', 'sso', 'fleet', 'updates'];
+const VALID_LOG_VIEWS = ['system', 'audit'];
+const VALID_TENANT_VIEWS = ['directory', 'bundles'];
+
+function getPersistedUIState(key, fallback, allowedValues) {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return fallback;
+        }
+        const value = window.localStorage.getItem(key);
+        if (value === null || value === undefined || value === '') {
+            return fallback;
+        }
+        if (Array.isArray(allowedValues) && allowedValues.length > 0 && !allowedValues.includes(value)) {
+            return fallback;
+        }
+        return value;
+    } catch (err) {
+        return fallback;
+    }
+}
+
+function persistUIState(key, value) {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return;
+        }
+        window.localStorage.setItem(key, value);
+    } catch (err) {
+        // No-op: best-effort persistence only
+    }
+}
+
 let currentUser = null;
 const mountedTabs = new Set();
 let usersUIInitialized = false;
 let tenantsUIInitialized = false;
 let tenantModalInitialized = false;
 let tenantsSubtabsInitialized = false;
-let activeTenantsView = 'directory';
+let activeTenantsView = getPersistedUIState(SERVER_UI_STATE_KEYS.TENANTS_VIEW, 'directory', VALID_TENANT_VIEWS);
 let tenantBundlesUIInitialized = false;
 const tenantBundlesState = {
     selectedTenantId: '',
@@ -57,8 +97,8 @@ let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
 let settingsSubtabsInitialized = false;
-let activeSettingsView = 'server';
-let activeLogView = 'system';
+let activeSettingsView = getPersistedUIState(SERVER_UI_STATE_KEYS.SETTINGS_VIEW, 'server', VALID_SETTINGS_VIEWS);
+let activeLogView = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, 'system', VALID_LOG_VIEWS);
 const AUDIT_SEVERITY_VALUES = ['error', 'warn', 'info'];
 const AUDIT_AUTO_REFRESH_INTERVAL_MS = 15000;
 let auditLogEntries = [];
@@ -385,6 +425,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Initialize tabs (after dynamic tabs injected)
         initTabs();
         initLogSubTabs();
+        restorePreferredTab();
 
         // Check config status and show warning if needed
         checkConfigStatus();
@@ -771,6 +812,7 @@ function switchLogView(view) {
     const canViewAudit = userCan('audit.logs.read');
     const desired = view === 'audit' && canViewAudit ? 'audit' : 'system';
     activeLogView = desired;
+    persistUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, desired);
 
     document.querySelectorAll('.log-subtab').forEach(btn => {
         const target = btn.dataset.logview || 'system';
@@ -825,6 +867,7 @@ function switchSettingsView(view, force = false) {
     else if (view === 'updates') normalized = 'updates';
     const previous = activeSettingsView;
     activeSettingsView = normalized;
+    persistUIState(SERVER_UI_STATE_KEYS.SETTINGS_VIEW, normalized);
 
     document.querySelectorAll('.settings-subtab').forEach(btn => {
         const target = btn.dataset.settingsview || 'fleet';
@@ -1449,6 +1492,36 @@ function switchTab(targetTab) {
     } else if (targetTab === 'users') {
         loadUsers();
     }
+
+    if (targetTab && isTabSelectable(targetTab)) {
+        persistUIState(SERVER_UI_STATE_KEYS.ACTIVE_TAB, targetTab);
+    }
+}
+
+function isTabSelectable(targetTab) {
+    if (!targetTab) {
+        return false;
+    }
+    const panel = document.querySelector(`[data-tab="${targetTab}"]`);
+    if (!panel) {
+        return false;
+    }
+    const buttons = Array.from(document.querySelectorAll(`.tab[data-target="${targetTab}"]`));
+    if (buttons.length === 0) {
+        return true;
+    }
+    return buttons.some(btn => btn.offsetParent !== null);
+}
+
+function restorePreferredTab() {
+    const stored = getPersistedUIState(SERVER_UI_STATE_KEYS.ACTIVE_TAB, null);
+    if (!stored) {
+        return;
+    }
+    if (!isTabSelectable(stored)) {
+        return;
+    }
+    switchTab(stored);
 }
 
 // ---------------------------------------------------------------------------
@@ -1915,6 +1988,7 @@ function switchTenantsView(view, force = false){
         });
     }
     activeTenantsView = view;
+    persistUIState(SERVER_UI_STATE_KEYS.TENANTS_VIEW, view);
     if (view === 'bundles') {
         if (tenantBundlesState.selectedTenantId) {
             loadTenantBundles(tenantBundlesState.selectedTenantId);

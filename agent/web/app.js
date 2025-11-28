@@ -1,6 +1,36 @@
 // Global settings placeholder so sections can stash the latest snapshot.
 const globalSettings = { discovery: {}, developer: {}, security: {} };
 
+const AGENT_UI_STATE_KEYS = {
+    ACTIVE_TAB: 'pm_agent_active_tab',
+};
+
+function getAgentUIState(key, fallback) {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return fallback;
+        }
+        const value = window.localStorage.getItem(key);
+        if (value === null || value === undefined || value === '') {
+            return fallback;
+        }
+        return value;
+    } catch (err) {
+        return fallback;
+    }
+}
+
+function persistAgentUIState(key, value) {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) {
+            return;
+        }
+        window.localStorage.setItem(key, value);
+    } catch (err) {
+        // Ignore persistence errors (private browsing, etc.)
+    }
+}
+
 // Agent-specific helper: save a discovered device (moved out of shared bundle)
 async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = true) {
     if (!ipOrSerial) return;
@@ -2555,6 +2585,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             setTimeout(() => applyMasonryLayout(), 100);
         });
     }
+
+    restoreAgentActiveTab();
 });
 
 function showTab(name) {
@@ -2595,6 +2627,30 @@ function showTab(name) {
     if (name === 'settings') {
         loadSettings();
     }
+
+    if (isAgentTabSelectable(name)) {
+        persistAgentUIState(AGENT_UI_STATE_KEYS.ACTIVE_TAB, name);
+    }
+}
+
+function isAgentTabSelectable(name) {
+    if (!name) return false;
+    const panel = document.querySelector(`[data-tab="${name}"]`);
+    if (!panel) return false;
+    const buttons = Array.from(document.querySelectorAll(`.tab[data-target="${name}"]`));
+    if (buttons.length === 0) {
+        return true;
+    }
+    return buttons.some(btn => btn.offsetParent !== null);
+}
+
+function restoreAgentActiveTab() {
+    const saved = getAgentUIState(AGENT_UI_STATE_KEYS.ACTIVE_TAB, null);
+    if (saved && isAgentTabSelectable(saved)) {
+        showTab(saved);
+        return;
+    }
+    showTab('devices');
 }
 
 
@@ -3481,7 +3537,6 @@ function toggleMetricsTimeSelector(targetId) {
 // Initialize UI after all functions are defined
 updatePrinters();
 loadSavedRanges();
-showTab('devices'); // Show devices tab by default
 
 // Clear search filter boxes on page load
 const discoveredSearchInput = document.getElementById('discovered_search');
