@@ -31,6 +31,330 @@ function persistAgentUIState(key, value) {
     }
 }
 
+const AUTO_UPDATE_STATUS_CLASS_MAP = {
+    idle: 'status-idle',
+    checking: 'status-active',
+    pending: 'status-active',
+    downloading: 'status-active',
+    staging: 'status-active',
+    applying: 'status-active',
+    restarting: 'status-active',
+    succeeded: 'status-success',
+    failed: 'status-error',
+    skipped: 'status-muted',
+    rolled_back: 'status-error',
+};
+
+const AUTO_UPDATE_STATUS_COPY = {
+    idle: 'Waiting for the next scheduled check.',
+    checking: 'Contacting the update service...',
+    pending: 'Preparing download...',
+    downloading: 'Downloading the latest build...',
+    staging: 'Staging files before install...',
+    applying: 'Applying update...',
+    restarting: 'Restarting the agent service...',
+    succeeded: 'Last update completed successfully.',
+    failed: 'Last update failed - check logs for details.',
+    skipped: 'Update skipped per policy window.',
+    rolled_back: 'Rolled back to previous version.',
+};
+
+const AUTO_UPDATE_BUSY_STATUSES = new Set(['checking', 'pending', 'downloading', 'staging', 'applying', 'restarting']);
+const AUTO_UPDATE_STATUS_POLL_MS = 45000;
+let autoUpdateStatusIntervalId = null;
+
+function formatAutoUpdateStatusLabel(status) {
+    if (!status || typeof status !== 'string') return 'Unknown';
+    return status.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+function statusClassForAutoUpdate(status) {
+    return AUTO_UPDATE_STATUS_CLASS_MAP[status] || 'status-muted';
+}
+
+function describeRelativeFromMs(diffMs) {
+    if (!Number.isFinite(diffMs)) return '';
+    const future = diffMs < 0;
+    const abs = Math.abs(diffMs);
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+    let value;
+    if (abs < minute) {
+        value = future ? 'in under a minute' : 'under a minute ago';
+        return value;
+    }
+    if (abs < hour) {
+        value = Math.round(abs / minute) + 'm';
+    } else if (abs < day) {
+        value = Math.round(abs / hour) + 'h';
+    } else {
+        value = Math.round(abs / day) + 'd';
+    }
+    return future ? 'in ' + value : value + ' ago';
+}
+
+function formatAutoUpdateTimestamp(value) {
+    if (!value) return '—';
+    try {
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        const localized = date.toLocaleString();
+        const rel = describeRelativeFromMs(Date.now() - date.getTime());
+        return rel ? localized + ' (' + rel + ')' : localized;
+    } catch (err) {
+        return value;
+    }
+}
+
+function formatPolicySourceLabel(source) {
+    switch (source) {
+        case 'fleet': return 'Fleet Policy';
+        case 'local': return 'Local Overrides';
+        case 'fallback': return 'Fallback Policy';
+        case 'disabled': return 'Policy Disabled';
+        case '':
+        case undefined:
+        case null:
+            return 'Agent Defaults';
+        default:
+            return source.charAt(0).toUpperCase() + source.slice(1);
+    }
+}
+
+function describeAutoUpdateCopy(status, payload) {
+    if (payload && payload.update_available && payload.latest_version) {
+        return 'Update ' + payload.latest_version + ' is ready to install.';
+    }
+    return AUTO_UPDATE_STATUS_COPY[status] || ('Status: ' + formatAutoUpdateStatusLabel(status));
+}
+
+function setAutoUpdateMeta(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (value === null || value === undefined || value === '') {
+        el.textContent = '—';
+    } else {
+        el.textContent = value;
+    }
+}
+
+function setAutoUpdateButtonsDisabled(disabled, reason) {
+    ['autoupdate_check_btn', 'autoupdate_force_btn'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        if (btn.dataset.loading === 'true') return;
+        btn.disabled = !!disabled;
+        if (disabled && reason) {
+            btn.title = reason;
+        } else {
+            btn.removeAttribute('title');
+        }
+    });
+}
+
+async function refreshAutoUpdateStatus(triggeredByButton = false) {
+    const panel = document.getElementById('autoupdate_panel');
+    if (!panel) return;
+
+    const refreshBtn = triggeredByButton ? document.getElementById('autoupdate_refresh_btn') : null;
+    const badge = document.getElementById('autoupdate_status_badge');
+    const copy = document.getElementById('autoupdate_status_copy');
+
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.dataset.loading = 'true';
+        refreshBtn.textContent = 'Refreshing...';
+    }
+
+    try {
+        const resp = await fetch('/api/autoupdate/status', { headers: { 'Accept': 'application/json' } });
+        if (!resp.ok) {
+            throw new Error('Status ' + resp.status);
+        }
+        const data = await resp.json();
+        applyAutoUpdateStatusToUI(data);
+        return data;
+    } catch (err) {
+        if (badge) {
+            badge.textContent = 'Unavailable';
+            badge.className = 'autoupdate-status-pill status-error';
+        }
+        if (copy) {
+            copy.textContent = 'Failed to load status: ' + (err && err.message ? err.message : err);
+        }
+        try {
+            if (window.__pm_shared && typeof window.__pm_shared.error === 'function') {
+                window.__pm_shared.error('Auto-update status fetch failed', err);
+            }
+        } catch (_) {}
+    } finally {
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'Refresh Status';
+            delete refreshBtn.dataset.loading;
+        }
+        setTimeout(() => { try { applyMasonryLayout(); } catch (_) {} }, 60);
+    }
+}
+
+function applyAutoUpdateStatusToUI(data) {
+    const badge = document.getElementById('autoupdate_status_badge');
+    const copy = document.getElementById('autoupdate_status_copy');
+    const disabledNotice = document.getElementById('autoupdate_disabled_notice');
+    const callout = document.getElementById('autoupdate_available_callout');
+    const hint = document.getElementById('autoupdate_policy_hint');
+
+    if (!badge || !copy) return;
+
+    const isEnabled = data && data.enabled;
+    const status = data && data.status ? data.status : 'unknown';
+    const disabledReason = !isEnabled ? ((data && (data.disabled_reason || data.reason)) || 'Auto-update unavailable') : '';
+    const isBusy = AUTO_UPDATE_BUSY_STATUSES.has(status);
+
+    badge.textContent = isEnabled ? formatAutoUpdateStatusLabel(status) : 'Disabled';
+    badge.className = 'autoupdate-status-pill ' + (isEnabled ? statusClassForAutoUpdate(status) : 'status-disabled');
+    copy.textContent = isEnabled ? describeAutoUpdateCopy(status, data || {}) : disabledReason;
+
+    if (disabledNotice) {
+        if (isEnabled) {
+            disabledNotice.classList.add('hidden');
+            disabledNotice.textContent = '';
+        } else {
+            disabledNotice.textContent = disabledReason;
+            disabledNotice.classList.remove('hidden');
+        }
+    }
+
+    setAutoUpdateButtonsDisabled(!isEnabled || isBusy, !isEnabled ? disabledReason : (isBusy ? 'Update already running' : ''));
+
+    setAutoUpdateMeta('autoupdate_current_version', data && data.current_version);
+    setAutoUpdateMeta('autoupdate_latest_version', data && data.latest_version);
+
+    const channelBits = [];
+    if (data && data.channel) channelBits.push(String(data.channel).toUpperCase());
+    const platformArch = [data && data.platform, data && data.arch].filter(Boolean).join(' / ');
+    if (platformArch) channelBits.push(platformArch);
+    setAutoUpdateMeta('autoupdate_channel', channelBits.join(' · ') || null);
+
+    const policyLabel = formatPolicySourceLabel(data && data.policy_source);
+    const interval = data && data.check_interval_days ? data.check_interval_days : 0;
+    const intervalText = interval > 0 ? ('Every ' + interval + ' day' + (interval === 1 ? '' : 's')) : '';
+    setAutoUpdateMeta('autoupdate_policy', intervalText ? (policyLabel + ' · ' + intervalText) : policyLabel);
+
+    setAutoUpdateMeta('autoupdate_last_check', data && data.last_check_at ? formatAutoUpdateTimestamp(data.last_check_at) : null);
+    setAutoUpdateMeta('autoupdate_next_check', data && data.next_check_at ? formatAutoUpdateTimestamp(data.next_check_at) : null);
+
+    if (callout) {
+        if (isEnabled && data && data.update_available && data.latest_version) {
+            callout.textContent = 'Update ' + data.latest_version + ' is available. "Force Reinstall" downloads and applies it immediately.';
+            callout.classList.remove('hidden');
+        } else {
+            callout.textContent = '';
+            callout.classList.add('hidden');
+        }
+    }
+
+    if (hint) {
+        const prefix = interval > 0 ? ('Automatic checks run every ' + interval + ' day' + (interval === 1 ? '' : 's') + '. ') : '';
+        hint.textContent = prefix + 'Manual actions ignore the schedule but still enforce disk space and integrity checks.';
+    }
+
+    setTimeout(() => { try { applyMasonryLayout(); } catch (_) {} }, 60);
+}
+
+async function handleAutoUpdateCheck(evt) {
+    const btn = evt && evt.currentTarget ? evt.currentTarget : null;
+    if (!btn) return;
+
+    const previous = btn.textContent;
+    btn.disabled = true;
+    btn.dataset.loading = 'true';
+    btn.textContent = 'Checking...';
+
+    try {
+        const resp = await fetch('/api/autoupdate/check', { method: 'POST' });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(payload && payload.error ? payload.error : resp.statusText);
+        }
+        if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
+            window.__pm_shared.showToast('Update check scheduled', 'success');
+        }
+    } catch (err) {
+        if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
+            window.__pm_shared.showToast('Failed to trigger update check: ' + (err && err.message ? err.message : err), 'error');
+        }
+    } finally {
+        btn.disabled = false;
+        btn.textContent = previous;
+        delete btn.dataset.loading;
+        await refreshAutoUpdateStatus();
+    }
+}
+
+async function handleAutoUpdateForce(evt) {
+    const btn = evt && evt.currentTarget ? evt.currentTarget : null;
+    if (!btn) return;
+
+    const confirmed = await window.__pm_shared.showConfirm('Force reinstall the latest published agent build? This restarts the service and may briefly disconnect uploads.', 'Force Reinstall', true);
+    if (!confirmed) return;
+
+    const previous = btn.textContent;
+    btn.disabled = true;
+    btn.dataset.loading = 'true';
+    btn.textContent = 'Requesting...';
+
+    try {
+        const resp = await fetch('/api/autoupdate/force', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason: 'agent_ui_force_reinstall' })
+        });
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(payload && payload.error ? payload.error : resp.statusText);
+        }
+        if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
+            window.__pm_shared.showToast('Forced reinstall requested – download will start shortly.', 'success');
+        }
+    } catch (err) {
+        if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
+            window.__pm_shared.showToast('Failed to force reinstall: ' + (err && err.message ? err.message : err), 'error');
+        }
+    } finally {
+        btn.disabled = false;
+        btn.textContent = previous;
+        delete btn.dataset.loading;
+        await refreshAutoUpdateStatus();
+    }
+}
+
+async function handleAutoUpdateRefresh(evt) {
+    evt && evt.preventDefault && evt.preventDefault();
+    await refreshAutoUpdateStatus(true);
+}
+
+function initializeAutoUpdatePanel() {
+    const panel = document.getElementById('autoupdate_panel');
+    if (!panel) return;
+
+    const refreshBtn = document.getElementById('autoupdate_refresh_btn');
+    if (refreshBtn) refreshBtn.addEventListener('click', handleAutoUpdateRefresh);
+
+    const checkBtn = document.getElementById('autoupdate_check_btn');
+    if (checkBtn) checkBtn.addEventListener('click', handleAutoUpdateCheck);
+
+    const forceBtn = document.getElementById('autoupdate_force_btn');
+    if (forceBtn) forceBtn.addEventListener('click', handleAutoUpdateForce);
+
+    refreshAutoUpdateStatus();
+    if (autoUpdateStatusIntervalId) clearInterval(autoUpdateStatusIntervalId);
+    autoUpdateStatusIntervalId = setInterval(() => {
+        refreshAutoUpdateStatus();
+    }, AUTO_UPDATE_STATUS_POLL_MS);
+}
+
 // Agent-specific helper: save a discovered device (moved out of shared bundle)
 async function saveDiscoveredDevice(ipOrSerial, autosave = false, updateUI = true) {
     if (!ipOrSerial) return;
@@ -2142,6 +2466,8 @@ document.addEventListener('DOMContentLoaded', async function () {
     await window.__pm_auth.ensureAuth();
     loadThemePreference();
     window.__pm_shared.toggleDatabaseFields();
+
+    initializeAutoUpdatePanel();
 
     // Check if we're being accessed through the server's proxy
     // The server adds a special meta tag when proxying

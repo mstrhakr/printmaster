@@ -158,6 +158,51 @@
                     </div>
                 </div>
 
+                <!-- Agent Updates -->
+                <div class="panel" id="autoupdate_panel">
+                    <h4 style="margin-top:0;color:var(--highlight)">Agent Updates</h4>
+                    <div class="autoupdate-status-row">
+                        <span id="autoupdate_status_badge" class="autoupdate-status-pill">Loading...</span>
+                        <span id="autoupdate_status_copy" class="autoupdate-status-copy">Checking update service...</span>
+                    </div>
+                    <div id="autoupdate_disabled_notice" class="autoupdate-disabled hidden"></div>
+                    <div class="autoupdate-meta">
+                        <div>
+                            <div class="meta-label">Current Version</div>
+                            <div class="meta-value" id="autoupdate_current_version">&mdash;</div>
+                        </div>
+                        <div>
+                            <div class="meta-label">Latest Published</div>
+                            <div class="meta-value" id="autoupdate_latest_version">&mdash;</div>
+                        </div>
+                        <div>
+                            <div class="meta-label">Update Channel</div>
+                            <div class="meta-value" id="autoupdate_channel">&mdash;</div>
+                        </div>
+                        <div>
+                            <div class="meta-label">Policy Source</div>
+                            <div class="meta-value" id="autoupdate_policy">&mdash;</div>
+                        </div>
+                        <div>
+                            <div class="meta-label">Last Check</div>
+                            <div class="meta-value" id="autoupdate_last_check">&mdash;</div>
+                        </div>
+                        <div>
+                            <div class="meta-label">Next Check</div>
+                            <div class="meta-value" id="autoupdate_next_check">&mdash;</div>
+                        </div>
+                    </div>
+                    <div id="autoupdate_available_callout" class="autoupdate-available hidden"></div>
+                    <div class="autoupdate-actions">
+                        <button id="autoupdate_refresh_btn" type="button">Refresh Status</button>
+                        <button id="autoupdate_check_btn" type="button" class="primary">Check for Update</button>
+                        <button id="autoupdate_force_btn" type="button" class="delete">Force Reinstall</button>
+                    </div>
+                    <div class="autoupdate-hint" id="autoupdate_policy_hint">
+                        Manual actions ignore maintenance windows but keep disk space and integrity checks.
+                    </div>
+                </div>
+
                 <!-- IP Sources -->
                 <div class="panel">
                     <h4 style="margin-top:0;color:var(--highlight)">IP Sources</h4>

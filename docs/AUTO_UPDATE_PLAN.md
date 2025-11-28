@@ -143,4 +143,15 @@ This document captures the agreed strategy for server- and agent-driven updates,
 - The force flow reuses the existing download/staging pipeline, so telemetry and log noise remain consistent with regular updates, and the helper restart logic still ensures the service restarts cleanly after the reinstall.
 - Every manual `check_update` or `force_update` invocation now emits a structured audit log entry capturing the actor, agent identity, payload metadata (reason/trigger), and tenant scope so compliance teams can trace both ad-hoc and scheduled rollouts. Future orchestration jobs should call the shared `logAgentUpdateAudit` helper to record automated runs with a `trigger=scheduled` tag.
 
+## Agent UI Self-Update Controls
+
+- The agent settings page now includes an **Agent Updates** panel that surfaces the current/available version, channel, effective policy source, and the timestamps for the last/next scheduled check.
+- Status pills reflect the manager lifecycle (`checking`, `downloading`, `applying`, etc.) so desk-side operators can see whether an update is already running before triggering new work.
+- The panel polls `/api/autoupdate/status` every 45 seconds and exposes a "Refresh Status" button for on-demand snapshots when troubleshooting.
+- Two local actions are available:
+   - **Check for Update**: POST `/api/autoupdate/check`, identical to the server-driven `check_update` command.
+   - **Force Reinstall**: POST `/api/autoupdate/force` with reason `agent_ui_force_reinstall`, which bypasses version/policy guards but still enforces disk-space, hashing, and restart health checks.
+- Buttons automatically disable when the auto-update manager is unavailable (agent offline, policy disabled, etc.) or when a run is already in progress, preventing conflicting operations.
+- Callouts highlight when a newer build is available so onsite staff know when a manual reinstall will have an effect.
+
 This plan should be treated as a living document; check off tasks as they land and adjust phases as we learn more from early prototypes.

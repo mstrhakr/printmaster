@@ -1220,6 +1220,119 @@ input[type="checkbox"]:indeterminate::before {
   margin-bottom: 0;
 }
 
+.autoupdate-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.autoupdate-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid rgba(88, 110, 117, 0.3);
+  background: rgba(88, 110, 117, 0.2);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.autoupdate-status-pill.status-idle {
+  background: rgba(42, 161, 152, 0.15);
+  border-color: rgba(42, 161, 152, 0.45);
+  color: #2aa198;
+}
+
+.autoupdate-status-pill.status-active {
+  background: rgba(181, 137, 0, 0.18);
+  border-color: rgba(181, 137, 0, 0.55);
+  color: var(--accent);
+}
+
+.autoupdate-status-pill.status-success {
+  background: rgba(46, 204, 113, 0.18);
+  border-color: rgba(46, 204, 113, 0.5);
+  color: #2ecc71;
+}
+
+.autoupdate-status-pill.status-error {
+  background: rgba(220, 50, 47, 0.18);
+  border-color: rgba(220, 50, 47, 0.5);
+  color: #dc322f;
+}
+
+.autoupdate-status-pill.status-disabled,
+.autoupdate-status-pill.status-muted {
+  background: rgba(88, 110, 117, 0.18);
+  border-color: rgba(88, 110, 117, 0.45);
+  color: var(--muted);
+}
+
+.autoupdate-status-copy {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.autoupdate-disabled {
+  border: 1px dashed rgba(220, 50, 47, 0.5);
+  background: rgba(220, 50, 47, 0.1);
+  color: #ffb3b0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+}
+
+.autoupdate-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.autoupdate-meta .meta-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.autoupdate-meta .meta-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.autoupdate-available {
+  padding: 10px 12px;
+  border-left: 3px solid var(--highlight);
+  background: rgba(38, 139, 210, 0.12);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.autoupdate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.autoupdate-hint {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 /* Sticky settings bar */
 .settings-sticky-bar {
   position: sticky;

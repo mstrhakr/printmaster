@@ -4951,6 +4951,57 @@ window.top.location.href = '/proxy/%s/';
 		})
 	})
 
+	// Force reinstall the latest build regardless of current version
+	http.HandleFunc("/api/autoupdate/force", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		autoUpdateManagerMu.RLock()
+		manager := autoUpdateManager
+		autoUpdateManagerMu.RUnlock()
+
+		if manager == nil {
+			http.Error(w, "auto-update not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		var payload struct {
+			Reason string `json:"reason"`
+		}
+		if r.Body != nil {
+			defer r.Body.Close()
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil && err != io.EOF {
+				http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+				return
+			}
+		}
+
+		reason := strings.TrimSpace(payload.Reason)
+		if reason == "" {
+			reason = "agent_ui_force_reinstall"
+		}
+
+		go func(reason string) {
+			runCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			if err := manager.ForceInstallLatest(runCtx, reason); err != nil {
+				if appLogger != nil {
+					appLogger.Warn("Manual force reinstall failed", "error", err)
+				}
+			} else if appLogger != nil {
+				appLogger.Info("Manual force reinstall triggered", "reason", reason)
+			}
+		}(reason)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "force_triggered",
+			"message": "Forced reinstall has been scheduled",
+		})
+	})
+
 	// Metrics history endpoints
 	http.HandleFunc("/api/devices/metrics/latest", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
