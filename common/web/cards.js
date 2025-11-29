@@ -557,12 +557,21 @@
         try { overlay.style.display = 'flex'; document.body.style.overflow = 'hidden'; } catch (e) {}
 
         // Helper renderers
-        function renderInfoCard(title, content) {
+        function renderInfoCard(title, content, opts = {}) {
             if (!content) return '';
-                return '<div class="panel">' +
-                    '<h4 style="margin-top:0;color:var(--highlight)">' + title + '</h4>' +
-                    content +
-                    '</div>';
+            const extraClass = opts.className ? ' ' + opts.className : '';
+            return '<section class="device-details-card' + extraClass + '">' +
+                '<div class="device-details-card-title">' + title + '</div>' +
+                '<div class="device-details-card-content">' + content + '</div>' +
+                '</section>';
+        }
+
+        function renderMetricStat(label, primary, secondary) {
+            return '<div class="device-metric-pill">' +
+                '<div class="device-metric-label">' + label + '</div>' +
+                '<div class="device-metric-value">' + primary + '</div>' +
+                (secondary ? '<div class="device-metric-subtext">' + secondary + '</div>' : '') +
+                '</div>';
         }
 
         function renderRow(label, value) {
@@ -595,7 +604,7 @@
         }
 
         // Build HTML (kept intentionally similar to agent implementation)
-        let html = '<div class="settings-grid" style="margin-top:0">';
+        let html = '<div class="device-details-stack">';
 
         if (!p || Object.keys(p).length === 0) {
             html += '<div style="color:var(--muted);padding:12px">No printer data available</div>';
@@ -640,12 +649,15 @@
 
         // Metrics card for saved devices (compact summary + quick-open buttons)
         if (source === 'saved' && p.serial) {
-            const metricsHtml = '<div id="printer_metrics_summary" style="margin-top:8px"></div>' +
-                '<div style="display:flex;gap:8px;align-items:center;margin-top:8px">' +
+            const metricsHtml = '<div class="device-metrics-card-content">' +
+                '<div id="printer_metrics_summary" class="device-metrics-summary-placeholder">Loading metrics summary...</div>' +
+                '<div class="device-metrics-actions">' +
                 '<button class="primary" data-action="metrics" data-serial="' + p.serial + '">Open Metrics</button>' +
-                '<button style="font-size:12px;padding:6px" data-action="metrics" data-serial="' + p.serial + '" data-preset="7day">Open Last 7 Days</button>' +
+                '<button style="font-size:12px;padding:6px 10px" data-action="metrics" data-serial="' + p.serial + '" data-preset="7day">Last 7 Days</button>' +
+                '</div>' +
+                '<div class="device-metrics-note">Full charts live in the Metrics tab.</div>' +
                 '</div>';
-            html += renderInfoCard('Metrics', metricsHtml);
+            html += renderInfoCard('Metrics Overview', metricsHtml, { className: 'device-metrics-card' });
         }
 
     // Network Info (editable)
@@ -670,6 +682,7 @@
         }
 
         // Interfaces: attempt to extract from parseDebug.raw_pdus (IF-MIB columns)
+        let interfacesSection = '';
         try {
             if (parseDebug && Array.isArray(parseDebug.raw_pdus)) {
                 const ifs = {};
@@ -682,69 +695,76 @@
                         if (!ifs[idx]) ifs[idx] = { index: idx };
                         const v = rp.str_value || rp.StrValue || '';
                         switch (col) {
-                            case '2': ifs[idx].descr = v; break; // ifDescr
-                            case '3': ifs[idx].type = v; break; // ifType
-                            case '5': ifs[idx].speed = v; break; // ifSpeed
-                            case '6': ifs[idx].mac = v; break; // ifPhysAddress
+                            case '2': ifs[idx].descr = v; break;
+                            case '3': ifs[idx].type = v; break;
+                            case '5': ifs[idx].speed = v; break;
+                            case '6': ifs[idx].mac = v; break;
                         }
                     }
                 });
                 const keys = Object.keys(ifs);
                 if (keys.length > 0) {
-                    html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
-                    html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px;margin-bottom:8px">Network Interfaces (' + keys.length + ')</summary>';
+                    interfacesSection += '<details class="device-details-expando">';
+                    interfacesSection += '<summary>Interface Details (' + keys.length + ')</summary>';
                     keys.forEach(k => {
                         const it = ifs[k];
-                        html += '<div style="background:rgba(0,0,0,0.15);border-radius:4px;padding:8px;margin-bottom:6px;font-size:13px">';
-                        html += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px">';
-                        if (it.descr) html += '<div style="color:var(--muted)">Interface:</div><div>' + it.descr + '</div>';
-                        if (it.mac) html += '<div style="color:var(--muted)">MAC:</div><div style="font-family:monospace;font-size:12px">' + it.mac + '</div>';
-                        if (it.speed) html += '<div style="color:var(--muted)">Speed:</div><div>' + it.speed + '</div>';
-                        html += '</div></div>';
+                        interfacesSection += '<div class="device-details-expando-row">';
+                        interfacesSection += '<div class="device-details-grid">';
+                        if (it.descr) interfacesSection += '<div>Interface</div><div>' + it.descr + '</div>';
+                        if (it.mac) interfacesSection += '<div>MAC</div><div style="font-family:monospace;font-size:12px">' + it.mac + '</div>';
+                        if (it.speed) interfacesSection += '<div>Speed</div><div>' + it.speed + '</div>';
+                        interfacesSection += '</div></div>';
                     });
-                    html += '</details>';
+                    interfacesSection += '</details>';
                 }
             }
         } catch (e) { /* non-critical */ }
+        if (interfacesSection) html += renderInfoCard('Network Interfaces', interfacesSection);
 
         // Paper trays - collapsible
+        let paperSection = '';
         try {
             if (p.paper_tray_status && p.paper_tray_status.length) {
-                html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
-                html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px">Paper Trays (' + p.paper_tray_status.length + ')</summary>';
-                html += '<div style="margin-top:8px">';
-                p.paper_tray_status.forEach(t => html += '<div style="padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;margin-bottom:4px;font-size:13px">' + t + '</div>');
-                html += '</div></details>';
+                paperSection += '<details class="device-details-expando" open>';
+                paperSection += '<summary>Loaded Trays</summary>';
+                paperSection += '<div class="device-details-list">';
+                p.paper_tray_status.forEach(t => paperSection += '<div class="device-details-list-item">' + t + '</div>');
+                paperSection += '</div></details>';
             }
         } catch (e) { /* ignore */ }
+        if (paperSection) html += renderInfoCard('Paper Trays', paperSection);
 
         // Status messages and alerts - collapsible
+        let statusSection = '';
         try {
             if (p.status_messages && p.status_messages.length) {
-                html += '<details style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px;margin-bottom:8px">';
-                html += '<summary style="font-weight:600;color:var(--highlight);cursor:pointer;font-size:14px">Status Messages (' + p.status_messages.length + ')</summary>';
-                html += '<div style="margin-top:8px">';
-                p.status_messages.forEach(s => html += '<div style="padding:6px;background:rgba(0,0,0,0.15);border-radius:4px;margin-bottom:4px;font-size:13px">' + s + '</div>');
-                html += '</div></details>';
+                statusSection += '<details class="device-details-expando" open>';
+                statusSection += '<summary>Active Alerts</summary>';
+                statusSection += '<div class="device-details-list">';
+                p.status_messages.forEach(s => statusSection += '<div class="device-details-list-item">' + s + '</div>');
+                statusSection += '</div></details>';
             }
         } catch (e) { /* ignore */ }
+        if (statusSection) html += renderInfoCard('Status Messages', statusSection);
 
         // Parse debug link (fallback to constructed endpoint if not present)
+        let diagnosticsSection = '';
         try {
             const dbgLink = p.parse_debug_path || ('/parse_debug?ip=' + encodeURIComponent(p.ip || ''));
-            html += '<div><a href="' + dbgLink + '" target="_blank">View Parse Debug</a></div>';
+            diagnosticsSection = '<a class="device-diagnostics-link" href="' + dbgLink + '" target="_blank" rel="noreferrer">View Parse Debug</a>';
         } catch (e) {}
+        if (diagnosticsSection) html += renderInfoCard('Diagnostics', diagnosticsSection);
 
-        html += '</div>'; // close settings-grid
+        const liveTools = '<div id="action_buttons_area" class="device-live-tools">' +
+            '<div class="device-live-actions-row">' +
+            '<button id="refresh_data_btn">Refresh Details</button>' +
+            (source === 'saved' ? '<button id="collect_metrics_btn">Collect Metrics</button>' : '') +
+            '<span id="refresh_status" class="device-live-status"></span>' +
+            '</div>' +
+            '<div id="diff_container"></div>' +
+            '</div>';
+        html += renderInfoCard('Live Data Tools', liveTools, { className: 'device-live-card' });
 
-        // Action buttons area
-        html += '<div id="action_buttons_area" style="margin-top:16px;padding:12px;background:rgba(0,0,0,0.1);border-radius:6px">';
-        html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
-        html += '<button id="refresh_data_btn">Refresh Details</button>';
-        if (source === 'saved') html += '<button id="collect_metrics_btn">Collect Metrics</button>';
-        html += '<span id="refresh_status" style="color:var(--muted);align-self:center"></span>';
-        html += '</div>';
-        html += '<div id="diff_container"></div>';
         html += '</div>';
 
     bodyEl.innerHTML = html;
@@ -755,69 +775,35 @@
                 if (source !== 'saved' || !p || !p.serial) return;
                 const summaryEl = document.getElementById('printer_metrics_summary');
                 if (!summaryEl) return;
-                summaryEl.textContent = 'Loading metrics summary...';
+                summaryEl.innerHTML = '<div class="device-metrics-placeholder">Loading metrics summary...</div>';
 
                 const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(p.serial) + '&period=7day';
                 const res = await fetch(url);
-                if (!res.ok) { summaryEl.innerHTML = '<div style="color:var(--muted)">No metrics data available</div>'; return; }
+                if (!res.ok) { summaryEl.innerHTML = '<div class="device-metrics-placeholder">No metrics data available</div>'; return; }
                 const history = await res.json();
-                if (!history || history.length === 0) { summaryEl.innerHTML = '<div style="color:var(--muted)">No metrics data available</div>'; return; }
+                if (!history || history.length === 0) { summaryEl.innerHTML = '<div class="device-metrics-placeholder">No metrics data available</div>'; return; }
 
                 const latest = history[history.length - 1];
                 const oldest = history[0];
                 const durationMs = new Date(latest.timestamp).getTime() - new Date(oldest.timestamp).getTime();
                 const durationDays = Math.max(1, durationMs / (24 * 60 * 60 * 1000));
 
-                let statsHtml = '<table style="width:100%;border-collapse:collapse;margin-bottom:6px;font-size:12px">';
-                statsHtml += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06)">';
-                statsHtml += '<th style="text-align:left;padding:6px 8px;color:var(--highlight);font-weight:600">Metric</th>';
-                statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Lifetime Total</th>';
-                statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Period Diff</th>';
-                statsHtml += '<th style="text-align:right;padding:6px 8px;color:var(--highlight);font-weight:600">Avg/Day</th>';
-                statsHtml += '</tr></thead><tbody>';
-
                 const lifetimePages = latest.page_count || 0;
                 const periodPages = lifetimePages - (oldest.page_count || 0);
                 const avgPages = (periodPages / durationDays).toFixed(1);
-                statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-                statsHtml += '<td style="padding:6px 8px;color:var(--text)">Total Pages</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--text);font-weight:600">' + lifetimePages.toLocaleString() + '</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:#268bd2;font-weight:600">' + periodPages.toLocaleString() + '</td>';
-                statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)">' + avgPages + '</td>';
-                statsHtml += '</tr>';
-
+                let statsHtml = '<div class="device-metrics-summary-grid">';
+                statsHtml += renderMetricStat('Lifetime Pages', lifetimePages.toLocaleString(), 'All-time total');
+                statsHtml += renderMetricStat('7-day Delta', periodPages.toLocaleString(), 'vs earliest sample');
+                statsHtml += renderMetricStat('Avg / Day', avgPages, Math.max(1, Math.round(durationDays)) + ' day window');
                 if (latest.mono_pages !== undefined || latest.mono_impressions !== undefined) {
                     const lifetimeMono = latest.mono_pages || latest.mono_impressions || 0;
                     const periodMono = lifetimeMono - (oldest.mono_pages || oldest.mono_impressions || 0);
-                    const avgMono = (periodMono / durationDays).toFixed(1);
-                    statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-                    statsHtml += '<td style="padding:6px 8px;color:var(--text)">Mono Pages</td>';
-                    statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--text);font-weight:600">' + (lifetimeMono.toLocaleString ? lifetimeMono.toLocaleString() : lifetimeMono) + '</td>';
-                    statsHtml += '<td style="padding:6px 8px;text-align:right;color:#268bd2;font-weight:600">' + (periodMono.toLocaleString ? periodMono.toLocaleString() : periodMono) + '</td>';
-                    statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)">' + avgMono + '</td>';
-                    statsHtml += '</tr>';
+                    const monoSummary = (periodMono.toLocaleString ? periodMono.toLocaleString() : periodMono) + ' this period';
+                    statsHtml += renderMetricStat('Mono Pages', (lifetimeMono.toLocaleString ? lifetimeMono.toLocaleString() : lifetimeMono), monoSummary);
                 }
+                statsHtml += '</div>';
+                statsHtml += '<div class="device-metrics-footnote">Last sample ' + new Date(latest.timestamp).toLocaleString() + '</div>';
 
-                // Render any consumable levels we can extract from the latest snapshot
-                const latestToners = buildTonerLevels(p, latest) || {};
-                if (latestToners && Object.keys(latestToners).length > 0) {
-                    for (const [color, level] of Object.entries(latestToners)) {
-                        const levelNum = typeof level === 'number' ? level : parseInt(level) || 0;
-                        const levelColor = levelNum < 20 ? '#d32f2f' : (levelNum < 50 ? '#f57c00' : '#388e3c');
-                        statsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-                        statsHtml += '<td style="padding:6px 8px;color:var(--text)">' + color + '</td>';
-                        statsHtml += '<td style="padding:6px 8px;text-align:right;color:' + levelColor + ';font-weight:600">' + levelNum + '%</td>';
-                        statsHtml += '<td style="padding:6px 8px;text-align:right;color:var(--muted)" colspan="2">';
-                        statsHtml += '<div style="width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.03);padding:6px;border-radius:6px;">';
-                        statsHtml += '<div role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + levelNum + '" title="' + levelNum + '%" ' +
-                            'style="height:12px;border-radius:6px;width:' + levelNum + '%;background:' + levelColor + ';box-shadow:inset 0 -2px 4px rgba(0,0,0,0.3)"></div>';
-                        statsHtml += '</div>';
-                        statsHtml += '</td>';
-                        statsHtml += '</tr>';
-                    }
-                }
-
-                statsHtml += '</tbody></table>';
                 const summaryElFinal = document.getElementById('printer_metrics_summary');
                 if (summaryElFinal) summaryElFinal.innerHTML = statsHtml;
                 // If the device object didn't include toner_levels (schema v7+),
@@ -861,13 +847,13 @@
                         }
                     } catch (e) { /* non-critical UI enhancement */ }
             } catch (err) {
-                try { const summaryEl = document.getElementById('printer_metrics_summary'); if (summaryEl) summaryEl.innerHTML = '<div style="color:var(--muted)">Metrics unavailable</div>'; } catch(_){ }
+                try { const summaryEl = document.getElementById('printer_metrics_summary'); if (summaryEl) summaryEl.innerHTML = '<div class="device-metrics-placeholder">Metrics unavailable</div>'; } catch(_){ }
             }
         })();
 
         // Small post-render layout hook (if consumer provides applyMasonryLayout)
         setTimeout(() => {
-            const modalGrid = bodyEl && bodyEl.querySelector ? bodyEl.querySelector('.settings-grid') : null;
+            const modalGrid = bodyEl && bodyEl.querySelector ? bodyEl.querySelector('.device-details-stack') : null;
             if (modalGrid && typeof applyMasonryLayout === 'function') {
                 try { applyMasonryLayout(modalGrid); } catch (e) {}
             }
