@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"printmaster/common/logger"
@@ -27,8 +28,9 @@ import (
 
 // SQLiteStore implements Store using SQLite
 type SQLiteStore struct {
-	db     *sql.DB
-	dbPath string
+	db                    *sql.DB
+	dbPath                string
+	tenantLoginDomainOnce sync.Once
 }
 
 const schemaVersion = 8
@@ -824,6 +826,7 @@ func (s *SQLiteStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 
 // Tenancy methods
 func (s *SQLiteStore) CreateTenant(ctx context.Context, tenant *Tenant) error {
+	s.ensureTenantLoginDomainColumn()
 	if tenant == nil {
 		return fmt.Errorf("tenant required")
 	}
@@ -850,6 +853,7 @@ func (s *SQLiteStore) CreateTenant(ctx context.Context, tenant *Tenant) error {
 }
 
 func (s *SQLiteStore) UpdateTenant(ctx context.Context, tenant *Tenant) error {
+	s.ensureTenantLoginDomainColumn()
 	if tenant == nil {
 		return fmt.Errorf("tenant required")
 	}
@@ -885,6 +889,7 @@ func (s *SQLiteStore) UpdateTenant(ctx context.Context, tenant *Tenant) error {
 }
 
 func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error) {
+	s.ensureTenantLoginDomainColumn()
 	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, login_domain, created_at FROM tenants WHERE id = ?`, id)
 	var t Tenant
 	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.LoginDomain, &t.CreatedAt)
@@ -895,6 +900,7 @@ func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error)
 }
 
 func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
+	s.ensureTenantLoginDomainColumn()
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, login_domain, created_at FROM tenants ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -913,6 +919,7 @@ func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
 
 // FindTenantByDomain attempts to resolve a tenant by its normalized login domain.
 func (s *SQLiteStore) FindTenantByDomain(ctx context.Context, domain string) (*Tenant, error) {
+	s.ensureTenantLoginDomainColumn()
 	norm := NormalizeTenantDomain(domain)
 	if norm == "" {
 		return nil, sql.ErrNoRows
@@ -923,6 +930,43 @@ func (s *SQLiteStore) FindTenantByDomain(ctx context.Context, domain string) (*T
 		return nil, err
 	}
 	return &t, nil
+}
+
+func (s *SQLiteStore) ensureTenantLoginDomainColumn() {
+	if s == nil || s.db == nil {
+		return
+	}
+	s.tenantLoginDomainOnce.Do(func() {
+		has, err := s.tableHasColumn("tenants", "login_domain")
+		if err != nil {
+			logWarn("Failed to inspect tenants table for login_domain column", "error", err)
+			return
+		}
+		if has {
+			return
+		}
+		if _, err := s.db.Exec(`ALTER TABLE tenants ADD COLUMN login_domain TEXT`); err != nil {
+			if isSQLiteDuplicateColumnErr(err) {
+				logDebug("login_domain column already exists on tenants table")
+			} else {
+				logWarn("Failed to add login_domain column to tenants table", "error", err)
+			}
+			return
+		}
+		logInfo("Added missing login_domain column to tenants table")
+	})
+}
+
+func (s *SQLiteStore) tableHasColumn(table, column string) (bool, error) {
+	if s == nil || s.db == nil {
+		return false, fmt.Errorf("store not initialized")
+	}
+	query := fmt.Sprintf("SELECT COUNT(1) FROM pragma_table_info('%s') WHERE name = ?", table)
+	var count int
+	if err := s.db.QueryRow(query, column).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // CreateJoinToken generates an opaque token for tenant onboarding and stores only its hash.
