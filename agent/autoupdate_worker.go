@@ -61,8 +61,29 @@ func (p *fleetPolicyProvider) SetFleetPolicy(policy *updatepolicy.FleetUpdatePol
 	p.policy = policy
 }
 
-// sendUpdateProgress sends an update progress message to the server via WebSocket.
+// sendUpdateProgress sends an update progress message via local SSE and to the server via WebSocket.
 func sendUpdateProgress(status autoupdate.Status, targetVersion string, progress int, message string, err error) {
+	data := map[string]interface{}{
+		"status":   string(status),
+		"progress": progress,
+		"message":  message,
+	}
+	if targetVersion != "" {
+		data["target_version"] = targetVersion
+	}
+	if err != nil {
+		data["error"] = err.Error()
+	}
+
+	// Broadcast to local SSE clients (agent UI)
+	if sseHub != nil {
+		sseHub.Broadcast(SSEEvent{
+			Type: "update_progress",
+			Data: data,
+		})
+	}
+
+	// Also send to server via WebSocket if connected
 	uploadWorkerMu.RLock()
 	worker := uploadWorker
 	uploadWorkerMu.RUnlock()
@@ -74,18 +95,6 @@ func sendUpdateProgress(status autoupdate.Status, targetVersion string, progress
 	wsClient := worker.WSClient()
 	if wsClient == nil || !wsClient.IsConnected() {
 		return
-	}
-
-	data := map[string]interface{}{
-		"status":   string(status),
-		"progress": progress,
-		"message":  message,
-	}
-	if targetVersion != "" {
-		data["target_version"] = targetVersion
-	}
-	if err != nil {
-		data["error"] = err.Error()
 	}
 
 	msg := wscommon.Message{

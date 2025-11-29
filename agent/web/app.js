@@ -63,6 +63,163 @@ const AUTO_UPDATE_BUSY_STATUSES = new Set(['checking', 'pending', 'downloading',
 const AUTO_UPDATE_STATUS_POLL_MS = 45000;
 let autoUpdateStatusIntervalId = null;
 
+// Real-time update progress state tracking
+const updateProgressState = {
+    status: 'idle',
+    progress: 0,
+    message: '',
+    targetVersion: '',
+    error: '',
+    timestamp: 0
+};
+
+// Handle real-time update progress events from SSE
+function handleUpdateProgress(data) {
+    const status = data.status || 'unknown';
+    const progress = data.progress || 0;
+    const message = data.message || '';
+    const targetVersion = data.target_version || '';
+    const errorMsg = data.error || '';
+    
+    // Update state
+    updateProgressState.status = status;
+    updateProgressState.progress = progress;
+    updateProgressState.message = message;
+    updateProgressState.targetVersion = targetVersion;
+    updateProgressState.error = errorMsg;
+    updateProgressState.timestamp = Date.now();
+    
+    // Update UI elements
+    updateAutoUpdateButtonsFromProgress(status, progress, message, targetVersion, errorMsg);
+    
+    // Show toast for key events
+    switch (status) {
+        case 'downloading':
+            if (progress === 0) {
+                window.__pm_shared.showToast('Downloading update...', 'info');
+            }
+            break;
+        case 'ready':
+            window.__pm_shared.showToast('Update downloaded, preparing to install...', 'info');
+            break;
+        case 'restarting':
+            window.__pm_shared.showToast('Restarting agent to apply update...', 'info');
+            break;
+        case 'complete':
+            window.__pm_shared.showToast('Update complete!', 'success');
+            // Reset state after delay
+            setTimeout(() => {
+                updateProgressState.status = 'idle';
+                updateProgressState.progress = 0;
+                resetAutoUpdateButtons();
+                refreshAutoUpdateStatus();
+            }, 2000);
+            break;
+        case 'failed':
+            window.__pm_shared.showToast('Update failed: ' + (errorMsg || message), 'error');
+            setTimeout(() => {
+                updateProgressState.status = 'idle';
+                resetAutoUpdateButtons();
+                refreshAutoUpdateStatus();
+            }, 3000);
+            break;
+        case 'cancelled':
+            window.__pm_shared.showToast('Update cancelled', 'warning');
+            updateProgressState.status = 'idle';
+            resetAutoUpdateButtons();
+            break;
+    }
+}
+
+// Update the auto-update buttons based on progress state
+function updateAutoUpdateButtonsFromProgress(status, progress, message, targetVersion, errorMsg) {
+    const checkBtn = document.getElementById('autoupdate_check_btn');
+    const forceBtn = document.getElementById('autoupdate_force_btn');
+    const badge = document.getElementById('autoupdate_status_badge');
+    const copy = document.getElementById('autoupdate_status_copy');
+    
+    const isBusy = ['checking', 'downloading', 'ready', 'restarting'].includes(status);
+    const canCancel = ['checking', 'downloading'].includes(status);
+    
+    if (checkBtn) {
+        if (status === 'checking') {
+            checkBtn.textContent = 'Checking...';
+            checkBtn.disabled = true;
+            checkBtn.classList.add('updating');
+        } else if (isBusy) {
+            checkBtn.textContent = 'Update in Progress';
+            checkBtn.disabled = true;
+            checkBtn.classList.add('updating');
+        }
+    }
+    
+    if (forceBtn) {
+        if (status === 'downloading') {
+            const pctText = progress > 0 ? ' ' + progress + '%' : '...';
+            forceBtn.textContent = 'Downloading' + pctText;
+            forceBtn.disabled = !canCancel;
+            forceBtn.classList.add('updating');
+            if (canCancel) {
+                forceBtn.dataset.action = 'cancel';
+                forceBtn.title = 'Click to cancel';
+            }
+        } else if (status === 'ready') {
+            forceBtn.textContent = 'Installing...';
+            forceBtn.disabled = true;
+            forceBtn.classList.add('updating');
+            delete forceBtn.dataset.action;
+        } else if (status === 'restarting') {
+            forceBtn.textContent = 'Restarting...';
+            forceBtn.disabled = true;
+            forceBtn.classList.add('updating');
+            delete forceBtn.dataset.action;
+        } else if (status === 'failed') {
+            forceBtn.textContent = '✕ Failed';
+            forceBtn.disabled = true;
+            forceBtn.classList.add('error');
+            forceBtn.title = errorMsg || message || 'Update failed';
+            delete forceBtn.dataset.action;
+        } else if (status === 'complete') {
+            forceBtn.textContent = '✓ Updated';
+            forceBtn.disabled = true;
+            forceBtn.classList.add('success');
+            delete forceBtn.dataset.action;
+        }
+    }
+    
+    // Update the status badge with real-time progress
+    if (badge && isBusy) {
+        badge.textContent = formatAutoUpdateStatusLabel(status);
+        badge.className = 'autoupdate-status-pill ' + statusClassForAutoUpdate(status);
+    }
+    
+    if (copy && message) {
+        copy.textContent = message;
+    }
+}
+
+// Reset buttons to normal state
+function resetAutoUpdateButtons() {
+    const checkBtn = document.getElementById('autoupdate_check_btn');
+    const forceBtn = document.getElementById('autoupdate_force_btn');
+    
+    if (checkBtn) {
+        checkBtn.textContent = 'Check for Update';
+        checkBtn.disabled = false;
+        checkBtn.classList.remove('updating');
+        delete checkBtn.dataset.loading;
+    }
+    
+    if (forceBtn) {
+        forceBtn.textContent = 'Update Now';
+        forceBtn.disabled = false;
+        forceBtn.classList.remove('updating', 'error', 'success');
+        forceBtn.removeAttribute('title');
+        delete forceBtn.dataset.action;
+        delete forceBtn.dataset.loading;
+    }
+}
+
 function formatAutoUpdateStatusLabel(status) {
     if (!status || typeof status !== 'string') return 'Unknown';
     return status.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
@@ -247,7 +404,7 @@ function applyAutoUpdateStatusToUI(data) {
 
     if (callout) {
         if (isEnabled && data && data.update_available && data.latest_version) {
-            callout.textContent = 'Update ' + data.latest_version + ' is available. "Force Reinstall" downloads and applies it immediately.';
+            callout.textContent = 'Update ' + data.latest_version + ' is available. Click "Update Now" to download and install.';
             callout.classList.remove('hidden');
         } else {
             callout.textContent = '';
@@ -297,7 +454,22 @@ async function handleAutoUpdateForce(evt) {
     const btn = evt && evt.currentTarget ? evt.currentTarget : null;
     if (!btn) return;
 
-    const confirmed = await window.__pm_shared.showConfirm('Force reinstall the latest published agent build? This restarts the service and may briefly disconnect uploads.', 'Force Reinstall', true);
+    // Check if this is a cancel action (during download)
+    if (btn.dataset.action === 'cancel') {
+        try {
+            const resp = await fetch('/api/autoupdate/cancel', { method: 'POST' });
+            if (!resp.ok) {
+                const payload = await resp.json().catch(() => ({}));
+                throw new Error(payload && payload.error ? payload.error : resp.statusText);
+            }
+            window.__pm_shared.showToast('Cancel request sent', 'info');
+        } catch (err) {
+            window.__pm_shared.showToast('Failed to cancel: ' + (err && err.message ? err.message : err), 'error');
+        }
+        return;
+    }
+
+    const confirmed = await window.__pm_shared.showConfirm('Download and install the latest agent update? This restarts the service and may briefly disconnect uploads.', 'Update Now', true);
     if (!confirmed) return;
 
     const previous = btn.textContent;
@@ -315,19 +487,20 @@ async function handleAutoUpdateForce(evt) {
         if (!resp.ok) {
             throw new Error(payload && payload.error ? payload.error : resp.statusText);
         }
+        // Don't reset button here - let SSE progress events update the UI
         if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
-            window.__pm_shared.showToast('Forced reinstall requested – download will start shortly.', 'success');
+            window.__pm_shared.showToast('Update started – progress will be shown in real-time.', 'success');
         }
     } catch (err) {
         if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
             window.__pm_shared.showToast('Failed to force reinstall: ' + (err && err.message ? err.message : err), 'error');
         }
-    } finally {
+        // Only reset on error
         btn.disabled = false;
         btn.textContent = previous;
         delete btn.dataset.loading;
-        await refreshAutoUpdateStatus();
     }
+    // Note: Don't reset button in finally - let SSE events control the UI state
 }
 
 async function handleAutoUpdateRefresh(evt) {
@@ -2309,6 +2482,16 @@ eventSource.addEventListener('device_discovering', (e) => {
 eventSource.addEventListener('metrics_update', (e) => {
     const data = JSON.parse(e.data);
     updateMetricsChart(data);
+});
+
+eventSource.addEventListener('update_progress', (e) => {
+    try {
+        const data = JSON.parse(e.data);
+        window.__pm_shared.log('Update progress:', data);
+        handleUpdateProgress(data);
+    } catch (err) {
+        window.__pm_shared.warn('Failed to parse update_progress event:', err);
+    }
 });
 
 eventSource.onerror = (e) => {

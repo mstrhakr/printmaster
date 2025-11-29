@@ -5605,6 +5605,38 @@ window.top.location.href = '/proxy/%s/';
 		})
 	})
 
+	// Cancel an in-progress update
+	http.HandleFunc("/api/autoupdate/cancel", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		autoUpdateManagerMu.RLock()
+		manager := autoUpdateManager
+		autoUpdateManagerMu.RUnlock()
+
+		if manager == nil {
+			http.Error(w, "auto-update not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		if !manager.Cancel() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Cannot cancel update at this stage (may already be restarting or not in progress)",
+			})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "cancelled",
+			"message": "Update cancellation requested",
+		})
+	})
+
 	// Metrics history endpoints
 	http.HandleFunc("/api/devices/metrics/latest", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

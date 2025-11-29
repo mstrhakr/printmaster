@@ -1359,6 +1359,28 @@ input[type="checkbox"]:indeterminate::before {
   margin-top: 10px;
 }
 
+/* Update progress button states */
+.autoupdate-actions button.updating {
+  background: var(--info, #5bc0de);
+  animation: pulse 1.5s ease-in-out infinite;
+  cursor: wait;
+}
+
+.autoupdate-actions button.error {
+  background: var(--error, #d9534f);
+  animation: none;
+}
+
+.autoupdate-actions button.success {
+  background: var(--success, #5cb85c);
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .autoupdate-hint {
   margin-top: 8px;
   font-size: 0.85rem;
