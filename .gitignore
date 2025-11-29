@@ -155,7 +155,7 @@ coverage/
 
 # Optional local npm artifact
 .npm/
-test-results/.last-run.json
+test-results/
 # Local env file for server (do NOT commit)\nserver/.env
 server/.env
 # Test artifacts (local)
