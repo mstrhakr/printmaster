@@ -4843,11 +4843,38 @@ function getDeviceSortValue(device, key) {
         case 'location':
             return (meta.location || '').toLowerCase();
         case 'ip':
-            return (device.ip || '').toLowerCase();
+            return buildSortableIpValue(device.ip);
         case 'last_seen':
         default:
             return meta.lastSeenMs || 0;
     }
+}
+
+function buildSortableIpValue(rawValue) {
+    if (!rawValue) return 'zzz';
+    let value = String(rawValue).trim();
+    if (!value) return 'zzz';
+
+    if (value.startsWith('[') && value.includes(']')) {
+        value = value.slice(1, value.indexOf(']'));
+    }
+
+    const ipv4PortMatch = value.match(/^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/);
+    const ipv4Candidate = ipv4PortMatch ? ipv4PortMatch[1] : value;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ipv4Candidate)) {
+        const octets = ipv4Candidate.split('.').map(part => {
+            const num = parseInt(part, 10);
+            if (!Number.isFinite(num) || num < 0 || num > 255) {
+                return null;
+            }
+            return String(num).padStart(3, '0');
+        });
+        if (!octets.includes(null)) {
+            return 'v4-' + octets.join('.');
+        }
+    }
+
+    return 'v6-' + value.toLowerCase();
 }
 
 function renderDeviceCards(devices) {
