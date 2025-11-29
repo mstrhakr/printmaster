@@ -99,6 +99,12 @@
                             <option value="">All Platforms</option>
                         </select>
                     </label>
+                    <label class="field">
+                        <span>Tenant</span>
+                        <select id="agents_tenant_filter">
+                            <option value="">All Tenants</option>
+                        </select>
+                    </label>
                     <label class="field sort-field">
                         <span>Sort</span>
                         <div class="sort-select">
@@ -108,6 +114,7 @@
                                 <option value="status">Status</option>
                                 <option value="connection">Connection</option>
                                 <option value="version">Version</option>
+                                <option value="tenant">Tenant</option>
                             </select>
                             <button id="agents_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
                                 <span id="agents_sort_dir_icon">↓</span>
@@ -150,6 +157,7 @@
                         <thead>
                             <tr>
                                 <th data-sort-key="name">Agent</th>
+                                <th data-sort-key="tenant">Tenant</th>
                                 <th data-sort-key="status">Status</th>
                                 <th data-sort-key="connection">Connection</th>
                                 <th data-sort-key="platform">Platform</th>
@@ -160,7 +168,7 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td colspan="7" class="muted-text">Loading agents…</td>
+                                <td colspan="8" class="muted-text">Loading agents…</td>
                             </tr>
                         </tbody>
                     </table>
@@ -198,6 +206,12 @@
                         </select>
                     </label>
                     <label class="field">
+                        <span>Tenant</span>
+                        <select id="devices_tenant_filter">
+                            <option value="">All Tenants</option>
+                        </select>
+                    </label>
+                    <label class="field">
                         <span>Manufacturer</span>
                         <select id="devices_manufacturer_filter">
                             <option value="">All Manufacturers</option>
@@ -210,6 +224,7 @@
                                 <option value="last_seen">Last Seen</option>
                                 <option value="manufacturer">Manufacturer</option>
                                 <option value="agent">Agent</option>
+                                <option value="tenant">Tenant</option>
                                 <option value="status">Status</option>
                                 <option value="ip">Network</option>
                                 <option value="location">Location</option>
@@ -260,6 +275,7 @@
                                 <th data-sort-key="manufacturer">Device</th>
                                 <th data-sort-key="status">Status</th>
                                 <th data-sort-key="agent">Agent</th>
+                                <th data-sort-key="tenant">Tenant</th>
                                 <th data-sort-key="ip">Network</th>
                                 <th data-sort-key="location">Location</th>
                                 <th data-sort-key="last_seen">Last Seen</th>
@@ -268,7 +284,7 @@
                         </thead>
                         <tbody>
                             <tr>
-                                <td colspan="7" class="muted-text">Loading devices…</td>
+                                <td colspan="8" class="muted-text">Loading devices…</td>
                             </tr>
                         </tbody>
                     </table>

@@ -149,7 +149,7 @@ const DEVICE_CONSUMABLE_LABELS = {
     high: 'High',
     unknown: 'Unknown',
 };
-const DEVICES_SORT_KEYS = ['last_seen', 'manufacturer', 'agent', 'status', 'location', 'ip'];
+const DEVICES_SORT_KEYS = ['last_seen', 'manufacturer', 'agent', 'tenant', 'status', 'location', 'ip'];
 const DEVICES_VIEW_OPTIONS = ['cards', 'table'];
 const DEVICES_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_VIEW, 'cards', DEVICES_VIEW_OPTIONS);
 const DEVICES_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_KEY, 'last_seen', DEVICES_SORT_KEYS);
@@ -165,7 +165,7 @@ const AGENT_STATUS_COLORS = {
     inactive: 'var(--muted)',
     offline: 'var(--danger)'
 };
-const AGENTS_SORT_KEYS = ['last_seen', 'name', 'status', 'connection', 'version', 'platform'];
+const AGENTS_SORT_KEYS = ['last_seen', 'name', 'tenant', 'status', 'connection', 'version', 'platform'];
 const AGENTS_VIEW_OPTIONS = ['cards', 'table'];
 const AGENTS_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_VIEW, 'cards', AGENTS_VIEW_OPTIONS);
 const AGENTS_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_KEY, 'last_seen', AGENTS_SORT_KEYS);
@@ -186,6 +186,7 @@ const devicesVM = {
     filters: {
         query: '',
         agentId: '',
+        tenantId: '',
         manufacturer: '',
         statuses: new Set(DEVICE_STATUS_KEYS),
         consumables: new Set(DEVICE_CONSUMABLE_KEYS),
@@ -216,6 +217,7 @@ const agentsVM = {
         query: '',
         version: '',
         platform: '',
+        tenantId: '',
         statuses: new Set(AGENT_STATUS_KEYS),
         connections: new Set(AGENT_CONNECTION_KEYS),
         sortKey: AGENTS_DEFAULT_SORT_KEY || 'last_seen',
@@ -234,6 +236,12 @@ const agentsVM = {
 };
 
 const agentDirectory = {
+    items: [],
+    byId: new Map(),
+    lastFetched: 0,
+};
+
+const tenantDirectory = {
     items: [],
     byId: new Map(),
     lastFetched: 0,
@@ -2016,12 +2024,14 @@ async function loadAgents(force = false) {
     }
     agentsVM.loading = true;
     renderAgentsLoading();
+    const tenantPromise = ensureTenantDirectory();
     try {
         const response = await fetch('/api/v1/agents/list');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         const agents = await response.json();
+        await tenantPromise;
         updateAgentDirectory(Array.isArray(agents) ? agents : []);
         agentsVM.items = enrichAgents(Array.isArray(agents) ? agents : []);
         agentsVM.stats.total = agentsVM.items.length;
@@ -2591,7 +2601,7 @@ async function loadTenants(){
         if(!r.ok) throw new Error(await r.text());
         const data = await r.json();
         // Cache tenants for use in other UI flows (e.g. add-agent modal)
-        window._tenants = data;
+        updateTenantDirectory(Array.isArray(data) ? data : []);
         syncSSOTenants(data);
         renderTenants(data);
         notifyManagedSettingsTenantDirectory(data);
@@ -2637,12 +2647,21 @@ function syncTenantBundlesTenantDirectory(list){
 
 function tenantDisplayNameById(tenantId){
     if (!tenantId) return '';
+    const cached = getTenantInfo(tenantId);
+    if (cached) {
+        return cached.name || cached.display_name || cached.business_unit || tenantId;
+    }
     const list = Array.isArray(window._tenants) ? window._tenants : [];
-    const match = list.find(t => (t.id || t.uuid || '') === tenantId);
-    if (match && match.name) {
-        return match.name;
+    const match = list.find(t => normalizeTenantId(t) === tenantId);
+    if (match) {
+        return match.name || match.display_name || tenantId;
     }
     return tenantId;
+}
+
+function formatTenantDisplay(tenantId){
+    if (!tenantId) return 'Global';
+    return tenantDisplayNameById(tenantId) || tenantId;
 }
 
 async function loadTenantBundles(tenantId, options = {}){
@@ -3001,6 +3020,15 @@ function initAgentsUI() {
         });
     }
 
+    const tenantSelect = document.getElementById('agents_tenant_filter');
+    if (tenantSelect) {
+        tenantSelect.value = agentsVM.filters.tenantId;
+        tenantSelect.addEventListener('change', (event) => {
+            agentsVM.filters.tenantId = event.target.value || '';
+            applyAgentFilters();
+        });
+    }
+
     const sortSelect = document.getElementById('agents_sort_select');
     if (sortSelect) {
         sortSelect.value = agentsVM.filters.sortKey;
@@ -3071,6 +3099,7 @@ function initAgentsUI() {
     syncAgentsViewToggle();
     syncAgentSortControls();
     syncAgentQuickFilters();
+    syncTenantFilterOptions('agents');
 }
 
 function renderAgentsLoading() {
@@ -3083,7 +3112,7 @@ function renderAgentsLoading() {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="7" class="muted-text">Loading agents…</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="muted-text">Loading agents…</td></tr>';
         }
     }
     const metrics = document.getElementById('agents_overview_metrics');
@@ -3103,7 +3132,7 @@ function renderAgentsError(error) {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="7" class="error-text">Failed to load agents: ${escapeHtml(message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="error-text">Failed to load agents: ${escapeHtml(message)}</td></tr>`;
         }
     }
     const stats = document.getElementById('agents_stats');
@@ -3302,6 +3331,10 @@ function matchesAgentFilters(agent, filters) {
     if (filters.platform && (agent.platform || '') !== filters.platform) {
         return false;
     }
+    const tenantId = agent.tenant_id || meta.tenantId || '';
+    if (filters.tenantId && tenantId !== filters.tenantId) {
+        return false;
+    }
     if (filters.statuses && filters.statuses.size > 0 && !filters.statuses.has(meta.statusKey || 'inactive')) {
         return false;
     }
@@ -3340,6 +3373,8 @@ function getAgentSortValue(agent, key) {
             return (agent.version || '').toLowerCase();
         case 'platform':
             return (agent.platform || '').toLowerCase();
+        case 'tenant':
+            return formatTenantDisplay(agent.tenant_id || meta.tenantId || '').toLowerCase();
         case 'last_seen':
         default:
             return meta.lastSeenMs || 0;
@@ -3375,6 +3410,9 @@ function renderAgentsActiveFilters() {
     if (filters.platform) {
         chips.push(buildFilterChip('Platform', filters.platform, 'platform'));
     }
+    if (filters.tenantId) {
+        chips.push(buildFilterChip('Tenant', formatTenantDisplay(filters.tenantId), 'tenant'));
+    }
     if (filters.statuses && filters.statuses.size > 0 && filters.statuses.size < AGENT_STATUS_KEYS.length) {
         chips.push(buildFilterChip('Status', Array.from(filters.statuses).join(', '), 'statuses'));
     }
@@ -3406,6 +3444,11 @@ function handleAgentFilterChipRemove(filterKey) {
             agentsVM.filters.platform = '';
             const platformSelect = document.getElementById('agents_platform_filter');
             if (platformSelect) platformSelect.value = '';
+            break;
+        case 'tenant':
+            agentsVM.filters.tenantId = '';
+            const tenantSelect = document.getElementById('agents_tenant_filter');
+            if (tenantSelect) tenantSelect.value = '';
             break;
         case 'statuses':
             agentsVM.filters.statuses = new Set(AGENT_STATUS_KEYS);
@@ -3472,6 +3515,7 @@ function resetAgentFilters() {
     agentsVM.filters.query = '';
     agentsVM.filters.version = '';
     agentsVM.filters.platform = '';
+    agentsVM.filters.tenantId = '';
     agentsVM.filters.statuses = new Set(AGENT_STATUS_KEYS);
     agentsVM.filters.connections = new Set(AGENT_CONNECTION_KEYS);
     const searchInput = document.getElementById('agents_search');
@@ -3480,6 +3524,8 @@ function resetAgentFilters() {
     if (versionSelect) versionSelect.value = '';
     const platformSelect = document.getElementById('agents_platform_filter');
     if (platformSelect) platformSelect.value = '';
+    const tenantSelect = document.getElementById('agents_tenant_filter');
+    if (tenantSelect) tenantSelect.value = '';
     applyAgentFilters();
 }
 
@@ -3593,17 +3639,19 @@ function renderAgentTable(agents) {
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
     if (!agents || agents.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="muted-text">No agents match the current filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="muted-text">No agents match the current filters.</td></tr>';
         return;
     }
     const rows = agents.map(agent => {
         const meta = agent.__meta || {};
+        const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');
         return `
             <tr data-agent-id="${escapeHtml(agent.agent_id || '')}">
                 <td>
                     <div class="table-primary">${escapeHtml(agent.name || agent.hostname || agent.agent_id || 'Unknown')}</div>
                     <div class="muted-text">${escapeHtml(agent.hostname || '')}</div>
                 </td>
+                <td>${escapeHtml(tenantLabel)}</td>
                 <td>${renderAgentStatusBadge(meta)}</td>
                 <td>${renderAgentConnectionBadge(meta)}</td>
                 <td>${escapeHtml(agent.platform || 'Unknown')}</td>
@@ -3628,6 +3676,7 @@ function renderAgentCard(agent) {
     const connLabel = renderAgentConnectionBadge(meta);
     const wsVersion = agent.ws_version ? `<span class="muted-text" style="margin-left:6px;">v${escapeHtml(agent.ws_version)}</span>` : '';
     const statusColor = AGENT_STATUS_COLORS[meta.statusKey || 'inactive'] || 'var(--muted)';
+    const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');
     return `
         <div class="device-card" data-agent-id="${escapeHtml(agent.agent_id || '')}">
             <div class="device-card-header">
@@ -3658,6 +3707,10 @@ function renderAgentCard(agent) {
                 <div class="device-card-row">
                     <span class="device-card-label">Platform</span>
                     <span class="device-card-value">${escapeHtml(agent.platform || 'Unknown')}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Tenant</span>
+                    <span class="device-card-value">${escapeHtml(tenantLabel)}</span>
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">Version</span>
@@ -3784,6 +3837,8 @@ function enrichSingleAgent(agent) {
     const connectionKey = normalizeAgentConnection(agent.connection_type);
     const lastSeenIso = agent.last_seen || agent.last_heartbeat || agent.updated_at;
     const lastSeenDate = lastSeenIso ? new Date(lastSeenIso) : null;
+    const tenantId = agent.tenant_id || '';
+    const tenantLabel = tenantId ? tenantDisplayNameById(tenantId) : '';
     return {
         ...agent,
         __meta: {
@@ -3796,12 +3851,13 @@ function enrichSingleAgent(agent) {
             lastSeenRelative: lastSeenDate ? formatRelativeTime(lastSeenDate) : 'Never',
             lastSeenTooltip: lastSeenDate ? lastSeenDate.toLocaleString() : 'Never',
             lastSeenMs: lastSeenDate ? lastSeenDate.getTime() : 0,
-            search: buildAgentSearchBlob(agent),
+            tenantId,
+            search: buildAgentSearchBlob(agent, tenantLabel || tenantId),
         }
     };
 }
 
-function buildAgentSearchBlob(agent) {
+function buildAgentSearchBlob(agent, tenantLabel) {
     const parts = [
         agent.agent_id,
         agent.name,
@@ -3810,6 +3866,8 @@ function buildAgentSearchBlob(agent) {
         agent.platform,
         agent.version,
         agent.connection_type,
+        tenantLabel,
+        agent.tenant_id,
     ].filter(Boolean);
     return parts.join(' ').toLowerCase();
 }
@@ -4355,6 +4413,15 @@ function initDevicesUI() {
         });
     }
 
+    const tenantSelect = document.getElementById('devices_tenant_filter');
+    if (tenantSelect) {
+        tenantSelect.value = devicesVM.filters.tenantId;
+        tenantSelect.addEventListener('change', (event) => {
+            devicesVM.filters.tenantId = event.target.value || '';
+            applyDeviceFilters();
+        });
+    }
+
     const manufacturerSelect = document.getElementById('devices_manufacturer_filter');
     if (manufacturerSelect) {
         manufacturerSelect.addEventListener('change', (event) => {
@@ -4436,6 +4503,7 @@ function initDevicesUI() {
     refreshDeviceFilters();
     syncDeviceQuickFilters();
     renderDevicesOverview();
+    syncTenantFilterOptions('devices');
 }
 
 async function loadDevices(force = false) {
@@ -4450,12 +4518,14 @@ async function loadDevices(force = false) {
         return null;
     });
     const agentsPromise = ensureAgentDirectory();
+    const tenantPromise = ensureTenantDirectory();
     try {
         const response = await fetch('/api/v1/devices/list');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         await agentsPromise;
+        await tenantPromise;
         const devices = await response.json();
         devicesVM.items = enrichDevices(Array.isArray(devices) ? devices : []);
         devicesVM.stats.total = devicesVM.items.length;
@@ -4490,7 +4560,7 @@ function renderDevicesLoading() {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="7" class="muted-text">Loading devices…</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="muted-text">Loading devices…</td></tr>';
         }
     }
 }
@@ -4506,7 +4576,7 @@ function renderDevicesError(error) {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="7" class="error-text">Failed to load devices: ${escapeHtml(message)}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="error-text">Failed to load devices: ${escapeHtml(message)}</td></tr>`;
         }
     }
 }
@@ -4662,6 +4732,10 @@ function matchesDeviceFilters(device, filters) {
     if (filters.agentId && device.agent_id !== filters.agentId) {
         return false;
     }
+    const tenantId = meta.tenantId || device.tenant_id || '';
+    if (filters.tenantId && tenantId !== filters.tenantId) {
+        return false;
+    }
     if (filters.manufacturer && (device.manufacturer || '').trim() !== filters.manufacturer) {
         return false;
     }
@@ -4699,6 +4773,8 @@ function getDeviceSortValue(device, key) {
             return ((device.manufacturer || '') + ' ' + (device.model || '')).toLowerCase();
         case 'agent':
             return (meta.agentName || '').toLowerCase();
+        case 'tenant':
+            return formatTenantDisplay(meta.tenantId || device.tenant_id || '').toLowerCase();
         case 'status':
             return DEVICE_STATUS_ORDER[meta.status?.code || 'healthy'] || 0;
         case 'location':
@@ -4737,11 +4813,12 @@ function renderDeviceTable(devices) {
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
     if (!devices || devices.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="muted-text">No devices match the current filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="muted-text">No devices match the current filters.</td></tr>';
         return;
     }
     const rows = devices.map(device => {
         const meta = device.__meta || {};
+        const tenantLabel = formatTenantDisplay(meta.tenantId || device.tenant_id || '');
         return `
             <tr data-serial="${escapeHtml(device.serial || '')}">
                 <td>
@@ -4753,6 +4830,7 @@ function renderDeviceTable(devices) {
                     ${meta.consumable ? `<div style="margin-top:6px;">${renderDeviceConsumableBadge(meta.consumable)}</div>` : ''}
                 </td>
                 <td>${escapeHtml(meta.agentName || 'Unassigned')}</td>
+                <td>${escapeHtml(tenantLabel)}</td>
                 <td>
                     <div class="table-primary">${escapeHtml(device.ip || 'N/A')}</div>
                     ${device.hostname ? `<div class="muted-text">${escapeHtml(device.hostname)}</div>` : ''}
@@ -4780,6 +4858,7 @@ function renderServerDeviceCard(device) {
     const hostname = device.hostname ? ` • ${escapeHtml(device.hostname)}` : '';
     const asset = device.asset_number ? `<span class="device-card-chip">Asset ${escapeHtml(device.asset_number)}</span>` : '';
     const location = escapeHtml(meta.location || '—');
+    const tenantLabel = escapeHtml(formatTenantDisplay(meta.tenantId || device.tenant_id || ''));
     const lastSeenText = escapeHtml(meta.lastSeenRelative || 'Never');
     const lastSeenTitle = escapeHtml(meta.lastSeenTooltip || 'Never');
     const agentName = escapeHtml(meta.agentName || 'Unassigned');
@@ -4800,6 +4879,10 @@ function renderServerDeviceCard(device) {
                 <div class="device-card-row">
                     <span class="device-card-label">Network</span>
                     <span class="device-card-value copyable" data-copy="${escapeHtml(device.ip || '')}">${networkLabel}${hostname}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Tenant</span>
+                    <span class="device-card-value">${tenantLabel}</span>
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">Location</span>
@@ -4865,6 +4948,9 @@ function renderDevicesActiveFilters() {
         const label = agent ? (agent.name || agent.hostname || agent.agent_id) : filters.agentId;
         chips.push(buildFilterChip('Agent', label, 'agent'));
     }
+    if (filters.tenantId) {
+        chips.push(buildFilterChip('Tenant', formatTenantDisplay(filters.tenantId), 'tenant'));
+    }
     if (filters.manufacturer) {
         chips.push(buildFilterChip('Manufacturer', filters.manufacturer, 'manufacturer'));
     }
@@ -4899,6 +4985,12 @@ function handleFilterChipRemove(filterKey) {
             devicesVM.filters.agentId = '';
             const agentSelect = document.getElementById('devices_agent_filter');
             if (agentSelect) agentSelect.value = '';
+            break;
+        }
+        case 'tenant': {
+            devicesVM.filters.tenantId = '';
+            const tenantSelect = document.getElementById('devices_tenant_filter');
+            if (tenantSelect) tenantSelect.value = '';
             break;
         }
         case 'manufacturer': {
@@ -4973,6 +5065,7 @@ function toggleConsumableFilter(bandKey) {
 function resetDeviceFilters() {
     devicesVM.filters.query = '';
     devicesVM.filters.agentId = '';
+    devicesVM.filters.tenantId = '';
     devicesVM.filters.manufacturer = '';
     devicesVM.filters.statuses = new Set(DEVICE_STATUS_KEYS);
     devicesVM.filters.consumables = new Set(DEVICE_CONSUMABLE_KEYS);
@@ -4980,6 +5073,8 @@ function resetDeviceFilters() {
     if (searchInput) searchInput.value = '';
     const agentSelect = document.getElementById('devices_agent_filter');
     if (agentSelect) agentSelect.value = '';
+    const tenantSelect = document.getElementById('devices_tenant_filter');
+    if (tenantSelect) tenantSelect.value = '';
     const manufacturerSelect = document.getElementById('devices_manufacturer_filter');
     if (manufacturerSelect) manufacturerSelect.value = '';
     applyDeviceFilters();
@@ -5106,6 +5201,8 @@ function enrichSingleDevice(device) {
     }
     const agent = getAgentInfo(device.agent_id);
     const agentName = agent ? (agent.name || agent.hostname || agent.agent_id) : '';
+    const tenantId = device.tenant_id || (agent && agent.tenant_id) || '';
+    const tenantLabel = tenantId ? tenantDisplayNameById(tenantId) : '';
     const lastSeenIso = device.last_seen || device.lastSeen || device.last_seen_at || device.updated_at || device.last_metrics_at;
     const lastSeenDate = lastSeenIso ? new Date(lastSeenIso) : null;
     const location = device.location || device.site || device.department || device.building || '';
@@ -5116,7 +5213,8 @@ function enrichSingleDevice(device) {
         ...device,
         __meta: {
             agentName,
-            search: buildDeviceSearchBlob(device, agentName),
+            tenantId,
+            search: buildDeviceSearchBlob(device, agentName, tenantLabel || tenantId),
             location,
             status,
             consumable,
@@ -5127,7 +5225,7 @@ function enrichSingleDevice(device) {
     };
 }
 
-function buildDeviceSearchBlob(device, agentName) {
+function buildDeviceSearchBlob(device, agentName, tenantLabel) {
     const parts = [
         device.serial,
         device.ip,
@@ -5137,6 +5235,8 @@ function buildDeviceSearchBlob(device, agentName) {
         device.asset_number,
         device.location,
         agentName,
+        tenantLabel,
+        device.tenant_id,
     ].filter(Boolean);
     return parts.join(' ').toLowerCase();
 }
@@ -5273,6 +5373,90 @@ function patchAgentDirectory(agent) {
     }
     agentDirectory.lastFetched = Date.now();
     syncDevicesAgentFilterOptions();
+}
+
+function normalizeTenantId(record) {
+    if (!record) return '';
+    return record.id || record.uuid || record.tenant_id || '';
+}
+
+function getTenantInfo(tenantId) {
+    if (!tenantId || !tenantDirectory.byId) {
+        return null;
+    }
+    return tenantDirectory.byId.get(tenantId) || null;
+}
+
+async function ensureTenantDirectory(force = false) {
+    const now = Date.now();
+    if (!force && tenantDirectory.items.length > 0 && (now - tenantDirectory.lastFetched) < 60000) {
+        return tenantDirectory.items;
+    }
+    try {
+        const response = await fetch('/api/v1/tenants');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const tenants = await response.json();
+        updateTenantDirectory(Array.isArray(tenants) ? tenants : []);
+        return tenantDirectory.items;
+    } catch (err) {
+        if (window.__pm_shared && typeof window.__pm_shared.warn === 'function') {
+            window.__pm_shared.warn('ensureTenantDirectory failed', err);
+        }
+        return tenantDirectory.items;
+    }
+}
+
+function updateTenantDirectory(list) {
+    if (!Array.isArray(list)) {
+        return;
+    }
+    tenantDirectory.items = list.slice();
+    tenantDirectory.byId = new Map();
+    tenantDirectory.items.forEach(tenant => {
+        const id = normalizeTenantId(tenant);
+        if (id) {
+            tenantDirectory.byId.set(id, tenant);
+        }
+    });
+    tenantDirectory.lastFetched = Date.now();
+    window._tenants = tenantDirectory.items;
+    syncTenantFilterOptions('agents');
+    syncTenantFilterOptions('devices');
+    applyAgentFilters();
+    applyDeviceFilters();
+}
+
+function syncTenantFilterOptions(scope) {
+    const selectId = scope === 'agents' ? 'agents_tenant_filter' : 'devices_tenant_filter';
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const filterValue = scope === 'agents' ? agentsVM.filters.tenantId : devicesVM.filters.tenantId;
+    const options = ['<option value="">All Tenants</option>'];
+    let hasMatch = false;
+    const sorted = tenantDirectory.items.slice().sort((a, b) => {
+        const aName = (a && (a.name || normalizeTenantId(a) || '')).toLowerCase();
+        const bName = (b && (b.name || normalizeTenantId(b) || '')).toLowerCase();
+        if (aName < bName) return -1;
+        if (aName > bName) return 1;
+        return 0;
+    });
+    sorted.forEach(tenant => {
+        const id = normalizeTenantId(tenant);
+        if (!id) return;
+        const label = tenant.name || tenant.display_name || id;
+        const selected = filterValue && id === filterValue ? ' selected' : '';
+        if (selected) {
+            hasMatch = true;
+        }
+        options.push(`<option value="${escapeHtml(id)}"${selected}>${escapeHtml(label)}</option>`);
+    });
+    if (filterValue && !hasMatch) {
+        options.push(`<option value="${escapeHtml(filterValue)}" selected>${escapeHtml(filterValue)}</option>`);
+    }
+    select.innerHTML = options.join('');
+    select.value = filterValue || '';
 }
 
 function createStatusCountMap() {
