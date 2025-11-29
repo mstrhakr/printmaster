@@ -1211,6 +1211,7 @@ input[type="checkbox"]:indeterminate::before {
   max-width: 1100px;
   margin: 24px auto 32px;
   padding: 0 12px 24px;
+  align-items: stretch;
 }
 
 @media (min-width: 1200px) {
@@ -1235,6 +1236,7 @@ input[type="checkbox"]:indeterminate::before {
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 0 15px 35px rgba(0, 0, 0, 0.35);
   background: linear-gradient(145deg, rgba(7, 54, 66, 0.95), rgba(0, 43, 54, 0.9));
+  width: 100%;
 }
 
 .agent-settings-stack .panel h4 {
