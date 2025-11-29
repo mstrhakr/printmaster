@@ -1300,6 +1300,10 @@ select:focus {
   margin-bottom: 16px;
 }
 
+.metrics-overview-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
 .metrics-layout {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
@@ -1352,6 +1356,224 @@ select:focus {
   letter-spacing: 0.08em;
   margin-bottom: 8px;
   color: var(--muted);
+}
+
+/* ---------------------------- Devices Dashboard --------------------------- */
+.devices-header {
+  padding-top: 0;
+  margin-bottom: 8px;
+}
+
+.view-toggle {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.view-toggle .ghost-btn {
+  border-radius: 999px;
+  min-width: 90px;
+}
+
+.view-toggle .ghost-btn.active {
+  background: var(--highlight);
+  color: var(--base);
+  border-color: transparent;
+}
+
+.devices-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.devices-toolbar-left {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.devices-toolbar .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.devices-toolbar .field input,
+.devices-toolbar .field select {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  min-width: 160px;
+}
+
+.devices-toolbar .field select {
+  min-height: 34px;
+}
+
+.devices-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sort-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#devices_sort_dir_btn {
+  padding: 6px 8px;
+  min-width: auto;
+  height: 32px;
+}
+
+.devices-quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin-bottom: 8px;
+}
+
+.filter-block {
+  min-width: 220px;
+}
+
+.filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.pill-toggle-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pill-toggle-group .pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast), border var(--transition-fast);
+}
+
+.pill-toggle-group .pill.active {
+  border-color: var(--highlight);
+  color: var(--highlight);
+  background: rgba(38, 139, 210, 0.15);
+}
+
+.pill-toggle-group .pill .pill-count {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.filter-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.filter-chip button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+}
+
+.devices-inline-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.status-pill.healthy {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.status-pill.warning {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.status-pill.error,
+.status-pill.jam {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.consumable-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+}
+
+#devices_table_wrapper .table-wrapper {
+  margin-top: 12px;
+}
+
+.simple-table th[data-sort-key] {
+  cursor: pointer;
+  user-select: none;
+}
+
+.simple-table th[data-sort-key][data-sort-active="true"] {
+  color: var(--highlight);
 }
 
 .metric-kpi-value {
@@ -2269,6 +2491,18 @@ input[type="checkbox"]:indeterminate::before {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.device-card-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-contrast);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  margin-left: 4px;
 }
 
 .device-card-subtitle.copyable {

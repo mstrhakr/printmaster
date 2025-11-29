@@ -45,6 +45,9 @@ const SERVER_UI_STATE_KEYS = {
     SETTINGS_VIEW: 'pm_server_settings_view',
     LOG_VIEW: 'pm_server_log_view',
     TENANTS_VIEW: 'pm_server_tenants_view',
+    DEVICES_VIEW: 'pm_server_devices_view',
+    DEVICES_SORT_KEY: 'pm_server_devices_sort_key',
+    DEVICES_SORT_DIR: 'pm_server_devices_sort_dir',
 };
 
 const VALID_SETTINGS_VIEWS = ['server', 'sso', 'fleet', 'updates'];
@@ -130,6 +133,60 @@ const metricsVM = {
     loading: false,
     lastFetched: null,
     error: null,
+};
+
+const DEVICE_STATUS_KEYS = ['healthy', 'warning', 'error', 'jam'];
+const DEVICE_STATUS_ORDER = { healthy: 0, warning: 1, error: 2, jam: 3 };
+const DEVICE_CONSUMABLE_KEYS = ['critical', 'low', 'medium', 'high', 'unknown'];
+const DEVICE_CONSUMABLE_ORDER = { critical: 4, low: 3, medium: 2, high: 1, unknown: 0 };
+const DEVICE_CONSUMABLE_LABELS = {
+    critical: 'Critical',
+    low: 'Low',
+    medium: 'Medium',
+    high: 'High',
+    unknown: 'Unknown',
+};
+const DEVICES_SORT_KEYS = ['last_seen', 'manufacturer', 'agent', 'status', 'location', 'ip'];
+const DEVICES_VIEW_OPTIONS = ['cards', 'table'];
+const DEVICES_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_VIEW, 'cards', DEVICES_VIEW_OPTIONS);
+const DEVICES_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_KEY, 'last_seen', DEVICES_SORT_KEYS);
+const DEVICES_DEFAULT_SORT_DIR = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_DIR, 'desc', ['asc', 'desc']);
+const DEVICES_METRICS_MAX_AGE_MS = 60 * 1000;
+
+const devicesVM = {
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+    filtered: [],
+    metrics: {
+        summary: null,
+        aggregated: null,
+        lastFetched: null,
+    },
+    filters: {
+        query: '',
+        agentId: '',
+        manufacturer: '',
+        statuses: new Set(DEVICE_STATUS_KEYS),
+        consumables: new Set(DEVICE_CONSUMABLE_KEYS),
+        sortKey: DEVICES_DEFAULT_SORT_KEY || 'last_seen',
+        sortDir: DEVICES_DEFAULT_SORT_DIR || 'desc',
+    },
+    view: DEVICES_DEFAULT_VIEW || 'cards',
+    stats: {
+        total: 0,
+        filtered: 0,
+        totalStatuses: {},
+        filteredStatuses: {},
+    },
+    uiInitialized: false,
+};
+
+const agentDirectory = {
+    items: [],
+    byId: new Map(),
+    lastFetched: 0,
 };
 
 const SERVER_SETTINGS_SCHEMA = [
@@ -636,21 +693,19 @@ function connectSSE() {
     });
     
     eventSource.addEventListener('device_updated', (e) => {
-            try {
-                const data = JSON.parse(e.data);
-                window.__pm_shared.log('Device updated (SSE):', data);
-                // If devices tab is visible, update in-place, otherwise ignore
-                const devicesTab = document.querySelector('[data-tab="devices"]');
-                if (devicesTab && !devicesTab.classList.contains('hidden')) {
-                    addOrUpdateDeviceCard(data);
-                }
-            } catch (err) {
-                window.__pm_shared.warn('Failed to parse device_updated event, falling back to full reload:', err);
-                const devicesTab = document.querySelector('[data-tab="devices"]');
-                if (devicesTab && !devicesTab.classList.contains('hidden')) {
-                    loadDevices();
-                }
+        try {
+            const data = JSON.parse(e.data);
+            window.__pm_shared.log('Device updated (SSE):', data);
+            upsertDeviceRecord(data);
+            if (devicesVM.loaded && isDevicesTabActive()) {
+                applyDeviceFilters();
             }
+        } catch (err) {
+            window.__pm_shared.warn('Failed to parse device_updated event, falling back to full reload:', err);
+            if (isDevicesTabActive()) {
+                loadDevices(true);
+            }
+        }
     });
     
     eventSource.onerror = (e) => {
@@ -1478,6 +1533,7 @@ function switchTab(targetTab) {
     
     // Load data for specific tabs
     if (targetTab === 'devices') {
+        initDevicesUI();
         loadDevices();
     } else if (targetTab === 'metrics') {
         loadMetrics();
@@ -1911,6 +1967,7 @@ async function loadAgents() {
         
         const agents = await response.json();
         renderAgents(agents);
+        updateAgentDirectory(Array.isArray(agents) ? agents : []);
     } catch (error) {
         window.__pm_shared.error('Failed to load agents:', error);
         const listEl = document.getElementById('agents_list');
@@ -3612,118 +3669,959 @@ async function deleteAgent(agentId, displayName) {
 }
 
 // ====== Devices Management ======
-async function loadDevices() {
+function initDevicesUI() {
+    if (devicesVM.uiInitialized) {
+        return;
+    }
+    devicesVM.uiInitialized = true;
+
+    const searchInput = document.getElementById('devices_search');
+    if (searchInput) {
+        searchInput.value = devicesVM.filters.query;
+        const handleSearch = debounce((event) => {
+            devicesVM.filters.query = (event.target.value || '').trim();
+            applyDeviceFilters();
+        }, 200);
+        searchInput.addEventListener('input', handleSearch);
+    }
+
+    const agentSelect = document.getElementById('devices_agent_filter');
+    if (agentSelect) {
+        agentSelect.value = devicesVM.filters.agentId;
+        agentSelect.addEventListener('change', (event) => {
+            devicesVM.filters.agentId = event.target.value || '';
+            applyDeviceFilters();
+        });
+    }
+
+    const manufacturerSelect = document.getElementById('devices_manufacturer_filter');
+    if (manufacturerSelect) {
+        manufacturerSelect.addEventListener('change', (event) => {
+            devicesVM.filters.manufacturer = event.target.value || '';
+            applyDeviceFilters();
+        });
+    }
+
+    const sortSelect = document.getElementById('devices_sort_select');
+    if (sortSelect) {
+        sortSelect.value = devicesVM.filters.sortKey;
+        sortSelect.addEventListener('change', (event) => {
+            setDeviceSort(event.target.value, devicesVM.filters.sortDir);
+        });
+    }
+
+    const sortDirBtn = document.getElementById('devices_sort_dir_btn');
+    if (sortDirBtn) {
+        sortDirBtn.addEventListener('click', () => {
+            const nextDir = devicesVM.filters.sortDir === 'asc' ? 'desc' : 'asc';
+            setDeviceSort(devicesVM.filters.sortKey, nextDir);
+        });
+    }
+
+    const viewToggle = document.getElementById('devices_view_toggle');
+    if (viewToggle) {
+        viewToggle.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-view]');
+            if (!btn) return;
+            setDevicesView(btn.getAttribute('data-view'));
+        });
+    }
+
+    const statusFilter = document.getElementById('devices_status_filter');
+    if (statusFilter) {
+        statusFilter.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-status]');
+            if (!btn) return;
+            toggleStatusFilter(btn.getAttribute('data-status'));
+        });
+    }
+
+    const consumableFilter = document.getElementById('devices_consumable_filter');
+    if (consumableFilter) {
+        consumableFilter.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-band]');
+            if (!btn) return;
+            toggleConsumableFilter(btn.getAttribute('data-band'));
+        });
+    }
+
+    const resetBtn = document.getElementById('devices_reset_filters');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetDeviceFilters);
+    }
+
+    const chips = document.getElementById('devices_active_filters');
+    if (chips && !chips.dataset.bound) {
+        chips.dataset.bound = 'true';
+        chips.addEventListener('click', (event) => {
+            const btn = event.target.closest('button[data-filter]');
+            if (!btn) return;
+            handleFilterChipRemove(btn.getAttribute('data-filter'));
+        });
+    }
+
+    const table = document.getElementById('devices_table');
+    if (table) {
+        const head = table.querySelector('thead');
+        if (head && !head.dataset.bound) {
+            head.dataset.bound = 'true';
+            head.addEventListener('click', handleDeviceTableSortClick);
+        }
+    }
+
+    syncDevicesViewToggle();
+    syncDeviceSortControls();
+    syncDevicesAgentFilterOptions();
+    refreshDeviceFilters();
+    syncDeviceQuickFilters();
+    renderDevicesOverview();
+}
+
+async function loadDevices(force = false) {
+    initDevicesUI();
+    if (devicesVM.loading && !force) {
+        return;
+    }
+    devicesVM.loading = true;
+    renderDevicesLoading();
+    const metricsPromise = fetchFleetMetricsSnapshot().catch(err => {
+        window.__pm_shared.warn('Failed to fetch fleet metrics for devices tab', err);
+        return null;
+    });
+    const agentsPromise = ensureAgentDirectory();
     try {
         const response = await fetch('/api/v1/devices/list');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        
+        await agentsPromise;
         const devices = await response.json();
-        renderDevices(devices);
+        devicesVM.items = enrichDevices(Array.isArray(devices) ? devices : []);
+        devicesVM.stats.total = devicesVM.items.length;
+        devicesVM.error = null;
+        devicesVM.loaded = true;
+        refreshDeviceFilters();
+        applyDeviceFilters();
     } catch (error) {
-        window.__pm_shared.error('Failed to load devices:', error);
-        const cardsEl = document.getElementById('devices_cards');
-        if (cardsEl) {
-            cardsEl.innerHTML = '<div style="color:var(--error);">Failed to load devices</div>';
-        } else {
-            window.__pm_shared.warn('loadDevices: devices_cards element not found in DOM while handling error');
+        devicesVM.error = error;
+        renderDevicesError(error);
+    } finally {
+        devicesVM.loading = false;
+    }
+
+    metricsPromise.then(snapshot => {
+        if (snapshot) {
+            devicesVM.metrics.summary = snapshot.summary;
+            devicesVM.metrics.aggregated = snapshot.aggregated;
+            devicesVM.metrics.lastFetched = snapshot.fetchedAt || new Date();
+        }
+        renderDevicesOverview();
+    });
+}
+
+function renderDevicesLoading() {
+    const cards = document.getElementById('devices_cards');
+    if (cards) {
+        cards.classList.remove('hidden');
+        cards.innerHTML = '<div class="muted-text">Loading devices…</div>';
+    }
+    const wrapper = document.getElementById('devices_table_wrapper');
+    if (wrapper) {
+        const tbody = wrapper.querySelector('tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="7" class="muted-text">Loading devices…</td></tr>';
         }
     }
+}
+
+function renderDevicesError(error) {
+    const message = error && error.message ? error.message : 'Unknown error';
+    const cards = document.getElementById('devices_cards');
+    if (cards) {
+        cards.classList.remove('hidden');
+        cards.innerHTML = `<div class="error-text">Failed to load devices: ${escapeHtml(message)}</div>`;
+    }
+    const wrapper = document.getElementById('devices_table_wrapper');
+    if (wrapper) {
+        const tbody = wrapper.querySelector('tbody');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" class="error-text">Failed to load devices: ${escapeHtml(message)}</td></tr>`;
+        }
+    }
+}
+
+async function fetchFleetMetricsSnapshot() {
+    const now = Date.now();
+    if (metricsVM.summary && metricsVM.aggregated && metricsVM.lastFetched) {
+        const age = now - metricsVM.lastFetched.getTime();
+        if (age < DEVICES_METRICS_MAX_AGE_MS) {
+            return {
+                summary: metricsVM.summary,
+                aggregated: metricsVM.aggregated,
+                fetchedAt: metricsVM.lastFetched,
+            };
+        }
+    }
+    const range = metricsVM.range || METRICS_DEFAULT_RANGE;
+    const since = new Date(now - getMetricsRangeWindow(range));
+    const params = new URLSearchParams({ since: since.toISOString() });
+    const [summaryResp, aggregatedResp] = await Promise.all([
+        fetch('/api/metrics'),
+        fetch(`/api/metrics/aggregated?${params.toString()}`)
+    ]);
+    if (!summaryResp.ok) {
+        throw new Error('Summary request failed: HTTP ' + summaryResp.status);
+    }
+    if (!aggregatedResp.ok) {
+        throw new Error('Aggregated request failed: HTTP ' + aggregatedResp.status);
+    }
+    const summary = await summaryResp.json();
+    const aggregated = await aggregatedResp.json();
+    return { summary, aggregated, fetchedAt: new Date() };
+}
+
+function renderDevicesOverview() {
+    const container = document.getElementById('devices_overview_metrics');
+    if (!container) return;
+    if (!devicesVM.metrics.summary || !devicesVM.metrics.aggregated) {
+        container.innerHTML = '<div class="metric-card loading">Fleet metrics unavailable.</div>';
+        return;
+    }
+    const totals = devicesVM.metrics.aggregated?.fleet?.totals || {};
+    const statuses = devicesVM.metrics.aggregated?.fleet?.statuses || {};
+    const history = devicesVM.metrics.aggregated?.fleet?.history?.total_impressions || [];
+    const throughput = calculateThroughput(history);
+    const rangeLabel = metricsRangeLabel(metricsVM.range || METRICS_DEFAULT_RANGE);
+    container.innerHTML = `
+        <div class="metric-card">
+            <div class="card-title">Agents</div>
+            <div class="metric-kpi-value">${formatNumber(totals.agents || devicesVM.metrics.summary.agents_count || 0)}</div>
+            <div class="metric-kpi-label">Connected</div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Devices</div>
+            <div class="metric-kpi-value">${formatNumber(totals.devices || devicesVM.metrics.summary.devices_count || 0)}</div>
+            <div class="metric-kpi-label">Managed fleet</div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Throughput (${rangeLabel})</div>
+            <div class="metric-kpi-value">${formatNumber(Math.round(throughput))}</div>
+            <div class="metric-kpi-label">Estimated pages/hour</div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Alerts</div>
+            ${renderMetricsStatusChips(statuses)}
+            <div class="metric-footnote">${devicesVM.metrics.lastFetched ? 'Updated ' + formatRelativeTime(devicesVM.metrics.lastFetched) : ''}</div>
+        </div>
+    `;
+}
+
+function refreshDeviceFilters() {
+    const manufacturerSelect = document.getElementById('devices_manufacturer_filter');
+    if (!manufacturerSelect) return;
+    const manufacturers = Array.from(new Set((devicesVM.items || []).map(d => (d.manufacturer || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    let options = '<option value="">All Manufacturers</option>';
+    manufacturers.forEach(name => {
+        options += `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+    });
+    manufacturerSelect.innerHTML = options;
+    if (devicesVM.filters.manufacturer && manufacturers.includes(devicesVM.filters.manufacturer)) {
+        manufacturerSelect.value = devicesVM.filters.manufacturer;
+    } else {
+        manufacturerSelect.value = '';
+        if (devicesVM.filters.manufacturer) {
+            devicesVM.filters.manufacturer = '';
+        }
+    }
+}
+
+function syncDevicesAgentFilterOptions() {
+    if (!devicesVM.uiInitialized) return;
+    const select = document.getElementById('devices_agent_filter');
+    if (!select) return;
+    const agents = agentDirectory.items.slice().sort((a, b) => {
+        const aName = (a.name || a.hostname || a.agent_id || '').toLowerCase();
+        const bName = (b.name || b.hostname || b.agent_id || '').toLowerCase();
+        if (aName < bName) return -1;
+        if (aName > bName) return 1;
+        return 0;
+    });
+    let options = '<option value="">All Agents</option>';
+    agents.forEach(agent => {
+        const label = agent.name || agent.hostname || agent.agent_id;
+        options += `<option value="${escapeHtml(agent.agent_id)}">${escapeHtml(label)}</option>`;
+    });
+    select.innerHTML = options;
+    select.value = devicesVM.filters.agentId || '';
+}
+
+function applyDeviceFilters() {
+    if (!Array.isArray(devicesVM.items)) {
+        return;
+    }
+    const filters = devicesVM.filters;
+    const totalStatuses = createStatusCountMap();
+    const filteredStatuses = createStatusCountMap();
+    const filtered = [];
+    devicesVM.items.forEach(device => {
+        const statusKey = device.__meta?.status?.code || 'healthy';
+        if (totalStatuses[statusKey] !== undefined) {
+            totalStatuses[statusKey] += 1;
+        }
+        if (matchesDeviceFilters(device, filters)) {
+            filtered.push(device);
+            if (filteredStatuses[statusKey] !== undefined) {
+                filteredStatuses[statusKey] += 1;
+            }
+        }
+    });
+    devicesVM.filtered = sortDevices(filtered);
+    devicesVM.stats.filtered = devicesVM.filtered.length;
+    devicesVM.stats.total = devicesVM.items.length;
+    devicesVM.stats.totalStatuses = totalStatuses;
+    devicesVM.stats.filteredStatuses = filteredStatuses;
+    renderDevicesStats();
+    renderDevicesActiveFilters();
+    syncDeviceQuickFilters();
+    if (devicesVM.view === 'table') {
+        renderDeviceTable(devicesVM.filtered);
+    } else {
+        renderDeviceCards(devicesVM.filtered);
+    }
+    syncDeviceTableSortIndicators();
+}
+
+function matchesDeviceFilters(device, filters) {
+    if (!device || !device.__meta) return true;
+    const meta = device.__meta;
+    const query = (filters.query || '').toLowerCase();
+    if (query && (!meta.search || meta.search.indexOf(query) === -1)) {
+        return false;
+    }
+    if (filters.agentId && device.agent_id !== filters.agentId) {
+        return false;
+    }
+    if (filters.manufacturer && (device.manufacturer || '').trim() !== filters.manufacturer) {
+        return false;
+    }
+    if (filters.statuses && filters.statuses.size > 0 && !filters.statuses.has(meta.status?.code || 'healthy')) {
+        return false;
+    }
+    if (filters.consumables && filters.consumables.size > 0 && !filters.consumables.has(meta.consumable?.code || 'unknown')) {
+        return false;
+    }
+    return true;
+}
+
+function sortDevices(list) {
+    const key = devicesVM.filters.sortKey || 'last_seen';
+    const dir = devicesVM.filters.sortDir === 'asc' ? 1 : -1;
+    const sorted = list.slice();
+    sorted.sort((a, b) => {
+        const aVal = getDeviceSortValue(a, key);
+        const bVal = getDeviceSortValue(b, key);
+        if (aVal < bVal) return -1 * dir;
+        if (aVal > bVal) return 1 * dir;
+        const aSerial = (a.serial || '').toLowerCase();
+        const bSerial = (b.serial || '').toLowerCase();
+        if (aSerial < bSerial) return -1;
+        if (aSerial > bSerial) return 1;
+        return 0;
+    });
+    return sorted;
+}
+
+function getDeviceSortValue(device, key) {
+    const meta = device.__meta || {};
+    switch (key) {
+        case 'manufacturer':
+            return ((device.manufacturer || '') + ' ' + (device.model || '')).toLowerCase();
+        case 'agent':
+            return (meta.agentName || '').toLowerCase();
+        case 'status':
+            return DEVICE_STATUS_ORDER[meta.status?.code || 'healthy'] || 0;
+        case 'location':
+            return (meta.location || '').toLowerCase();
+        case 'ip':
+            return (device.ip || '').toLowerCase();
+        case 'last_seen':
+        default:
+            return meta.lastSeenMs || 0;
+    }
+}
+
+function renderDeviceCards(devices) {
+    const cards = document.getElementById('devices_cards');
+    const tableWrapper = document.getElementById('devices_table_wrapper');
+    if (!cards) return;
+    if (tableWrapper) {
+        tableWrapper.classList.add('hidden');
+    }
+    cards.classList.remove('hidden');
+    if (!devices || devices.length === 0) {
+        cards.innerHTML = '<div class="muted-text">No devices match the current filters.</div>';
+        return;
+    }
+    cards.innerHTML = devices.map(device => renderServerDeviceCard(device)).join('');
+}
+
+function renderDeviceTable(devices) {
+    const cards = document.getElementById('devices_cards');
+    const wrapper = document.getElementById('devices_table_wrapper');
+    if (!wrapper) return;
+    if (cards) {
+        cards.classList.add('hidden');
+    }
+    wrapper.classList.remove('hidden');
+    const tbody = wrapper.querySelector('tbody');
+    if (!tbody) return;
+    if (!devices || devices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="muted-text">No devices match the current filters.</td></tr>';
+        return;
+    }
+    const rows = devices.map(device => {
+        const meta = device.__meta || {};
+        return `
+            <tr data-serial="${escapeHtml(device.serial || '')}">
+                <td>
+                    <div class="table-primary">${escapeHtml((device.manufacturer || 'Unknown') + ' ' + (device.model || ''))}</div>
+                    <div class="muted-text">Serial ${escapeHtml(device.serial || '—')}</div>
+                </td>
+                <td>
+                    ${renderDeviceStatusBadge(meta.status)}
+                    ${meta.consumable ? `<div style="margin-top:6px;">${renderDeviceConsumableBadge(meta.consumable)}</div>` : ''}
+                </td>
+                <td>${escapeHtml(meta.agentName || 'Unassigned')}</td>
+                <td>
+                    <div class="table-primary">${escapeHtml(device.ip || 'N/A')}</div>
+                    ${device.hostname ? `<div class="muted-text">${escapeHtml(device.hostname)}</div>` : ''}
+                </td>
+                <td>${escapeHtml(meta.location || '—')}</td>
+                <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
+                <td class="actions-col">
+                    <div class="table-actions">
+                        <button data-action="open-device" data-serial="${escapeHtml(device.serial || '')}" data-agent-id="${escapeHtml(device.agent_id || '')}" ${(!device.ip || !device.agent_id) ? 'disabled' : ''}>Web UI</button>
+                        <button data-action="view-metrics" data-serial="${escapeHtml(device.serial || '')}" ${device.serial ? '' : 'disabled'}>Metrics</button>
+                        <button data-action="show-printer-details" data-ip="${escapeHtml(device.ip || '')}" data-serial="${escapeHtml(device.serial || '')}" data-source="saved">Details</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+    tbody.innerHTML = rows;
 }
 
 function renderServerDeviceCard(device) {
-    const serial = device.serial || '';
-    const agentId = device.agent_id || '';
-    const hasIp = !!device.ip;
-    const hasAgent = !!agentId;
-    const hasSerial = !!serial;
-
+    const meta = device.__meta || {};
+    const serial = escapeHtml(device.serial || '—');
+    const agentId = escapeHtml(device.agent_id || '');
+    const networkLabel = escapeHtml(device.ip || 'N/A');
+    const hostname = device.hostname ? ` • ${escapeHtml(device.hostname)}` : '';
+    const asset = device.asset_number ? `<span class="device-card-chip">Asset ${escapeHtml(device.asset_number)}</span>` : '';
+    const location = escapeHtml(meta.location || '—');
+    const lastSeenText = escapeHtml(meta.lastSeenRelative || 'Never');
+    const lastSeenTitle = escapeHtml(meta.lastSeenTooltip || 'Never');
+    const agentName = escapeHtml(meta.agentName || 'Unassigned');
     return `
-    <div class="device-card" data-serial="${serial}" data-agent-id="${agentId}">
-        <div class="device-card-header">
-            <div>
-                <div class="device-card-title">${device.manufacturer || 'Unknown'} ${device.model || ''}</div>
-                <div class="device-card-subtitle">${device.ip || 'N/A'}</div>
+        <div class="device-card" data-serial="${serial}" data-agent-id="${agentId}">
+            <div class="device-card-header">
+                <div>
+                    <div class="device-card-title">${escapeHtml(device.manufacturer || 'Unknown')} ${escapeHtml(device.model || '')}</div>
+                    <div class="device-card-subtitle">Serial ${serial} ${asset}</div>
+                    <div class="device-card-subtitle">${agentName}</div>
+                </div>
+                <div class="device-card-status">
+                    ${renderDeviceStatusBadge(meta.status)}
+                    ${meta.consumable ? renderDeviceConsumableBadge(meta.consumable) : ''}
+                </div>
+            </div>
+            <div class="device-card-info">
+                <div class="device-card-row">
+                    <span class="device-card-label">Network</span>
+                    <span class="device-card-value copyable" data-copy="${escapeHtml(device.ip || '')}">${networkLabel}${hostname}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Location</span>
+                    <span class="device-card-value">${location}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Last Seen</span>
+                    <span class="device-card-value" title="${lastSeenTitle}">${lastSeenText}</span>
+                </div>
+            </div>
+            <div class="device-card-actions">
+                <button data-action="open-device" data-serial="${serial}" data-agent-id="${agentId}" ${(!device.ip || !device.agent_id) ? 'disabled title="Device has no IP or agent"' : ''}>Open Web UI</button>
+                <button data-action="view-metrics" data-serial="${serial}" ${device.serial ? '' : 'disabled title="No serial"'}>View Metrics</button>
+                <button data-action="show-printer-details" data-ip="${escapeHtml(device.ip || '')}" data-serial="${serial}" data-source="saved" ${device.ip ? '' : 'disabled title="No IP"'}>Details</button>
             </div>
         </div>
-        <div class="device-card-info">
-            <div class="device-card-row">
-                <span class="device-card-label">Serial</span>
-                <span class="device-card-value device-serial">${serial || 'N/A'}</span>
-            </div>
-            <div class="device-card-row">
-                <span class="device-card-label">Agent</span>
-                <span class="device-card-value device-agent-id">${agentId || 'N/A'}</span>
-            </div>
-        </div>
-        <div class="device-card-actions">
-            <button data-action="open-device" data-serial="${serial}" data-agent-id="${agentId}" ${!hasIp || !hasAgent ? 'disabled title="Device has no IP or agent"' : ''}>
-                Open Web UI
-            </button>
-            <button data-action="view-metrics" data-serial="${serial}" ${!hasSerial ? 'disabled title="No serial"' : ''}>
-                View Metrics
-            </button>
-            <button data-action="show-printer-details" data-ip="${device.ip||''}" data-serial="${serial}" data-source="saved" ${!hasIp ? 'disabled title="No IP"' : ''}>
-                Details
-            </button>
-        </div>
-    </div>
     `;
 }
 
-function renderDevices(devices) {
-    const container = document.getElementById('devices_cards');
-    const statsContainer = document.getElementById('devices_stats');
-
-    if (!container) {
-        window.__pm_shared.warn('renderDevices: devices_cards element not found - aborting render');
-        return;
-    }
-
-    if (!devices || devices.length === 0) {
-        container.innerHTML = '<div style="color:var(--muted);">No devices found</div>';
-        if (statsContainer) statsContainer.innerHTML = '<div style="color:var(--muted);">Total Devices: 0</div>';
-        return;
-    }
-
-    // Update stats
-    if (statsContainer) {
-        statsContainer.innerHTML = `
-        <div><strong>Total Devices:</strong> ${devices.length}</div>
-    `;
-    }
-    
-    container.innerHTML = devices.map(device => renderServerDeviceCard(device)).join('');
+function renderDeviceStatusBadge(statusMeta) {
+    const code = statusMeta?.code || 'healthy';
+    const label = statusMeta?.label || code;
+    return `<span class="status-pill ${code}">${escapeHtml(label)}</span>`;
 }
 
-// Show printer details modal by finding the device in the server device list
-async function showPrinterDetails(ip, source) {
-    if (!ip) return;
-    source = source || 'saved';
-    try {
-        const res = await fetch('/api/v1/devices/list');
-        if (!res.ok) throw new Error('Failed to fetch devices');
-        const devices = await res.json();
-        if (!Array.isArray(devices)) throw new Error('Invalid device list');
+function renderDeviceConsumableBadge(consumableMeta) {
+    if (!consumableMeta) return '';
+    let text = DEVICE_CONSUMABLE_LABELS[consumableMeta.code || 'unknown'] || 'Unknown';
+    if (typeof consumableMeta.level === 'number') {
+        text += ` ${consumableMeta.level}%`;
+    }
+    return `<span class="consumable-pill" data-band="${consumableMeta.code || 'unknown'}">${escapeHtml(text)}</span>`;
+}
 
-        // Try to find by ip or serial
-        let found = devices.find(d => (d.ip && d.ip === ip) || (d.serial && d.serial === ip) || (d.printer_info && (d.printer_info.ip === ip || d.printer_info.serial === ip)));
-        if (!found && devices.length === 1 && devices[0].ip === ip) found = devices[0];
+function renderDevicesStats() {
+    const container = document.getElementById('devices_stats');
+    if (!container) return;
+    const total = devicesVM.stats.total || 0;
+    const filtered = devicesVM.stats.filtered || 0;
+    const statuses = devicesVM.stats.filteredStatuses || {};
+    container.innerHTML = `
+        <div><strong>Total:</strong> ${formatNumber(total)}</div>
+        <div><strong>Showing:</strong> ${formatNumber(filtered)}</div>
+        <div>
+            <span class="status-pill healthy">Healthy ${formatNumber(statuses.healthy || 0)}</span>
+            <span class="status-pill warning">Warning ${formatNumber(statuses.warning || 0)}</span>
+            <span class="status-pill error">Error ${formatNumber(statuses.error || 0)}</span>
+            <span class="status-pill jam">Jam ${formatNumber(statuses.jam || 0)}</span>
+        </div>
+    `;
+}
 
-        if (!found) {
-            window.__pm_shared.showToast('Device not found', 'error');
+function renderDevicesActiveFilters() {
+    const container = document.getElementById('devices_active_filters');
+    if (!container) return;
+    const chips = [];
+    const filters = devicesVM.filters;
+    if (filters.query) {
+        chips.push(buildFilterChip('Search', filters.query, 'search'));
+    }
+    if (filters.agentId) {
+        const agent = getAgentInfo(filters.agentId);
+        const label = agent ? (agent.name || agent.hostname || agent.agent_id) : filters.agentId;
+        chips.push(buildFilterChip('Agent', label, 'agent'));
+    }
+    if (filters.manufacturer) {
+        chips.push(buildFilterChip('Manufacturer', filters.manufacturer, 'manufacturer'));
+    }
+    if (filters.statuses.size > 0 && filters.statuses.size < DEVICE_STATUS_KEYS.length) {
+        chips.push(buildFilterChip('Status', Array.from(filters.statuses).join(', '), 'statuses'));
+    }
+    if (filters.consumables.size > 0 && filters.consumables.size < DEVICE_CONSUMABLE_KEYS.length) {
+        chips.push(buildFilterChip('Consumables', Array.from(filters.consumables).join(', '), 'consumables'));
+    }
+    if (chips.length === 0) {
+        container.innerHTML = '';
+        container.classList.add('hidden');
+        return;
+    }
+    container.classList.remove('hidden');
+    container.innerHTML = chips.join('');
+}
+
+function buildFilterChip(label, value, key) {
+    return `<span class="filter-chip">${escapeHtml(label)}: ${escapeHtml(value)} <button type="button" data-filter="${key}" aria-label="Remove ${escapeHtml(label)} filter">×</button></span>`;
+}
+
+function handleFilterChipRemove(filterKey) {
+    switch (filterKey) {
+        case 'search': {
+            devicesVM.filters.query = '';
+            const searchInput = document.getElementById('devices_search');
+            if (searchInput) searchInput.value = '';
+            break;
+        }
+        case 'agent': {
+            devicesVM.filters.agentId = '';
+            const agentSelect = document.getElementById('devices_agent_filter');
+            if (agentSelect) agentSelect.value = '';
+            break;
+        }
+        case 'manufacturer': {
+            devicesVM.filters.manufacturer = '';
+            const manufacturerSelect = document.getElementById('devices_manufacturer_filter');
+            if (manufacturerSelect) manufacturerSelect.value = '';
+            break;
+        }
+        case 'statuses':
+            devicesVM.filters.statuses = new Set(DEVICE_STATUS_KEYS);
+            break;
+        case 'consumables':
+            devicesVM.filters.consumables = new Set(DEVICE_CONSUMABLE_KEYS);
+            break;
+        default:
+            return;
+    }
+    applyDeviceFilters();
+}
+
+function syncDeviceQuickFilters() {
+    const statusSet = devicesVM.filters.statuses;
+    document.querySelectorAll('#devices_status_filter [data-status]').forEach(btn => {
+        const key = btn.getAttribute('data-status');
+        const active = !statusSet || statusSet.has(key);
+        btn.classList.toggle('active', active);
+        const baseLabel = btn.getAttribute('data-label') || btn.textContent.trim();
+        const count = devicesVM.stats.totalStatuses?.[key] || 0;
+        btn.innerHTML = `${escapeHtml(baseLabel)} <span class="pill-count">${formatNumber(count)}</span>`;
+    });
+
+    const consumableSet = devicesVM.filters.consumables;
+    document.querySelectorAll('#devices_consumable_filter [data-band]').forEach(btn => {
+        const key = btn.getAttribute('data-band');
+        const active = !consumableSet || consumableSet.has(key);
+        btn.classList.toggle('active', active);
+        const baseLabel = btn.getAttribute('data-label') || btn.textContent.trim();
+        btn.innerHTML = `${escapeHtml(baseLabel)}`;
+    });
+}
+
+function toggleStatusFilter(statusKey) {
+    if (!DEVICE_STATUS_KEYS.includes(statusKey)) return;
+    const set = new Set(devicesVM.filters.statuses || DEVICE_STATUS_KEYS);
+    if (set.has(statusKey)) {
+        set.delete(statusKey);
+    } else {
+        set.add(statusKey);
+    }
+    if (set.size === 0) {
+        DEVICE_STATUS_KEYS.forEach(key => set.add(key));
+    }
+    devicesVM.filters.statuses = set;
+    applyDeviceFilters();
+}
+
+function toggleConsumableFilter(bandKey) {
+    if (!DEVICE_CONSUMABLE_KEYS.includes(bandKey)) return;
+    const set = new Set(devicesVM.filters.consumables || DEVICE_CONSUMABLE_KEYS);
+    if (set.has(bandKey)) {
+        set.delete(bandKey);
+    } else {
+        set.add(bandKey);
+    }
+    if (set.size === 0) {
+        DEVICE_CONSUMABLE_KEYS.forEach(key => set.add(key));
+    }
+    devicesVM.filters.consumables = set;
+    applyDeviceFilters();
+}
+
+function resetDeviceFilters() {
+    devicesVM.filters.query = '';
+    devicesVM.filters.agentId = '';
+    devicesVM.filters.manufacturer = '';
+    devicesVM.filters.statuses = new Set(DEVICE_STATUS_KEYS);
+    devicesVM.filters.consumables = new Set(DEVICE_CONSUMABLE_KEYS);
+    const searchInput = document.getElementById('devices_search');
+    if (searchInput) searchInput.value = '';
+    const agentSelect = document.getElementById('devices_agent_filter');
+    if (agentSelect) agentSelect.value = '';
+    const manufacturerSelect = document.getElementById('devices_manufacturer_filter');
+    if (manufacturerSelect) manufacturerSelect.value = '';
+    applyDeviceFilters();
+}
+
+function setDevicesView(view) {
+    const nextView = DEVICES_VIEW_OPTIONS.includes(view) ? view : 'cards';
+    if (devicesVM.view === nextView) {
+        return;
+    }
+    devicesVM.view = nextView;
+    persistUIState(SERVER_UI_STATE_KEYS.DEVICES_VIEW, nextView);
+    syncDevicesViewToggle();
+    applyDeviceFilters();
+}
+
+function syncDevicesViewToggle() {
+    const toggle = document.getElementById('devices_view_toggle');
+    if (!toggle) return;
+    toggle.querySelectorAll('[data-view]').forEach(btn => {
+        const view = btn.getAttribute('data-view');
+        const active = view === devicesVM.view;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+}
+
+function setDeviceSort(key, dir) {
+    const nextKey = DEVICES_SORT_KEYS.includes(key) ? key : 'last_seen';
+    const nextDir = dir === 'asc' ? 'asc' : 'desc';
+    if (devicesVM.filters.sortKey === nextKey && devicesVM.filters.sortDir === nextDir) {
+        return;
+    }
+    devicesVM.filters.sortKey = nextKey;
+    devicesVM.filters.sortDir = nextDir;
+    persistUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_KEY, nextKey);
+    persistUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_DIR, nextDir);
+    syncDeviceSortControls();
+    applyDeviceFilters();
+}
+
+function syncDeviceSortControls() {
+    const sortSelect = document.getElementById('devices_sort_select');
+    if (sortSelect && sortSelect.value !== devicesVM.filters.sortKey) {
+        sortSelect.value = devicesVM.filters.sortKey;
+    }
+    const sortDirBtn = document.getElementById('devices_sort_dir_btn');
+    const sortDirIcon = document.getElementById('devices_sort_dir_icon');
+    if (sortDirBtn) {
+        sortDirBtn.dataset.dir = devicesVM.filters.sortDir;
+        sortDirBtn.setAttribute('aria-label', devicesVM.filters.sortDir === 'asc' ? 'Sort ascending' : 'Sort descending');
+    }
+    if (sortDirIcon) {
+        sortDirIcon.textContent = devicesVM.filters.sortDir === 'asc' ? '↑' : '↓';
+    }
+}
+
+function syncDeviceTableSortIndicators() {
+    const head = document.querySelector('#devices_table thead');
+    if (!head) return;
+    head.querySelectorAll('th[data-sort-key]').forEach(th => {
+        const key = th.getAttribute('data-sort-key');
+        if (key === devicesVM.filters.sortKey) {
+            th.classList.add('sorted');
+            th.setAttribute('aria-sort', devicesVM.filters.sortDir === 'asc' ? 'ascending' : 'descending');
+        } else {
+            th.classList.remove('sorted');
+            th.removeAttribute('aria-sort');
+        }
+    });
+}
+
+function handleDeviceTableSortClick(event) {
+    const target = event.target.closest('th[data-sort-key]');
+    if (!target) {
+        return;
+    }
+    const key = target.getAttribute('data-sort-key');
+    if (!key) {
+        return;
+    }
+    const nextDir = (devicesVM.filters.sortKey === key && devicesVM.filters.sortDir === 'asc') ? 'desc' : 'asc';
+    setDeviceSort(key, nextDir);
+}
+
+function upsertDeviceRecord(record) {
+    if (!record) {
+        return;
+    }
+    if (!Array.isArray(devicesVM.items)) {
+        devicesVM.items = [];
+    }
+    const identifier = (item) => item.serial || item.device_id || item.id || item.uuid;
+    const recordId = identifier(record);
+    let updated = false;
+    devicesVM.items = devicesVM.items.map(device => {
+        const id = identifier(device);
+        if (recordId && id && id === recordId) {
+            updated = true;
+            return enrichSingleDevice({ ...device, ...record });
+        }
+        if (!recordId && device.ip && record.ip && device.ip === record.ip) {
+            updated = true;
+            return enrichSingleDevice({ ...device, ...record });
+        }
+        return device;
+    });
+    if (!updated) {
+        devicesVM.items.push(enrichSingleDevice(record));
+    }
+    devicesVM.stats.total = devicesVM.items.length;
+    devicesVM.loaded = true;
+    refreshDeviceFilters();
+}
+
+function enrichDevices(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(item => enrichSingleDevice(item));
+}
+
+function enrichSingleDevice(device) {
+    if (!device || typeof device !== 'object') {
+        return device;
+    }
+    const agent = getAgentInfo(device.agent_id);
+    const agentName = agent ? (agent.name || agent.hostname || agent.agent_id) : '';
+    const lastSeenIso = device.last_seen || device.lastSeen || device.last_seen_at || device.updated_at || device.last_metrics_at;
+    const lastSeenDate = lastSeenIso ? new Date(lastSeenIso) : null;
+    const location = device.location || device.site || device.department || device.building || '';
+    const tonerLevels = getDeviceConsumableLevels(device);
+    const status = classifyDeviceStatus(device);
+    const consumable = classifyConsumableBand(device, tonerLevels);
+    return {
+        ...device,
+        __meta: {
+            agentName,
+            search: buildDeviceSearchBlob(device, agentName),
+            location,
+            status,
+            consumable,
+            lastSeenRelative: lastSeenDate ? formatRelativeTime(lastSeenDate) : 'Never',
+            lastSeenTooltip: lastSeenDate ? lastSeenDate.toLocaleString() : 'Never',
+            lastSeenMs: lastSeenDate ? lastSeenDate.getTime() : 0,
+        }
+    };
+}
+
+function buildDeviceSearchBlob(device, agentName) {
+    const parts = [
+        device.serial,
+        device.ip,
+        device.hostname,
+        device.manufacturer,
+        device.model,
+        device.asset_number,
+        device.location,
+        agentName,
+    ].filter(Boolean);
+    return parts.join(' ').toLowerCase();
+}
+
+function classifyDeviceStatus(device) {
+    const meta = { code: 'healthy', label: 'Healthy' };
+    const severity = (device.status_severity || device.health_state || '').toLowerCase();
+    const composite = [device.status, device.state, device.health, device.connection_state].filter(Boolean).join(' ').toLowerCase();
+    if (composite.includes('jam')) {
+        return { code: 'jam', label: 'Paper Jam' };
+    }
+    if (severity.includes('error') || composite.includes('error') || composite.includes('offline') || composite.includes('down')) {
+        return { code: 'error', label: 'Error' };
+    }
+    if (severity.includes('warn') || composite.includes('warn') || composite.includes('degraded')) {
+        return { code: 'warning', label: 'Warning' };
+    }
+    if (composite.includes('ready') || composite.includes('idle')) {
+        return { code: 'healthy', label: 'Ready' };
+    }
+    return meta;
+}
+
+function classifyConsumableBand(device, tonerLevels) {
+    if (!tonerLevels || tonerLevels.length === 0) {
+        return { code: 'unknown', label: 'Unknown' };
+    }
+    const min = Math.min(...tonerLevels);
+    const code = bandForPercentage(min);
+    return { code, label: DEVICE_CONSUMABLE_LABELS[code] || 'Unknown', level: min };
+}
+
+function getDeviceConsumableLevels(device) {
+    const values = [];
+    const pushLevels = (entry) => {
+        if (Array.isArray(entry)) {
+            entry.forEach(val => pushLevels(val));
             return;
         }
+        if (entry && typeof entry === 'object') {
+            Object.keys(entry).forEach(key => pushLevels(entry[key]));
+            return;
+        }
+        const num = normalizePercentage(entry);
+        if (typeof num === 'number') {
+            values.push(num);
+        }
+    };
+    pushLevels(device.toner_levels || device.toner || device.consumables || device.supplies);
+    return values;
+}
 
-        // Normalize shape: server devices might embed printer_info under different keys
-        const deviceObj = found.printer_info ? Object.assign({}, found.printer_info, { serial: found.serial || (found.printer_info && found.printer_info.serial) }) : found;
+function normalizePercentage(value) {
+    if (value === null || value === undefined) return null;
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    const clamped = Math.max(0, Math.min(100, num));
+    return Math.round(clamped);
+}
 
-        window.__pm_shared_cards.showPrinterDetailsData(deviceObj, source, null);
-    } catch (err) {
-        window.__pm_shared.error('showPrinterDetails failed', err);
-        window.__pm_shared.showToast('Failed to load device details', 'error');
+function bandForPercentage(value) {
+    if (typeof value !== 'number') return 'unknown';
+    if (value <= 10) return 'critical';
+    if (value <= 25) return 'low';
+    if (value <= 60) return 'medium';
+    return 'high';
+}
+
+function getAgentInfo(agentId) {
+    if (!agentId) {
+        return null;
     }
+    if (agentDirectory.byId.has(agentId)) {
+        return agentDirectory.byId.get(agentId);
+    }
+    return null;
+}
+
+async function ensureAgentDirectory(force = false) {
+    const now = Date.now();
+    if (!force && agentDirectory.items.length > 0 && (now - agentDirectory.lastFetched) < 30000) {
+        return agentDirectory.items;
+    }
+    try {
+        const response = await fetch('/api/v1/agents/list');
+        if (!response.ok) {
+            throw new Error('HTTP ' + response.status);
+        }
+        const agents = await response.json();
+        updateAgentDirectory(Array.isArray(agents) ? agents : []);
+        return agentDirectory.items;
+    } catch (err) {
+        window.__pm_shared.warn('ensureAgentDirectory failed', err);
+        return agentDirectory.items;
+    }
+}
+
+function updateAgentDirectory(list) {
+    if (!Array.isArray(list)) {
+        return;
+    }
+    agentDirectory.items = list.slice();
+    agentDirectory.byId = new Map();
+    agentDirectory.items.forEach(agent => {
+        if (agent && agent.agent_id) {
+            agentDirectory.byId.set(agent.agent_id, agent);
+        }
+    });
+    agentDirectory.lastFetched = Date.now();
+    syncDevicesAgentFilterOptions();
+}
+
+function createStatusCountMap() {
+    const map = {};
+    DEVICE_STATUS_KEYS.forEach(key => {
+        map[key] = 0;
+    });
+    return map;
+}
+
+// Show printer details modal by finding the device in the cached list first, then falling back to API
+async function showPrinterDetails(ipOrSerial, source) {
+    if (!ipOrSerial) return;
+    source = source || 'saved';
+    let device = null;
+    if (devicesVM.items && devicesVM.items.length > 0) {
+        device = devicesVM.items.find(d => d.ip === ipOrSerial || d.serial === ipOrSerial);
+    }
+    if (!device) {
+        try {
+            const res = await fetch('/api/v1/devices/list');
+            if (!res.ok) throw new Error('Failed to fetch devices');
+            const devices = await res.json();
+            if (Array.isArray(devices)) {
+                device = devices.find(d => (d.ip && d.ip === ipOrSerial) || (d.serial && d.serial === ipOrSerial));
+            }
+        } catch (err) {
+            window.__pm_shared.error('Fallback device fetch failed', err);
+        }
+    }
+    if (!device) {
+        window.__pm_shared.showToast('Device not found', 'error');
+        return;
+    }
+    const normalized = device.printer_info ? { ...device.printer_info, serial: device.serial || device.printer_info.serial } : device;
+    window.__pm_shared_cards.showPrinterDetailsData(normalized, source, null);
 }
 
 // ====== Utility Functions ======
@@ -3734,7 +4632,6 @@ function copyToClipboard(text) {
         window.__pm_shared.showToast('Copied to clipboard', 'success', 1500);
     }).catch(err => {
         window.__pm_shared.error('Failed to copy:', err);
-        window.__pm_shared.showToast('Failed to copy to clipboard', 'error');
     });
 }
 
@@ -5950,6 +6847,11 @@ function updateMetricsRangeButtons() {
 
 function isMetricsTabActive() {
     const tab = document.querySelector('[data-tab="metrics"]');
+    return tab && !tab.classList.contains('hidden');
+}
+
+function isDevicesTabActive() {
+    const tab = document.querySelector('[data-tab="devices"]');
     return tab && !tab.classList.contains('hidden');
 }
 

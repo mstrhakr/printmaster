@@ -75,18 +75,110 @@
 
         <!-- Devices Tab -->
         <div style="margin-top:12px;" data-tab="devices" class="hidden">
-            <h3>All Devices</h3>
-            
-            <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-                <input type="text" id="devices_search" placeholder="Search devices..."
-                    style="padding:6px 12px;width:200px;" />
-                <select id="devices_agent_filter" style="padding:6px 12px;">
-                    <option value="">All Agents</option>
-                </select>
+            <div class="metrics-header devices-header">
+                <div>
+                    <h3 style="margin-bottom:4px;">Fleet Devices</h3>
+                    <div class="muted-text">Monitor connectivity, alerts, and consumables across every agent.</div>
+                </div>
+                <div class="view-toggle" id="devices_view_toggle" role="group" aria-label="Devices view">
+                    <button class="ghost-btn active" data-view="cards">Card View</button>
+                    <button class="ghost-btn" data-view="table">Table View</button>
+                </div>
             </div>
 
-            <div id="devices_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
+            <div id="devices_overview_metrics" class="metrics-overview-grid compact" style="margin-bottom:16px;">
+                <div class="metric-card loading">Loading fleet metrics…</div>
+            </div>
+
+            <div class="devices-toolbar">
+                <div class="devices-toolbar-left">
+                    <label class="field">
+                        <span>Search</span>
+                        <input type="text" id="devices_search" placeholder="Search serial, IP, model…" />
+                    </label>
+                    <label class="field">
+                        <span>Agent</span>
+                        <select id="devices_agent_filter">
+                            <option value="">All Agents</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Manufacturer</span>
+                        <select id="devices_manufacturer_filter">
+                            <option value="">All Manufacturers</option>
+                        </select>
+                    </label>
+                    <label class="field sort-field">
+                        <span>Sort</span>
+                        <div class="sort-select">
+                            <select id="devices_sort_select">
+                                <option value="last_seen">Last Seen</option>
+                                <option value="manufacturer">Manufacturer</option>
+                                <option value="agent">Agent</option>
+                                <option value="status">Status</option>
+                                <option value="ip">Network</option>
+                                <option value="location">Location</option>
+                            </select>
+                            <button id="devices_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
+                                <span id="devices_sort_dir_icon">↓</span>
+                            </button>
+                        </div>
+                    </label>
+                </div>
+                <div class="devices-toolbar-actions">
+                    <button id="devices_reset_filters" class="ghost-btn">Reset Filters</button>
+                </div>
+            </div>
+
+            <div class="devices-quick-filters">
+                <div class="filter-block">
+                    <div class="filter-label">Status</div>
+                    <div id="devices_status_filter" class="pill-toggle-group" role="group" aria-label="Status filters">
+                        <button class="pill active" data-status="healthy" data-label="Healthy">Healthy</button>
+                        <button class="pill active" data-status="warning" data-label="Warning">Warning</button>
+                        <button class="pill active" data-status="error" data-label="Error">Error</button>
+                        <button class="pill active" data-status="jam" data-label="Jam">Jam</button>
+                    </div>
+                </div>
+                <div class="filter-block">
+                    <div class="filter-label">Consumables</div>
+                    <div id="devices_consumable_filter" class="pill-toggle-group" role="group" aria-label="Consumable filters">
+                        <button class="pill active" data-band="critical" data-label="Critical">Critical</button>
+                        <button class="pill active" data-band="low" data-label="Low">Low</button>
+                        <button class="pill active" data-band="medium" data-label="Medium">Medium</button>
+                        <button class="pill active" data-band="high" data-label="High">High</button>
+                        <button class="pill active" data-band="unknown" data-label="Unknown">Unknown</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="devices_active_filters" class="filter-chip-row"></div>
+
+            <div id="devices_stats" class="devices-inline-stats"></div>
+
             <div class="device-cards-container" id="devices_cards"></div>
+            <div id="devices_table_wrapper" class="hidden">
+                <div class="table-wrapper">
+                    <table class="simple-table" id="devices_table">
+                        <thead>
+                            <tr>
+                                <th data-sort-key="manufacturer">Device</th>
+                                <th data-sort-key="status">Status</th>
+                                <th data-sort-key="agent">Agent</th>
+                                <th data-sort-key="ip">Network</th>
+                                <th data-sort-key="location">Location</th>
+                                <th data-sort-key="last_seen">Last Seen</th>
+                                <th class="actions-col">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="7" class="muted-text">Loading devices…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- Metrics Tab -->
