@@ -19,6 +19,17 @@ function serveFile(res, filePath, contentType) {
   res.end(payload);
 }
 
+function normalizeStaticPath(pathname) {
+  if (!pathname) return pathname;
+  try {
+    const decoded = decodeURIComponent(pathname);
+    const [base] = decoded.split('{{');
+    return base || decoded;
+  } catch (err) {
+    return pathname;
+  }
+}
+
 function startAppFixtureServer() {
   return http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -36,8 +47,9 @@ function startAppFixtureServer() {
         '/static/rbac.js': { file: rbacJs, type: 'application/javascript' },
         '/static/sso-admin.js': { file: ssoAdminJs, type: 'application/javascript' },
       };
-      if (staticRoutes[url.pathname]) {
-        const entry = staticRoutes[url.pathname];
+      const normalizedPath = normalizeStaticPath(url.pathname);
+      if (staticRoutes[normalizedPath]) {
+        const entry = staticRoutes[normalizedPath];
         return serveFile(res, entry.file, entry.type);
       }
       if (url.pathname === '/favicon.ico') {
