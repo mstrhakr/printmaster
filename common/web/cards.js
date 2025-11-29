@@ -484,6 +484,12 @@
                 return;
             }
 
+            if (action === 'update-agent') {
+                const agentId = btn.getAttribute('data-agent-id');
+                window.__pm_shared.updateAgent(agentId);
+                return;
+            }
+
             if (action === 'open-device') {
                 const serial = btn.getAttribute('data-serial');
                 window.__pm_shared.openDeviceUI(serial);

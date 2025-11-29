@@ -950,6 +950,29 @@ button.delete:hover {
   box-shadow: var(--shadow-lg);
 }
 
+/* Update button for agent version column */
+.update-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.update-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.update-btn.disabled,
+.update-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--muted);
+}
+
 button:hover {
   filter: brightness(1.08);
   transform: translateY(-1px);

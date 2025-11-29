@@ -213,6 +213,7 @@ const agentsVM = {
         summary: null,
         lastFetched: null,
     },
+    latestVersion: null,
     filters: {
         query: '',
         version: '',
@@ -2025,12 +2026,18 @@ async function loadAgents(force = false) {
     agentsVM.loading = true;
     renderAgentsLoading();
     const tenantPromise = ensureTenantDirectory();
+    // Fetch latest agent version in parallel with agent list
+    const latestVersionPromise = fetch('/api/v1/releases/latest-agent-version')
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null);
     try {
         const response = await fetch('/api/v1/agents/list');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         const agents = await response.json();
+        const latestVersionData = await latestVersionPromise;
+        agentsVM.latestVersion = latestVersionData?.version || null;
         await tenantPromise;
         updateAgentDirectory(Array.isArray(agents) ? agents : []);
         agentsVM.items = enrichAgents(Array.isArray(agents) ? agents : []);
@@ -3631,6 +3638,26 @@ function renderAgentCards(agents) {
     cards.innerHTML = agents.map(agent => renderAgentCard(agent)).join('');
 }
 
+function renderAgentVersionCell(agent, forTable = false) {
+    const currentVersion = agent.version || '';
+    const latestVersion = agentsVM.latestVersion;
+    const displayVersion = escapeHtml(currentVersion || 'N/A');
+    
+    // Check if update is available
+    if (latestVersion && currentVersion && currentVersion !== latestVersion && currentVersion !== 'N/A') {
+        const meta = agent.__meta || {};
+        const canUpdate = meta.connectionKey === 'ws';
+        const tooltip = canUpdate ? `Update available: ${latestVersion}` : 'Agent not connected via WebSocket';
+        const buttonClass = canUpdate ? 'update-btn' : 'update-btn disabled';
+        const updateBtn = `<button class="${buttonClass}" data-action="update-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" title="${escapeHtml(tooltip)}" ${canUpdate ? '' : 'disabled'}>↑ ${escapeHtml(latestVersion)}</button>`;
+        if (forTable) {
+            return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${updateBtn}</div>`;
+        }
+        return `${displayVersion} ${updateBtn}`;
+    }
+    return displayVersion;
+}
+
 function renderAgentTable(agents) {
     const cards = document.getElementById('agents_cards');
     const wrapper = document.getElementById('agents_table_wrapper');
@@ -3658,7 +3685,7 @@ function renderAgentTable(agents) {
                 <td>${renderAgentStatusBadge(meta)}</td>
                 <td>${renderAgentConnectionBadge(meta)}</td>
                 <td>${escapeHtml(agent.platform || 'Unknown')}</td>
-                <td>${escapeHtml(agent.version || 'N/A')}</td>
+                <td>${renderAgentVersionCell(agent, true)}</td>
                 <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
                 <td class="actions-col">
                     <div class="table-actions">
@@ -3717,7 +3744,7 @@ function renderAgentCard(agent) {
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">Version</span>
-                    <span class="device-card-value">${escapeHtml(agent.version || 'N/A')}</span>
+                    <span class="device-card-value">${renderAgentVersionCell(agent, false)}</span>
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">Last Seen</span>
@@ -4385,6 +4412,38 @@ function _attachAgentUpdateHandler(agent) {
     }
 }
 
+// ====== Update Agent (from agent list/cards) ======
+async function updateAgent(agentId) {
+    if (!agentId) {
+        window.__pm_shared.showToast('No agent ID provided', 'error');
+        return;
+    }
+    
+    try {
+        window.__pm_shared.showToast('Sending update command to agent...', 'info');
+        const response = await fetch(`/api/v1/agents/command/${agentId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'check_update' })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        const result = await response.json();
+        if (result.success) {
+            window.__pm_shared.showToast('Update command sent successfully. Agent will check for updates.', 'success');
+        } else {
+            window.__pm_shared.showToast('Update command sent, but response was: ' + (result.message || 'unknown'), 'warning');
+        }
+    } catch (error) {
+        window.__pm_shared.error('Failed to send update command:', error);
+        window.__pm_shared.showToast('Failed to send update command: ' + (error.message || error), 'error');
+    }
+}
+
 // Expose server-specific agent UI helpers to the shared namespace so the
 // delegated card handlers (loaded earlier) call the rich renderer instead
 // of the generic fallback in `common/web/shared.js` which shows raw JSON.
@@ -4395,6 +4454,7 @@ try {
     // Also expose delete/open helpers if present so shared callers use server implementations
     window.__pm_shared.deleteAgent = window.__pm_shared.deleteAgent || deleteAgent;
     window.__pm_shared.openAgentUI = window.__pm_shared.openAgentUI || openAgentUI;
+    window.__pm_shared.updateAgent = window.__pm_shared.updateAgent || updateAgent;
     // Always override device helpers so cards and shared UI use the server proxy endpoint
     window.__pm_shared.openDeviceUI = openDeviceUI;
     window.__pm_shared.openDeviceMetrics = window.__pm_shared.openDeviceMetrics || openDeviceMetrics;
