@@ -316,6 +316,8 @@ var (
 	selfUpdateManager   *selfupdate.Manager    // Self-update manager for server binary updates
 )
 
+var processStart = time.Now()
+
 // Ensure SSE hub exists by default so handlers can broadcast without nil checks.
 func init() {
 	// If tests or other packages haven't initialized the hub yet, create it now.
@@ -4296,9 +4298,46 @@ func handleMetricsAggregated(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	attachServerStats(ctx, agg)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(agg)
+}
+
+func attachServerStats(ctx context.Context, agg *storage.AggregatedMetrics) {
+	if agg == nil {
+		return
+	}
+	stats := storage.ServerStats{
+		GeneratedAt:   time.Now().UTC(),
+		Hostname:      "PrintMaster",
+		UptimeSeconds: int64(time.Since(processStart).Seconds()),
+		Runtime: storage.RuntimeStats{
+			GoVersion:    runtime.Version(),
+			NumCPU:       runtime.NumCPU(),
+			NumGoroutine: runtime.NumGoroutine(),
+			StartTime:    processStart.UTC(),
+		},
+	}
+	if host, err := os.Hostname(); err == nil && host != "" {
+		stats.Hostname = host
+	}
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+	stats.Runtime.Memory = storage.MemoryStats{
+		HeapAlloc:  mem.HeapAlloc,
+		HeapSys:    mem.HeapSys,
+		StackInUse: mem.StackInuse,
+		StackSys:   mem.StackSys,
+		TotalAlloc: mem.TotalAlloc,
+		Sys:        mem.Sys,
+	}
+	if dbStats, err := serverStore.GetDatabaseStats(ctx); err != nil {
+		logWarn("Failed to load database stats", "error", err)
+	} else {
+		stats.Database = dbStats
+	}
+	agg.Server = stats
 }
 
 // handleMetricsHistory returns metrics history for a device from server store.
