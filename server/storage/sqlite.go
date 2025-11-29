@@ -55,10 +55,11 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 
 	// Build connection string with pragmas (skip for in-memory databases)
 	connStr := dbPath
+	const busyTimeoutMS = 10000
 	if dbPath != ":memory:" {
-		connStr += "?_journal_mode=WAL&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON"
+		connStr += fmt.Sprintf("?_busy_timeout=%d&_journal_mode=WAL&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON", busyTimeoutMS)
 	} else {
-		connStr += "?_foreign_keys=ON"
+		connStr += fmt.Sprintf("?_busy_timeout=%d&_foreign_keys=ON", busyTimeoutMS)
 	}
 
 	// Open database
