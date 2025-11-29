@@ -16,6 +16,8 @@ import (
 
 	"printmaster/common/logger"
 	"printmaster/server/storage"
+
+	"github.com/Masterminds/semver"
 )
 
 const defaultManifestVersion = "1.0"
@@ -200,6 +202,7 @@ func (m *Manager) GetLatestManifest(ctx context.Context, component, platform, ar
 	}
 
 	var latest *storage.ReleaseManifest
+	var latestVersion *semver.Version
 	for _, manifest := range manifests {
 		if manifest.Platform != platform || manifest.Arch != arch {
 			continue
@@ -207,7 +210,20 @@ func (m *Manager) GetLatestManifest(ctx context.Context, component, platform, ar
 		if channel != "" && manifest.Channel != channel {
 			continue
 		}
-		if latest == nil || manifest.Version > latest.Version {
+		candidateVersion := parseSemverVersion(manifest.Version)
+		if latest == nil {
+			latest = manifest
+			latestVersion = candidateVersion
+			continue
+		}
+		if candidateVersion != nil {
+			if latestVersion == nil || candidateVersion.GreaterThan(latestVersion) {
+				latest = manifest
+				latestVersion = candidateVersion
+			}
+			continue
+		}
+		if latestVersion == nil && manifest.Version > latest.Version {
 			latest = manifest
 		}
 	}
@@ -387,6 +403,18 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return trimmed
+}
+
+func parseSemverVersion(raw string) *semver.Version {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(raw, "v"))
+	if trimmed == "" {
+		return nil
+	}
+	ver, err := semver.NewVersion(trimmed)
+	if err != nil {
+		return nil
+	}
+	return ver
 }
 
 func artifactFromManifest(manifest *storage.ReleaseManifest) (*storage.ReleaseArtifact, error) {
