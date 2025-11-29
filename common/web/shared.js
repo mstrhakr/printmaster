@@ -53,6 +53,8 @@ try {
     window.__pm_auth = window.__pm_auth || {
         currentUser: null,
         fetching: null,
+        redirectPending: false,
+        _optionsPromise: null,
         ensureAuth: async function() {
             // Reuse in-flight request
             if (this.fetching) return this.fetching;
@@ -64,6 +66,7 @@ try {
                         self.currentUser = await resp.json();
                     } else {
                         self.currentUser = null;
+                        self.handleAuthFailure(resp.status);
                     }
                 } catch (e) {
                     self.currentUser = null;
@@ -75,6 +78,52 @@ try {
                 }
             })();
             return this.fetching;
+        },
+        handleAuthFailure: function(status) {
+            try {
+                if (status !== 401) return;
+                if (this.redirectPending) return;
+                if (typeof window === 'undefined' || !window.location) return;
+                if ((window.location.pathname || '') === '/login') return;
+                if (document && document.querySelector && document.querySelector('meta[http-equiv="X-PrintMaster-Proxied"]')) {
+                    // Server proxy handles login redirects
+                    return;
+                }
+                this.redirectPending = true;
+                const finalize = (opts) => {
+                    const target = this.buildLoginRedirect(opts);
+                    if (target) {
+                        window.location.href = target;
+                    }
+                };
+                this.fetchOptions().then(finalize).catch(() => finalize(null));
+            } catch (e) { /* graceful */ }
+        },
+        fetchOptions: function() {
+            if (!this._optionsPromise) {
+                this._optionsPromise = fetch('/api/v1/auth/options', { credentials: 'same-origin' })
+                    .then(resp => resp.ok ? resp.json() : null)
+                    .catch(() => null);
+            }
+            return this._optionsPromise;
+        },
+        buildLoginRedirect: function(opts) {
+            try {
+                if (typeof window === 'undefined' || !window.location) return '/login';
+                const loc = window.location;
+                const path = (loc.pathname || '/');
+                const search = loc.search || '';
+                const safeReturn = path.startsWith('/') ? (path + search) : '/';
+                if (opts && opts.mode === 'server' && opts.server_url) {
+                    const trimmed = opts.server_url.replace(/\/$/, '');
+                    return trimmed + '/login?return_to=' + encodeURIComponent(safeReturn || '/');
+                }
+                const params = new URLSearchParams();
+                params.set('return_to', safeReturn || '/');
+                return '/login?' + params.toString();
+            } catch (e) {
+                return '/login';
+            }
         },
         hasRole: function(minRole) {
             if (!this.currentUser) return false;

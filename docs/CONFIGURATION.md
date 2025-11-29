@@ -51,6 +51,20 @@ discovery_concurrency = 100
 	name = "HQ Agent"
 ```
 
+### Web Auth Modes
+
+The `[web.auth]` block controls how the embedded agent UI enforces authentication:
+
+| Mode       | Behavior |
+|------------|----------|
+| `local`    | The UI is available without credentials. Admin tasks continue to require loopback access if `allow_local_admin = true`. Remote browsers must already have a reverse proxy in front of the agent. |
+| `server`   | The agent defers login to the central PrintMaster server. Unauthenticated HTML requests are redirected to `https://<server>/login` and the agent issues short-lived sessions once the server validates credentials. |
+| `disabled` | Legacy/unsafe mode. The UI is always available; only use this while troubleshooting isolated lab hardware. |
+
+When `allow_local_admin` stays set to `true`, loopback requests (`127.0.0.1`, `::1`) retain admin access so technicians can recover a misconfigured system without contacting the server.
+
+The agent now exposes a dedicated login page at `/login` along with `/api/v1/auth/login|logout|me|options`. When the server mode is enabled the page displays a link back to the central server’s login experience; when the agent is standalone it renders a lightweight username/password form and stores the resulting session in an in-memory cookie.
+
 ### Agent Auto-Update Overrides
 
 Agents can optionally pin their own update cadence when disconnected from the

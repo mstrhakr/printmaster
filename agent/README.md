@@ -439,10 +439,10 @@ CMD ["printmaster-agent", "-port", "8080"]
 
 ### Network Exposure
 
-- Agent listens on configured port (default 8080)
-- No authentication by default (planned feature)
-- Restrict access with firewall rules
-- Use reverse proxy for HTTPS (nginx, Caddy)
+- Agent listens on the configured HTTP/HTTPS ports (default 8080/8443)
+- Web UI authentication is driven by `[web.auth]` (see `config.example.toml`). Use `mode = "server"` to force central logins or keep `mode = "local"` with `allow_local_admin = true` for loopback-only access.
+- Restrict access with firewall rules when running in local mode.
+- Use the built-in TLS support or terminate behind a reverse proxy (nginx, Caddy).
 
 ### Database
 
@@ -454,8 +454,8 @@ CMD ["printmaster-agent", "-port", "8080"]
 
 ### Short-Term (Planned)
 - [ ] SNMPv3 support (authentication + encryption)
-- [ ] Authentication for web UI
-- [ ] TLS/HTTPS support
+- [x] Authentication for web UI
+- [x] TLS/HTTPS support
 - [ ] Webhook notifications
 - [ ] Prometheus metrics export
 - [ ] CSV/JSON export

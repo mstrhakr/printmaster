@@ -315,6 +315,14 @@ epson_remote_mode_enabled = false
     allow_local_admin = true
 ```
 
+**Web Auth Notes**
+
+- `mode = "server"` routes unauthenticated browsers to the central PrintMaster login and automatically establishes an agent session once the server validates the user. Use this for any deployment that reports into the hub.
+- `mode = "local"` keeps the historical behavior but now provides a `/login` page for standalone credentials. Remote users must still reach the host over HTTPS. Set `allow_local_admin = true` to preserve the loopback bypass for on-box recovery.
+- `mode = "disabled"` leaves the UI wide open and should only be used temporarily while debugging in isolated networks.
+
+The embedded login experience lives at `/login` and is backed by `POST /api/v1/auth/login`, `/api/v1/auth/logout`, `/api/v1/auth/me`, and `/api/v1/auth/options`. These endpoints remain accessible without authentication so the login screen can bootstrap itself, while all other routes are now protected by the new middleware.
+
 ### Environment Variable Overrides
 ```powershell
 # Preferred precedence: AGENT_CONFIG > AGENT_CONFIG_PATH > CONFIG > CONFIG_PATH

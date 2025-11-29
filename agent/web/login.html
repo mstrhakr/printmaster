@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PrintMaster Agent Login</title>
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='16' y='8' width='32' height='12' fill='%234a5568' rx='2'/><rect x='12' y='20' width='40' height='24' fill='%23718096' rx='3'/><rect x='16' y='24' width='32' height='16' fill='%23cbd5e0' rx='2'/><rect x='20' y='28' width='8' height='2' fill='%234299e1'/><rect x='20' y='32' width='12' height='2' fill='%234299e1'/><rect x='20' y='36' width='10' height='2' fill='%234299e1'/><circle cx='46' cy='32' r='3' fill='%2348bb78'/><rect x='16' y='44' width='32' height='12' fill='%234a5568' rx='2'/><rect x='20' y='48' width='24' height='4' fill='%23e2e8f0'/></svg>">
+    <link rel="stylesheet" href="static/shared.css">
+    <link rel="stylesheet" href="static/login.css">
+    <script defer src="static/login.js"></script>
+</head>
+
+<body class="login-body">
+    <main class="login-shell">
+        <section class="login-card" aria-label="PrintMaster agent login">
+            <div class="login-brand">
+                <div class="login-logo" aria-hidden="true">PM</div>
+                <div>
+                    <h1>PrintMaster Agent</h1>
+                    <p class="login-subtitle">Secure authentication required</p>
+                </div>
+            </div>
+
+            <div id="login_status" class="login-status hidden" role="status" aria-live="polite"></div>
+
+            <form id="login_form" novalidate>
+                <label class="login-field" for="login_username">
+                    <span>Username</span>
+                    <input id="login_username" type="text" name="username" autocomplete="username" required>
+                </label>
+                <label class="login-field" for="login_password">
+                    <span>Password</span>
+                    <input id="login_password" type="password" name="password" autocomplete="current-password" required>
+                </label>
+                <button type="submit" id="login_submit" class="login-submit">Sign In</button>
+            </form>
+
+            <p id="loopback_notice" class="login-hint hidden">Loopback access is still available for administrators on
+                this host when enabled.</p>
+
+            <div id="server_login_wrap" class="login-alt hidden">
+                <p>Need to use your central PrintMaster account?</p>
+                <a id="server_login_link" class="login-link" href="#" rel="noopener">Open server login</a>
+            </div>
+        </section>
+    </main>
+</body>
+
+</html>

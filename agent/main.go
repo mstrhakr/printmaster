@@ -100,16 +100,623 @@ func basicAuth(userpass string) string {
 // Global session cache for form-based logins
 var proxySessionCache = proxy.NewSessionCache()
 
+var agentSessions = newAgentSessionManager()
+var agentAuth *agentAuthManager
+
 // AgentPrincipal represents an authenticated UI context (placeholder for future auth)
 type AgentPrincipal struct {
-	Username string `json:"username"`
-	Role     string `json:"role"`
-	Source   string `json:"source"`
+	Username  string   `json:"username"`
+	Role      string   `json:"role"`
+	Source    string   `json:"source"`
+	TenantIDs []string `json:"tenant_ids,omitempty"`
 }
 
 type contextKey string
 
-const isHTTPSContextKey contextKey = "isHTTPS"
+const (
+	isHTTPSContextKey        contextKey = "isHTTPS"
+	agentPrincipalContextKey contextKey = "agentPrincipal"
+)
+
+const (
+	agentSessionCookieName = "pm_agent_session"
+	defaultAgentSessionTTL = 24 * time.Hour
+	serverAuthTimeout      = 15 * time.Second
+)
+
+type agentSession struct {
+	ID          string
+	Principal   *AgentPrincipal
+	ServerToken string
+	ExpiresAt   time.Time
+}
+
+type agentSessionManager struct {
+	mu       sync.RWMutex
+	sessions map[string]*agentSession
+}
+
+func newAgentSessionManager() *agentSessionManager {
+	return &agentSessionManager{sessions: make(map[string]*agentSession)}
+}
+
+func (m *agentSessionManager) Create(principal *AgentPrincipal, serverToken string, expiresAt time.Time) string {
+	if principal == nil {
+		return ""
+	}
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().Add(24 * time.Hour)
+	}
+	token := randomSessionToken()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanupLocked()
+	m.sessions[token] = &agentSession{
+		ID:          token,
+		Principal:   principal,
+		ServerToken: serverToken,
+		ExpiresAt:   expiresAt,
+	}
+	return token
+}
+
+func (m *agentSessionManager) Get(token string) (*agentSession, bool) {
+	if token == "" {
+		return nil, false
+	}
+	m.mu.RLock()
+	sess, ok := m.sessions[token]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(sess.ExpiresAt) {
+		m.Delete(token)
+		return nil, false
+	}
+	return sess, true
+}
+
+func (m *agentSessionManager) Delete(token string) {
+	if token == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.sessions, token)
+	m.mu.Unlock()
+}
+
+func (m *agentSessionManager) cleanupLocked() {
+	now := time.Now()
+	for key, sess := range m.sessions {
+		if now.After(sess.ExpiresAt) {
+			delete(m.sessions, key)
+		}
+	}
+}
+
+func randomSessionToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+var (
+	errInvalidCredentials = errors.New("invalid credentials")
+)
+
+type agentAuthManager struct {
+	mode             string
+	allowLocalAdmin  bool
+	serverURL        string
+	serverCAPath     string
+	serverSkipVerify bool
+	sessions         *agentSessionManager
+	publicExact      map[string]struct{}
+	publicPrefixes   []string
+}
+
+type agentAuthOptions struct {
+	Mode            string `json:"mode"`
+	AllowLocalAdmin bool   `json:"allow_local_admin"`
+	ServerURL       string `json:"server_url,omitempty"`
+	LoginSupported  bool   `json:"login_supported"`
+}
+
+func newAgentAuthManager(cfg *AgentConfig, sessions *agentSessionManager) *agentAuthManager {
+	mode := "local"
+	allowLocal := true
+	serverURL := ""
+	serverCA := ""
+	serverSkip := false
+	if cfg != nil {
+		if cfg.Web.Auth.Mode != "" {
+			mode = strings.ToLower(strings.TrimSpace(cfg.Web.Auth.Mode))
+		}
+		allowLocal = cfg.Web.Auth.AllowLocalAdmin
+		serverURL = strings.TrimSpace(cfg.Server.URL)
+		serverCA = strings.TrimSpace(cfg.Server.CAPath)
+		serverSkip = cfg.Server.InsecureSkipVerify
+	}
+	return &agentAuthManager{
+		mode:             mode,
+		allowLocalAdmin:  allowLocal,
+		serverURL:        serverURL,
+		serverCAPath:     serverCA,
+		serverSkipVerify: serverSkip,
+		sessions:         sessions,
+		publicExact: map[string]struct{}{
+			"/login":               {},
+			"/favicon.ico":         {},
+			"/api/version":         {},
+			"/api/v1/auth/options": {},
+			"/api/v1/auth/login":   {},
+			"/api/v1/auth/logout":  {},
+			"/api/v1/auth/me":      {},
+		},
+		publicPrefixes: []string{"/static/"},
+	}
+}
+
+func (a *agentAuthManager) optionsPayload() agentAuthOptions {
+	if a == nil {
+		return agentAuthOptions{Mode: "disabled", AllowLocalAdmin: true, LoginSupported: false}
+	}
+	loginSupported := strings.TrimSpace(a.serverURL) != "" && a.mode == "server"
+	opts := agentAuthOptions{
+		Mode:            a.mode,
+		AllowLocalAdmin: a.allowLocalAdmin,
+		LoginSupported:  loginSupported,
+	}
+	if loginSupported {
+		opts.ServerURL = strings.TrimSpace(a.serverURL)
+	}
+	return opts
+}
+
+func (a *agentAuthManager) Wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler := next
+		if handler == nil {
+			handler = http.DefaultServeMux
+		}
+		if a == nil || a.shouldBypass(r) {
+			handler.ServeHTTP(w, r)
+			return
+		}
+		principal, ok := a.authenticate(r)
+		if !ok {
+			a.respondUnauthorized(w, r)
+			return
+		}
+		ctx := context.WithValue(r.Context(), agentPrincipalContextKey, principal)
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (a *agentAuthManager) shouldBypass(r *http.Request) bool {
+	if a == nil || a.mode == "disabled" {
+		return true
+	}
+	path := r.URL.Path
+	if _, ok := a.publicExact[path]; ok {
+		return true
+	}
+	for _, prefix := range a.publicPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *agentAuthManager) PrincipalForRequest(r *http.Request) (*AgentPrincipal, bool) {
+	return a.authenticate(r)
+}
+
+func (a *agentAuthManager) authenticate(r *http.Request) (*AgentPrincipal, bool) {
+	if a == nil || a.mode == "disabled" {
+		return &AgentPrincipal{Username: "system", Role: "admin", Source: "disabled"}, true
+	}
+	if sess := a.sessionFromRequest(r); sess != nil {
+		return sess.Principal, true
+	}
+	if a.allowLocalAdmin && requestIsLoopback(r) {
+		return &AgentPrincipal{Username: "local-admin", Role: "admin", Source: "loopback"}, true
+	}
+	switch a.mode {
+	case "local":
+		return nil, false
+	case "server":
+		return nil, false
+	default:
+		return nil, false
+	}
+}
+
+func (a *agentAuthManager) respondUnauthorized(w http.ResponseWriter, r *http.Request) {
+	if a != nil && a.mode == "server" && strings.TrimSpace(a.serverURL) != "" && acceptsHTML(r) {
+		http.Redirect(w, r, a.serverLoginURL(r), http.StatusFound)
+		return
+	}
+	if acceptsHTML(r) {
+		redirectTo := "/login"
+		if r.URL != nil && r.URL.Path != "/login" {
+			redirectTo = redirectTo + "?return_to=" + url.QueryEscape(r.URL.RequestURI())
+		}
+		http.Redirect(w, r, redirectTo, http.StatusFound)
+		return
+	}
+	http.Error(w, "unauthorized", http.StatusUnauthorized)
+}
+
+func (a *agentAuthManager) sessionFromRequest(r *http.Request) *agentSession {
+	if a == nil || a.sessions == nil {
+		return nil
+	}
+	cookie, err := r.Cookie(agentSessionCookieName)
+	if err != nil {
+		return nil
+	}
+	sess, ok := a.sessions.Get(cookie.Value)
+	if !ok {
+		return nil
+	}
+	return sess
+}
+
+func requestIsLoopback(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	checkHost := func(value string) bool {
+		if value == "" {
+			return false
+		}
+		host := value
+		if strings.Contains(host, ":") {
+			if parsedHost, _, err := net.SplitHostPort(value); err == nil {
+				host = parsedHost
+			}
+		}
+		ip := net.ParseIP(strings.TrimSpace(host))
+		return ip != nil && ip.IsLoopback()
+	}
+	if checkHost(r.RemoteAddr) {
+		return true
+	}
+	xff := r.Header.Get("X-Forwarded-For")
+	if xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 && checkHost(parts[0]) {
+			return true
+		}
+	}
+	return false
+}
+
+func requestIsHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if v := r.Context().Value(isHTTPSContextKey); v != nil {
+		if flag, ok := v.(bool); ok && flag {
+			return true
+		}
+	}
+	proto := strings.TrimSpace(strings.ToLower(r.Header.Get("X-Forwarded-Proto")))
+	return proto == "https"
+}
+
+func acceptsHTML(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	header := r.Header.Get("Accept")
+	if strings.Contains(header, "text/html") {
+		return true
+	}
+	return r.URL != nil && r.URL.Path == "/"
+}
+
+func (a *agentAuthManager) issueSessionCookie(w http.ResponseWriter, r *http.Request, principal *AgentPrincipal, serverToken string, expiresAt time.Time) (string, error) {
+	if a == nil || a.sessions == nil || principal == nil {
+		return "", errors.New("authentication disabled")
+	}
+	if expiresAt.IsZero() || expiresAt.Before(time.Now()) {
+		expiresAt = time.Now().Add(defaultAgentSessionTTL)
+	}
+	sessionID := a.sessions.Create(principal, serverToken, expiresAt)
+	cookie := &http.Cookie{
+		Name:     agentSessionCookieName,
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   requestIsHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+		Expires:  expiresAt,
+	}
+	if expiresAt.After(time.Now()) {
+		cookie.MaxAge = int(time.Until(expiresAt).Seconds())
+	}
+	http.SetCookie(w, cookie)
+	return sessionID, nil
+}
+
+func (a *agentAuthManager) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     agentSessionCookieName,
+		Value:    "",
+		Path:     "/",
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   requestIsHTTPS(r),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (a *agentAuthManager) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if principal, ok := a.authenticate(r); ok && principal != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(principal)
+		return
+	}
+	http.Error(w, "unauthenticated", http.StatusUnauthorized)
+}
+
+func (a *agentAuthManager) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if a == nil {
+		http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	username := strings.TrimSpace(req.Username)
+	password := req.Password
+	if username == "" || password == "" {
+		http.Error(w, "username and password required", http.StatusBadRequest)
+		return
+	}
+	switch a.mode {
+	case "server":
+		principal, serverToken, expiresAt, err := a.serverLogin(r.Context(), username, password)
+		if err != nil {
+			if errors.Is(err, errInvalidCredentials) {
+				http.Error(w, "invalid credentials", http.StatusUnauthorized)
+				return
+			}
+			if appLogger != nil {
+				appLogger.Warn("Server login via agent failed", "error", err.Error())
+			}
+			http.Error(w, "login failed", http.StatusBadGateway)
+			return
+		}
+		if _, err := a.issueSessionCookie(w, r, principal, serverToken, expiresAt); err != nil {
+			http.Error(w, "failed to create session", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"user":    principal,
+		})
+		return
+	case "disabled":
+		http.Error(w, "authentication disabled", http.StatusForbidden)
+		return
+	default:
+		http.Error(w, "login mode not supported", http.StatusNotImplemented)
+		return
+	}
+}
+
+func (a *agentAuthManager) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if a == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		return
+	}
+	var serverToken string
+	cookie, err := r.Cookie(agentSessionCookieName)
+	if err == nil && cookie.Value != "" {
+		if sess, ok := a.sessions.Get(cookie.Value); ok {
+			serverToken = sess.ServerToken
+		}
+		a.sessions.Delete(cookie.Value)
+	}
+	a.clearSessionCookie(w, r)
+	if serverToken != "" && a.mode == "server" {
+		if err := a.serverLogout(r.Context(), serverToken); err != nil && appLogger != nil {
+			appLogger.Warn("Failed to log out from server", "error", err.Error())
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"success": true})
+}
+
+func (a *agentAuthManager) serverLogin(ctx context.Context, username, password string) (*AgentPrincipal, string, time.Time, error) {
+	if a == nil || strings.TrimSpace(a.serverURL) == "" {
+		return nil, "", time.Time{}, fmt.Errorf("server login unavailable")
+	}
+	client, err := a.newServerHTTPClient()
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	payload := map[string]string{"username": username, "password": password}
+	buf := &bytes.Buffer{}
+	if err := json.NewEncoder(buf).Encode(payload); err != nil {
+		return nil, "", time.Time{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.serverAPIURL("/api/v1/auth/login"), bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("PrintMaster-Agent/%s", Version))
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, "", time.Time{}, errInvalidCredentials
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", time.Time{}, fmt.Errorf("server login failed: status %d", resp.StatusCode)
+	}
+	var loginResp struct {
+		Token     string `json:"token"`
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.Unmarshal(data, &loginResp); err != nil {
+		return nil, "", time.Time{}, err
+	}
+	if loginResp.Token == "" {
+		return nil, "", time.Time{}, fmt.Errorf("server login failed: missing token")
+	}
+	expiresAt := time.Now().Add(defaultAgentSessionTTL)
+	if loginResp.ExpiresAt != "" {
+		if parsed, err := time.Parse(time.RFC3339, loginResp.ExpiresAt); err == nil {
+			expiresAt = parsed
+		}
+	}
+	principal, err := a.fetchServerPrincipal(ctx, client, loginResp.Token)
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	return principal, loginResp.Token, expiresAt, nil
+}
+
+func (a *agentAuthManager) serverLogout(ctx context.Context, serverToken string) error {
+	if a == nil || serverToken == "" {
+		return nil
+	}
+	client, err := a.newServerHTTPClient()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.serverAPIURL("/api/v1/auth/logout"), nil)
+	if err != nil {
+		return err
+	}
+	req.AddCookie(&http.Cookie{Name: "pm_session", Value: serverToken})
+	req.Header.Set("User-Agent", fmt.Sprintf("PrintMaster-Agent/%s", Version))
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("server logout failed: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (a *agentAuthManager) fetchServerPrincipal(ctx context.Context, client *http.Client, serverToken string) (*AgentPrincipal, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.serverAPIURL("/api/v1/auth/me"), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.AddCookie(&http.Cookie{Name: "pm_session", Value: serverToken})
+	req.Header.Set("User-Agent", fmt.Sprintf("PrintMaster-Agent/%s", Version))
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("auth verification failed: status %d", resp.StatusCode)
+	}
+	var payload struct {
+		Username  string   `json:"username"`
+		Role      string   `json:"role"`
+		TenantID  string   `json:"tenant_id"`
+		TenantIDs []string `json:"tenant_ids"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	ids := payload.TenantIDs
+	if len(ids) == 0 && payload.TenantID != "" {
+		ids = []string{payload.TenantID}
+	}
+	return &AgentPrincipal{
+		Username:  payload.Username,
+		Role:      payload.Role,
+		Source:    "server",
+		TenantIDs: ids,
+	}, nil
+}
+
+func (a *agentAuthManager) newServerHTTPClient() (*http.Client, error) {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: a.serverSkipVerify}
+	if a.serverCAPath != "" {
+		pemData, err := os.ReadFile(a.serverCAPath)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pemData) {
+			return nil, fmt.Errorf("failed to parse server CA certificate")
+		}
+		tlsConfig.RootCAs = pool
+	}
+	transport := &http.Transport{TLSClientConfig: tlsConfig}
+	return &http.Client{Timeout: serverAuthTimeout, Transport: transport}, nil
+}
+
+func (a *agentAuthManager) serverAPIURL(p string) string {
+	base := strings.TrimRight(a.serverURL, "/")
+	if base == "" {
+		return p
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return base + p
+}
+
+func (a *agentAuthManager) serverLoginURL(r *http.Request) string {
+	if a == nil || strings.TrimSpace(a.serverURL) == "" {
+		return "/login"
+	}
+	returnTo := "/"
+	if r != nil && r.URL != nil {
+		if uri := r.URL.RequestURI(); uri != "" {
+			returnTo = uri
+		}
+	}
+	return strings.TrimRight(a.serverURL, "/") + "/login?return_to=" + url.QueryEscape(returnTo)
+}
 
 type staticResourceCache struct {
 	sync.RWMutex
@@ -1753,6 +2360,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 	}
 	configEpsonRemoteModeEnabled = agentConfig != nil && agentConfig.EpsonRemoteModeEnabled
 	featureflags.SetEpsonRemoteMode(configEpsonRemoteModeEnabled)
+	agentAuth = newAgentAuthManager(agentConfig, agentSessions)
 
 	// Always apply environment overrides for database path (supports AGENT_DB_PATH and DB_PATH)
 	// even when using default configuration (no config file present).
@@ -3018,6 +3626,20 @@ func runInteractive(ctx context.Context, configFlag string) {
 		}
 
 		w.Write(content)
+	})
+
+	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "only GET allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if data, err := webFS.ReadFile("web/login.html"); err == nil {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(data)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		io.WriteString(w, "<!doctype html><html><head><title>Login</title></head><body><h1>Authentication Required</h1><p>The agent login interface has not been installed. Please access this agent through the central server or install the latest web assets.</p></body></html>")
 	})
 
 	// Helper function to create bool pointer
@@ -4802,74 +5424,43 @@ window.top.location.href = '/proxy/%s/';
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Auth endpoints (lightweight placeholder; future server-callback/HMAC verification)
+	// Auth endpoints leverage agentAuth manager for local session enforcement
 	http.HandleFunc("/api/v1/auth/me", func(w http.ResponseWriter, r *http.Request) {
-		// Loopback bypass when enabled
-		isLoopback := func() bool {
-			h := r.RemoteAddr
-			host, _, err := net.SplitHostPort(h)
-			if err != nil {
-				host = h
-			}
-			ip := net.ParseIP(host)
-			if ip != nil && ip.IsLoopback() {
-				return true
-			}
-			// Trust X-Forwarded-For first value if present (avoid spoof in future by proxy trust list)
-			xff := r.Header.Get("X-Forwarded-For")
-			if xff != "" {
-				parts := strings.Split(xff, ",")
-				fhost := strings.TrimSpace(parts[0])
-				ip2 := net.ParseIP(fhost)
-				if ip2 != nil && ip2.IsLoopback() {
-					return true
-				}
-			}
-			return false
-		}()
-		mode := "local"
-		allowLocal := true
-		if agentConfig != nil {
-			mode = agentConfig.Web.Auth.Mode
-			allowLocal = agentConfig.Web.Auth.AllowLocalAdmin
-		}
-		if mode == "disabled" {
-			http.Error(w, "auth disabled", http.StatusUnauthorized)
+		if agentAuth == nil {
+			http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		if isLoopback && allowLocal {
-			p := &AgentPrincipal{Username: "local-admin", Role: "admin", Source: "local-bypass"}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(p)
-			return
-		}
-		// Future: validate server-provided session/callback here
-		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		agentAuth.handleAuthMe(w, r)
 	})
 
 	http.HandleFunc("/api/v1/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		if agentAuth == nil {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]bool{"success": true})
+			return
+		}
+		agentAuth.handleAuthLogout(w, r)
 	})
 
 	http.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		// Placeholder: in local mode we rely on bypass; in server mode we will redirect
-		mode := "local"
-		if agentConfig != nil {
-			mode = agentConfig.Web.Auth.Mode
+		if agentAuth == nil {
+			http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+			return
 		}
-		if mode == "server" {
-			// Redirect to server login (requires configured Server.URL)
-			if agentConfig != nil && agentConfig.Server.URL != "" {
-				ret := r.URL.Query().Get("return_to")
-				if ret == "" {
-					ret = "/"
-				}
-				serverLogin := strings.TrimRight(agentConfig.Server.URL, "/") + "/login?return_to=" + url.QueryEscape(ret)
-				http.Redirect(w, r, serverLogin, http.StatusFound)
-				return
-			}
+		agentAuth.handleAuthLogin(w, r)
+	})
+
+	http.HandleFunc("/api/v1/auth/options", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
 		}
-		http.Error(w, "login not implemented", http.StatusNotImplemented)
+		if agentAuth == nil {
+			http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(agentAuth.optionsPayload())
 	})
 
 	// Version endpoint
@@ -5800,6 +6391,11 @@ window.top.location.href = '/proxy/%s/';
 		appLogger.Warn("Both HTTP and HTTPS disabled in settings, enabling HTTP as fallback")
 	}
 
+	rootHandler := http.Handler(http.DefaultServeMux)
+	if agentAuth != nil {
+		rootHandler = agentAuth.Wrap(rootHandler)
+	}
+
 	// Create server instances for graceful shutdown
 	var httpServer *http.Server
 	var httpsServer *http.Server
@@ -5829,7 +6425,7 @@ window.top.location.href = '/proxy/%s/';
 			appLogger.Info("HTTP server will redirect to HTTPS", "httpPort", httpPort, "httpsPort", httpsPort)
 		} else {
 			// Use default handler (http.DefaultServeMux with all registered routes)
-			httpHandler = nil
+			httpHandler = rootHandler
 		}
 
 		httpServer = &http.Server{
@@ -5855,6 +6451,7 @@ window.top.location.href = '/proxy/%s/';
 	if enableHTTPS && certFile != "" && keyFile != "" {
 		httpsServer = &http.Server{
 			Addr:              ":" + httpsPort,
+			Handler:           rootHandler,
 			ReadTimeout:       30 * time.Second,
 			ReadHeaderTimeout: 10 * time.Second,
 			WriteTimeout:      30 * time.Second,
