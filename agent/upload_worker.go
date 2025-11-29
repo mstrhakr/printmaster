@@ -96,6 +96,16 @@ func (w *UploadWorker) Client() *agent.ServerClient {
 	return w.client
 }
 
+// WSClient returns the underlying WebSocket client for reuse by other subsystems.
+func (w *UploadWorker) WSClient() *agent.WSClient {
+	if w == nil {
+		return nil
+	}
+	w.wsClientMu.RLock()
+	defer w.wsClientMu.RUnlock()
+	return w.wsClient
+}
+
 func (w *UploadWorker) currentSettingsVersion() string {
 	if w.settings == nil {
 		return ""

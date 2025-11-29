@@ -346,6 +346,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			handleWSHeartbeat(conn, agent, msg, serverStore)
 		case wscommon.MessageTypeProxyResponse:
 			handleWSProxyResponse(msg)
+		case wscommon.MessageTypeUpdateProgress:
+			handleWSUpdateProgress(agent, msg)
 		default:
 			logWarn("Unknown WebSocket message type", "agent_id", agent.AgentID, "message_type", msg.Type)
 			sendWSError(conn, "Unknown message type")
@@ -587,4 +589,21 @@ func sendProxyRequest(agentID string, requestID string, targetURL string, method
 	}
 
 	return nil
+}
+
+// handleWSUpdateProgress processes update progress messages from agents
+// and broadcasts them to connected UI clients via SSE
+func handleWSUpdateProgress(agent *storage.Agent, msg wscommon.Message) {
+	logDebug("Update progress received", "agent_id", agent.AgentID, "data", msg.Data)
+
+	// Add agent_id to the data for UI routing
+	msg.Data["agent_id"] = agent.AgentID
+
+	// Broadcast to UI clients via the SSE event system
+	if sseHub != nil {
+		sseHub.Broadcast(SSEEvent{
+			Type: "update_progress",
+			Data: msg.Data,
+		})
+	}
 }

@@ -214,6 +214,8 @@ const agentsVM = {
         lastFetched: null,
     },
     latestVersion: null,
+    // Per-agent update state: { agentId: { status, progress, message, targetVersion, error } }
+    updateState: {},
     filters: {
         query: '',
         version: '',
@@ -763,6 +765,16 @@ function connectSSE() {
             if (isDevicesTabActive()) {
                 loadDevices(true);
             }
+        }
+    });
+    
+    eventSource.addEventListener('update_progress', (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            window.__pm_shared.log('Update progress (SSE):', data);
+            handleAgentUpdateProgress(data);
+        } catch (err) {
+            window.__pm_shared.warn('Failed to parse update_progress event:', err);
         }
     });
     
@@ -3642,14 +3654,67 @@ function renderAgentVersionCell(agent, forTable = false) {
     const currentVersion = agent.version || '';
     const latestVersion = agentsVM.latestVersion;
     const displayVersion = escapeHtml(currentVersion || 'N/A');
+    const agentId = agent.agent_id || '';
     
-    // Check if update is available
+    // Check if there's an active update for this agent
+    const updateState = agentsVM.updateState[agentId];
+    if (updateState) {
+        const status = updateState.status;
+        const progress = updateState.progress || 0;
+        const targetVersion = updateState.targetVersion || latestVersion || '';
+        
+        // Show updating state
+        if (status === 'checking' || status === 'downloading' || status === 'ready') {
+            const progressText = status === 'downloading' && progress > 0 
+                ? `${progress}%` 
+                : (status === 'ready' ? 'Installing...' : 'Checking...');
+            const canCancel = status !== 'ready';
+            const cancelBtn = canCancel 
+                ? `<button class="update-btn cancel" data-action="cancel-update" data-agent-id="${escapeHtml(agentId)}" title="Cancel update">✕</button>` 
+                : '';
+            const content = `<span class="update-progress">${escapeHtml(progressText)}</span>${cancelBtn}`;
+            if (forTable) {
+                return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
+            }
+            return `${displayVersion} ${content}`;
+        }
+        
+        // Show restarting state (no cancel possible)
+        if (status === 'restarting') {
+            const content = `<span class="update-progress restarting">Restarting...</span>`;
+            if (forTable) {
+                return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
+            }
+            return `${displayVersion} ${content}`;
+        }
+        
+        // Show failed state briefly
+        if (status === 'failed') {
+            const errorMsg = updateState.error || 'Failed';
+            const content = `<span class="update-error" title="${escapeHtml(errorMsg)}">✕ Failed</span>`;
+            if (forTable) {
+                return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
+            }
+            return `${displayVersion} ${content}`;
+        }
+        
+        // Show complete state briefly
+        if (status === 'complete') {
+            const content = `<span class="update-complete">✓ Updated</span>`;
+            if (forTable) {
+                return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
+            }
+            return `${displayVersion} ${content}`;
+        }
+    }
+    
+    // Check if update is available (normal state)
     if (latestVersion && currentVersion && currentVersion !== latestVersion && currentVersion !== 'N/A') {
         const meta = agent.__meta || {};
         const canUpdate = meta.connectionKey === 'ws';
         const tooltip = canUpdate ? `Update available: ${latestVersion}` : 'Agent not connected via WebSocket';
         const buttonClass = canUpdate ? 'update-btn' : 'update-btn disabled';
-        const updateBtn = `<button class="${buttonClass}" data-action="update-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" title="${escapeHtml(tooltip)}" ${canUpdate ? '' : 'disabled'}>↑ ${escapeHtml(latestVersion)}</button>`;
+        const updateBtn = `<button class="${buttonClass}" data-action="update-agent" data-agent-id="${escapeHtml(agentId)}" title="${escapeHtml(tooltip)}" ${canUpdate ? '' : 'disabled'}>↑ ${escapeHtml(latestVersion)}</button>`;
         if (forTable) {
             return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${updateBtn}</div>`;
         }
@@ -4413,14 +4478,153 @@ function _attachAgentUpdateHandler(agent) {
 }
 
 // ====== Update Agent (from agent list/cards) ======
+
+// Handle update progress events from SSE
+function handleAgentUpdateProgress(data) {
+    const agentId = data.agent_id;
+    if (!agentId) return;
+    
+    const status = data.status || 'unknown';
+    const progress = data.progress || 0;
+    const message = data.message || '';
+    const targetVersion = data.target_version || '';
+    const errorMsg = data.error || '';
+    
+    // Update state tracking
+    agentsVM.updateState[agentId] = {
+        status,
+        progress,
+        message,
+        targetVersion,
+        error: errorMsg,
+        timestamp: Date.now()
+    };
+    
+    // Show toast notifications for key events
+    const agent = agentsVM.items.find(a => a.agent_id === agentId);
+    const agentName = agent?.name || agent?.hostname || agentId;
+    
+    switch (status) {
+        case 'checking':
+            // No toast for checking, just UI update
+            break;
+        case 'downloading':
+            if (progress === 0) {
+                window.__pm_shared.showToast(`${agentName}: Downloading update...`, 'info');
+            }
+            break;
+        case 'ready':
+            window.__pm_shared.showToast(`${agentName}: Update downloaded, preparing to install...`, 'info');
+            break;
+        case 'restarting':
+            window.__pm_shared.showToast(`${agentName}: Restarting to apply update...`, 'info');
+            break;
+        case 'complete':
+            window.__pm_shared.showToast(`${agentName}: Update complete!`, 'success');
+            // Clear state after a delay to let UI update
+            setTimeout(() => {
+                delete agentsVM.updateState[agentId];
+                refreshAgentVersionCell(agentId);
+            }, 3000);
+            // Reload agents to get new version
+            setTimeout(() => loadAgents(), 2000);
+            break;
+        case 'failed':
+            window.__pm_shared.showToast(`${agentName}: Update failed - ${errorMsg || message}`, 'error');
+            // Clear state after showing error
+            setTimeout(() => {
+                delete agentsVM.updateState[agentId];
+                refreshAgentVersionCell(agentId);
+            }, 5000);
+            break;
+        case 'cancelled':
+            window.__pm_shared.showToast(`${agentName}: Update cancelled`, 'warning');
+            delete agentsVM.updateState[agentId];
+            break;
+        case 'idle':
+            // Agent returned to idle, clear any pending state
+            delete agentsVM.updateState[agentId];
+            break;
+    }
+    
+    // Refresh the version cell for this agent
+    refreshAgentVersionCell(agentId);
+}
+
+// Refresh the version cell display for a specific agent
+function refreshAgentVersionCell(agentId) {
+    // Update in table view
+    const tableRow = document.querySelector(`tr[data-agent-id="${agentId}"]`);
+    if (tableRow) {
+        const versionCell = tableRow.querySelectorAll('td')[5]; // Version is 6th column (0-indexed)
+        if (versionCell) {
+            const agent = agentsVM.items.find(a => a.agent_id === agentId);
+            if (agent) {
+                versionCell.innerHTML = renderAgentVersionCell(agent, true);
+            }
+        }
+    }
+    
+    // Update in card view
+    const card = document.querySelector(`.device-card[data-agent-id="${agentId}"]`);
+    if (card) {
+        const versionSpan = card.querySelector('.agent-version-cell');
+        if (versionSpan) {
+            const agent = agentsVM.items.find(a => a.agent_id === agentId);
+            if (agent) {
+                versionSpan.innerHTML = renderAgentVersionCell(agent, false);
+            }
+        }
+    }
+}
+
+// Cancel an in-progress update
+async function cancelAgentUpdate(agentId) {
+    if (!agentId) return;
+    
+    const state = agentsVM.updateState[agentId];
+    if (!state || state.status === 'restarting') {
+        window.__pm_shared.showToast('Cannot cancel update at this stage', 'warning');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/agents/command/${agentId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'cancel_update' })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        window.__pm_shared.showToast('Cancel request sent', 'info');
+    } catch (error) {
+        window.__pm_shared.error('Failed to cancel update:', error);
+        window.__pm_shared.showToast('Failed to cancel update: ' + (error.message || error), 'error');
+    }
+}
+
 async function updateAgent(agentId) {
     if (!agentId) {
         window.__pm_shared.showToast('No agent ID provided', 'error');
         return;
     }
     
+    // Set initial updating state
+    agentsVM.updateState[agentId] = {
+        status: 'checking',
+        progress: 0,
+        message: 'Sending update command...',
+        targetVersion: agentsVM.latestVersion || '',
+        error: '',
+        timestamp: Date.now()
+    };
+    refreshAgentVersionCell(agentId);
+    
     try {
-        window.__pm_shared.showToast('Sending update command to agent...', 'info');
         const response = await fetch(`/api/v1/agents/command/${agentId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4434,13 +4638,39 @@ async function updateAgent(agentId) {
         
         const result = await response.json();
         if (result.success) {
-            window.__pm_shared.showToast('Update command sent successfully. Agent will check for updates.', 'success');
+            // Update state to show we're waiting for agent response
+            agentsVM.updateState[agentId] = {
+                ...agentsVM.updateState[agentId],
+                message: 'Waiting for agent...',
+            };
+            refreshAgentVersionCell(agentId);
         } else {
-            window.__pm_shared.showToast('Update command sent, but response was: ' + (result.message || 'unknown'), 'warning');
+            // Command failed
+            agentsVM.updateState[agentId] = {
+                ...agentsVM.updateState[agentId],
+                status: 'failed',
+                error: result.message || 'Unknown error',
+            };
+            refreshAgentVersionCell(agentId);
+            window.__pm_shared.showToast('Update command failed: ' + (result.message || 'unknown'), 'warning');
+            setTimeout(() => {
+                delete agentsVM.updateState[agentId];
+                refreshAgentVersionCell(agentId);
+            }, 5000);
         }
     } catch (error) {
         window.__pm_shared.error('Failed to send update command:', error);
+        agentsVM.updateState[agentId] = {
+            ...agentsVM.updateState[agentId],
+            status: 'failed',
+            error: error.message || String(error),
+        };
+        refreshAgentVersionCell(agentId);
         window.__pm_shared.showToast('Failed to send update command: ' + (error.message || error), 'error');
+        setTimeout(() => {
+            delete agentsVM.updateState[agentId];
+            refreshAgentVersionCell(agentId);
+        }, 5000);
     }
 }
 
@@ -4455,6 +4685,7 @@ try {
     window.__pm_shared.deleteAgent = window.__pm_shared.deleteAgent || deleteAgent;
     window.__pm_shared.openAgentUI = window.__pm_shared.openAgentUI || openAgentUI;
     window.__pm_shared.updateAgent = window.__pm_shared.updateAgent || updateAgent;
+    window.__pm_shared.cancelAgentUpdate = window.__pm_shared.cancelAgentUpdate || cancelAgentUpdate;
     // Always override device helpers so cards and shared UI use the server proxy endpoint
     window.__pm_shared.openDeviceUI = openDeviceUI;
     window.__pm_shared.openDeviceMetrics = window.__pm_shared.openDeviceMetrics || openDeviceMetrics;

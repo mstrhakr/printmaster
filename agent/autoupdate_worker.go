@@ -10,6 +10,7 @@ import (
 	"printmaster/agent/autoupdate"
 	"printmaster/common/logger"
 	"printmaster/common/updatepolicy"
+	wscommon "printmaster/common/ws"
 )
 
 // autoUpdateConfigProvider wraps agentConfig to provide the interface.
@@ -60,6 +61,52 @@ func (p *fleetPolicyProvider) SetFleetPolicy(policy *updatepolicy.FleetUpdatePol
 	p.policy = policy
 }
 
+// sendUpdateProgress sends an update progress message to the server via WebSocket.
+func sendUpdateProgress(status autoupdate.Status, targetVersion string, progress int, message string, err error) {
+	uploadWorkerMu.RLock()
+	worker := uploadWorker
+	uploadWorkerMu.RUnlock()
+
+	if worker == nil {
+		return
+	}
+
+	wsClient := worker.WSClient()
+	if wsClient == nil || !wsClient.IsConnected() {
+		return
+	}
+
+	data := map[string]interface{}{
+		"status":   string(status),
+		"progress": progress,
+		"message":  message,
+	}
+	if targetVersion != "" {
+		data["target_version"] = targetVersion
+	}
+	if err != nil {
+		data["error"] = err.Error()
+	}
+
+	msg := wscommon.Message{
+		Type:      wscommon.MessageTypeUpdateProgress,
+		Data:      data,
+		Timestamp: time.Now(),
+	}
+
+	if sendErr := wsClient.SendMessage(msg); sendErr != nil {
+		// Log but don't fail - progress reporting is best-effort
+		_ = sendErr
+	}
+}
+
+// makeProgressCallback creates a progress callback that sends updates via WebSocket.
+func makeProgressCallback() autoupdate.ProgressCallback {
+	return func(status autoupdate.Status, targetVersion string, progress int, message string, err error) {
+		sendUpdateProgress(status, targetVersion, progress, message, err)
+	}
+}
+
 // startAutoUpdateManager initializes and starts the auto-update background worker.
 func startAutoUpdateManager(
 	ctx context.Context,
@@ -79,16 +126,17 @@ func startAutoUpdateManager(
 	policyAdapter := autoupdate.NewPolicyAdapter(configProvider, fleetProvider)
 
 	opts := autoupdate.Options{
-		Enabled:        true,
-		CurrentVersion: currentVersion,
-		Platform:       runtime.GOOS,
-		Arch:           runtime.GOARCH,
-		Channel:        "stable", // TODO: make configurable
-		DataDir:        dataDir,
-		ServerClient:   clientAdapter,
-		PolicyProvider: policyAdapter,
-		TelemetrySink:  telemetryAdapter,
-		Log:            log,
+		Enabled:          true,
+		CurrentVersion:   currentVersion,
+		Platform:         runtime.GOOS,
+		Arch:             runtime.GOARCH,
+		Channel:          "stable", // TODO: make configurable
+		DataDir:          dataDir,
+		ServerClient:     clientAdapter,
+		PolicyProvider:   policyAdapter,
+		TelemetrySink:    telemetryAdapter,
+		ProgressCallback: makeProgressCallback(),
+		Log:              log,
 		// Use defaults for intervals and thresholds
 	}
 
@@ -180,6 +228,7 @@ func handleServerCommand(ctx context.Context, command string, data map[string]in
 
 		if manager == nil {
 			log.Warn("Received check_update command but auto-update manager not available")
+			sendUpdateProgress(autoupdate.StatusFailed, "", -1, "Auto-update manager not available", nil)
 			return
 		}
 
@@ -188,10 +237,30 @@ func handleServerCommand(ctx context.Context, command string, data map[string]in
 			log.Info("Triggering immediate update check per server request")
 			if err := manager.CheckNow(ctx); err != nil {
 				log.Error("Update check failed", "error", err)
+				sendUpdateProgress(autoupdate.StatusFailed, "", -1, err.Error(), err)
 			} else {
 				log.Info("Update check completed")
 			}
 		}()
+
+	case "cancel_update":
+		autoUpdateManagerMu.RLock()
+		manager := autoUpdateManager
+		autoUpdateManagerMu.RUnlock()
+
+		if manager == nil {
+			log.Warn("Received cancel_update command but auto-update manager not available")
+			return
+		}
+
+		if manager.Cancel() {
+			log.Info("Update cancellation requested")
+			sendUpdateProgress(autoupdate.StatusCancelled, "", -1, "Update cancelled by user", nil)
+		} else {
+			log.Warn("Unable to cancel update - may be in non-cancellable phase")
+			sendUpdateProgress(autoupdate.StatusFailed, "", -1, "Cannot cancel: update is in a non-cancellable phase", nil)
+		}
+
 	case "force_update":
 		autoUpdateManagerMu.RLock()
 		manager := autoUpdateManager
@@ -199,6 +268,7 @@ func handleServerCommand(ctx context.Context, command string, data map[string]in
 
 		if manager == nil {
 			log.Warn("Received force_update command but auto-update manager not available")
+			sendUpdateProgress(autoupdate.StatusFailed, "", -1, "Auto-update manager not available", nil)
 			return
 		}
 
@@ -208,6 +278,7 @@ func handleServerCommand(ctx context.Context, command string, data map[string]in
 			log.Info("Triggering forced reinstall per server request", "reason", reason)
 			if err := manager.ForceInstallLatest(ctx, reason); err != nil {
 				log.Error("Forced reinstall failed", "error", err)
+				sendUpdateProgress(autoupdate.StatusFailed, "", -1, err.Error(), err)
 			} else {
 				log.Info("Forced reinstall completed")
 			}

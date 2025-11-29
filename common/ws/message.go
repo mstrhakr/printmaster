@@ -27,11 +27,12 @@ func (m *Message) Marshal() ([]byte, error) {
 
 // Standard message type constants used by server/agent/UI
 const (
-	MessageTypeHeartbeat     = "heartbeat"
-	MessageTypePong          = "pong"
-	MessageTypeError         = "error"
-	MessageTypeProxyRequest  = "proxy_request"
-	MessageTypeProxyResponse = "proxy_response"
-	MessageTypeCommand       = "command"        // Server-to-agent command
-	MessageTypeCommandResult = "command_result" // Agent-to-server command response
+	MessageTypeHeartbeat      = "heartbeat"
+	MessageTypePong           = "pong"
+	MessageTypeError          = "error"
+	MessageTypeProxyRequest   = "proxy_request"
+	MessageTypeProxyResponse  = "proxy_response"
+	MessageTypeCommand        = "command"         // Server-to-agent command
+	MessageTypeCommandResult  = "command_result"  // Agent-to-server command response
+	MessageTypeUpdateProgress = "update_progress" // Agent-to-server update status
 )

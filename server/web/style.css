@@ -973,6 +973,62 @@ button.delete:hover {
   background: var(--muted);
 }
 
+/* Cancel button for update in progress */
+.update-btn.cancel {
+  background: var(--warning, #f0ad4e);
+  padding: 2px 6px;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.update-btn.cancel:hover {
+  background: var(--error, #d9534f);
+}
+
+/* Update progress indicator */
+.update-progress {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--info, #5bc0de);
+  color: #fff;
+  white-space: nowrap;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.update-progress.restarting {
+  background: var(--warning, #f0ad4e);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Update complete indicator */
+.update-complete {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--success, #5cb85c);
+  color: #fff;
+  white-space: nowrap;
+}
+
+/* Update error indicator */
+.update-error {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  background: var(--error, #d9534f);
+  color: #fff;
+  white-space: nowrap;
+  cursor: help;
+}
+
 button:hover {
   filter: brightness(1.08);
   transform: translateY(-1px);

@@ -21,6 +21,7 @@ const (
 	StatusFailed      Status = "failed"
 	StatusSkipped     Status = "skipped"
 	StatusRolledBack  Status = "rolled_back"
+	StatusCancelled   Status = "cancelled"
 )
 
 // UpdateRun captures the state and history of a single update attempt.

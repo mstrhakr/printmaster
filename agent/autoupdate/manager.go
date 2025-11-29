@@ -34,23 +34,29 @@ const (
 	downloadDirName           = "downloads"
 )
 
+// ProgressCallback is invoked when update status changes, allowing real-time
+// reporting to the server/UI. The callback receives the current status, target
+// version, progress percentage (0-100, -1 if unknown), and optional message/error.
+type ProgressCallback func(status Status, targetVersion string, progress int, message string, err error)
+
 // Options configure the auto-update manager.
 type Options struct {
-	Log            *logger.Logger
-	DataDir        string
-	Enabled        bool
-	CurrentVersion string
-	Platform       string
-	Arch           string
-	Channel        string
-	BinaryPath     string
-	ServiceName    string
-	MinDiskSpaceMB int64
-	MaxRetries     int
-	Clock          func() time.Time
-	ServerClient   UpdateClient
-	PolicyProvider PolicyProvider
-	TelemetrySink  TelemetrySink
+	Log              *logger.Logger
+	DataDir          string
+	Enabled          bool
+	CurrentVersion   string
+	Platform         string
+	Arch             string
+	Channel          string
+	BinaryPath       string
+	ServiceName      string
+	MinDiskSpaceMB   int64
+	MaxRetries       int
+	Clock            func() time.Time
+	ServerClient     UpdateClient
+	PolicyProvider   PolicyProvider
+	TelemetrySink    TelemetrySink
+	ProgressCallback ProgressCallback
 }
 
 // UpdateClient abstracts the server communication needed for updates.
@@ -73,24 +79,25 @@ type TelemetrySink interface {
 
 // Manager coordinates agent auto-update operations.
 type Manager struct {
-	log            *logger.Logger
-	stateDir       string
-	enabled        bool
-	disabledReason string
-	currentVersion string
-	currentSemver  *semver.Version
-	platform       string
-	arch           string
-	channel        string
-	binaryPath     string
-	serviceName    string
-	minDiskSpace   int64
-	maxRetries     int
-	clock          func() time.Time
-	client         UpdateClient
-	policyProvider PolicyProvider
-	telemetry      TelemetrySink
-	restartFn      func() error
+	log              *logger.Logger
+	stateDir         string
+	enabled          bool
+	disabledReason   string
+	currentVersion   string
+	currentSemver    *semver.Version
+	platform         string
+	arch             string
+	channel          string
+	binaryPath       string
+	serviceName      string
+	minDiskSpace     int64
+	maxRetries       int
+	clock            func() time.Time
+	client           UpdateClient
+	policyProvider   PolicyProvider
+	telemetry        TelemetrySink
+	restartFn        func() error
+	progressCallback ProgressCallback
 
 	mu             sync.RWMutex
 	status         Status
@@ -99,6 +106,7 @@ type Manager struct {
 	latestVersion  string
 	latestManifest *UpdateManifest
 	currentRun     *UpdateRun
+	cancelled      bool
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -177,25 +185,26 @@ func NewManager(opts Options) (*Manager, error) {
 	}
 
 	mgr := &Manager{
-		log:            opts.Log,
-		stateDir:       stateDir,
-		enabled:        opts.Enabled,
-		disabledReason: disabledReason,
-		currentVersion: opts.CurrentVersion,
-		currentSemver:  currentSemver,
-		platform:       platform,
-		arch:           arch,
-		channel:        channel,
-		binaryPath:     binaryPath,
-		serviceName:    opts.ServiceName,
-		minDiskSpace:   minDiskSpace,
-		maxRetries:     maxRetries,
-		clock:          clock,
-		client:         opts.ServerClient,
-		policyProvider: opts.PolicyProvider,
-		telemetry:      opts.TelemetrySink,
-		status:         StatusIdle,
-		stopCh:         make(chan struct{}),
+		log:              opts.Log,
+		stateDir:         stateDir,
+		enabled:          opts.Enabled,
+		disabledReason:   disabledReason,
+		currentVersion:   opts.CurrentVersion,
+		currentSemver:    currentSemver,
+		platform:         platform,
+		arch:             arch,
+		channel:          channel,
+		binaryPath:       binaryPath,
+		serviceName:      opts.ServiceName,
+		minDiskSpace:     minDiskSpace,
+		maxRetries:       maxRetries,
+		clock:            clock,
+		client:           opts.ServerClient,
+		policyProvider:   opts.PolicyProvider,
+		telemetry:        opts.TelemetrySink,
+		progressCallback: opts.ProgressCallback,
+		status:           StatusIdle,
+		stopCh:           make(chan struct{}),
 	}
 
 	mgr.restartFn = mgr.restartService
@@ -446,43 +455,79 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 
 	m.mu.Lock()
 	m.currentRun = run
+	m.cancelled = false // Reset cancelled flag for new run
 	m.mu.Unlock()
 
 	// Download phase
-	m.setStatus(StatusDownloading)
+	m.setStatusWithProgress(StatusDownloading, 0, "Starting download...")
 	run.StartedAt = m.clock()
 	m.reportTelemetry(ctx, StatusDownloading, "", "")
+
+	// Check for cancellation before download
+	if m.IsCancelled() {
+		run.Status = StatusCancelled
+		run.CompletedAt = m.clock()
+		m.setStatus(StatusCancelled)
+		return fmt.Errorf("update cancelled by user")
+	}
 
 	downloadPath := filepath.Join(m.stateDir, downloadDirName, fmt.Sprintf("agent-%s-%s-%s%s",
 		manifest.Version, m.platform, m.arch, m.binaryExtension()))
 
 	downloadStart := m.clock()
 	if err := m.downloadWithRetry(ctx, manifest, downloadPath); err != nil {
+		// Check if this was a cancellation
+		if m.IsCancelled() {
+			run.Status = StatusCancelled
+			run.CompletedAt = m.clock()
+			m.setStatus(StatusCancelled)
+			os.Remove(downloadPath)
+			return fmt.Errorf("update cancelled by user")
+		}
 		run.Status = StatusFailed
 		run.ErrorCode = ErrCodeDownloadFailed
 		run.ErrorMessage = err.Error()
 		run.CompletedAt = m.clock()
-		m.setStatus(StatusFailed)
+		m.setStatusWithError(StatusFailed, ErrCodeDownloadFailed, err.Error())
 		m.reportTelemetry(ctx, StatusFailed, ErrCodeDownloadFailed, err.Error())
 		return err
 	}
 	run.DownloadedAt = m.clock()
 	run.DownloadTimeMs = run.DownloadedAt.Sub(downloadStart).Milliseconds()
 
+	// Check for cancellation after download
+	if m.IsCancelled() {
+		run.Status = StatusCancelled
+		run.CompletedAt = m.clock()
+		m.setStatus(StatusCancelled)
+		os.Remove(downloadPath)
+		return fmt.Errorf("update cancelled by user")
+	}
+
 	// Verify hash
+	m.setStatusWithProgress(StatusDownloading, 100, "Verifying download...")
 	if err := m.verifyHash(downloadPath, manifest.SHA256); err != nil {
 		run.Status = StatusFailed
 		run.ErrorCode = ErrCodeHashMismatch
 		run.ErrorMessage = err.Error()
 		run.CompletedAt = m.clock()
-		m.setStatus(StatusFailed)
+		m.setStatusWithError(StatusFailed, ErrCodeHashMismatch, err.Error())
 		m.reportTelemetry(ctx, StatusFailed, ErrCodeHashMismatch, err.Error())
 		os.Remove(downloadPath)
 		return err
 	}
 
+	// Check for cancellation before staging
+	if m.IsCancelled() {
+		run.Status = StatusCancelled
+		run.CompletedAt = m.clock()
+		m.setStatus(StatusCancelled)
+		os.Remove(downloadPath)
+		return fmt.Errorf("update cancelled by user")
+	}
+
 	// Staging phase
-	m.setStatus(StatusStaging)
+	m.setStatusWithProgress(StatusStaging, -1, "Staging update...")
 	run.Status = StatusStaging
 	m.reportTelemetry(ctx, StatusStaging, "", "")
 
@@ -492,9 +537,18 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		run.ErrorCode = ErrCodeStagingFailed
 		run.ErrorMessage = err.Error()
 		run.CompletedAt = m.clock()
-		m.setStatus(StatusFailed)
+		m.setStatusWithError(StatusFailed, ErrCodeStagingFailed, err.Error())
 		m.reportTelemetry(ctx, StatusFailed, ErrCodeStagingFailed, err.Error())
 		return err
+	}
+
+	// Last chance to cancel before applying (point of no return after this)
+	if m.IsCancelled() {
+		run.Status = StatusCancelled
+		run.CompletedAt = m.clock()
+		m.setStatus(StatusCancelled)
+		os.Remove(stagingPath)
+		return fmt.Errorf("update cancelled by user")
 	}
 
 	// Backup current binary
@@ -505,8 +559,8 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		// Continue anyway - new install may still work
 	}
 
-	// Apply phase
-	m.setStatus(StatusApplying)
+	// Apply phase - NO CANCELLATION AFTER THIS POINT
+	m.setStatusWithProgress(StatusApplying, -1, "Applying update (cannot cancel)...")
 	run.Status = StatusApplying
 	m.reportTelemetry(ctx, StatusApplying, "", "")
 
@@ -515,7 +569,7 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		run.ErrorCode = ErrCodeApplyFailed
 		run.ErrorMessage = err.Error()
 		run.CompletedAt = m.clock()
-		m.setStatus(StatusFailed)
+		m.setStatusWithError(StatusFailed, ErrCodeApplyFailed, err.Error())
 		m.reportTelemetry(ctx, StatusFailed, ErrCodeApplyFailed, err.Error())
 		// Attempt rollback
 		if rollbackErr := m.rollback(backupPath); rollbackErr != nil {
@@ -524,10 +578,10 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		return err
 	}
 
-	// Success
+	// Success - about to restart
 	run.Status = StatusSucceeded
 	run.CompletedAt = m.clock()
-	m.setStatus(StatusRestarting)
+	m.setStatusWithProgress(StatusRestarting, -1, "Restarting agent...")
 	m.reportTelemetry(ctx, StatusSucceeded, "", "")
 
 	m.logInfo("Update applied successfully", "from", m.currentVersion, "to", manifest.Version)
@@ -861,9 +915,66 @@ func parseSemverVersion(raw string) (*semver.Version, error) {
 }
 
 func (m *Manager) setStatus(s Status) {
+	m.setStatusWithProgress(s, -1, "")
+}
+
+func (m *Manager) setStatusWithProgress(s Status, progress int, message string) {
 	m.mu.Lock()
 	m.status = s
+	targetVersion := ""
+	if m.currentRun != nil {
+		targetVersion = m.currentRun.TargetVersion
+	} else if m.latestManifest != nil {
+		targetVersion = m.latestManifest.Version
+	}
 	m.mu.Unlock()
+
+	// Invoke progress callback if set
+	if m.progressCallback != nil {
+		go m.progressCallback(s, targetVersion, progress, message, nil)
+	}
+}
+
+func (m *Manager) setStatusWithError(s Status, errCode, errMsg string) {
+	m.mu.Lock()
+	m.status = s
+	targetVersion := ""
+	if m.currentRun != nil {
+		targetVersion = m.currentRun.TargetVersion
+	}
+	m.mu.Unlock()
+
+	// Invoke progress callback with error
+	if m.progressCallback != nil {
+		go m.progressCallback(s, targetVersion, -1, errMsg, fmt.Errorf("%s: %s", errCode, errMsg))
+	}
+}
+
+// Cancel attempts to cancel an in-progress update. Returns true if cancellation
+// was successful, false if the update is in a non-cancellable phase (restarting).
+func (m *Manager) Cancel() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Cannot cancel once we're restarting - it's too late
+	if m.status == StatusRestarting || m.status == StatusApplying {
+		return false
+	}
+
+	// If not in an active update phase, nothing to cancel
+	if m.status == StatusIdle || m.status == StatusSucceeded || m.status == StatusFailed {
+		return false
+	}
+
+	m.cancelled = true
+	return true
+}
+
+// IsCancelled checks if the current update has been cancelled.
+func (m *Manager) IsCancelled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cancelled
 }
 
 func (m *Manager) reportTelemetry(ctx context.Context, status Status, errCode, errMsg string) {

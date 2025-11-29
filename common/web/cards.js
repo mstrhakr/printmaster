@@ -490,6 +490,14 @@
                 return;
             }
 
+            if (action === 'cancel-update') {
+                const agentId = btn.getAttribute('data-agent-id');
+                if (window.__pm_shared.cancelAgentUpdate) {
+                    window.__pm_shared.cancelAgentUpdate(agentId);
+                }
+                return;
+            }
+
             if (action === 'open-device') {
                 const serial = btn.getAttribute('data-serial');
                 window.__pm_shared.openDeviceUI(serial);

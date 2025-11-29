@@ -464,6 +464,33 @@ func (ws *WSClient) SendHeartbeat(data map[string]interface{}) error {
 	return nil
 }
 
+// SendMessage sends an arbitrary message over the WebSocket
+func (ws *WSClient) SendMessage(msg wscommon.Message) error {
+	ws.mu.RLock()
+	conn := ws.conn
+	connected := ws.connected
+	ws.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return errors.New("WebSocket not connected")
+	}
+
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal message: %w", err)
+	}
+
+	if err := conn.WriteRaw(payload, ws.writeTimeout); err != nil {
+		return fmt.Errorf("failed to send message: %w", err)
+	}
+
+	return nil
+}
+
 // handleProxyRequest handles incoming HTTP proxy requests from the server
 func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	requestID, ok := msg.Data["request_id"].(string)
