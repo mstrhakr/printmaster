@@ -3962,6 +3962,12 @@ function renderAgentDetailsModal(agent) {
     const lastHeartbeatDate = agent.last_heartbeat ? new Date(agent.last_heartbeat) : null;
     const lastDeviceSyncDate = agent.last_device_sync ? new Date(agent.last_device_sync) : null;
     const lastMetricsSyncDate = agent.last_metrics_sync ? new Date(agent.last_metrics_sync) : null;
+    const connectionType = (agent.connection_type || '').toLowerCase();
+    const commandEnabled = connectionType === 'ws';
+    const commandDisabledAttr = commandEnabled ? '' : 'disabled title="Requires active WebSocket connection"';
+    const commandHint = commandEnabled
+        ? 'Commands are delivered instantly over the active WebSocket tunnel.'
+        : 'Agent must be connected via WebSocket to receive remote commands.';
     
     // Calculate uptime
     let uptimeText = 'N/A';
@@ -4178,16 +4184,20 @@ function renderAgentDetailsModal(agent) {
             </div>
         </div>
         <!-- Action Buttons -->
-        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
-            <button id="agent_check_update_btn" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+        <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+            <button id="agent_check_update_btn" data-agent-id="${agent.agent_id}" ${commandDisabledAttr}>
                 Check for Update
             </button>
-            <button id="agent_force_update_btn" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+            <button id="agent_force_update_btn" data-agent-id="${agent.agent_id}" ${commandDisabledAttr}>
                 Force Reinstall
             </button>
-            <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
+            <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${commandDisabledAttr}>
                 Open Agent UI
             </button>
+        </div>
+        <div class="agent-update-feedback">
+            <div id="agent_update_hint" class="agent-update-hint${commandEnabled ? '' : ' error'}">${escapeHtml(commandHint)}</div>
+            <div id="agent_update_status" class="agent-update-status" role="status" aria-live="polite"></div>
         </div>
     `;
     // Attach inline editor handlers now that DOM nodes are present
@@ -4248,11 +4258,41 @@ function _attachAgentDetailsNameEditor(agent) {
 
 function _attachAgentUpdateHandler(agent) {
     try {
+        const canSendCommands = (agent.connection_type || '').toLowerCase() === 'ws';
+        const statusEl = document.getElementById('agent_update_status');
+        const requireWsMessage = 'Requires active WebSocket connection';
+
+        const setStatus = (message, tone = 'info') => {
+            if (!statusEl) return;
+            statusEl.textContent = message || '';
+            statusEl.classList.remove('status-info', 'status-success', 'status-error');
+            if (!message) {
+                return;
+            }
+            const cls = tone === 'success' ? 'status-success' : tone === 'error' ? 'status-error' : 'status-info';
+            statusEl.classList.add(cls);
+        };
+
         const checkBtn = document.getElementById('agent_check_update_btn');
         if (checkBtn) {
+            const resetCheckButton = () => {
+                checkBtn.disabled = !canSendCommands;
+                checkBtn.textContent = 'Check for Update';
+                if (!canSendCommands) {
+                    checkBtn.title = requireWsMessage;
+                } else {
+                    checkBtn.removeAttribute('title');
+                }
+            };
+            resetCheckButton();
             checkBtn.addEventListener('click', async () => {
+                if (!canSendCommands) {
+                    setStatus('Connect via WebSocket to send update commands.', 'error');
+                    return;
+                }
                 checkBtn.disabled = true;
                 checkBtn.textContent = 'Checking...';
+                setStatus('Contacting agent…', 'info');
                 try {
                     const res = await fetch(`/api/v1/agents/command/${encodeURIComponent(agent.agent_id)}`, {
                         method: 'POST',
@@ -4265,28 +4305,47 @@ function _attachAgentUpdateHandler(agent) {
                     }
                     const data = await res.json();
                     if (data.success) {
-                        window.__pm_shared.showToast('Update check triggered - agent will check for updates', 'success');
+                        const summary = data.message || 'Update check triggered';
+                        window.__pm_shared.showToast(summary, 'success');
+                        setStatus(`${summary} at ${new Date().toLocaleTimeString()}`, 'success');
                     } else {
-                        window.__pm_shared.showToast(data.error || 'Failed to trigger update check', 'error');
+                        const msg = data.error || 'Failed to trigger update check';
+                        window.__pm_shared.showToast(msg, 'error');
+                        setStatus(msg, 'error');
                     }
                 } catch (err) {
                     window.__pm_shared.showToast('Failed to send command: ' + (err.message || err), 'error');
+                    setStatus('Failed to send command: ' + (err.message || err), 'error');
                 } finally {
-                    checkBtn.disabled = agent.status !== 'active';
-                    checkBtn.textContent = 'Check for Update';
+                    resetCheckButton();
                 }
             });
         }
 
         const forceBtn = document.getElementById('agent_force_update_btn');
         if (forceBtn) {
+            const resetForceButton = (label) => {
+                forceBtn.disabled = !canSendCommands;
+                forceBtn.textContent = label || 'Force Reinstall';
+                if (!canSendCommands) {
+                    forceBtn.title = requireWsMessage;
+                } else {
+                    forceBtn.removeAttribute('title');
+                }
+            };
+            resetForceButton();
             forceBtn.addEventListener('click', async () => {
                 if (!window.confirm('Force reinstall this agent? The service will restart and may temporarily disconnect.')) {
+                    return;
+                }
+                if (!canSendCommands) {
+                    setStatus('Connect via WebSocket to send update commands.', 'error');
                     return;
                 }
                 forceBtn.disabled = true;
                 const previousLabel = forceBtn.textContent;
                 forceBtn.textContent = 'Forcing...';
+                setStatus('Contacting agent…', 'info');
                 try {
                     const res = await fetch(`/api/v1/agents/command/${encodeURIComponent(agent.agent_id)}`, {
                         method: 'POST',
@@ -4302,15 +4361,19 @@ function _attachAgentUpdateHandler(agent) {
                     }
                     const data = await res.json();
                     if (data.success) {
-                        window.__pm_shared.showToast('Forced reinstall triggered - agent will download the latest build', 'success');
+                        const summary = data.message || 'Forced reinstall triggered';
+                        window.__pm_shared.showToast(summary, 'success');
+                        setStatus(`${summary} at ${new Date().toLocaleTimeString()}`, 'success');
                     } else {
-                        window.__pm_shared.showToast(data.error || 'Failed to force reinstall', 'error');
+                        const msg = data.error || 'Failed to force reinstall';
+                        window.__pm_shared.showToast(msg, 'error');
+                        setStatus(msg, 'error');
                     }
                 } catch (err) {
                     window.__pm_shared.showToast('Failed to send force reinstall: ' + (err.message || err), 'error');
+                    setStatus('Failed to send force reinstall: ' + (err.message || err), 'error');
                 } finally {
-                    forceBtn.disabled = agent.status !== 'active';
-                    forceBtn.textContent = previousLabel || 'Force Reinstall';
+                    resetForceButton(previousLabel);
                 }
             });
         }

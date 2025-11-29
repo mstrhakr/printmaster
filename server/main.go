@@ -64,6 +64,7 @@ const (
 	installerCleanupGracePeriod = 10 * time.Minute
 	installerCleanupRunTimeout  = 2 * time.Minute
 	installerCleanupListTimeout = 30 * time.Second
+	httpRecencyThreshold        = 90 * time.Second
 )
 
 // Principal represents the authenticated user along with cached authorization helpers.
@@ -3044,6 +3045,19 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func deriveAgentConnectionType(agent *storage.Agent) string {
+	if agent == nil {
+		return "none"
+	}
+	if isAgentConnectedWS(agent.AgentID) {
+		return "ws"
+	}
+	if !agent.LastSeen.IsZero() && time.Since(agent.LastSeen) <= httpRecencyThreshold {
+		return "http"
+	}
+	return "none"
+}
+
 // List all agents - for UI display
 func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -3094,16 +3108,10 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 
 	var resp []agentView
 	// Determine connection type using live WS map and last_seen recency
-	const httpRecencyThreshold = 90 * time.Second
 	for _, agent := range agents {
 		agent.Token = "" // Don't expose tokens to UI
 
-		connType := "none"
-		if isAgentConnectedWS(agent.AgentID) {
-			connType = "ws"
-		} else if time.Since(agent.LastSeen) <= httpRecencyThreshold {
-			connType = "http"
-		}
+		connType := deriveAgentConnectionType(agent)
 
 		resp = append(resp, agentView{Agent: agent, ConnectionType: connType})
 	}
@@ -3283,6 +3291,8 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			// Remove sensitive token from response
 			agent.Token = ""
 
+			connType := deriveAgentConnectionType(agent)
+
 			// Include WS diagnostic counters (per-agent) in the response
 			var pf int64
 			var de int64
@@ -3295,6 +3305,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			var obj map[string]interface{}
 			buf, _ := json.Marshal(agent)
 			_ = json.Unmarshal(buf, &obj)
+			obj["connection_type"] = connType
 			obj["ws_ping_failures"] = pf
 			obj["ws_disconnect_events"] = de
 
@@ -3349,6 +3360,8 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			// Remove sensitive token from response
 			agent.Token = ""
 
+			connType := deriveAgentConnectionType(agent)
+
 			// Include WS diagnostic counters
 			var pf int64
 			var de int64
@@ -3360,6 +3373,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			var obj map[string]interface{}
 			buf, _ := json.Marshal(agent)
 			_ = json.Unmarshal(buf, &obj)
+			obj["connection_type"] = connType
 			obj["ws_ping_failures"] = pf
 			obj["ws_disconnect_events"] = de
 

@@ -3331,6 +3331,39 @@ input[type="checkbox"]:indeterminate::before {
   border-top: 1px solid var(--border);
 }
 
+.agent-update-feedback {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-update-hint {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.agent-update-hint.error {
+  color: var(--danger);
+}
+
+.agent-update-status {
+  font-size: 13px;
+  min-height: 18px;
+}
+
+.agent-update-status.status-info {
+  color: var(--muted);
+}
+
+.agent-update-status.status-success {
+  color: var(--success);
+}
+
+.agent-update-status.status-error {
+  color: var(--danger);
+}
+
 .modal-button {
   padding: 10px 20px;
   font-size: 14px;
@@ -4161,7 +4194,7 @@ select:hover {
   position: fixed;
   top: 20px;
   right: 20px;
-  z-index: 10000;
+  z-index: 15000;
   display: flex;
   flex-direction: column;
   gap: 10px;
