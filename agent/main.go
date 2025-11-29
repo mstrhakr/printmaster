@@ -1621,7 +1621,7 @@ func performServerJoin(
 	cfgStore storage.AgentConfigStore,
 	deviceStore storage.DeviceStore,
 	settings *SettingsManager,
-	logger Logger,
+	logger *logger.Logger,
 	isSvc bool,
 ) (*serverJoinResult, error) {
 	serverURL := strings.TrimSpace(params.ServerURL)
@@ -1690,6 +1690,7 @@ func performServerJoin(
 	if existingWorker != nil && existingWorker.client != nil {
 		existingWorker.client.SetToken(agentToken)
 		existingWorker.client.BaseURL = serverURL
+		maybeStartAutoUpdateWorker(appCtx, agentCfg, dataDir, logger)
 	} else {
 		go func() {
 			worker, err := startServerUploadWorker(appCtx, agentCfg, dataDir, deviceStore, settings, logger)
@@ -1702,6 +1703,7 @@ func performServerJoin(
 			uploadWorkerMu.Lock()
 			uploadWorker = worker
 			uploadWorkerMu.Unlock()
+			maybeStartAutoUpdateWorker(appCtx, agentCfg, dataDir, logger)
 		}()
 	}
 	broadcastServerStatus(agentCfg, dataDir, "joined", true)
@@ -1711,6 +1713,16 @@ func performServerJoin(
 		AgentName:  agentName,
 		AgentID:    agentID,
 	}, nil
+}
+
+func maybeStartAutoUpdateWorker(appCtx context.Context, agentCfg *AgentConfig, dataDir string, log *logger.Logger) {
+	autoUpdateManagerMu.RLock()
+	alreadyRunning := autoUpdateManager != nil
+	autoUpdateManagerMu.RUnlock()
+	if alreadyRunning {
+		return
+	}
+	go initAutoUpdateWorker(appCtx, agentCfg, dataDir, log)
 }
 
 func filterAgentLocalDeveloper(src map[string]interface{}) map[string]interface{} {

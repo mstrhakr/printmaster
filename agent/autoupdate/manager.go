@@ -128,7 +128,7 @@ func NewManager(opts Options) (*Manager, error) {
 		channel = "stable"
 	}
 
-	currentSemver, parseErr := semver.NewVersion(strings.TrimPrefix(opts.CurrentVersion, "v"))
+	currentSemver, parseErr := parseSemverVersion(opts.CurrentVersion)
 	if parseErr != nil {
 		// Log but don't fail - we can still check for updates by string comparison
 		if opts.Log != nil {
@@ -699,7 +699,7 @@ func (m *Manager) isUpdateNeeded(manifest *UpdateManifest) bool {
 		return manifest.Version != m.currentVersion
 	}
 
-	targetSemver, err := semver.NewVersion(strings.TrimPrefix(manifest.Version, "v"))
+	targetSemver, err := parseSemverVersion(manifest.Version)
 	if err != nil {
 		return manifest.Version != m.currentVersion
 	}
@@ -816,6 +816,48 @@ func (m *Manager) checkDiskSpace(requiredBytes int64) error {
 	}
 
 	return nil
+}
+
+func parseSemverVersion(raw string) (*semver.Version, error) {
+	trimmed := strings.TrimSpace(strings.TrimPrefix(raw, "v"))
+	if trimmed == "" {
+		return nil, fmt.Errorf("empty version")
+	}
+	if ver, err := semver.NewVersion(trimmed); err == nil {
+		return ver, nil
+	}
+	core := trimmed
+	build := ""
+	if plus := strings.Index(core, "+"); plus != -1 {
+		build = core[plus:]
+		core = core[:plus]
+	}
+	prerelease := ""
+	if dash := strings.Index(core, "-"); dash != -1 {
+		prerelease = core[dash+1:]
+		core = core[:dash]
+	}
+	segments := strings.Split(core, ".")
+	if len(segments) <= 3 {
+		return semver.NewVersion(trimmed)
+	}
+	base := strings.Join(segments[:3], ".")
+	extra := strings.Join(segments[3:], ".")
+	preParts := []string{}
+	if extra != "" {
+		preParts = append(preParts, extra)
+	}
+	if prerelease != "" {
+		preParts = append(preParts, prerelease)
+	}
+	normalized := base
+	if len(preParts) > 0 {
+		normalized += "-" + strings.Join(preParts, ".")
+	}
+	if build != "" {
+		normalized += build
+	}
+	return semver.NewVersion(normalized)
 }
 
 func (m *Manager) setStatus(s Status) {
