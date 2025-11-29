@@ -2409,6 +2409,14 @@ function applyMasonryLayout(targetGrid) {
     const grid = targetGrid || document.querySelector('.settings-grid');
     if (!grid) return;
 
+    if ((grid.dataset && grid.dataset.layout === 'single') || grid.classList.contains('agent-settings-stack')) {
+        grid.style.display = '';
+        grid.style.flexWrap = '';
+        grid.style.gap = '';
+        grid.style.alignItems = '';
+        return;
+    }
+
     const panels = Array.from(grid.querySelectorAll('.panel'));
     if (panels.length === 0) return;
 
@@ -2886,7 +2894,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         resizeTimeout = setTimeout(() => {
             // Get all panels from all columns
             const grid = document.querySelector('.settings-grid');
-            if (!grid) return;
+            if (!grid || (grid.dataset && grid.dataset.layout === 'single') || grid.classList.contains('agent-settings-stack')) return;
             const allPanels = Array.from(grid.querySelectorAll('.panel'));
             
             // Store panels temporarily
@@ -2908,7 +2916,11 @@ document.addEventListener('DOMContentLoaded', async function () {
     const advancedToggle = document.getElementById('show_advanced');
     if (advancedToggle) {
         advancedToggle.addEventListener('change', function() {
-            setTimeout(() => applyMasonryLayout(), 100);
+            setTimeout(() => {
+                const grid = document.querySelector('.settings-grid');
+                if (!grid || (grid.dataset && grid.dataset.layout === 'single') || grid.classList.contains('agent-settings-stack')) return;
+                applyMasonryLayout();
+            }, 100);
         });
     }
 
