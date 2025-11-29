@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -306,6 +308,38 @@ func (w *UploadWorker) heartbeatLoop() {
 	}
 }
 
+// buildHeartbeatMetadata prepares shared metadata fields so WebSocket and HTTP
+// heartbeats keep server-side agent records in sync.
+func (w *UploadWorker) buildHeartbeatMetadata() map[string]interface{} {
+	meta := map[string]interface{}{
+		"status":       "active",
+		"platform":     runtime.GOOS,
+		"architecture": runtime.GOARCH,
+		"go_version":   runtime.Version(),
+	}
+
+	if hostname, err := os.Hostname(); err == nil && hostname != "" {
+		meta["hostname"] = hostname
+	}
+
+	if w.versionInfo != nil {
+		if version := strings.TrimSpace(w.versionInfo.Version); version != "" {
+			meta["version"] = version
+		}
+		if proto := strings.TrimSpace(w.versionInfo.ProtocolVersion); proto != "" {
+			meta["protocol_version"] = proto
+		}
+		if buildType := strings.TrimSpace(w.versionInfo.BuildType); buildType != "" {
+			meta["build_type"] = buildType
+		}
+		if commit := strings.TrimSpace(w.versionInfo.GitCommit); commit != "" {
+			meta["git_commit"] = commit
+		}
+	}
+
+	return meta
+}
+
 // sendHeartbeat sends a single heartbeat with retry logic
 func (w *UploadWorker) sendHeartbeat() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -325,9 +359,11 @@ func (w *UploadWorker) sendHeartbeat() {
 			deviceCount = len(devices)
 		}
 
-		// Send heartbeat over WebSocket
-		heartbeatData := map[string]interface{}{
-			"device_count": deviceCount,
+		// Send heartbeat over WebSocket with metadata parity to HTTP heartbeats
+		heartbeatData := w.buildHeartbeatMetadata()
+		heartbeatData["device_count"] = deviceCount
+		if settingsVersion := strings.TrimSpace(w.currentSettingsVersion()); settingsVersion != "" {
+			heartbeatData["settings_version"] = settingsVersion
 		}
 
 		if err := wsClient.SendHeartbeat(heartbeatData); err != nil {

@@ -155,6 +155,79 @@ func TestWebSocketHeartbeat(t *testing.T) {
 	t.Log("WebSocket heartbeat processed successfully")
 }
 
+// TestWebSocketHeartbeatMetadata verifies that metadata provided over WebSocket heartbeats
+// updates the stored agent record (platform, version, hostname, etc.).
+func TestWebSocketHeartbeatMetadata(t *testing.T) {
+	t.Parallel()
+
+	store, err := storage.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create test store: %v", err)
+	}
+	defer store.Close()
+
+	agent := &storage.Agent{
+		AgentID: "test-agent-meta",
+		Token:   "test-token-meta",
+		Status:  "inactive",
+	}
+	if err := store.RegisterAgent(context.Background(), agent); err != nil {
+		t.Fatalf("Failed to register agent: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handleAgentWebSocket(w, r, store)
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?token=" + agent.Token
+	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Failed to connect via WebSocket: %v", err)
+	}
+	defer ws.Close()
+
+	heartbeatMsg := wscommon.Message{
+		Type: wscommon.MessageTypeHeartbeat,
+		Data: map[string]interface{}{
+			"platform":         "windows",
+			"version":          "2.1.0",
+			"protocol_version": "2",
+			"hostname":         "meta-host",
+		},
+		Timestamp: time.Now(),
+	}
+	payload, err := json.Marshal(heartbeatMsg)
+	if err != nil {
+		t.Fatalf("Failed to marshal heartbeat: %v", err)
+	}
+	if err := ws.WriteMessage(websocket.TextMessage, payload); err != nil {
+		t.Fatalf("Failed to send heartbeat: %v", err)
+	}
+
+	ws.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, _, err := ws.ReadMessage(); err != nil {
+		t.Fatalf("Failed to read pong: %v", err)
+	}
+
+	updated, err := store.GetAgent(context.Background(), agent.AgentID)
+	if err != nil {
+		t.Fatalf("Failed to load updated agent: %v", err)
+	}
+	if updated.Platform != "windows" {
+		t.Fatalf("Expected platform 'windows', got %q", updated.Platform)
+	}
+	if updated.Version != "2.1.0" {
+		t.Fatalf("Expected version '2.1.0', got %q", updated.Version)
+	}
+	if updated.Hostname != "meta-host" {
+		t.Fatalf("Expected hostname 'meta-host', got %q", updated.Hostname)
+	}
+	if updated.Status != "active" {
+		t.Fatalf("Expected status 'active', got %q", updated.Status)
+	}
+}
+
 // TestWebSocketAuthenticationFailure tests WebSocket connection with invalid token
 func TestWebSocketAuthenticationFailure(t *testing.T) {
 	t.Parallel()

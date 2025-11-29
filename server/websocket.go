@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -359,12 +360,24 @@ func handleWSHeartbeat(conn *wscommon.Conn, agent *storage.Agent, msg wscommon.M
 		agent.DeviceCount = int(deviceCount)
 	}
 
-	// Update agent heartbeat in database (updates last_seen and status)
+	status := wsStringField(msg.Data, "status")
+	if status == "" {
+		status = "active"
+	}
+
 	ctx := context.Background()
-	if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, "active"); err != nil {
-		logError("Failed to update agent after WebSocket heartbeat", "agent_id", agent.AgentID, "error", err)
-		sendWSError(conn, "Failed to process heartbeat")
-		return
+	if update := buildAgentUpdateFromWS(agent.AgentID, status, msg.Data); update != nil {
+		if err := serverStore.UpdateAgentInfo(ctx, update); err != nil {
+			logError("Failed to update agent metadata after WebSocket heartbeat", "agent_id", agent.AgentID, "error", err)
+			sendWSError(conn, "Failed to process heartbeat")
+			return
+		}
+	} else {
+		if err := serverStore.UpdateAgentHeartbeat(ctx, agent.AgentID, status); err != nil {
+			logError("Failed to update agent after WebSocket heartbeat", "agent_id", agent.AgentID, "error", err)
+			sendWSError(conn, "Failed to process heartbeat")
+			return
+		}
 	}
 
 	logDebug("WebSocket heartbeat received", "agent_id", agent.AgentID)
@@ -383,6 +396,82 @@ func handleWSHeartbeat(conn *wscommon.Conn, agent *storage.Agent, msg wscommon.M
 
 	if err := conn.WriteRaw(payload, 10*time.Second); err != nil {
 		logWarn("Failed to send pong to agent", "agent_id", agent.AgentID, "error", err)
+	}
+}
+
+func buildAgentUpdateFromWS(agentID string, status string, data map[string]interface{}) *storage.Agent {
+	if len(data) == 0 {
+		return nil
+	}
+
+	update := &storage.Agent{
+		AgentID: agentID,
+		Status:  status,
+	}
+
+	fields := 0
+	if v := wsStringField(data, "version"); v != "" {
+		update.Version = v
+		fields++
+	}
+	if v := wsStringField(data, "protocol_version"); v != "" {
+		update.ProtocolVersion = v
+		fields++
+	}
+	if v := wsStringField(data, "hostname"); v != "" {
+		update.Hostname = v
+		fields++
+	}
+	if v := wsStringField(data, "ip"); v != "" {
+		update.IP = v
+		fields++
+	}
+	if v := wsStringField(data, "platform"); v != "" {
+		update.Platform = v
+		fields++
+	}
+	if v := wsStringField(data, "os_version"); v != "" {
+		update.OSVersion = v
+		fields++
+	}
+	if v := wsStringField(data, "go_version"); v != "" {
+		update.GoVersion = v
+		fields++
+	}
+	if v := wsStringField(data, "architecture"); v != "" {
+		update.Architecture = v
+		fields++
+	}
+	if v := wsStringField(data, "build_type"); v != "" {
+		update.BuildType = v
+		fields++
+	}
+	if v := wsStringField(data, "git_commit"); v != "" {
+		update.GitCommit = v
+		fields++
+	}
+
+	if fields == 0 {
+		return nil
+	}
+	return update
+}
+
+func wsStringField(data map[string]interface{}, key string) string {
+	if data == nil {
+		return ""
+	}
+	val, ok := data[key]
+	if !ok || val == nil {
+		return ""
+	}
+	switch v := val.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String())
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", v))
 	}
 }
 
