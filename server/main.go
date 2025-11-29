@@ -173,6 +173,37 @@ var (
 	ProtocolVersion = "1"       // Agent-Server protocol version
 )
 
+var assetVersionTag = computeAssetVersion()
+
+func computeAssetVersion() string {
+	candidates := []string{strings.TrimSpace(GitCommit), strings.TrimSpace(Version), strings.TrimSpace(BuildTime)}
+	for _, candidate := range candidates {
+		if candidate == "" || candidate == "unknown" {
+			continue
+		}
+		if candidate == "dev" && strings.TrimSpace(GitCommit) == "unknown" {
+			continue
+		}
+		return sanitizeAssetVersion(candidate)
+	}
+	return strconv.FormatInt(time.Now().Unix(), 10)
+}
+
+func sanitizeAssetVersion(input string) string {
+	if input == "" {
+		return "dev"
+	}
+	var b strings.Builder
+	for _, r := range input {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteRune('-')
+	}
+	return b.String()
+}
+
 // SSE (Server-Sent Events) Hub for real-time UI updates
 type SSEEvent struct {
 	Type string                 `json:"type"`
@@ -4473,7 +4504,10 @@ func handleWebUI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, nil); err != nil {
+	data := struct {
+		AssetVersion string
+	}{AssetVersion: assetVersionTag}
+	if err := tmpl.Execute(w, data); err != nil {
 		logError("Failed to execute index.html template", "error", err)
 	}
 }

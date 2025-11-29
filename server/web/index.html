@@ -9,11 +9,11 @@
     <link rel="icon" type="image/svg+xml"
         href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='16' y='8' width='32' height='12' fill='%234a5568' rx='2'/><rect x='12' y='20' width='40' height='24' fill='%23718096' rx='3'/><rect x='16' y='24' width='32' height='16' fill='%23cbd5e0' rx='2'/><rect x='20' y='28' width='8' height='2' fill='%234299e1'/><rect x='20' y='32' width='12' height='2' fill='%234299e1'/><rect x='20' y='36' width='10' height='2' fill='%234299e1'/><circle cx='46' cy='32' r='3' fill='%2348bb78'/><rect x='16' y='44' width='32' height='12' fill='%234a5568' rx='2'/><rect x='20' y='48' width='24' height='4' fill='%23e2e8f0'/></svg>">
     <!-- flatpickr is injected centrally from common/web/shared.js -->
-    <link rel="stylesheet" href="/static/shared.css">
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="/static/shared.js"></script>
-    <script src="/static/cards.js"></script>
-    <script src="/static/metrics.js"></script>
+    <link rel="stylesheet" href="/static/shared.css{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}">
+    <link rel="stylesheet" href="/static/style.css{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}">
+    <script src="/static/shared.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
+    <script src="/static/cards.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
+    <script src="/static/metrics.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
 </head>
 
 <body>
@@ -894,9 +894,9 @@
         </div>
     </div>
 
-    <script src="/static/sso-admin.js"></script>
-    <script src="/static/rbac.js"></script>
-    <script src="/static/app.js"></script>
+    <script src="/static/sso-admin.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
+    <script src="/static/rbac.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
+    <script src="/static/app.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
 
 </body>
 
