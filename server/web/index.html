@@ -66,10 +66,105 @@
 
         <!-- Agents Tab -->
         <div style="margin-top:12px;" data-tab="agents">
-            <h3>Connected Agents</h3>
-            <div id="agents_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
-            <div id="agents_list">
-                <div style="color:var(--muted);">Loading agents...</div>
+            <div class="metrics-header agents-header">
+                <div>
+                    <h3 style="margin-bottom:4px;">Fleet Agents</h3>
+                    <div class="muted-text">Track connectivity, versions, and last-seen activity across every deployment.</div>
+                </div>
+                <div class="view-toggle" id="agents_view_toggle" role="group" aria-label="Agents view">
+                    <button class="ghost-btn active" data-view="cards">Card View</button>
+                    <button class="ghost-btn" data-view="table">Table View</button>
+                </div>
+            </div>
+
+            <div id="agents_overview_metrics" class="metrics-overview-grid compact" style="margin-bottom:16px;">
+                <div class="metric-card loading">Loading agent metrics…</div>
+            </div>
+
+            <div class="agents-toolbar">
+                <div class="agents-toolbar-left">
+                    <label class="field">
+                        <span>Search</span>
+                        <input type="text" id="agents_search" placeholder="Search name, hostname, ID…" />
+                    </label>
+                    <label class="field">
+                        <span>Version</span>
+                        <select id="agents_version_filter">
+                            <option value="">All Versions</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Platform</span>
+                        <select id="agents_platform_filter">
+                            <option value="">All Platforms</option>
+                        </select>
+                    </label>
+                    <label class="field sort-field">
+                        <span>Sort</span>
+                        <div class="sort-select">
+                            <select id="agents_sort_select">
+                                <option value="last_seen">Last Seen</option>
+                                <option value="name">Agent Name</option>
+                                <option value="status">Status</option>
+                                <option value="connection">Connection</option>
+                                <option value="version">Version</option>
+                            </select>
+                            <button id="agents_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
+                                <span id="agents_sort_dir_icon">↓</span>
+                            </button>
+                        </div>
+                    </label>
+                </div>
+                <div class="agents-toolbar-actions">
+                    <button id="agents_reset_filters" class="ghost-btn">Reset Filters</button>
+                </div>
+            </div>
+
+            <div class="agents-quick-filters">
+                <div class="filter-block">
+                    <div class="filter-label">Status</div>
+                    <div id="agents_status_filter" class="pill-toggle-group" role="group" aria-label="Status filters">
+                        <button class="pill active" data-status="active" data-label="Active">Active</button>
+                        <button class="pill active" data-status="inactive" data-label="Inactive">Inactive</button>
+                        <button class="pill active" data-status="offline" data-label="Offline">Offline</button>
+                    </div>
+                </div>
+                <div class="filter-block">
+                    <div class="filter-label">Connection</div>
+                    <div id="agents_connection_filter" class="pill-toggle-group" role="group" aria-label="Connection filters">
+                        <button class="pill active" data-connection="ws" data-label="Live WS">Live WS</button>
+                        <button class="pill active" data-connection="http" data-label="HTTP Fallback">HTTP Fallback</button>
+                        <button class="pill active" data-connection="none" data-label="Offline">Offline</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="agents_active_filters" class="filter-chip-row"></div>
+
+            <div id="agents_stats" class="agents-inline-stats"></div>
+
+            <div class="device-cards-container" id="agents_cards"></div>
+            <div id="agents_table_wrapper" class="hidden">
+                <div class="table-wrapper">
+                    <table class="simple-table" id="agents_table">
+                        <thead>
+                            <tr>
+                                <th data-sort-key="name">Agent</th>
+                                <th data-sort-key="status">Status</th>
+                                <th data-sort-key="connection">Connection</th>
+                                <th data-sort-key="platform">Platform</th>
+                                <th data-sort-key="version">Version</th>
+                                <th data-sort-key="last_seen">Last Seen</th>
+                                <th class="actions-col">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="7" class="muted-text">Loading agents…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 

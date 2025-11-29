@@ -1359,7 +1359,8 @@ select:focus {
 }
 
 /* ---------------------------- Devices Dashboard --------------------------- */
-.devices-header {
+.devices-header,
+.agents-header {
   padding-top: 0;
   margin-bottom: 8px;
 }
@@ -1384,7 +1385,8 @@ select:focus {
   border-color: transparent;
 }
 
-.devices-toolbar {
+.devices-toolbar,
+.agents-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -1393,14 +1395,16 @@ select:focus {
   margin-bottom: 12px;
 }
 
-.devices-toolbar-left {
+.devices-toolbar-left,
+.agents-toolbar-left {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-end;
 }
 
-.devices-toolbar .field {
+.devices-toolbar .field,
+.agents-toolbar .field {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1409,7 +1413,9 @@ select:focus {
 }
 
 .devices-toolbar .field input,
-.devices-toolbar .field select {
+.devices-toolbar .field select,
+.agents-toolbar .field input,
+.agents-toolbar .field select {
   padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -1418,11 +1424,13 @@ select:focus {
   min-width: 160px;
 }
 
-.devices-toolbar .field select {
+.devices-toolbar .field select,
+.agents-toolbar .field select {
   min-height: 34px;
 }
 
-.devices-toolbar-actions {
+.devices-toolbar-actions,
+.agents-toolbar-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -1434,13 +1442,15 @@ select:focus {
   gap: 6px;
 }
 
-#devices_sort_dir_btn {
+#devices_sort_dir_btn,
+#agents_sort_dir_btn {
   padding: 6px 8px;
   min-width: auto;
   height: 32px;
 }
 
-.devices-quick-filters {
+.devices-quick-filters,
+.agents-quick-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 24px;
@@ -1516,7 +1526,8 @@ select:focus {
   font-size: 12px;
 }
 
-.devices-inline-stats {
+.devices-inline-stats,
+.agents-inline-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -1563,7 +1574,8 @@ select:focus {
   border: 1px solid var(--border);
 }
 
-#devices_table_wrapper .table-wrapper {
+#devices_table_wrapper .table-wrapper,
+#agents_table_wrapper .table-wrapper {
   margin-top: 12px;
 }
 

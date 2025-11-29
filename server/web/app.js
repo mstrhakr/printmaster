@@ -45,6 +45,9 @@ const SERVER_UI_STATE_KEYS = {
     SETTINGS_VIEW: 'pm_server_settings_view',
     LOG_VIEW: 'pm_server_log_view',
     TENANTS_VIEW: 'pm_server_tenants_view',
+    AGENTS_VIEW: 'pm_server_agents_view',
+    AGENTS_SORT_KEY: 'pm_server_agents_sort_key',
+    AGENTS_SORT_DIR: 'pm_server_agents_sort_dir',
     DEVICES_VIEW: 'pm_server_devices_view',
     DEVICES_SORT_KEY: 'pm_server_devices_sort_key',
     DEVICES_SORT_DIR: 'pm_server_devices_sort_dir',
@@ -153,6 +156,22 @@ const DEVICES_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICE
 const DEVICES_DEFAULT_SORT_DIR = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_DIR, 'desc', ['asc', 'desc']);
 const DEVICES_METRICS_MAX_AGE_MS = 60 * 1000;
 
+const AGENT_STATUS_KEYS = ['active', 'inactive', 'offline'];
+const AGENT_STATUS_ORDER = { active: 0, inactive: 1, offline: 2 };
+const AGENT_CONNECTION_KEYS = ['ws', 'http', 'none'];
+const AGENT_CONNECTION_ORDER = { ws: 0, http: 1, none: 2 };
+const AGENT_STATUS_COLORS = {
+    active: 'var(--success)',
+    inactive: 'var(--muted)',
+    offline: 'var(--danger)'
+};
+const AGENTS_SORT_KEYS = ['last_seen', 'name', 'status', 'connection', 'version', 'platform'];
+const AGENTS_VIEW_OPTIONS = ['cards', 'table'];
+const AGENTS_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_VIEW, 'cards', AGENTS_VIEW_OPTIONS);
+const AGENTS_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_KEY, 'last_seen', AGENTS_SORT_KEYS);
+const AGENTS_DEFAULT_SORT_DIR = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_DIR, 'desc', ['asc', 'desc']);
+const AGENTS_METRICS_MAX_AGE_MS = 60 * 1000;
+
 const devicesVM = {
     loading: false,
     loaded: false,
@@ -179,6 +198,37 @@ const devicesVM = {
         filtered: 0,
         totalStatuses: {},
         filteredStatuses: {},
+    },
+    uiInitialized: false,
+};
+
+const agentsVM = {
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+    filtered: [],
+    metrics: {
+        summary: null,
+        lastFetched: null,
+    },
+    filters: {
+        query: '',
+        version: '',
+        platform: '',
+        statuses: new Set(AGENT_STATUS_KEYS),
+        connections: new Set(AGENT_CONNECTION_KEYS),
+        sortKey: AGENTS_DEFAULT_SORT_KEY || 'last_seen',
+        sortDir: AGENTS_DEFAULT_SORT_DIR || 'desc',
+    },
+    view: AGENTS_DEFAULT_VIEW || 'cards',
+    stats: {
+        total: 0,
+        filtered: 0,
+        totalStatuses: buildAgentStatusCounts(),
+        filteredStatuses: buildAgentStatusCounts(),
+        totalConnections: buildAgentConnectionCounts(),
+        filteredConnections: buildAgentConnectionCounts(),
     },
     uiInitialized: false,
 };
@@ -650,8 +700,7 @@ function connectSSE() {
         try {
             const data = JSON.parse(e.data);
             window.__pm_shared.log('Agent registered (SSE):', data);
-            // Add card dynamically
-            addAgentCard(data);
+            upsertAgentRecord(data);
             // Show joined bubble when registration event received
             try { setAgentJoined(data.agent_id, true); } catch (ex) {}
         } catch (err) {
@@ -686,7 +735,7 @@ function connectSSE() {
         try {
             const data = JSON.parse(e.data);
             // Update agent's status/last seen in-place
-            updateAgentHeartbeat(data.agent_id, data.status);
+            updateAgentHeartbeat(data.agent_id, data.status, data.last_seen || data.timestamp);
         } catch (err) {
             window.__pm_shared.log('Agent heartbeat (raw):', e.data);
         }
@@ -1532,7 +1581,10 @@ function switchTab(targetTab) {
     }
     
     // Load data for specific tabs
-    if (targetTab === 'devices') {
+    if (targetTab === 'agents') {
+        initAgentsUI();
+        loadAgents();
+    } else if (targetTab === 'devices') {
         initDevicesUI();
         loadDevices();
     } else if (targetTab === 'metrics') {
@@ -1957,25 +2009,32 @@ async function loadServerStatus() {
 }
 
 // ====== Agents Management ======
-async function loadAgents() {
+async function loadAgents(force = false) {
+    initAgentsUI();
+    if (agentsVM.loading && !force) {
+        return;
+    }
+    agentsVM.loading = true;
+    renderAgentsLoading();
     try {
-        // TODO: This endpoint needs to be created in server/main.go
         const response = await fetch('/api/v1/agents/list');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        
         const agents = await response.json();
-        renderAgents(agents);
         updateAgentDirectory(Array.isArray(agents) ? agents : []);
+        agentsVM.items = enrichAgents(Array.isArray(agents) ? agents : []);
+        agentsVM.stats.total = agentsVM.items.length;
+        agentsVM.error = null;
+        agentsVM.loaded = true;
+        refreshAgentFilters();
+        refreshAgentMetrics();
+        applyAgentFilters();
     } catch (error) {
-        window.__pm_shared.error('Failed to load agents:', error);
-        const listEl = document.getElementById('agents_list');
-        if (listEl) {
-            listEl.innerHTML = '<div style="color:var(--error);">Failed to load agents: ' + error.message + '</div>';
-        } else {
-            window.__pm_shared.warn('agents_list element not found in DOM while handling loadAgents error');
-        }
+        agentsVM.error = error;
+        renderAgentsError(error);
+    } finally {
+        agentsVM.loading = false;
     }
 }
 
@@ -2911,169 +2970,742 @@ function formatNumber(value){
     return '—';
 }
 
-function renderAgents(agents) {
-    const container = document.getElementById('agents_list');
-    const statsContainer = document.getElementById('agents_stats');
-
-    if (!container) {
-        window.__pm_shared.warn('renderAgents: agents_list element not found - aborting render');
+function initAgentsUI() {
+    if (agentsVM.uiInitialized) {
         return;
     }
+    agentsVM.uiInitialized = true;
 
-    if (!agents || agents.length === 0) {
-        container.innerHTML = '<div style="color:var(--muted);">No agents connected yet</div>';
-        if (statsContainer) statsContainer.innerHTML = '<div style="color:var(--muted);">Total Agents: 0</div>';
-        return;
+    const searchInput = document.getElementById('agents_search');
+    if (searchInput) {
+        searchInput.value = agentsVM.filters.query;
+        searchInput.addEventListener('input', debounce((event) => {
+            agentsVM.filters.query = (event.target.value || '').trim();
+            applyAgentFilters();
+        }, 200));
     }
-    
-    // Update stats
-    const activeCount = agents.filter(a => a.status === 'active').length;
-    const inactiveCount = agents.filter(a => a.status === 'inactive').length;
-    const offlineCount = agents.filter(a => a.status === 'offline').length;
-    
-    statsContainer.innerHTML = `
-        <div><strong>Total Agents:</strong> ${agents.length}</div>
-        <div><strong>Active:</strong> <span style="color:var(--success)">${activeCount}</span></div>
-        <div><strong>Inactive:</strong> <span style="color:var(--muted)">${inactiveCount}</span></div>
-        <div><strong>Offline:</strong> <span style="color:var(--error)">${offlineCount}</span></div>
-    `;
-    
-    // Render agent cards
-    container.innerHTML = '<div class="device-cards-container">' + 
-        agents.map(agent => renderAgentCard(agent)).join('') + 
-        '</div>';
+
+    const versionSelect = document.getElementById('agents_version_filter');
+    if (versionSelect) {
+        versionSelect.addEventListener('change', (event) => {
+            agentsVM.filters.version = event.target.value || '';
+            applyAgentFilters();
+        });
+    }
+
+    const platformSelect = document.getElementById('agents_platform_filter');
+    if (platformSelect) {
+        platformSelect.addEventListener('change', (event) => {
+            agentsVM.filters.platform = event.target.value || '';
+            applyAgentFilters();
+        });
+    }
+
+    const sortSelect = document.getElementById('agents_sort_select');
+    if (sortSelect) {
+        sortSelect.value = agentsVM.filters.sortKey;
+        sortSelect.addEventListener('change', (event) => {
+            setAgentSort(event.target.value, agentsVM.filters.sortDir);
+        });
+    }
+
+    const sortDirBtn = document.getElementById('agents_sort_dir_btn');
+    if (sortDirBtn) {
+        sortDirBtn.addEventListener('click', () => {
+            const nextDir = agentsVM.filters.sortDir === 'asc' ? 'desc' : 'asc';
+            setAgentSort(agentsVM.filters.sortKey, nextDir);
+        });
+    }
+
+    const viewToggle = document.getElementById('agents_view_toggle');
+    if (viewToggle) {
+        viewToggle.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-view]');
+            if (!btn) return;
+            setAgentsView(btn.getAttribute('data-view'));
+        });
+    }
+
+    const statusFilter = document.getElementById('agents_status_filter');
+    if (statusFilter) {
+        statusFilter.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-status]');
+            if (!btn) return;
+            toggleAgentStatusFilter(btn.getAttribute('data-status'));
+        });
+    }
+
+    const connectionFilter = document.getElementById('agents_connection_filter');
+    if (connectionFilter) {
+        connectionFilter.addEventListener('click', (event) => {
+            const btn = event.target.closest('[data-connection]');
+            if (!btn) return;
+            toggleAgentConnectionFilter(btn.getAttribute('data-connection'));
+        });
+    }
+
+    const resetBtn = document.getElementById('agents_reset_filters');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetAgentFilters);
+    }
+
+    const chips = document.getElementById('agents_active_filters');
+    if (chips && !chips.dataset.bound) {
+        chips.dataset.bound = 'true';
+        chips.addEventListener('click', (event) => {
+            const btn = event.target.closest('button[data-filter]');
+            if (!btn) return;
+            handleAgentFilterChipRemove(btn.getAttribute('data-filter'));
+        });
+    }
+
+    const table = document.getElementById('agents_table');
+    if (table) {
+        const head = table.querySelector('thead');
+        if (head && !head.dataset.bound) {
+            head.dataset.bound = 'true';
+            head.addEventListener('click', handleAgentTableSortClick);
+        }
+    }
+
+    syncAgentsViewToggle();
+    syncAgentSortControls();
+    syncAgentQuickFilters();
 }
 
-function renderAgentCard(agent) {
-    const statusColors = {
-        'active': 'var(--success)',
-        'inactive': 'var(--muted)',
-        'offline': 'var(--error)'
-    };
-    
-    const statusColor = statusColors[agent.status] || 'var(--muted)';
-    const lastSeenDate = agent.last_seen ? new Date(agent.last_seen) : null;
-    const registeredDate = agent.registered_at ? new Date(agent.registered_at) : null;
-    
-    // Calculate time since last seen
-    let lastSeenText = 'Never';
-    if (lastSeenDate) {
-        const now = new Date();
-        const diff = now - lastSeenDate;
-        const seconds = Math.floor(diff / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const hours = Math.floor(minutes / 60);
-        const days = Math.floor(hours / 24);
-        
-        if (days > 0) lastSeenText = `${days}d ago`;
-        else if (hours > 0) lastSeenText = `${hours}h ago`;
-        else if (minutes > 0) lastSeenText = `${minutes}m ago`;
-        else lastSeenText = 'Just now';
+function renderAgentsLoading() {
+    const cards = document.getElementById('agents_cards');
+    if (cards) {
+        cards.classList.remove('hidden');
+        cards.innerHTML = '<div class="muted-text">Loading agents…</div>';
     }
-    
-    return `
-        <div class="device-card" data-agent-id="${agent.agent_id}">
-            <div class="device-card-header">
-                <div>
-                    <div style="display:flex;align-items:center;gap:8px">
-                        <div class="device-card-title">${agent.name || agent.hostname || agent.agent_id}</div>
-                        <span class="agent-joined-bubble" style="margin-left:8px;display:${registeredDate? 'inline-flex':'none'};align-items:center;padding:2px 6px;border-radius:12px;background:var(--panel);font-size:12px;color:var(--muted);border:1px solid var(--border);">${registeredDate? 'Joined' : ''}</span>
-                    </div>
-                    <div class="device-card-subtitle">
-                        <span class="copyable" data-copy="${agent.hostname || ''}" title="Click to copy Hostname">${agent.hostname || 'N/A'}</span>
-                        <span style="margin-left:8px;color:var(--muted);font-size:12px;" class="copyable" data-copy="${agent.agent_id}" title="Click to copy Agent ID">${agent.agent_id}</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="device-card-info">
-                <div class="device-card-row">
-                    <span class="device-card-label">Status</span>
-                    <span class="device-card-value agent-status-value" style="color:${statusColor}">
-                        ● ${agent.status || 'unknown'}
-                    </span>
-                </div>
+    const wrapper = document.getElementById('agents_table_wrapper');
+    if (wrapper) {
+        const tbody = wrapper.querySelector('tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="7" class="muted-text">Loading agents…</td></tr>';
+        }
+    }
+    const metrics = document.getElementById('agents_overview_metrics');
+    if (metrics && !agentsVM.metrics.summary) {
+        metrics.innerHTML = '<div class="metric-card loading">Loading agent metrics…</div>';
+    }
+}
 
-                <div class="device-card-row">
-                    <span class="device-card-label">WebSockets</span>
-                    <span class="device-card-value">
-                        ${ (function(){
-                            let label = '';
-                            let title = '';
-                            let cls = 'none';
-                            if (agent.connection_type === 'ws') {
-                                label = 'Live';
-                                title = 'Live';
-                                cls = 'ws';
-                            } else if (agent.connection_type === 'http') {
-                                label = 'HTTP(s) Fallback';
-                                title = 'HTTP(s) Fallback';
-                                cls = 'http';
-                            } else {
-                                label = 'Disconnected';
-                                title = 'Disconnected';
-                                cls = 'none';
-                            }
-                            // Include optional websocket subsystem version if provided
-                            const ver = agent.ws_version ? ` <span class="ws-version">v${agent.ws_version}</span>` : '';
-                            return `<span class="conn-badge ${cls}" title="${title}" aria-label="WEBSOCKETS: ${label}">WEBSOCKETS: ${label}</span>${ver}`;
-                        })() }
-                    </span>
-                </div>
-                
-                <div class="device-card-row">
-                    <span class="device-card-label">IP Address</span>
-                    <span class="device-card-value copyable" data-copy="${agent.ip || ''}" title="Click to copy">
-                        ${agent.ip || 'N/A'}
-                    </span>
-                </div>
-                
-                <div class="device-card-row">
-                    <span class="device-card-label">Platform</span>
-                    <span class="device-card-value">${agent.platform || 'Unknown'}</span>
-                </div>
-                
-                <div class="device-card-row">
-                    <span class="device-card-label">Version</span>
-                    <span class="device-card-value">${agent.version || 'N/A'}</span>
-                </div>
-                
-                <div class="device-card-row">
-                    <span class="device-card-label">Last Seen</span>
-                    <span class="device-card-value agent-last-seen" title="${lastSeenDate ? lastSeenDate.toLocaleString() : 'Never'}">
-                        ${lastSeenText}
-                    </span>
-                </div>
-                
-                ${registeredDate ? `
-                <div class="device-card-row">
-                    <span class="device-card-label">Registered</span>
-                    <span class="device-card-value" title="${registeredDate.toLocaleString()}">
-                        ${registeredDate.toLocaleDateString()}
-                    </span>
-                </div>
-                ` : ''}
+function renderAgentsError(error) {
+    const message = error && error.message ? error.message : 'Unknown error';
+    const cards = document.getElementById('agents_cards');
+    if (cards) {
+        cards.classList.remove('hidden');
+        cards.innerHTML = `<div class="error-text">Failed to load agents: ${escapeHtml(message)}</div>`;
+    }
+    const wrapper = document.getElementById('agents_table_wrapper');
+    if (wrapper) {
+        const tbody = wrapper.querySelector('tbody');
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="7" class="error-text">Failed to load agents: ${escapeHtml(message)}</td></tr>`;
+        }
+    }
+    const stats = document.getElementById('agents_stats');
+    if (stats) {
+        stats.innerHTML = `<div class="error-text">Failed to load agents: ${escapeHtml(message)}</div>`;
+    }
+}
+
+function refreshAgentMetrics() {
+    if (!Array.isArray(agentsVM.items) || agentsVM.items.length === 0) {
+        agentsVM.metrics.summary = null;
+        renderAgentsOverview();
+        return;
+    }
+    const now = Date.now();
+    if (agentsVM.metrics.summary && agentsVM.metrics.lastFetched && (now - agentsVM.metrics.lastFetched.getTime()) < AGENTS_METRICS_MAX_AGE_MS) {
+        renderAgentsOverview();
+        return;
+    }
+    agentsVM.metrics.summary = computeAgentMetrics(agentsVM.items);
+    agentsVM.metrics.lastFetched = new Date();
+    renderAgentsOverview();
+}
+
+function computeAgentMetrics(list) {
+    const summary = {
+        total: list.length,
+        active: 0,
+        inactive: 0,
+        offline: 0,
+        connections: buildAgentConnectionCounts(),
+        versions: {},
+        platforms: {},
+    };
+    list.forEach(agent => {
+        const meta = agent.__meta || {};
+        const statusKey = meta.statusKey || 'inactive';
+        const connKey = meta.connectionKey || 'none';
+        summary[statusKey] = (summary[statusKey] || 0) + 1;
+        if (summary.connections[connKey] !== undefined) {
+            summary.connections[connKey] += 1;
+        }
+        const version = meta.versionLabel || agent.version || 'Unknown';
+        summary.versions[version] = (summary.versions[version] || 0) + 1;
+        const platform = meta.platformLabel || agent.platform || 'Unknown';
+        summary.platforms[platform] = (summary.platforms[platform] || 0) + 1;
+    });
+    const versionEntries = Object.entries(summary.versions).sort((a, b) => b[1] - a[1]);
+    summary.primaryVersion = versionEntries.length ? versionEntries[0][0] : 'Unknown';
+    summary.primaryVersionShare = versionEntries.length ? (versionEntries[0][1] / Math.max(1, summary.total)) : 0;
+    summary.outdated = summary.total - (versionEntries.length ? versionEntries[0][1] : 0);
+    return summary;
+}
+
+function renderAgentsOverview() {
+    const container = document.getElementById('agents_overview_metrics');
+    if (!container) return;
+    if (!agentsVM.metrics.summary) {
+        container.innerHTML = '<div class="metric-card loading">No agent metrics yet.</div>';
+        return;
+    }
+    const summary = agentsVM.metrics.summary;
+    const platforms = Object.entries(summary.platforms || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
+    container.innerHTML = `
+        <div class="metric-card">
+            <div class="card-title">Agents Online</div>
+            <div class="metric-kpi-value">${formatNumber(summary.active || 0)}</div>
+            <div class="metric-kpi-label">Active of ${formatNumber(summary.total)}</div>
+            <div class="metric-status-chips">
+                <span class="metric-chip">Active ${formatNumber(summary.active || 0)}</span>
+                <span class="metric-chip">Inactive ${formatNumber(summary.inactive || 0)}</span>
+                <span class="metric-chip">Offline ${formatNumber(summary.offline || 0)}</span>
             </div>
-            
-            <div class="device-card-actions">
-                <button data-action="view-agent" data-agent-id="${agent.agent_id}">View Details</button>
-                <button data-action="open-agent" data-agent-id="${agent.agent_id}" ${agent.status !== 'active' ? 'disabled title="Agent not connected via WebSocket"' : ''}>
-                    Open UI
-                </button>
-                <button data-action="delete-agent" data-agent-id="${agent.agent_id}" data-agent-name="${agent.name || agent.hostname || agent.agent_id}" 
-                    style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">
-                    Delete
-                </button>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Connection Mix</div>
+            <div class="metric-kpi-value">${formatNumber(summary.connections.ws || 0)}</div>
+            <div class="metric-kpi-label">Live WebSocket tunnels</div>
+            <div class="metric-status-chips">
+                <span class="metric-chip">HTTP ${formatNumber(summary.connections.http || 0)}</span>
+                <span class="metric-chip">Offline ${formatNumber(summary.connections.none || 0)}</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Version Alignment</div>
+            <div class="metric-kpi-value">${escapeHtml(summary.primaryVersion || 'Unknown')}</div>
+            <div class="metric-kpi-label">${Math.round((summary.primaryVersionShare || 0) * 100)}% on this build</div>
+            <div class="metric-status-chips">
+                <span class="metric-chip">Outdated ${formatNumber(summary.outdated || 0)}</span>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="card-title">Top Platforms</div>
+            <div class="metric-kpi-value">${platforms.length ? escapeHtml(platforms[0][0]) : '—'}</div>
+            <div class="metric-kpi-label">Most common OS</div>
+            <div class="metric-status-chips">
+                ${platforms.map(([name, count]) => `<span class="metric-chip">${escapeHtml(name)} ${formatNumber(count)}</span>`).join('') || '<span class="metric-chip">No data</span>'}
             </div>
         </div>
     `;
 }
 
-// Toggle the small 'Joined' bubble on an agent card
-function setAgentJoined(agentId, joined) {
-    const cards = findAgentsContainer();
+function refreshAgentFilters() {
+    const versions = new Set();
+    const platforms = new Set();
+    agentsVM.items.forEach(agent => {
+        if (agent.version) {
+            versions.add(agent.version);
+        }
+        if (agent.platform) {
+            platforms.add(agent.platform);
+        }
+    });
+    const versionSelect = document.getElementById('agents_version_filter');
+    if (versionSelect) {
+        const current = agentsVM.filters.version;
+        const options = ['<option value="">All Versions</option>', ...Array.from(versions).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })).map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)].join('');
+        versionSelect.innerHTML = options;
+        if (current && versions.has(current)) {
+            versionSelect.value = current;
+        } else {
+            versionSelect.value = '';
+            agentsVM.filters.version = '';
+        }
+    }
+    const platformSelect = document.getElementById('agents_platform_filter');
+    if (platformSelect) {
+        const current = agentsVM.filters.platform;
+        const options = ['<option value="">All Platforms</option>', ...Array.from(platforms).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })).map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)].join('');
+        platformSelect.innerHTML = options;
+        if (current && platforms.has(current)) {
+            platformSelect.value = current;
+        } else {
+            platformSelect.value = '';
+            agentsVM.filters.platform = '';
+        }
+    }
+}
+
+function applyAgentFilters() {
+    if (!Array.isArray(agentsVM.items)) {
+        return;
+    }
+    const totalStatuses = buildAgentStatusCounts();
+    const filteredStatuses = buildAgentStatusCounts();
+    const totalConnections = buildAgentConnectionCounts();
+    const filteredConnections = buildAgentConnectionCounts();
+    const filtered = [];
+    agentsVM.items.forEach(agent => {
+        const meta = agent.__meta || {};
+        const statusKey = meta.statusKey || 'inactive';
+        const connectionKey = meta.connectionKey || 'none';
+        if (totalStatuses[statusKey] !== undefined) {
+            totalStatuses[statusKey] += 1;
+        }
+        if (totalConnections[connectionKey] !== undefined) {
+            totalConnections[connectionKey] += 1;
+        }
+        if (matchesAgentFilters(agent, agentsVM.filters)) {
+            filtered.push(agent);
+            if (filteredStatuses[statusKey] !== undefined) {
+                filteredStatuses[statusKey] += 1;
+            }
+            if (filteredConnections[connectionKey] !== undefined) {
+                filteredConnections[connectionKey] += 1;
+            }
+        }
+    });
+    agentsVM.filtered = sortAgents(filtered);
+    agentsVM.stats.total = agentsVM.items.length;
+    agentsVM.stats.filtered = agentsVM.filtered.length;
+    agentsVM.stats.totalStatuses = totalStatuses;
+    agentsVM.stats.filteredStatuses = filteredStatuses;
+    agentsVM.stats.totalConnections = totalConnections;
+    agentsVM.stats.filteredConnections = filteredConnections;
+    renderAgentsInlineStats();
+    renderAgentsActiveFilters();
+    syncAgentQuickFilters();
+    if (agentsVM.view === 'table') {
+        renderAgentTable(agentsVM.filtered);
+    } else {
+        renderAgentCards(agentsVM.filtered);
+    }
+    syncAgentTableSortIndicators();
+}
+
+function matchesAgentFilters(agent, filters) {
+    const meta = agent.__meta || {};
+    const query = (filters.query || '').toLowerCase();
+    if (query && (!meta.search || meta.search.indexOf(query) === -1)) {
+        return false;
+    }
+    if (filters.version && (agent.version || '') !== filters.version) {
+        return false;
+    }
+    if (filters.platform && (agent.platform || '') !== filters.platform) {
+        return false;
+    }
+    if (filters.statuses && filters.statuses.size > 0 && !filters.statuses.has(meta.statusKey || 'inactive')) {
+        return false;
+    }
+    if (filters.connections && filters.connections.size > 0 && !filters.connections.has(meta.connectionKey || 'none')) {
+        return false;
+    }
+    return true;
+}
+
+function sortAgents(list) {
+    const key = agentsVM.filters.sortKey || 'last_seen';
+    const dir = agentsVM.filters.sortDir === 'asc' ? 1 : -1;
+    return list.slice().sort((a, b) => {
+        const aVal = getAgentSortValue(a, key);
+        const bVal = getAgentSortValue(b, key);
+        if (aVal < bVal) return -1 * dir;
+        if (aVal > bVal) return 1 * dir;
+        const aName = (a.name || a.hostname || a.agent_id || '').toLowerCase();
+        const bName = (b.name || b.hostname || b.agent_id || '').toLowerCase();
+        if (aName < bName) return -1;
+        if (aName > bName) return 1;
+        return 0;
+    });
+}
+
+function getAgentSortValue(agent, key) {
+    const meta = agent.__meta || {};
+    switch (key) {
+        case 'name':
+            return (agent.name || agent.hostname || agent.agent_id || '').toLowerCase();
+        case 'status':
+            return AGENT_STATUS_ORDER[meta.statusKey || 'inactive'] || 0;
+        case 'connection':
+            return AGENT_CONNECTION_ORDER[meta.connectionKey || 'none'] || 0;
+        case 'version':
+            return (agent.version || '').toLowerCase();
+        case 'platform':
+            return (agent.platform || '').toLowerCase();
+        case 'last_seen':
+        default:
+            return meta.lastSeenMs || 0;
+    }
+}
+
+function renderAgentsInlineStats() {
+    const container = document.getElementById('agents_stats');
+    if (!container) return;
+    const statuses = agentsVM.stats.filteredStatuses || {};
+    container.innerHTML = `
+        <div><strong>Total:</strong> ${formatNumber(agentsVM.stats.total || 0)}</div>
+        <div><strong>Showing:</strong> ${formatNumber(agentsVM.stats.filtered || 0)}</div>
+        <div>
+            <span class="status-pill healthy">Active ${formatNumber(statuses.active || 0)}</span>
+            <span class="status-pill warning">Inactive ${formatNumber(statuses.inactive || 0)}</span>
+            <span class="status-pill error">Offline ${formatNumber(statuses.offline || 0)}</span>
+        </div>
+    `;
+}
+
+function renderAgentsActiveFilters() {
+    const container = document.getElementById('agents_active_filters');
+    if (!container) return;
+    const chips = [];
+    const filters = agentsVM.filters;
+    if (filters.query) {
+        chips.push(buildFilterChip('Search', filters.query, 'search'));
+    }
+    if (filters.version) {
+        chips.push(buildFilterChip('Version', filters.version, 'version'));
+    }
+    if (filters.platform) {
+        chips.push(buildFilterChip('Platform', filters.platform, 'platform'));
+    }
+    if (filters.statuses && filters.statuses.size > 0 && filters.statuses.size < AGENT_STATUS_KEYS.length) {
+        chips.push(buildFilterChip('Status', Array.from(filters.statuses).join(', '), 'statuses'));
+    }
+    if (filters.connections && filters.connections.size > 0 && filters.connections.size < AGENT_CONNECTION_KEYS.length) {
+        chips.push(buildFilterChip('Connection', Array.from(filters.connections).join(', '), 'connections'));
+    }
+    if (chips.length === 0) {
+        container.innerHTML = '';
+        container.classList.add('hidden');
+        return;
+    }
+    container.classList.remove('hidden');
+    container.innerHTML = chips.join('');
+}
+
+function handleAgentFilterChipRemove(filterKey) {
+    switch (filterKey) {
+        case 'search':
+            agentsVM.filters.query = '';
+            const searchInput = document.getElementById('agents_search');
+            if (searchInput) searchInput.value = '';
+            break;
+        case 'version':
+            agentsVM.filters.version = '';
+            const versionSelect = document.getElementById('agents_version_filter');
+            if (versionSelect) versionSelect.value = '';
+            break;
+        case 'platform':
+            agentsVM.filters.platform = '';
+            const platformSelect = document.getElementById('agents_platform_filter');
+            if (platformSelect) platformSelect.value = '';
+            break;
+        case 'statuses':
+            agentsVM.filters.statuses = new Set(AGENT_STATUS_KEYS);
+            break;
+        case 'connections':
+            agentsVM.filters.connections = new Set(AGENT_CONNECTION_KEYS);
+            break;
+        default:
+            return;
+    }
+    applyAgentFilters();
+}
+
+function syncAgentQuickFilters() {
+    document.querySelectorAll('#agents_status_filter [data-status]').forEach(btn => {
+        const key = btn.getAttribute('data-status');
+        const active = agentsVM.filters.statuses.has(key);
+        btn.classList.toggle('active', active);
+        const baseLabel = btn.getAttribute('data-label') || btn.textContent.trim();
+        const count = agentsVM.stats.totalStatuses?.[key] || 0;
+        btn.innerHTML = `${escapeHtml(baseLabel)} <span class="pill-count">${formatNumber(count)}</span>`;
+    });
+    document.querySelectorAll('#agents_connection_filter [data-connection]').forEach(btn => {
+        const key = btn.getAttribute('data-connection');
+        const active = agentsVM.filters.connections.has(key);
+        btn.classList.toggle('active', active);
+        const baseLabel = btn.getAttribute('data-label') || btn.textContent.trim();
+        const count = agentsVM.stats.totalConnections?.[key] || 0;
+        btn.innerHTML = `${escapeHtml(baseLabel)} <span class="pill-count">${formatNumber(count)}</span>`;
+    });
+}
+
+function toggleAgentStatusFilter(statusKey) {
+    if (!AGENT_STATUS_KEYS.includes(statusKey)) return;
+    const next = new Set(agentsVM.filters.statuses || AGENT_STATUS_KEYS);
+    if (next.has(statusKey)) {
+        next.delete(statusKey);
+    } else {
+        next.add(statusKey);
+    }
+    if (next.size === 0) {
+        AGENT_STATUS_KEYS.forEach(key => next.add(key));
+    }
+    agentsVM.filters.statuses = next;
+    applyAgentFilters();
+}
+
+function toggleAgentConnectionFilter(connectionKey) {
+    if (!AGENT_CONNECTION_KEYS.includes(connectionKey)) return;
+    const next = new Set(agentsVM.filters.connections || AGENT_CONNECTION_KEYS);
+    if (next.has(connectionKey)) {
+        next.delete(connectionKey);
+    } else {
+        next.add(connectionKey);
+    }
+    if (next.size === 0) {
+        AGENT_CONNECTION_KEYS.forEach(key => next.add(key));
+    }
+    agentsVM.filters.connections = next;
+    applyAgentFilters();
+}
+
+function resetAgentFilters() {
+    agentsVM.filters.query = '';
+    agentsVM.filters.version = '';
+    agentsVM.filters.platform = '';
+    agentsVM.filters.statuses = new Set(AGENT_STATUS_KEYS);
+    agentsVM.filters.connections = new Set(AGENT_CONNECTION_KEYS);
+    const searchInput = document.getElementById('agents_search');
+    if (searchInput) searchInput.value = '';
+    const versionSelect = document.getElementById('agents_version_filter');
+    if (versionSelect) versionSelect.value = '';
+    const platformSelect = document.getElementById('agents_platform_filter');
+    if (platformSelect) platformSelect.value = '';
+    applyAgentFilters();
+}
+
+function setAgentsView(view) {
+    const nextView = AGENTS_VIEW_OPTIONS.includes(view) ? view : 'cards';
+    if (agentsVM.view === nextView) {
+        return;
+    }
+    agentsVM.view = nextView;
+    persistUIState(SERVER_UI_STATE_KEYS.AGENTS_VIEW, nextView);
+    syncAgentsViewToggle();
+    if (agentsVM.view === 'table') {
+        renderAgentTable(agentsVM.filtered);
+    } else {
+        renderAgentCards(agentsVM.filtered);
+    }
+}
+
+function syncAgentsViewToggle() {
+    const toggle = document.getElementById('agents_view_toggle');
+    if (!toggle) return;
+    toggle.querySelectorAll('[data-view]').forEach(btn => {
+        const view = btn.getAttribute('data-view');
+        const active = view === agentsVM.view;
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+}
+
+function setAgentSort(key, dir) {
+    const nextKey = AGENTS_SORT_KEYS.includes(key) ? key : 'last_seen';
+    const nextDir = dir === 'asc' ? 'asc' : 'desc';
+    if (agentsVM.filters.sortKey === nextKey && agentsVM.filters.sortDir === nextDir) {
+        return;
+    }
+    agentsVM.filters.sortKey = nextKey;
+    agentsVM.filters.sortDir = nextDir;
+    persistUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_KEY, nextKey);
+    persistUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_DIR, nextDir);
+    syncAgentSortControls();
+    applyAgentFilters();
+}
+
+function syncAgentSortControls() {
+    const sortSelect = document.getElementById('agents_sort_select');
+    if (sortSelect && sortSelect.value !== agentsVM.filters.sortKey) {
+        sortSelect.value = agentsVM.filters.sortKey;
+    }
+    const sortDirBtn = document.getElementById('agents_sort_dir_btn');
+    const sortDirIcon = document.getElementById('agents_sort_dir_icon');
+    if (sortDirBtn) {
+        sortDirBtn.dataset.dir = agentsVM.filters.sortDir;
+        sortDirBtn.setAttribute('aria-label', agentsVM.filters.sortDir === 'asc' ? 'Sort ascending' : 'Sort descending');
+    }
+    if (sortDirIcon) {
+        sortDirIcon.textContent = agentsVM.filters.sortDir === 'asc' ? '↑' : '↓';
+    }
+}
+
+function syncAgentTableSortIndicators() {
+    const head = document.querySelector('#agents_table thead');
+    if (!head) return;
+    head.querySelectorAll('th[data-sort-key]').forEach(th => {
+        const key = th.getAttribute('data-sort-key');
+        if (key === agentsVM.filters.sortKey) {
+            th.classList.add('sorted');
+            th.setAttribute('aria-sort', agentsVM.filters.sortDir === 'asc' ? 'ascending' : 'descending');
+        } else {
+            th.classList.remove('sorted');
+            th.removeAttribute('aria-sort');
+        }
+    });
+}
+
+function handleAgentTableSortClick(event) {
+    const target = event.target.closest('th[data-sort-key]');
+    if (!target) {
+        return;
+    }
+    const key = target.getAttribute('data-sort-key');
+    if (!key) {
+        return;
+    }
+    const nextDir = (agentsVM.filters.sortKey === key && agentsVM.filters.sortDir === 'asc') ? 'desc' : 'asc';
+    setAgentSort(key, nextDir);
+}
+
+function renderAgentCards(agents) {
+    const cards = document.getElementById('agents_cards');
+    const wrapper = document.getElementById('agents_table_wrapper');
     if (!cards) return;
-    const card = cards.querySelector(`[data-agent-id="${agentId}"]`);
+    if (wrapper) {
+        wrapper.classList.add('hidden');
+    }
+    cards.classList.remove('hidden');
+    if (!agents || agents.length === 0) {
+        cards.innerHTML = '<div class="muted-text">No agents match the current filters.</div>';
+        return;
+    }
+    cards.innerHTML = agents.map(agent => renderAgentCard(agent)).join('');
+}
+
+function renderAgentTable(agents) {
+    const cards = document.getElementById('agents_cards');
+    const wrapper = document.getElementById('agents_table_wrapper');
+    if (!wrapper) return;
+    if (cards) {
+        cards.classList.add('hidden');
+    }
+    wrapper.classList.remove('hidden');
+    const tbody = wrapper.querySelector('tbody');
+    if (!tbody) return;
+    if (!agents || agents.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="muted-text">No agents match the current filters.</td></tr>';
+        return;
+    }
+    const rows = agents.map(agent => {
+        const meta = agent.__meta || {};
+        return `
+            <tr data-agent-id="${escapeHtml(agent.agent_id || '')}">
+                <td>
+                    <div class="table-primary">${escapeHtml(agent.name || agent.hostname || agent.agent_id || 'Unknown')}</div>
+                    <div class="muted-text">${escapeHtml(agent.hostname || '')}</div>
+                </td>
+                <td>${renderAgentStatusBadge(meta)}</td>
+                <td>${renderAgentConnectionBadge(meta)}</td>
+                <td>${escapeHtml(agent.platform || 'Unknown')}</td>
+                <td>${escapeHtml(agent.version || 'N/A')}</td>
+                <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
+                <td class="actions-col">
+                    <div class="table-actions">
+                        <button data-action="view-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}">Details</button>
+                        <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
+                        <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+    tbody.innerHTML = rows;
+}
+
+function renderAgentCard(agent) {
+    const meta = agent.__meta || {};
+    const registeredDate = agent.registered_at ? new Date(agent.registered_at) : null;
+    const connLabel = renderAgentConnectionBadge(meta);
+    const wsVersion = agent.ws_version ? `<span class="muted-text" style="margin-left:6px;">v${escapeHtml(agent.ws_version)}</span>` : '';
+    const statusColor = AGENT_STATUS_COLORS[meta.statusKey || 'inactive'] || 'var(--muted)';
+    return `
+        <div class="device-card" data-agent-id="${escapeHtml(agent.agent_id || '')}">
+            <div class="device-card-header">
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <div class="device-card-title">${escapeHtml(agent.name || agent.hostname || agent.agent_id || 'Unknown')}</div>
+                        <span class="agent-joined-bubble" style="margin-left:8px;display:${registeredDate ? 'inline-flex' : 'none'};align-items:center;padding:2px 6px;border-radius:12px;background:var(--panel);font-size:12px;color:var(--muted);border:1px solid var(--border);">${registeredDate ? 'Joined' : ''}</span>
+                    </div>
+                    <div class="device-card-subtitle">
+                        <span class="copyable" data-copy="${escapeHtml(agent.hostname || '')}" title="Click to copy Hostname">${escapeHtml(agent.hostname || 'N/A')}</span>
+                        <span style="margin-left:8px;color:var(--muted);font-size:12px;" class="copyable" data-copy="${escapeHtml(agent.agent_id || '')}" title="Click to copy Agent ID">${escapeHtml(agent.agent_id || '')}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="device-card-info">
+                <div class="device-card-row">
+                    <span class="device-card-label">Status</span>
+                    <span class="device-card-value agent-status-value" style="color:${statusColor}">● ${escapeHtml(agent.status || meta.statusLabel || 'unknown')}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Connection</span>
+                    <span class="device-card-value">${connLabel} ${wsVersion}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">IP Address</span>
+                    <span class="device-card-value copyable" data-copy="${escapeHtml(agent.ip || '')}" title="Click to copy">${escapeHtml(agent.ip || 'N/A')}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Platform</span>
+                    <span class="device-card-value">${escapeHtml(agent.platform || 'Unknown')}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Version</span>
+                    <span class="device-card-value">${escapeHtml(agent.version || 'N/A')}</span>
+                </div>
+                <div class="device-card-row">
+                    <span class="device-card-label">Last Seen</span>
+                    <span class="device-card-value agent-last-seen" title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</span>
+                </div>
+                ${registeredDate ? `
+                <div class="device-card-row">
+                    <span class="device-card-label">Registered</span>
+                    <span class="device-card-value" title="${registeredDate.toLocaleString()}">${registeredDate.toLocaleDateString()}</span>
+                </div>` : ''}
+            </div>
+            <div class="device-card-actions">
+                <button data-action="view-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}">View Details</button>
+                <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
+                <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
+            </div>
+        </div>
+    `;
+}
+
+function renderAgentStatusBadge(meta) {
+    const label = meta.statusLabel || meta.statusKey || 'Unknown';
+    const code = meta.statusKey || 'inactive';
+    const tone = code === 'active' ? 'healthy' : code === 'offline' ? 'error' : 'warning';
+    return `<span class="status-pill ${tone}">${escapeHtml(label)}</span>`;
+}
+
+function renderAgentConnectionBadge(meta) {
+    const key = meta.connectionKey || 'none';
+    const labels = { ws: 'Live', http: 'HTTP Fallback', none: 'Offline' };
+    const cls = key === 'ws' ? 'conn-badge ws' : key === 'http' ? 'conn-badge http' : 'conn-badge none';
+    const label = labels[key] || 'Offline';
+    return `<span class="${cls}" aria-label="Connection ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
+}
+
+function findAgentCardElement(agentId) {
+    const cards = document.getElementById('agents_cards');
+    if (!cards) return null;
+    const safeId = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(agentId || '') : String(agentId || '').replace(/"/g, '\"');
+    return cards.querySelector(`[data-agent-id="${safeId}"]`);
+}
+
+function setAgentJoined(agentId, joined) {
+    const card = findAgentCardElement(agentId);
     if (!card) return;
     const bubble = card.querySelector('.agent-joined-bubble');
     if (!bubble) return;
@@ -3086,103 +3718,132 @@ function setAgentJoined(agentId, joined) {
     }
 }
 
-// DOM helpers for incremental updates
-function findAgentsContainer() {
-    const container = document.getElementById('agents_list');
-    if (!container) return null;
-    let cards = container.querySelector('.device-cards-container');
-    if (!cards) {
-        cards = document.createElement('div');
-        cards.className = 'device-cards-container';
-        container.innerHTML = '';
-        container.appendChild(cards);
+function upsertAgentRecord(record) {
+    if (!record) return;
+    if (!Array.isArray(agentsVM.items)) {
+        agentsVM.items = [];
     }
-    return cards;
-}
-
-function addAgentCard(agent) {
-    const cards = findAgentsContainer();
-    if (!cards) return;
-    // If card exists, replace it
-    const existing = cards.querySelector(`[data-agent-id="${agent.agent_id}"]`);
-    if (existing) {
-        existing.outerHTML = renderAgentCard(agent);
-        return;
+    let updated = false;
+    agentsVM.items = agentsVM.items.map(agent => {
+        if (agent.agent_id && record.agent_id && agent.agent_id === record.agent_id) {
+            updated = true;
+            return enrichSingleAgent({ ...agent, ...record });
+        }
+        return agent;
+    });
+    if (!updated) {
+        agentsVM.items.push(enrichSingleAgent(record));
     }
-    // Insert at top
-    cards.insertAdjacentHTML('afterbegin', renderAgentCard(agent));
-}
-
-function removeAgentCard(agentId) {
-    const cards = findAgentsContainer();
-    if (!cards) return;
-    const existing = cards.querySelector(`[data-agent-id="${agentId}"]`);
-    if (existing) {
-        existing.classList.add('removing');
-        setTimeout(() => existing.remove(), 300);
-    }
+    agentsVM.stats.total = agentsVM.items.length;
+    patchAgentDirectory(record);
+    refreshAgentFilters();
+    refreshAgentMetrics();
+    applyAgentFilters();
 }
 
 function updateAgentConnection(agentId, connType) {
-    const cards = findAgentsContainer();
-    if (!cards) return;
-    const card = cards.querySelector(`[data-agent-id="${agentId}"]`);
-    if (!card) {
-        // If card missing, fetch single agent and add
-        fetch(`/api/v1/agents/${agentId}`).then(r => r.json()).then(a => addAgentCard(a)).catch(() => {});
+    const index = agentsVM.items.findIndex(agent => agent.agent_id === agentId);
+    if (index === -1) {
+        loadAgents(true);
         return;
     }
-    // Update connection badge
-    const badge = card.querySelector('.conn-badge');
-    if (badge) {
-        badge.classList.remove('ws','http','none');
-        badge.classList.add(connType);
-        const aria = connType === 'ws' ? 'Connection: WebSocket (live)' : connType === 'http' ? 'Connection: HTTP (recent)' : 'Connection: Offline';
-        badge.setAttribute('aria-label', aria);
-        badge.setAttribute('title', aria);
-    }
-    // Update Open UI button enablement
-    const openBtn = card.querySelector('.device-card-actions button[onclick^="openAgentUI"]');
-    if (openBtn) {
-        if (connType === 'ws') {
-            openBtn.removeAttribute('disabled');
-            openBtn.removeAttribute('title');
-        } else {
-            openBtn.setAttribute('disabled', 'disabled');
-            openBtn.setAttribute('title', 'Agent not connected via WebSocket');
-        }
-    }
+    const next = enrichSingleAgent({ ...agentsVM.items[index], connection_type: connType });
+    agentsVM.items.splice(index, 1, next);
+    patchAgentDirectory(next);
+    refreshAgentMetrics();
+    applyAgentFilters();
 }
 
-function updateAgentHeartbeat(agentId, status) {
-    const cards = findAgentsContainer();
-    if (!cards) return;
-    const card = cards.querySelector(`[data-agent-id="${agentId}"]`);
-    if (!card) return;
-    const statusEl = card.querySelector('.agent-status-value');
-    if (statusEl) {
-        statusEl.textContent = '● ' + (status || 'unknown');
-        const colors = { 'active': 'var(--success)', 'inactive': 'var(--muted)', 'offline': 'var(--error)' };
-        statusEl.style.color = colors[status] || 'var(--muted)';
+function updateAgentHeartbeat(agentId, status, lastSeen) {
+    const index = agentsVM.items.findIndex(agent => agent.agent_id === agentId);
+    if (index === -1) {
+        loadAgents(true);
+        return;
     }
-    // Refresh last seen by fetching agent details
-    fetch(`/api/v1/agents/${agentId}`).then(r => r.json()).then(a => {
-        const lastSeenEl = card.querySelector('.agent-last-seen');
-        if (lastSeenEl && a.last_seen) {
-            const dt = new Date(a.last_seen);
-            const now = new Date();
-            const diff = now - dt;
-            const seconds = Math.floor(diff/1000);
-            const minutes = Math.floor(seconds/60);
-            const hours = Math.floor(minutes/60);
-            let text = 'Never';
-            if (hours > 0) text = `${hours}h ago`;
-            else if (minutes > 0) text = `${minutes}m ago`;
-            else if (seconds > 0) text = 'Just now';
-            lastSeenEl.textContent = text;
-            lastSeenEl.title = dt.toLocaleString();
+    const updates = { ...agentsVM.items[index], status: status || agentsVM.items[index].status };
+    if (lastSeen) {
+        updates.last_seen = lastSeen;
+    }
+    const next = enrichSingleAgent(updates);
+    agentsVM.items.splice(index, 1, next);
+    patchAgentDirectory(next);
+    refreshAgentMetrics();
+    applyAgentFilters();
+}
+
+function enrichAgents(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(item => enrichSingleAgent(item));
+}
+
+function enrichSingleAgent(agent) {
+    if (!agent || typeof agent !== 'object') {
+        return agent;
+    }
+    const statusKey = normalizeAgentStatus(agent.status);
+    const connectionKey = normalizeAgentConnection(agent.connection_type);
+    const lastSeenIso = agent.last_seen || agent.last_heartbeat || agent.updated_at;
+    const lastSeenDate = lastSeenIso ? new Date(lastSeenIso) : null;
+    return {
+        ...agent,
+        __meta: {
+            statusKey,
+            statusLabel: agent.status || statusKey,
+            connectionKey,
+            connectionLabel: connectionKey,
+            versionLabel: agent.version || 'Unknown',
+            platformLabel: agent.platform || 'Unknown',
+            lastSeenRelative: lastSeenDate ? formatRelativeTime(lastSeenDate) : 'Never',
+            lastSeenTooltip: lastSeenDate ? lastSeenDate.toLocaleString() : 'Never',
+            lastSeenMs: lastSeenDate ? lastSeenDate.getTime() : 0,
+            search: buildAgentSearchBlob(agent),
         }
-    }).catch(() => {});
+    };
+}
+
+function buildAgentSearchBlob(agent) {
+    const parts = [
+        agent.agent_id,
+        agent.name,
+        agent.hostname,
+        agent.ip,
+        agent.platform,
+        agent.version,
+        agent.connection_type,
+    ].filter(Boolean);
+    return parts.join(' ').toLowerCase();
+}
+
+function normalizeAgentStatus(status) {
+    const key = (status || '').toLowerCase();
+    if (AGENT_STATUS_KEYS.includes(key)) {
+        return key;
+    }
+    if (key.includes('offline')) return 'offline';
+    if (key.includes('active')) return 'active';
+    return 'inactive';
+}
+
+function normalizeAgentConnection(connection) {
+    const key = (connection || '').toLowerCase();
+    if (AGENT_CONNECTION_KEYS.includes(key)) {
+        return key;
+    }
+    if (key.includes('ws')) return 'ws';
+    if (key.includes('http')) return 'http';
+    return 'none';
+}
+
+function buildAgentStatusCounts() {
+    const map = {};
+    AGENT_STATUS_KEYS.forEach(key => { map[key] = 0; });
+    return map;
+}
+
+function buildAgentConnectionCounts() {
+    const map = {};
+    AGENT_CONNECTION_KEYS.forEach(key => { map[key] = 0; });
+    return map;
 }
 
 // Device helpers for server UI
@@ -3513,7 +4174,7 @@ function _attachAgentDetailsNameEditor(agent) {
                     if (nameDisplay) nameDisplay.textContent = updated.name || '';
                     if (title) title.textContent = `Agent: ${updated.name || updated.hostname || updated.agent_id}`;
                     // Update agent card in list
-                    try { addAgentCard(updated); } catch (e) {}
+                    try { upsertAgentRecord(updated); } catch (e) {}
                     window.__pm_shared.showToast('Agent name updated', 'success');
                 } catch (err) {
                     window.__pm_shared.showToast('Failed to update agent name', 'error');
@@ -4584,6 +5245,32 @@ function updateAgentDirectory(list) {
             agentDirectory.byId.set(agent.agent_id, agent);
         }
     });
+    agentDirectory.lastFetched = Date.now();
+    syncDevicesAgentFilterOptions();
+}
+
+function patchAgentDirectory(agent) {
+    if (!agent || !agent.agent_id) {
+        return;
+    }
+    if (!agentDirectory.byId) {
+        agentDirectory.byId = new Map();
+    }
+    if (!agentDirectory.items) {
+        agentDirectory.items = [];
+    }
+    agentDirectory.byId.set(agent.agent_id, { ...agentDirectory.byId.get(agent.agent_id), ...agent });
+    let replaced = false;
+    agentDirectory.items = agentDirectory.items.map(existing => {
+        if (existing && existing.agent_id === agent.agent_id) {
+            replaced = true;
+            return { ...existing, ...agent };
+        }
+        return existing;
+    });
+    if (!replaced) {
+        agentDirectory.items.push(agent);
+    }
     agentDirectory.lastFetched = Date.now();
     syncDevicesAgentFilterOptions();
 }
