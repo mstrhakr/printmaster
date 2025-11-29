@@ -58,9 +58,13 @@ type oidcProviderPayload struct {
 
 func handleAuthOptions(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
-	tenantID := strings.TrimSpace(r.URL.Query().Get("tenant"))
+	resolution := resolveTenantForAuthRequest(ctx, r)
+	tenantID := ""
+	if resolution != nil {
+		tenantID = resolution.id
+	}
 
-	providers, err := serverStore.ListOIDCProviders(ctx, "")
+	providers, err := serverStore.ListOIDCProviders(ctx, tenantID)
 	if err != nil {
 		http.Error(w, "failed to load providers", http.StatusInternalServerError)
 		return
@@ -81,6 +85,47 @@ func handleAuthOptions(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"local_login": true,
 		"providers":   visible,
+	}
+	if resolution != nil && resolution.id != "" {
+		resp["tenant_id"] = resolution.id
+		if resolution.name != "" {
+			resp["tenant_name"] = resolution.name
+		}
+		if resolution.source != "" {
+			resp["tenant_source"] = resolution.source
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func handleTenantLookup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if serverStore == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	var payload struct {
+		Hint string `json:"hint"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	ctx := context.Background()
+	res := resolveTenantByHintValue(ctx, payload.Hint, "lookup")
+	resp := map[string]interface{}{
+		"match": false,
+	}
+	if res != nil && res.id != "" {
+		resp["match"] = true
+		resp["tenant_id"] = res.id
+		if res.name != "" {
+			resp["tenant_name"] = res.name
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
@@ -322,12 +367,96 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?error=oidc_session", http.StatusFound)
 		return
 	}
+	rememberUserTenantHint(w, r, user)
 
 	redirectURL := sess.RedirectURL
 	if redirectURL == "" {
 		redirectURL = "/"
 	}
 	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+type tenantResolution struct {
+	id     string
+	name   string
+	source string
+}
+
+func resolveTenantForAuthRequest(ctx context.Context, r *http.Request) *tenantResolution {
+	if serverStore == nil || r == nil {
+		return nil
+	}
+	if value := strings.TrimSpace(r.URL.Query().Get("tenant")); value != "" {
+		res := &tenantResolution{id: value, source: "query"}
+		res.ensureName(ctx)
+		return res
+	}
+	for _, candidate := range []struct {
+		value  string
+		source string
+	}{
+		{r.URL.Query().Get("domain_hint"), "domain_hint"},
+		{r.URL.Query().Get("login_hint"), "login_hint"},
+	} {
+		if res := resolveTenantByHintValue(ctx, candidate.value, candidate.source); res != nil {
+			return res
+		}
+	}
+	for _, hostCandidate := range []struct {
+		value  string
+		source string
+	}{
+		{r.Host, "host"},
+		{firstForwardedHost(r.Header.Get("X-Forwarded-Host")), "forwarded_host"},
+	} {
+		if res := resolveTenantByHintValue(ctx, hostCandidate.value, hostCandidate.source); res != nil {
+			return res
+		}
+	}
+	if c, err := r.Cookie(tenantHintCookieName); err == nil {
+		if val := strings.TrimSpace(c.Value); val != "" {
+			res := &tenantResolution{id: val, source: "cookie"}
+			res.ensureName(ctx)
+			return res
+		}
+	}
+	return nil
+}
+
+func resolveTenantByHintValue(ctx context.Context, raw, source string) *tenantResolution {
+	if serverStore == nil {
+		return nil
+	}
+	norm := storage.NormalizeTenantDomain(raw)
+	if norm == "" {
+		return nil
+	}
+	tenant, err := serverStore.FindTenantByDomain(ctx, norm)
+	if err != nil || tenant == nil {
+		return nil
+	}
+	return &tenantResolution{id: tenant.ID, name: tenant.Name, source: source}
+}
+
+func firstForwardedHost(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	if idx := strings.Index(trimmed, ","); idx >= 0 {
+		trimmed = trimmed[:idx]
+	}
+	return trimmed
+}
+
+func (tr *tenantResolution) ensureName(ctx context.Context) {
+	if tr == nil || tr.name != "" || tr.id == "" || serverStore == nil {
+		return
+	}
+	tenant, err := serverStore.GetTenant(ctx, tr.id)
+	if err == nil && tenant != nil {
+		tr.name = tenant.Name
+	}
 }
 
 func adminProviderDTO(p *storage.OIDCProvider) map[string]interface{} {

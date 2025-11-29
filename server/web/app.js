@@ -2167,6 +2167,7 @@ function openTenantModal(tenant){
     const safe = (key) => (tenant && tenant[key]) ? tenant[key] : '';
     document.getElementById('tenant_name').value = safe('name');
     document.getElementById('tenant_business_unit').value = safe('business_unit');
+    document.getElementById('tenant_login_domain').value = safe('login_domain');
     document.getElementById('tenant_contact_name').value = safe('contact_name');
     document.getElementById('tenant_contact_email').value = safe('contact_email');
     document.getElementById('tenant_contact_phone').value = safe('contact_phone');
@@ -2199,7 +2200,8 @@ function collectTenantFormData(){
         contact_email: (document.getElementById('tenant_contact_email').value || '').trim(),
         contact_phone: (document.getElementById('tenant_contact_phone').value || '').trim(),
         billing_code: (document.getElementById('tenant_billing_code').value || '').trim(),
-        address: (document.getElementById('tenant_address').value || '').trim()
+        address: (document.getElementById('tenant_address').value || '').trim(),
+        login_domain: (document.getElementById('tenant_login_domain').value || '').trim()
     };
 }
 
@@ -2793,6 +2795,7 @@ function renderTenants(list){
         ].join('');
         const metaLines = [
             `<div>Tenant ID: ${idDisplay}</div>`,
+            t.login_domain ? `<div class="muted-text">Login domain: ${escapeHtml(t.login_domain)}</div>` : '',
             t.billing_code ? `<div class="muted-text">Billing: ${escapeHtml(t.billing_code)}</div>` : '',
             t.address ? `<div class="muted-text" style="white-space:pre-line;">${escapeHtml(t.address)}</div>` : '',
             t.created_at ? `<div class="muted-text">Created ${escapeHtml(formatDateTime(t.created_at))}</div>` : ''

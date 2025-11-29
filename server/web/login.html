@@ -19,6 +19,8 @@
             <p style="margin:0 0 16px 0;color:var(--muted);font-size:14px;">Choose a sign-in option below. Your administrator can enable local login or single sign-on per tenant.</p>
             <div id="login_error" style="display:none;color:var(--danger);margin-bottom:12px;"></div>
 
+            <div id="tenant_detected_banner" style="display:none;margin-bottom:12px;padding:10px;border-radius:6px;background:rgba(76,175,80,0.1);border:1px solid rgba(76,175,80,0.4);font-size:13px;color:var(--muted);"></div>
+
             <div id="auth_loading" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
                 <div class="spinner" style="width:16px;height:16px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:spin 0.9s linear infinite;"></div>
                 <span style="font-size:14px;color:var(--muted);">Checking available sign-in options…</span>
@@ -51,6 +53,16 @@
 
             <div id="no_options_message" style="display:none;margin:12px 0 0 0;font-size:13px;color:var(--danger);">
                 No sign-in methods are currently available. Please contact your administrator.
+            </div>
+
+            <div id="tenant_lookup_section" style="display:none;margin-top:18px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);">
+                <h3 style="margin:0 0 6px 0;font-size:15px;">Find your organization</h3>
+                <p style="margin:0 0 8px 0;font-size:13px;color:var(--muted);">Enter your work email and we&#39;ll route you to the correct single sign-on provider.</p>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <input id="tenant_lookup_input" type="email" placeholder="name@company.com" style="flex:1;min-width:200px;padding:8px;border-radius:4px;border:1px solid var(--border);" />
+                    <button id="tenant_lookup_button" class="modal-button">Continue</button>
+                </div>
+                <div id="tenant_lookup_status" style="display:none;margin-top:8px;font-size:13px;"></div>
             </div>
 
             <div style="margin-top:16px;font-size:13px;color:var(--muted);">

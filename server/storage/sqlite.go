@@ -31,7 +31,7 @@ type SQLiteStore struct {
 	dbPath string
 }
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 // Optional package-level logger that can be set by the application (server)
 var Log *logger.Logger
@@ -205,8 +205,13 @@ func (s *SQLiteStore) initSchema() error {
 		business_unit TEXT,
 		billing_code TEXT,
 		address TEXT,
+		login_domain TEXT,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
+
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_login_domain
+		ON tenants(login_domain)
+		WHERE login_domain IS NOT NULL AND login_domain != '';
 
 	-- Join tokens for agent onboarding (store only token hash)
 	CREATE TABLE IF NOT EXISTS join_tokens (
@@ -510,6 +515,7 @@ func (s *SQLiteStore) initSchema() error {
 		"ALTER TABLE tenants ADD COLUMN business_unit TEXT",
 		"ALTER TABLE tenants ADD COLUMN billing_code TEXT",
 		"ALTER TABLE tenants ADD COLUMN address TEXT",
+		"ALTER TABLE tenants ADD COLUMN login_domain TEXT",
 		"ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
 		"ALTER TABLE agents ADD COLUMN name TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE agents ADD COLUMN os_version TEXT",
@@ -541,6 +547,12 @@ func (s *SQLiteStore) initSchema() error {
 		} else {
 			logDebug("SQLite migration statement applied (or already present)", "stmt", stmt)
 		}
+	}
+
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_login_domain ON tenants(login_domain) WHERE login_domain IS NOT NULL AND login_domain != ''`); err != nil {
+		logWarn("SQLite migration statement (ignored error)", "stmt", "CREATE UNIQUE INDEX idx_tenants_login_domain", "error", err)
+	} else {
+		logDebug("SQLite migration statement applied (or already present)", "stmt", "CREATE UNIQUE INDEX idx_tenants_login_domain")
 	}
 
 	s.backfillUserTenantMappings()
@@ -831,12 +843,13 @@ func (s *SQLiteStore) CreateTenant(ctx context.Context, tenant *Tenant) error {
 		tenant.CreatedAt = time.Now().UTC()
 	}
 
+	tenant.LoginDomain = NormalizeTenantDomain(tenant.LoginDomain)
 	_, err := s.db.ExecContext(ctx, `INSERT INTO tenants (
 		id, name, description, contact_name, contact_email, contact_phone,
-		business_unit, billing_code, address, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		business_unit, billing_code, address, login_domain, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		tenant.ID, tenant.Name, tenant.Description, tenant.ContactName, tenant.ContactEmail,
-		tenant.ContactPhone, tenant.BusinessUnit, tenant.BillingCode, tenant.Address, tenant.CreatedAt)
+		tenant.ContactPhone, tenant.BusinessUnit, tenant.BillingCode, tenant.Address, nullString(tenant.LoginDomain), tenant.CreatedAt)
 	return err
 }
 
@@ -847,6 +860,7 @@ func (s *SQLiteStore) UpdateTenant(ctx context.Context, tenant *Tenant) error {
 	if tenant.ID == "" {
 		return fmt.Errorf("tenant id required")
 	}
+	tenant.LoginDomain = NormalizeTenantDomain(tenant.LoginDomain)
 
 	res, err := s.db.ExecContext(ctx, `UPDATE tenants SET
 		name = ?,
@@ -856,10 +870,11 @@ func (s *SQLiteStore) UpdateTenant(ctx context.Context, tenant *Tenant) error {
 		contact_phone = ?,
 		business_unit = ?,
 		billing_code = ?,
-		address = ?
+		address = ?,
+		login_domain = ?
 	WHERE id = ?`,
 		tenant.Name, tenant.Description, tenant.ContactName, tenant.ContactEmail, tenant.ContactPhone,
-		tenant.BusinessUnit, tenant.BillingCode, tenant.Address, tenant.ID)
+		tenant.BusinessUnit, tenant.BillingCode, tenant.Address, nullString(tenant.LoginDomain), tenant.ID)
 	if err != nil {
 		return err
 	}
@@ -874,9 +889,9 @@ func (s *SQLiteStore) UpdateTenant(ctx context.Context, tenant *Tenant) error {
 }
 
 func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, created_at FROM tenants WHERE id = ?`, id)
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, login_domain, created_at FROM tenants WHERE id = ?`, id)
 	var t Tenant
-	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.CreatedAt)
+	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.LoginDomain, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -884,7 +899,7 @@ func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error)
 }
 
 func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, created_at FROM tenants ORDER BY created_at DESC`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, login_domain, created_at FROM tenants ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -892,12 +907,26 @@ func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
 	var res []*Tenant
 	for rows.Next() {
 		var t Tenant
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.LoginDomain, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		res = append(res, &t)
 	}
 	return res, nil
+}
+
+// FindTenantByDomain attempts to resolve a tenant by its normalized login domain.
+func (s *SQLiteStore) FindTenantByDomain(ctx context.Context, domain string) (*Tenant, error) {
+	norm := NormalizeTenantDomain(domain)
+	if norm == "" {
+		return nil, sql.ErrNoRows
+	}
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, login_domain, created_at FROM tenants WHERE login_domain = ?`, norm)
+	var t Tenant
+	if err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.LoginDomain, &t.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &t, nil
 }
 
 // CreateJoinToken generates an opaque token for tenant onboarding and stores only its hash.

@@ -13,6 +13,7 @@ type Tenant struct {
 	BusinessUnit string    `json:"business_unit,omitempty"`
 	BillingCode  string    `json:"billing_code,omitempty"`
 	Address      string    `json:"address,omitempty"`
+	LoginDomain  string    `json:"login_domain,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 

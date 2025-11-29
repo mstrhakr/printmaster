@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"sync"
 	"time"
+
+	"printmaster/server/storage"
 )
 
 // InMemoryStore is a simple, process-local store for tenants and join tokens.
@@ -43,8 +45,12 @@ func (s *InMemoryStore) CreateTenant(t Tenant) (Tenant, error) {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = time.Now().UTC()
 	}
+	t.LoginDomain = storage.NormalizeTenantDomain(t.LoginDomain)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.ensureUniqueDomainLocked(t.ID, t.LoginDomain); err != nil {
+		return Tenant{}, err
+	}
 	s.tenants[t.ID] = t
 	return t, nil
 }
@@ -63,6 +69,10 @@ func (s *InMemoryStore) UpdateTenant(t Tenant) (Tenant, error) {
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = existing.CreatedAt
 	}
+	t.LoginDomain = storage.NormalizeTenantDomain(t.LoginDomain)
+	if err := s.ensureUniqueDomainLocked(t.ID, t.LoginDomain); err != nil {
+		return Tenant{}, err
+	}
 	s.tenants[t.ID] = t
 	return t, nil
 }
@@ -76,6 +86,21 @@ func (s *InMemoryStore) ListTenants() []Tenant {
 		res = append(res, t)
 	}
 	return res
+}
+
+func (s *InMemoryStore) ensureUniqueDomainLocked(id, domain string) error {
+	if domain == "" {
+		return nil
+	}
+	for existingID, existing := range s.tenants {
+		if existing.LoginDomain == "" || existingID == id {
+			continue
+		}
+		if existing.LoginDomain == domain {
+			return ErrTenantDomainConflict
+		}
+	}
+	return nil
 }
 
 // CreateJoinToken issues a new join token for a tenant with ttl in minutes
@@ -132,9 +157,10 @@ func randomHex(n int) string {
 
 // Errors
 var (
-	ErrTenantNotFound = &StoreError{"tenant not found"}
-	ErrTokenNotFound  = &StoreError{"token not found"}
-	ErrTokenExpired   = &StoreError{"token expired"}
+	ErrTenantNotFound       = &StoreError{"tenant not found"}
+	ErrTokenNotFound        = &StoreError{"token not found"}
+	ErrTokenExpired         = &StoreError{"token expired"}
+	ErrTenantDomainConflict = &StoreError{"tenant login domain already exists"}
 )
 
 // StoreError is a simple sentinel error type

@@ -32,6 +32,11 @@
         noOptions: 'no_options_message',
         autoHint: 'auto_login_hint',
         skipAutoLink: 'skip_auto_link',
+        tenantBanner: 'tenant_detected_banner',
+        lookupSection: 'tenant_lookup_section',
+        lookupInput: 'tenant_lookup_input',
+        lookupButton: 'tenant_lookup_button',
+        lookupStatus: 'tenant_lookup_status',
     };
 
     const elements = new Proxy({}, {
@@ -43,6 +48,8 @@
             return document.getElementById(id);
         }
     });
+
+    let tenantLookupInitialized = false;
 
     function showError(message){
         if(!elements.error) return;
@@ -92,7 +99,9 @@
             elements.noOptions.style.display = 'block';
         }
 
-        maybeAutoLogin(providers);
+        updateTenantBanner(opts);
+        maybeShowTenantLookup(opts);
+        maybeAutoLogin(providers, opts);
     }
 
     function createProviderButton(provider){
@@ -125,7 +134,7 @@
         return btn;
     }
 
-    function maybeAutoLogin(providers){
+    function maybeAutoLogin(providers, opts){
         if(!providers || providers.length === 0){
             return;
         }
@@ -142,6 +151,139 @@
             }
         }
         startOIDC(autoProvider.slug);
+    }
+
+    function updateTenantBanner(opts){
+        if(!elements.tenantBanner){
+            return;
+        }
+        const tenantId = opts && (opts.tenant_id || opts.tenantId);
+        if(tenantId){
+            const name = (opts && (opts.tenant_name || opts.tenantName)) || tenantId;
+            const source = describeTenantSource(opts && opts.tenant_source);
+            let message = `Showing sign-in options for ${name}.`;
+            if(source){
+                message += ` (Detected via ${source}.)`;
+            }
+            elements.tenantBanner.textContent = message;
+            elements.tenantBanner.style.display = 'block';
+        }else{
+            elements.tenantBanner.style.display = 'none';
+        }
+    }
+
+    function describeTenantSource(source){
+        switch((source || '').toLowerCase()){
+            case 'query':
+                return 'direct link';
+            case 'domain_hint':
+                return 'domain hint';
+            case 'login_hint':
+                return 'login hint';
+            case 'host':
+                return 'site host';
+            case 'forwarded_host':
+                return 'proxy host';
+            case 'cookie':
+                return 'previous login';
+            case 'lookup':
+                return 'email lookup';
+            default:
+                return '';
+        }
+    }
+
+    function maybeShowTenantLookup(opts){
+        if(!elements.lookupSection){
+            return;
+        }
+        const resolvedTenant = opts && (opts.tenant_id || opts.tenantId);
+        const shouldShow = !tenantParam && !resolvedTenant;
+        if(shouldShow){
+            elements.lookupSection.style.display = 'block';
+            initTenantLookup();
+        }else{
+            elements.lookupSection.style.display = 'none';
+            setLookupStatus('', false);
+        }
+    }
+
+    function initTenantLookup(){
+        if(tenantLookupInitialized){
+            return;
+        }
+        tenantLookupInitialized = true;
+        if(elements.lookupButton){
+            elements.lookupButton.addEventListener('click', submitTenantLookup);
+        }
+        if(elements.lookupInput){
+            elements.lookupInput.addEventListener('keypress', function(ev){
+                if(ev.key === 'Enter'){
+                    submitTenantLookup();
+                }
+            });
+        }
+    }
+
+    async function submitTenantLookup(){
+        if(!elements.lookupInput){
+            return;
+        }
+        const hint = (elements.lookupInput.value || '').trim();
+        if(!hint){
+            setLookupStatus('Enter your work email first.', true);
+            return;
+        }
+        setLookupStatus('Looking up your organization…', false);
+        setLookupPending(true);
+        try{
+            const res = await fetch('/api/v1/auth/tenant-lookup', {
+                method: 'POST',
+                headers: {'content-type': 'application/json'},
+                body: JSON.stringify({hint})
+            });
+            if(!res.ok){
+                throw new Error('Lookup failed. Try again in a moment.');
+            }
+            const data = await res.json();
+            if(data && data.match && data.tenant_id){
+                const qp = new URLSearchParams(window.location.search);
+                qp.set('tenant', data.tenant_id);
+                if(redirectTarget){
+                    qp.set('redirect', redirectTarget);
+                }
+                window.location = window.location.pathname + '?' + qp.toString();
+                return;
+            }
+            setLookupStatus('We could not find an organization for that email domain. Double-check the spelling or contact your administrator.', true);
+        }catch(err){
+            const message = (err && err.message) ? err.message : 'Lookup failed. Try again in a moment.';
+            setLookupStatus(message, true);
+        }finally{
+            setLookupPending(false);
+        }
+    }
+
+    function setLookupStatus(message, isError){
+        if(!elements.lookupStatus){
+            return;
+        }
+        if(!message){
+            elements.lookupStatus.style.display = 'none';
+            return;
+        }
+        elements.lookupStatus.textContent = message;
+        elements.lookupStatus.style.display = 'block';
+        elements.lookupStatus.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+    }
+
+    function setLookupPending(isPending){
+        if(elements.lookupButton){
+            elements.lookupButton.disabled = !!isPending;
+        }
+        if(elements.lookupInput){
+            elements.lookupInput.disabled = !!isPending;
+        }
     }
 
     function startOIDC(slug){

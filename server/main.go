@@ -1552,6 +1552,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
+	rememberUserTenantHint(w, r, user)
 
 	logAuditEntry(ctx, &storage.AuditEntry{
 		ActorType: storage.AuditActorUser,
@@ -2489,6 +2490,7 @@ func setupRoutes(cfg *Config) {
 	// Login (public) - creates a session
 	http.HandleFunc("/api/v1/auth/login", handleAuthLogin)
 	http.HandleFunc("/api/v1/auth/options", handleAuthOptions)
+	http.HandleFunc("/api/v1/auth/tenant-lookup", handleTenantLookup)
 	// Logout (requires valid session)
 	http.HandleFunc("/api/v1/auth/logout", requireWebAuth(handleAuthLogout))
 	http.HandleFunc("/api/v1/auth/me", requireWebAuth(handleAuthMe))

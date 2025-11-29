@@ -96,7 +96,7 @@ func maskTokenValue(token string) string {
 	return token[:4] + "..." + token[len(token)-2:]
 }
 
-func tenantAuditMetadata(name, description, contactName, contactEmail, contactPhone, businessUnit, billingCode, address string) map[string]interface{} {
+func tenantAuditMetadata(name, description, contactName, contactEmail, contactPhone, businessUnit, billingCode, address, loginDomain string) map[string]interface{} {
 	return map[string]interface{}{
 		"name":          name,
 		"description":   description,
@@ -106,6 +106,7 @@ func tenantAuditMetadata(name, description, contactName, contactEmail, contactPh
 		"business_unit": businessUnit,
 		"billing_code":  billingCode,
 		"address":       address,
+		"login_domain":  storage.NormalizeTenantDomain(loginDomain),
 	}
 }
 
@@ -150,6 +151,7 @@ type tenantPayload struct {
 	BusinessUnit string `json:"business_unit,omitempty"`
 	BillingCode  string `json:"billing_code,omitempty"`
 	Address      string `json:"address,omitempty"`
+	LoginDomain  string `json:"login_domain,omitempty"`
 }
 
 type packageRequest struct {
@@ -290,6 +292,7 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 				BusinessUnit: in.BusinessUnit,
 				BillingCode:  in.BillingCode,
 				Address:      in.Address,
+				LoginDomain:  storage.NormalizeTenantDomain(in.LoginDomain),
 			}
 			if tn.ID == "" {
 				// Let storage layer generate ID via SQL default
@@ -307,7 +310,7 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 				TargetID:   tn.ID,
 				TenantID:   tn.ID,
 				Details:    fmt.Sprintf("Created tenant %s", tn.Name),
-				Metadata:   tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address),
+				Metadata:   tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address, tn.LoginDomain),
 			})
 			return
 		}
@@ -321,6 +324,7 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 			BusinessUnit: in.BusinessUnit,
 			BillingCode:  in.BillingCode,
 			Address:      in.Address,
+			LoginDomain:  storage.NormalizeTenantDomain(in.LoginDomain),
 		})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -335,7 +339,7 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 			TargetID:   t.ID,
 			TenantID:   t.ID,
 			Details:    fmt.Sprintf("Created tenant %s", t.Name),
-			Metadata:   tenantAuditMetadata(t.Name, t.Description, t.ContactName, t.ContactEmail, t.ContactPhone, t.BusinessUnit, t.BillingCode, t.Address),
+			Metadata:   tenantAuditMetadata(t.Name, t.Description, t.ContactName, t.ContactEmail, t.ContactPhone, t.BusinessUnit, t.BillingCode, t.Address, t.LoginDomain),
 		})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -425,6 +429,7 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 		tn.BusinessUnit = in.BusinessUnit
 		tn.BillingCode = in.BillingCode
 		tn.Address = in.Address
+		tn.LoginDomain = storage.NormalizeTenantDomain(in.LoginDomain)
 		if err := dbStore.UpdateTenant(r.Context(), tn); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to update tenant"}`))
@@ -439,8 +444,8 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 			TenantID:   tn.ID,
 			Details:    fmt.Sprintf("Updated tenant %s", tn.Name),
 			Metadata: map[string]interface{}{
-				"before": tenantAuditMetadata(before.Name, before.Description, before.ContactName, before.ContactEmail, before.ContactPhone, before.BusinessUnit, before.BillingCode, before.Address),
-				"after":  tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address),
+				"before": tenantAuditMetadata(before.Name, before.Description, before.ContactName, before.ContactEmail, before.ContactPhone, before.BusinessUnit, before.BillingCode, before.Address, before.LoginDomain),
+				"after":  tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address, tn.LoginDomain),
 			},
 		})
 		return
@@ -461,6 +466,7 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 		BusinessUnit: in.BusinessUnit,
 		BillingCode:  in.BillingCode,
 		Address:      in.Address,
+		LoginDomain:  storage.NormalizeTenantDomain(in.LoginDomain),
 		CreatedAt:    existing.CreatedAt,
 	}
 	res, err := store.UpdateTenant(updated)
@@ -478,8 +484,8 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 		TenantID:   res.ID,
 		Details:    fmt.Sprintf("Updated tenant %s", res.Name),
 		Metadata: map[string]interface{}{
-			"before": tenantAuditMetadata(existing.Name, existing.Description, existing.ContactName, existing.ContactEmail, existing.ContactPhone, existing.BusinessUnit, existing.BillingCode, existing.Address),
-			"after":  tenantAuditMetadata(res.Name, res.Description, res.ContactName, res.ContactEmail, res.ContactPhone, res.BusinessUnit, res.BillingCode, res.Address),
+			"before": tenantAuditMetadata(existing.Name, existing.Description, existing.ContactName, existing.ContactEmail, existing.ContactPhone, existing.BusinessUnit, existing.BillingCode, existing.Address, existing.LoginDomain),
+			"after":  tenantAuditMetadata(res.Name, res.Description, res.ContactName, res.ContactEmail, res.ContactPhone, res.BusinessUnit, res.BillingCode, res.Address, res.LoginDomain),
 		},
 	})
 }

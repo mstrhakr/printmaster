@@ -57,6 +57,39 @@ func SortTenantIDs(ids []string) []string {
 	return res
 }
 
+// NormalizeTenantDomain canonicalizes a tenant domain/host hint for comparison.
+// It trims whitespace, strips any scheme/port/user portions, removes a leading
+// '@' (when raw email addresses are provided), and lowercases the remaining
+// domain. Returns an empty string when the input does not contain a usable
+// domain segment.
+func NormalizeTenantDomain(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return ""
+	}
+	// Remove protocol prefixes if present.
+	if idx := strings.Index(trimmed, "://"); idx >= 0 {
+		trimmed = trimmed[idx+3:]
+	}
+	// Drop anything before the last '@' to support raw email inputs.
+	if at := strings.LastIndex(trimmed, "@"); at >= 0 {
+		trimmed = trimmed[at+1:]
+	}
+	// Strip path/query fragments.
+	if slash := strings.IndexAny(trimmed, "/?"); slash >= 0 {
+		trimmed = trimmed[:slash]
+	}
+	// Remove port suffix when provided.
+	if colon := strings.Index(trimmed, ":"); colon >= 0 {
+		trimmed = trimmed[:colon]
+	}
+	trimmed = strings.Trim(trimmed, ".")
+	if trimmed == "" {
+		return ""
+	}
+	return trimmed
+}
+
 // Agent represents a registered PrintMaster agent
 type Agent struct {
 	ID              int64     `json:"id"`
@@ -219,6 +252,7 @@ type Tenant struct {
 	BusinessUnit string    `json:"business_unit,omitempty"`
 	BillingCode  string    `json:"billing_code,omitempty"`
 	Address      string    `json:"address,omitempty"`
+	LoginDomain  string    `json:"login_domain,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -371,6 +405,7 @@ type Store interface {
 	UpdateTenant(ctx context.Context, tenant *Tenant) error
 	GetTenant(ctx context.Context, id string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]*Tenant, error)
+	FindTenantByDomain(ctx context.Context, domain string) (*Tenant, error)
 
 	// Join tokens (opaque tokens): CreateJoinToken returns the created JoinToken
 	// and the raw token string that should be returned to the caller (raw token
