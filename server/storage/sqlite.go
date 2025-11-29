@@ -209,10 +209,6 @@ func (s *SQLiteStore) initSchema() error {
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_login_domain
-		ON tenants(login_domain)
-		WHERE login_domain IS NOT NULL AND login_domain != '';
-
 	-- Join tokens for agent onboarding (store only token hash)
 	CREATE TABLE IF NOT EXISTS join_tokens (
 		id TEXT PRIMARY KEY,
