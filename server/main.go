@@ -1705,45 +1705,6 @@ func handlePasswordPolicy(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(policy)
 }
 
-// handleTenants handles GET (list tenants) for admin UI
-func handleTenants(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !authorizeOrReject(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
-		return
-	}
-	if serverStore == nil {
-		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	ctx := context.Background()
-	tenants, err := serverStore.ListTenants(ctx)
-	if err != nil {
-		logWarn("Failed to list tenants", "error", err)
-		http.Error(w, "failed to list tenants", http.StatusInternalServerError)
-		return
-	}
-
-	// Build response with tenant info
-	result := make([]map[string]interface{}, 0, len(tenants))
-	for _, t := range tenants {
-		item := map[string]interface{}{
-			"id":   t.ID,
-			"name": t.Name,
-		}
-		if !t.CreatedAt.IsZero() {
-			item["created_at"] = t.CreatedAt.Format(time.RFC3339)
-		}
-		result = append(result, item)
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
-}
-
 // handleUsers handles GET (list users) and POST (create user) for admin UI
 func handleUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
@@ -2536,9 +2497,6 @@ func setupRoutes(cfg *Config) {
 	// SSO / OIDC provider management
 	http.HandleFunc("/api/v1/sso/providers", requireWebAuth(handleOIDCProviders))
 	http.HandleFunc("/api/v1/sso/providers/", requireWebAuth(handleOIDCProvider))
-
-	// Tenant management
-	http.HandleFunc("/api/v1/tenants", requireWebAuth(handleTenants))
 
 	// User management: list/create/update/delete users
 	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
