@@ -5874,7 +5874,7 @@ func handleLatestAgentVersion(w http.ResponseWriter, r *http.Request) {
 	// First, try to get from cached artifacts (most reliable since these are signed/verified)
 	artifacts, err := serverStore.ListReleaseArtifacts(r.Context(), "agent", 1)
 	if err == nil && len(artifacts) > 0 {
-		// Artifacts are sorted by version descending, so first is latest
+		// Artifacts are sorted by published_at descending, so first is latest
 		latest := artifacts[0]
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{

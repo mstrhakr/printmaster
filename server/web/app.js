@@ -3007,6 +3007,35 @@ function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':"&#39;"})[m]; });
 }
 
+/**
+ * Compare two semantic version strings.
+ * Returns: 1 if a > b, -1 if a < b, 0 if equal
+ * Handles versions like "0.10.18", "0.10.18-dev", "0.10.18.2"
+ */
+function compareVersions(a, b) {
+    if (!a && !b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    
+    // Strip any suffix like "-dev", "-beta", etc. for comparison
+    const cleanA = String(a).replace(/-.*$/, '');
+    const cleanB = String(b).replace(/-.*$/, '');
+    
+    const partsA = cleanA.split('.').map(p => parseInt(p, 10) || 0);
+    const partsB = cleanB.split('.').map(p => parseInt(p, 10) || 0);
+    
+    // Pad arrays to same length
+    const maxLen = Math.max(partsA.length, partsB.length);
+    while (partsA.length < maxLen) partsA.push(0);
+    while (partsB.length < maxLen) partsB.push(0);
+    
+    for (let i = 0; i < maxLen; i++) {
+        if (partsA[i] > partsB[i]) return 1;
+        if (partsA[i] < partsB[i]) return -1;
+    }
+    return 0;
+}
+
 function formatBytes(bytes){
     let value = Number(bytes);
     if(!isFinite(value) || value <= 0) return '0 B';
@@ -3772,8 +3801,8 @@ function renderAgentVersionCell(agent, forTable = false) {
         }
     }
     
-    // Check if update is available (normal state)
-    if (latestVersion && currentVersion && currentVersion !== latestVersion && currentVersion !== 'N/A') {
+    // Check if update is available (normal state) - only show if latest is actually newer
+    if (latestVersion && currentVersion && currentVersion !== 'N/A' && compareVersions(latestVersion, currentVersion) > 0) {
         const meta = agent.__meta || {};
         const canUpdate = meta.connectionKey === 'ws';
         const tooltip = canUpdate ? `Update available: ${latestVersion}` : 'Agent not connected via WebSocket';

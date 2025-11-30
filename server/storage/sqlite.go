@@ -3129,7 +3129,7 @@ func (s *SQLiteStore) GetReleaseArtifact(ctx context.Context, component, version
 	return scanReleaseArtifact(row)
 }
 
-// ListReleaseArtifacts lists cached artifacts for a component ordered by recency.
+// ListReleaseArtifacts lists cached artifacts for a component ordered by publish date (most recent first).
 func (s *SQLiteStore) ListReleaseArtifacts(ctx context.Context, component string, limit int) ([]*ReleaseArtifact, error) {
 	query := `
 		SELECT id, component, version, platform, arch, channel, source_url,
@@ -3137,7 +3137,7 @@ func (s *SQLiteStore) ListReleaseArtifacts(ctx context.Context, component string
 		       downloaded_at, created_at, updated_at
 		FROM release_artifacts
 		WHERE (? = '' OR component = ?)
-		ORDER BY created_at DESC, version DESC
+		ORDER BY published_at DESC, created_at DESC
 	`
 	var rows *sql.Rows
 	var err error
