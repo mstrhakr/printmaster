@@ -2543,6 +2543,7 @@ func setupRoutes(cfg *Config) {
 		return authorizeRequest(r, action, resource)
 	})
 	tenancy.SetServerVersion(Version)
+	tenancy.SetLogger(serverLogger)
 	tenancy.SetEnabled(featureEnabled)
 	tenancy.SetAgentEventSink(func(eventType string, data map[string]interface{}) {
 		sseHub.Broadcast(SSEEvent{Type: eventType, Data: data})

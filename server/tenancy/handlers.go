@@ -18,6 +18,8 @@ import (
 	authz "printmaster/server/authz"
 	packager "printmaster/server/packager"
 	"printmaster/server/storage"
+
+	"printmaster/common/logger"
 )
 
 // RegisterRoutes registers HTTP handlers for tenancy endpoints.
@@ -30,6 +32,38 @@ var dbStore storage.Store
 // token registration endpoint remains reachable even when disabled so
 // agents can always onboard via the new flow.
 var tenancyEnabled bool
+
+// pkgLogger provides structured logging for the tenancy package.
+var pkgLogger *logger.Logger
+
+// SetLogger configures the structured logger for the tenancy package.
+func SetLogger(l *logger.Logger) {
+	pkgLogger = l
+}
+
+func logDebug(msg string, kv ...interface{}) {
+	if pkgLogger != nil {
+		pkgLogger.Debug(msg, kv...)
+	}
+}
+
+func logInfo(msg string, kv ...interface{}) {
+	if pkgLogger != nil {
+		pkgLogger.Info(msg, kv...)
+	}
+}
+
+func logWarn(msg string, kv ...interface{}) {
+	if pkgLogger != nil {
+		pkgLogger.Warn(msg, kv...)
+	}
+}
+
+func logError(msg string, kv ...interface{}) {
+	if pkgLogger != nil {
+		pkgLogger.Error(msg, kv...)
+	}
+}
 
 type installerBuilder interface {
 	BuildInstaller(context.Context, packager.BuildRequest) (*storage.InstallerBundle, error)
@@ -244,30 +278,42 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 
 // handleTenants supports GET (list) and POST (create)
 func handleTenants(w http.ResponseWriter, r *http.Request) {
+	logDebug("handleTenants called", "method", r.Method, "tenancyEnabled", tenancyEnabled)
 	if !requireTenancyEnabled(w, r) {
+		logDebug("handleTenants: tenancy not enabled, returning 404")
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
+		logDebug("handleTenants: GET request, checking authorization")
 		if !authorizeOrReject(w, r, authz.ActionTenantsRead, authz.ResourceRef{}) {
+			logDebug("handleTenants: authorization rejected for TenantsRead")
 			return
 		}
+		logDebug("handleTenants: authorized, checking dbStore", "dbStore", dbStore != nil)
 		if dbStore != nil {
+			logDebug("handleTenants: querying database for tenants")
 			list, err := dbStore.ListTenants(r.Context())
 			if err != nil {
+				logError("handleTenants: failed to list tenants from database", "error", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error":"failed to list tenants"}`))
 				return
 			}
+			logDebug("handleTenants: successfully listed tenants from database", "count", len(list))
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(list)
 			return
 		}
+		logDebug("handleTenants: using in-memory store")
 		list := store.ListTenants()
+		logDebug("handleTenants: listed tenants from memory", "count", len(list))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(list)
 	case http.MethodPost:
+		logDebug("handleTenants: POST request, checking authorization")
 		if !authorizeOrReject(w, r, authz.ActionTenantsWrite, authz.ResourceRef{}) {
+			logWarn("handleTenants: authorization rejected for TenantsWrite")
 			return
 		}
 		var in tenantPayload
@@ -298,10 +344,12 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 				// Let storage layer generate ID via SQL default
 			}
 			if err := dbStore.CreateTenant(r.Context(), tn); err != nil {
+				logError("handleTenants: failed to create tenant in database", "error", err)
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error":"failed to create tenant"}`))
 				return
 			}
+			logInfo("handleTenants: tenant created successfully", "id", tn.ID, "name", tn.Name)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(tn)
 			recordAudit(r, &storage.AuditEntry{
