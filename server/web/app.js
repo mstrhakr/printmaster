@@ -216,6 +216,10 @@ const agentsVM = {
     latestVersion: null,
     // Per-agent update state: { agentId: { status, progress, message, targetVersion, error } }
     updateState: {},
+    // Whether to automatically check for agent updates on page load
+    checkUpdatesOnLoad: true,
+    // Track if an update check is in progress
+    updateCheckInProgress: false,
     filters: {
         query: '',
         version: '',
@@ -2038,18 +2042,12 @@ async function loadAgents(force = false) {
     agentsVM.loading = true;
     renderAgentsLoading();
     const tenantPromise = ensureTenantDirectory();
-    // Fetch latest agent version in parallel with agent list
-    const latestVersionPromise = fetch('/api/v1/releases/latest-agent-version')
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null);
     try {
         const response = await fetch('/api/v1/agents/list');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
         const agents = await response.json();
-        const latestVersionData = await latestVersionPromise;
-        agentsVM.latestVersion = latestVersionData?.version || null;
         await tenantPromise;
         updateAgentDirectory(Array.isArray(agents) ? agents : []);
         agentsVM.items = enrichAgents(Array.isArray(agents) ? agents : []);
@@ -2059,11 +2057,54 @@ async function loadAgents(force = false) {
         refreshAgentFilters();
         refreshAgentMetrics();
         applyAgentFilters();
+        // Defer update version check until after render
+        if (agentsVM.checkUpdatesOnLoad) {
+            setTimeout(() => checkAgentsForUpdates(), 100);
+        }
     } catch (error) {
         agentsVM.error = error;
         renderAgentsError(error);
     } finally {
         agentsVM.loading = false;
+    }
+}
+
+// Check agents for available updates by fetching latest version
+async function checkAgentsForUpdates() {
+    if (agentsVM.updateCheckInProgress) {
+        return;
+    }
+    agentsVM.updateCheckInProgress = true;
+    updateCheckAllUpdatesButton();
+    try {
+        const response = await fetch('/api/v1/releases/latest-agent-version');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        agentsVM.latestVersion = data?.version || null;
+        // Re-render to show update buttons
+        applyAgentFilters();
+    } catch (error) {
+        if (window.__pm_shared && typeof window.__pm_shared.warn === 'function') {
+            window.__pm_shared.warn('Failed to check for agent updates', error);
+        }
+    } finally {
+        agentsVM.updateCheckInProgress = false;
+        updateCheckAllUpdatesButton();
+    }
+}
+
+// Update the "Check All for Updates" button state
+function updateCheckAllUpdatesButton() {
+    const btn = document.getElementById('agents_check_updates_btn');
+    if (!btn) return;
+    if (agentsVM.updateCheckInProgress) {
+        btn.disabled = true;
+        btn.textContent = 'Checking…';
+    } else {
+        btn.disabled = false;
+        btn.textContent = 'Check for Updates';
     }
 }
 
@@ -3097,6 +3138,29 @@ function initAgentsUI() {
     const resetBtn = document.getElementById('agents_reset_filters');
     if (resetBtn) {
         resetBtn.addEventListener('click', resetAgentFilters);
+    }
+
+    // Check for updates toggle
+    const checkUpdatesToggle = document.getElementById('agents_check_updates_toggle');
+    if (checkUpdatesToggle) {
+        // Load saved preference from localStorage
+        const savedPref = localStorage.getItem('agents_check_updates_on_load');
+        if (savedPref !== null) {
+            agentsVM.checkUpdatesOnLoad = savedPref === 'true';
+        }
+        checkUpdatesToggle.checked = agentsVM.checkUpdatesOnLoad;
+        checkUpdatesToggle.addEventListener('change', (event) => {
+            agentsVM.checkUpdatesOnLoad = event.target.checked;
+            localStorage.setItem('agents_check_updates_on_load', event.target.checked ? 'true' : 'false');
+        });
+    }
+
+    // Check all for updates button
+    const checkUpdatesBtn = document.getElementById('agents_check_updates_btn');
+    if (checkUpdatesBtn) {
+        checkUpdatesBtn.addEventListener('click', () => {
+            checkAgentsForUpdates();
+        });
     }
 
     const chips = document.getElementById('agents_active_filters');
