@@ -847,17 +847,220 @@ button:disabled {
   box-shadow: none;
 }
 
+/* Log Controls */
+.log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.log-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.log-controls select,
+.log-controls input[type="text"] {
+  padding: 4px 8px;
+  font-size: 13px;
+  min-width: 140px;
+}
+
+/* Log View Toggle */
+.log-view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.log-view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.log-view-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.log-view-btn.active {
+  background: var(--highlight);
+  color: #fff;
+}
+
+/* Log Table View */
+.log-table-container {
+  max-height: 400px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-inset-sm);
+}
+
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.log-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+}
+
+.log-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.log-table td {
+  padding: 6px 10px;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.log-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.log-col-time {
+  width: 85px;
+}
+
+.log-col-level {
+  width: 60px;
+}
+
+.log-col-message {
+  min-width: 200px;
+}
+
+.log-col-context {
+  width: 180px;
+}
+
+.log-table .log-time {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.log-table .log-time-date {
+  display: block;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.log-table .log-level {
+  font-weight: 600;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  display: inline-block;
+}
+
+.log-level-error {
+  background: rgba(220, 50, 47, 0.2);
+  color: #dc322f;
+}
+
+.log-level-warn {
+  background: rgba(203, 75, 22, 0.2);
+  color: #cb4b16;
+}
+
+.log-level-info {
+  background: rgba(38, 139, 210, 0.15);
+  color: var(--highlight);
+}
+
+.log-level-debug {
+  background: rgba(88, 110, 117, 0.2);
+  color: var(--muted);
+}
+
+.log-level-trace {
+  background: rgba(88, 110, 117, 0.1);
+  color: #586e75;
+}
+
+.log-table .log-message {
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.log-table .log-context {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.log-context-tag {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin: 1px 2px 1px 0;
+  font-size: 10px;
+}
+
+.log-context-tag .tag-key {
+  color: var(--highlight);
+}
+
+.log-context-tag .tag-value {
+  color: var(--text);
+}
+
+/* Empty state for log table */
+.log-table-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* Raw log view */
 #log {
-  max-height: 360px;
+  max-height: 400px;
   overflow: auto;
   background: var(--panel);
   color: var(--text);
-  padding: 10px;
-  border-radius: 6px;
-  border: 1px solid var(--bg);
-  font-family: monospace;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
   white-space: pre-wrap;
   box-shadow: var(--shadow-inset-sm);
+  line-height: 1.5;
 }
 
 textarea,

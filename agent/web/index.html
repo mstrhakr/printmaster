@@ -1168,10 +1168,21 @@
 
     <div class="hidden" style="margin-top:12px;" data-tab="logs">
         <h3>Scan Log</h3>
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap;">
-            <label style="font-size:13px;color:var(--muted)"><input type="checkbox" id="pause_autoscroll" /> Pause
-                auto-scroll</label>
-            <select id="log_level_filter" style="padding:4px 8px;font-size:13px;">
+        <div class="log-controls">
+            <div class="log-view-toggle">
+                <button class="log-view-btn active" data-log-view-mode="table" title="Table View">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v1h14V2a1 1 0 0 0-1-1H2zM1 5v.5h6V5H1zm7 0v.5h7V5H8zM1 7v.5h6V7H1zm7 0v.5h7V7H8zM1 9v.5h6V9H1zm7 0v.5h7V9H8zM1 11v.5h6V11H1zm7 0v.5h7V11H8z"/>
+                    </svg>
+                </button>
+                <button class="log-view-btn" data-log-view-mode="raw" title="Raw View">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M5.854 4.854a.5.5 0 1 0-.708-.708l-3.5 3.5a.5.5 0 0 0 0 .708l3.5 3.5a.5.5 0 0 0 .708-.708L2.707 8l3.147-3.146zm4.292 0a.5.5 0 0 1 .708-.708l3.5 3.5a.5.5 0 0 1 0 .708l-3.5 3.5a.5.5 0 0 1-.708-.708L13.293 8l-3.147-3.146z"/>
+                    </svg>
+                </button>
+            </div>
+            <label class="log-control"><input type="checkbox" id="pause_autoscroll" /> Pause auto-scroll</label>
+            <select id="log_level_filter">
                 <option value="">All Levels</option>
                 <option value="ERROR">ERROR</option>
                 <option value="WARN">WARN</option>
@@ -1179,14 +1190,25 @@
                 <option value="DEBUG">DEBUG</option>
                 <option value="TRACE">TRACE</option>
             </select>
-            <input type="text" id="log_search_filter" placeholder="Search logs..." 
-                style="padding:4px 8px;font-size:13px;width:150px;" />
+            <input type="text" id="log_search_filter" placeholder="Search logs..." />
             <button id="copy_logs_btn">Copy Logs</button>
             <button id="download_logs_btn">Download Log Package</button>
             <button id="clear_log_btn">Clear Log</button>
         </div>
-        <pre id="log"
-            style="max-height:360px; overflow:auto; background:#073642; color:var(--text); padding:10px; border-radius:6px; border:1px solid #002b36; font-family:monospace; white-space:pre-wrap;"></pre>
+        <div id="log_table_container" class="log-table-container">
+            <table class="log-table" id="log_table">
+                <thead>
+                    <tr>
+                        <th class="log-col-time">Time</th>
+                        <th class="log-col-level">Level</th>
+                        <th class="log-col-message">Message</th>
+                        <th class="log-col-context">Context</th>
+                    </tr>
+                </thead>
+                <tbody id="log_table_body"></tbody>
+            </table>
+        </div>
+        <pre id="log" class="hidden"></pre>
     </div>
 
     <!-- Candidate modal removed -->

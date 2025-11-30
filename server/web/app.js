@@ -44,6 +44,7 @@ const SERVER_UI_STATE_KEYS = {
     ACTIVE_TAB: 'pm_server_active_tab',
     SETTINGS_VIEW: 'pm_server_settings_view',
     LOG_VIEW: 'pm_server_log_view',
+    LOG_VIEW_MODE: 'pm_server_log_view_mode',
     TENANTS_VIEW: 'pm_server_tenants_view',
     AGENTS_VIEW: 'pm_server_agents_view',
     AGENTS_SORT_KEY: 'pm_server_agents_sort_key',
@@ -55,6 +56,7 @@ const SERVER_UI_STATE_KEYS = {
 
 const VALID_SETTINGS_VIEWS = ['server', 'sso', 'fleet', 'updates'];
 const VALID_LOG_VIEWS = ['system', 'audit'];
+const VALID_LOG_VIEW_MODES = ['table', 'raw'];
 const VALID_TENANT_VIEWS = ['directory', 'bundles'];
 
 function getPersistedUIState(key, fallback, allowedValues) {
@@ -105,6 +107,8 @@ let logSubtabsInitialized = false;
 let settingsSubtabsInitialized = false;
 let activeSettingsView = getPersistedUIState(SERVER_UI_STATE_KEYS.SETTINGS_VIEW, 'server', VALID_SETTINGS_VIEWS);
 let activeLogView = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, 'system', VALID_LOG_VIEWS);
+let activeLogViewMode = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW_MODE, 'table', VALID_LOG_VIEW_MODES);
+let currentLogLines = []; // Store parsed log entries for view switching
 const AUDIT_SEVERITY_VALUES = ['error', 'warn', 'info'];
 const AUDIT_AUTO_REFRESH_INTERVAL_MS = 15000;
 let auditLogEntries = [];
@@ -915,6 +919,9 @@ function initLogSubTabs() {
         });
     });
 
+    // Initialize log view mode toggle (table vs raw)
+    initLogViewModeToggle();
+
     const refreshBtn = document.getElementById('refresh_audit_logs_btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => loadAuditLogs());
@@ -935,6 +942,64 @@ function initLogSubTabs() {
     }
 
     initAuditFilterControls();
+}
+
+function initLogViewModeToggle() {
+    const viewButtons = document.querySelectorAll('.log-view-btn[data-log-view-mode]');
+    viewButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.logViewMode || 'table';
+            switchLogViewMode(mode);
+        });
+    });
+    // Apply initial state
+    syncLogViewModeUI();
+
+    // Add filter event handlers for system logs
+    const levelFilter = document.getElementById('log_level_filter');
+    if (levelFilter) {
+        levelFilter.addEventListener('change', () => rerenderCurrentLogs());
+    }
+    const searchFilter = document.getElementById('log_search_filter');
+    if (searchFilter) {
+        searchFilter.addEventListener('input', debounce(() => rerenderCurrentLogs(), 200));
+    }
+}
+
+function switchLogViewMode(mode) {
+    if (!VALID_LOG_VIEW_MODES.includes(mode)) {
+        mode = 'table';
+    }
+    activeLogViewMode = mode;
+    persistUIState(SERVER_UI_STATE_KEYS.LOG_VIEW_MODE, mode);
+    syncLogViewModeUI();
+    rerenderCurrentLogs();
+}
+
+function syncLogViewModeUI() {
+    document.querySelectorAll('.log-view-btn[data-log-view-mode]').forEach(btn => {
+        const btnMode = btn.dataset.logViewMode || 'table';
+        btn.classList.toggle('active', btnMode === activeLogViewMode);
+    });
+
+    const tableContainer = document.getElementById('log_table_container');
+    const rawContainer = document.getElementById('log');
+
+    if (activeLogViewMode === 'table') {
+        if (tableContainer) tableContainer.classList.remove('hidden');
+        if (rawContainer) rawContainer.classList.add('hidden');
+    } else {
+        if (tableContainer) tableContainer.classList.add('hidden');
+        if (rawContainer) rawContainer.classList.remove('hidden');
+    }
+}
+
+function rerenderCurrentLogs() {
+    if (activeLogViewMode === 'table') {
+        renderLogsTable(currentLogLines);
+    } else {
+        renderLogsRaw(currentLogLines);
+    }
 }
 
 function switchLogView(view) {
@@ -6016,6 +6081,36 @@ const SETTINGS_SECTION_LABELS = {
 };
 const SETTINGS_SECTION_ORDER = ['discovery', 'developer', 'security'];
 
+// Subsection groupings for discovery section
+// Fields are grouped in order - any field not listed goes to "Other"
+const DISCOVERY_SUBSECTIONS = [
+    {
+        key: 'ip_scanning',
+        label: 'IP Scanning',
+        fields: ['discovery.ip_scanning_enabled', 'discovery.subnet_scan', 'discovery.manual_ranges']
+    },
+    {
+        key: 'probe_methods',
+        label: 'Probe Methods',
+        fields: ['discovery.arp_enabled', 'discovery.icmp_enabled', 'discovery.tcp_enabled', 'discovery.snmp_enabled', 'discovery.mdns_enabled']
+    },
+    {
+        key: 'auto_discovery',
+        label: 'Automatic Discovery',
+        fields: ['discovery.auto_discover_enabled', 'discovery.autosave_discovered_devices', 'discovery.show_discover_button_anyway', 'discovery.show_discovered_devices_anyway']
+    },
+    {
+        key: 'passive_listeners',
+        label: 'Passive Listeners',
+        fields: ['discovery.passive_discovery_enabled', 'discovery.auto_discover_live_mdns', 'discovery.auto_discover_live_wsd', 'discovery.auto_discover_live_ssdp', 'discovery.auto_discover_live_snmptrap', 'discovery.auto_discover_live_llmnr']
+    },
+    {
+        key: 'metrics',
+        label: 'Metrics Collection',
+        fields: ['discovery.metrics_rescan_enabled', 'discovery.metrics_rescan_interval_minutes']
+    }
+];
+
 const DEFAULT_UPDATE_POLICY_SPEC = {
     update_check_days: 7,
     version_pin_strategy: 'minor',
@@ -6578,13 +6673,19 @@ function renderSettingsForm() {
 
         const list = document.createElement('div');
         list.className = 'settings-field-list';
-        fields.forEach(field => {
-            const value = getValueByPath(draft, field.path);
-            const row = renderSettingsFieldRow(field, value, scope);
-            if (row) {
-                list.appendChild(row);
-            }
-        });
+        
+        // Use subsections for discovery, otherwise render flat list
+        if (sectionKey === 'discovery') {
+            renderDiscoveryWithSubsections(list, fields, draft, scope);
+        } else {
+            fields.forEach(field => {
+                const value = getValueByPath(draft, field.path);
+                const row = renderSettingsFieldRow(field, value, scope);
+                if (row) {
+                    list.appendChild(row);
+                }
+            });
+        }
         sectionEl.appendChild(list);
         root.appendChild(sectionEl);
     });
@@ -6592,6 +6693,56 @@ function renderSettingsForm() {
         root.innerHTML = '<div class="muted-text">No server-managed settings are available in this build.</div>';
     }
     refreshPolicyPanel();
+}
+
+/**
+ * Render discovery fields organized into logical subsections
+ */
+function renderDiscoveryWithSubsections(container, fields, draft, scope) {
+    const fieldMap = {};
+    fields.forEach(f => { fieldMap[f.path] = f; });
+    const rendered = new Set();
+    
+    DISCOVERY_SUBSECTIONS.forEach((subsection, idx) => {
+        const subsectionFields = subsection.fields
+            .map(path => fieldMap[path])
+            .filter(f => f && !rendered.has(f.path));
+        
+        if (!subsectionFields.length) return;
+        
+        // Add subsection header
+        const subHeader = document.createElement('div');
+        subHeader.className = 'settings-subsection-header';
+        subHeader.textContent = subsection.label;
+        container.appendChild(subHeader);
+        
+        // Add fields in this subsection
+        subsectionFields.forEach(field => {
+            rendered.add(field.path);
+            const value = getValueByPath(draft, field.path);
+            const row = renderSettingsFieldRow(field, value, scope);
+            if (row) {
+                container.appendChild(row);
+            }
+        });
+    });
+    
+    // Render any remaining fields not in a subsection
+    const remaining = fields.filter(f => !rendered.has(f.path));
+    if (remaining.length) {
+        const subHeader = document.createElement('div');
+        subHeader.className = 'settings-subsection-header';
+        subHeader.textContent = 'Other';
+        container.appendChild(subHeader);
+        
+        remaining.forEach(field => {
+            const value = getValueByPath(draft, field.path);
+            const row = renderSettingsFieldRow(field, value, scope);
+            if (row) {
+                container.appendChild(row);
+            }
+        });
+    }
 }
 
 function renderSettingsFieldRow(field, value, scope) {
@@ -8313,28 +8464,194 @@ function drawFleetChart(canvas, seriesList, options) {
 
 
 function renderLogs(logs) {
-    const container = document.getElementById('log');
-    if (!container) {
-        window.__pm_shared.warn('renderLogs: log element not found');
+    // Parse and normalize log lines
+    let lines = [];
+    if (logs && logs.logs && Array.isArray(logs.logs)) {
+        lines = logs.logs;
+    } else if (Array.isArray(logs)) {
+        lines = logs;
+    } else if (typeof logs === 'string') {
+        lines = logs.split('\n').filter(l => l.trim());
+    }
+
+    // Parse log lines into structured entries
+    currentLogLines = lines.map(parseLogLine);
+
+    // Render based on current view mode
+    if (activeLogViewMode === 'table') {
+        renderLogsTable(currentLogLines);
+    } else {
+        renderLogsRaw(currentLogLines);
+    }
+}
+
+/**
+ * Parse a single log line into structured components
+ * Format: 2006-01-02T15:04:05-07:00 [LEVEL] message key=value key=value
+ */
+function parseLogLine(line) {
+    if (!line || typeof line !== 'string') {
+        return { raw: String(line || ''), timestamp: null, level: '', message: line || '', context: {} };
+    }
+
+    const entry = { raw: line, timestamp: null, level: '', message: '', context: {} };
+
+    // Match timestamp at start: ISO 8601 format
+    const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)?)\s*/);
+    if (timestampMatch) {
+        try {
+            entry.timestamp = new Date(timestampMatch[1]);
+        } catch (e) {
+            entry.timestamp = null;
+        }
+        line = line.slice(timestampMatch[0].length);
+    }
+
+    // Match level in brackets: [ERROR], [WARN], [INFO], [DEBUG], [TRACE]
+    const levelMatch = line.match(/^\[(\w+)\]\s*/);
+    if (levelMatch) {
+        entry.level = levelMatch[1].toUpperCase();
+        line = line.slice(levelMatch[0].length);
+    }
+
+    // Extract key=value context pairs from the end
+    // Work backwards to find context pairs
+    const contextPairs = [];
+    const kvPattern = /\s+(\w+)=("[^"]*"|\S+)$/;
+    let remaining = line;
+    let match;
+    while ((match = remaining.match(kvPattern)) !== null) {
+        let value = match[2];
+        // Remove quotes if present
+        if (value.startsWith('"') && value.endsWith('"')) {
+            value = value.slice(1, -1);
+        }
+        contextPairs.unshift({ key: match[1], value: value });
+        remaining = remaining.slice(0, match.index);
+    }
+
+    entry.message = remaining.trim();
+    contextPairs.forEach(pair => {
+        entry.context[pair.key] = pair.value;
+    });
+
+    return entry;
+}
+
+function renderLogsTable(entries) {
+    const tbody = document.getElementById('log_table_body');
+    if (!tbody) {
+        window.__pm_shared.warn('renderLogsTable: tbody not found');
         return;
     }
 
-    if (!logs || (Array.isArray(logs) && logs.length === 0)) {
+    if (!entries || entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="log-table-empty">No logs available</td></tr>';
+        return;
+    }
+
+    const levelFilter = document.getElementById('log_level_filter');
+    const searchFilter = document.getElementById('log_search_filter');
+    const filterLevel = levelFilter ? levelFilter.value.toUpperCase() : '';
+    const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
+
+    const filteredEntries = entries.filter(entry => {
+        if (filterLevel && entry.level !== filterLevel) return false;
+        if (filterSearch && !entry.raw.toLowerCase().includes(filterSearch)) return false;
+        return true;
+    });
+
+    if (filteredEntries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="log-table-empty">No logs match the current filters</td></tr>';
+        return;
+    }
+
+    const rows = filteredEntries.map(entry => {
+        const timeHtml = entry.timestamp
+            ? `<span class="log-time-date">${formatDateShort(entry.timestamp)}</span>${formatTimeShort(entry.timestamp)}`
+            : '<span class="log-time">—</span>';
+
+        const levelClass = entry.level ? `log-level-${entry.level.toLowerCase()}` : '';
+        const levelHtml = entry.level
+            ? `<span class="log-level ${levelClass}">${escapeHtml(entry.level)}</span>`
+            : '';
+
+        const contextHtml = Object.keys(entry.context).length > 0
+            ? Object.entries(entry.context).map(([k, v]) => 
+                `<span class="log-context-tag"><span class="tag-key">${escapeHtml(k)}</span>=<span class="tag-value">${escapeHtml(String(v))}</span></span>`
+              ).join('')
+            : '';
+
+        return `<tr>
+            <td class="log-time">${timeHtml}</td>
+            <td>${levelHtml}</td>
+            <td class="log-message">${escapeHtml(entry.message)}</td>
+            <td class="log-context">${contextHtml}</td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = rows.join('');
+
+    // Auto-scroll to bottom if not paused
+    const pauseCheckbox = document.getElementById('pause_autoscroll');
+    if (!pauseCheckbox || !pauseCheckbox.checked) {
+        const container = document.getElementById('log_table_container');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+}
+
+function renderLogsRaw(entries) {
+    const container = document.getElementById('log');
+    if (!container) {
+        window.__pm_shared.warn('renderLogsRaw: log element not found');
+        return;
+    }
+
+    if (!entries || entries.length === 0) {
         container.textContent = 'No logs available';
         return;
     }
 
-    // If server returned an object like { logs: [...] }, normalize
-    let lines = logs;
-    if (logs && logs.logs && Array.isArray(logs.logs)) lines = logs.logs;
+    const levelFilter = document.getElementById('log_level_filter');
+    const searchFilter = document.getElementById('log_search_filter');
+    const filterLevel = levelFilter ? levelFilter.value.toUpperCase() : '';
+    const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
 
-    if (Array.isArray(lines)) {
-        container.textContent = lines.join('\n');
-    } else if (typeof logs === 'string') {
-        container.textContent = logs;
-    } else {
-        container.textContent = JSON.stringify(logs, null, 2);
+    const filteredEntries = entries.filter(entry => {
+        if (filterLevel && entry.level !== filterLevel) return false;
+        if (filterSearch && !entry.raw.toLowerCase().includes(filterSearch)) return false;
+        return true;
+    });
+
+    if (filteredEntries.length === 0) {
+        container.textContent = 'No logs match the current filters';
+        return;
     }
+
+    container.textContent = filteredEntries.map(e => e.raw).join('\n');
+
+    // Auto-scroll to bottom if not paused
+    const pauseCheckbox = document.getElementById('pause_autoscroll');
+    if (!pauseCheckbox || !pauseCheckbox.checked) {
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+function formatDateShort(date) {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}/${day} `;
+}
+
+function formatTimeShort(date) {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+    const hours = String(date.getHours()).padStart(2, '0');
+    const mins = String(date.getMinutes()).padStart(2, '0');
+    const secs = String(date.getSeconds()).padStart(2, '0');
+    return `${hours}:${mins}:${secs}`;
 }
 
 function renderAuditLogs(entries, options = {}) {

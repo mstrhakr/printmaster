@@ -1065,6 +1065,8 @@ async function deleteAllSavedDevices() {
 
 // Store all log entries for client-side filtering
 let allLogEntries = [];
+let parsedLogEntries = []; // Parsed log entries for table view
+let activeLogViewMode = localStorage.getItem('pm_agent_log_view_mode') || 'table';
 
 // Parse and colorize a log line
 function colorizeLogLine(line) {
@@ -1086,29 +1088,204 @@ function colorizeLogLine(line) {
     return line;
 }
 
+/**
+ * Parse a single log line into structured components
+ * Format: 2006-01-02T15:04:05-07:00 [LEVEL] message key=value key=value
+ */
+function parseLogLine(line) {
+    if (!line || typeof line !== 'string') {
+        return { raw: String(line || ''), timestamp: null, level: '', message: line || '', context: {} };
+    }
+
+    const entry = { raw: line, timestamp: null, level: '', message: '', context: {} };
+
+    // Match timestamp at start: ISO 8601 format
+    let remaining = line;
+    const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:[+-]\d{2}:\d{2}|Z)?)\s*/);
+    if (timestampMatch) {
+        try {
+            entry.timestamp = new Date(timestampMatch[1]);
+        } catch (e) {
+            entry.timestamp = null;
+        }
+        remaining = line.slice(timestampMatch[0].length);
+    }
+
+    // Match level in brackets: [ERROR], [WARN], [INFO], [DEBUG], [TRACE]
+    const levelMatch = remaining.match(/^\[(\w+)\]\s*/);
+    if (levelMatch) {
+        entry.level = levelMatch[1].toUpperCase();
+        remaining = remaining.slice(levelMatch[0].length);
+    }
+
+    // Extract key=value context pairs from the end
+    const contextPairs = [];
+    const kvPattern = /\s+(\w+)=("[^"]*"|\S+)$/;
+    let match;
+    while ((match = remaining.match(kvPattern)) !== null) {
+        let value = match[2];
+        if (value.startsWith('"') && value.endsWith('"')) {
+            value = value.slice(1, -1);
+        }
+        contextPairs.unshift({ key: match[1], value: value });
+        remaining = remaining.slice(0, match.index);
+    }
+
+    entry.message = remaining.trim();
+    contextPairs.forEach(pair => {
+        entry.context[pair.key] = pair.value;
+    });
+
+    return entry;
+}
+
+function initLogViewModeToggle() {
+    const viewButtons = document.querySelectorAll('.log-view-btn[data-log-view-mode]');
+    viewButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const mode = btn.dataset.logViewMode || 'table';
+            switchLogViewMode(mode);
+        });
+    });
+    syncLogViewModeUI();
+}
+
+function switchLogViewMode(mode) {
+    if (mode !== 'table' && mode !== 'raw') {
+        mode = 'table';
+    }
+    activeLogViewMode = mode;
+    try {
+        localStorage.setItem('pm_agent_log_view_mode', mode);
+    } catch (e) {}
+    syncLogViewModeUI();
+    filterAndDisplayLogs();
+}
+
+function syncLogViewModeUI() {
+    document.querySelectorAll('.log-view-btn[data-log-view-mode]').forEach(btn => {
+        const btnMode = btn.dataset.logViewMode || 'table';
+        btn.classList.toggle('active', btnMode === activeLogViewMode);
+    });
+
+    const tableContainer = document.getElementById('log_table_container');
+    const rawContainer = document.getElementById('log');
+
+    if (activeLogViewMode === 'table') {
+        if (tableContainer) tableContainer.classList.remove('hidden');
+        if (rawContainer) rawContainer.classList.add('hidden');
+    } else {
+        if (tableContainer) tableContainer.classList.add('hidden');
+        if (rawContainer) rawContainer.classList.remove('hidden');
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatDateShort(date) {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${month}/${day} `;
+}
+
+function formatTimeShort(date) {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+    const hours = String(date.getHours()).padStart(2, '0');
+    const mins = String(date.getMinutes()).padStart(2, '0');
+    const secs = String(date.getSeconds()).padStart(2, '0');
+    return `${hours}:${mins}:${secs}`;
+}
+
 // Filter and display logs based on current filters
 function filterAndDisplayLogs() {
-    const logEl = document.getElementById('log');
-    if (!logEl) return;
+    // Parse all entries
+    parsedLogEntries = allLogEntries.map(parseLogLine);
     
     const levelFilter = document.getElementById('log_level_filter')?.value || '';
     const searchFilter = document.getElementById('log_search_filter')?.value.toLowerCase() || '';
     
-    let filtered = allLogEntries;
+    let filtered = parsedLogEntries;
     
     // Filter by level
     if (levelFilter) {
-        filtered = filtered.filter(line => line.includes(`[${levelFilter}]`));
+        filtered = filtered.filter(entry => entry.level === levelFilter);
     }
     
     // Filter by search text
     if (searchFilter) {
-        filtered = filtered.filter(line => line.toLowerCase().includes(searchFilter));
+        filtered = filtered.filter(entry => entry.raw.toLowerCase().includes(searchFilter));
     }
     
+    if (activeLogViewMode === 'table') {
+        renderLogsTable(filtered);
+    } else {
+        renderLogsRaw(filtered);
+    }
+}
+
+function renderLogsTable(entries) {
+    const tbody = document.getElementById('log_table_body');
+    if (!tbody) return;
+
+    if (!entries || entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="log-table-empty">No matching log entries</td></tr>';
+        return;
+    }
+
+    const rows = entries.map(entry => {
+        const timeHtml = entry.timestamp
+            ? `<span class="log-time-date">${formatDateShort(entry.timestamp)}</span>${formatTimeShort(entry.timestamp)}`
+            : '<span class="log-time">—</span>';
+
+        const levelClass = entry.level ? `log-level-${entry.level.toLowerCase()}` : '';
+        const levelHtml = entry.level
+            ? `<span class="log-level ${levelClass}">${escapeHtml(entry.level)}</span>`
+            : '';
+
+        const contextHtml = Object.keys(entry.context).length > 0
+            ? Object.entries(entry.context).map(([k, v]) => 
+                `<span class="log-context-tag"><span class="tag-key">${escapeHtml(k)}</span>=<span class="tag-value">${escapeHtml(String(v))}</span></span>`
+              ).join('')
+            : '';
+
+        return `<tr>
+            <td class="log-time">${timeHtml}</td>
+            <td>${levelHtml}</td>
+            <td class="log-message">${escapeHtml(entry.message)}</td>
+            <td class="log-context">${contextHtml}</td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = rows.join('');
+
+    // Auto-scroll to bottom if not paused
+    const pauseCheckbox = document.getElementById('pause_autoscroll');
+    if (!pauseCheckbox || !pauseCheckbox.checked) {
+        const container = document.getElementById('log_table_container');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+}
+
+function renderLogsRaw(entries) {
+    const logEl = document.getElementById('log');
+    if (!logEl) return;
+
+    if (!entries || entries.length === 0) {
+        logEl.innerHTML = '<span style="color:#586e75">(no matching entries)</span>';
+        return;
+    }
+
     // Colorize and display
-    const html = filtered.map(line => colorizeLogLine(line)).join('\n');
-    logEl.innerHTML = html || '<span style="color:#586e75">(no matching entries)</span>';
+    const html = entries.map(entry => colorizeLogLine(entry.raw)).join('\n');
+    logEl.innerHTML = html;
     
     // Auto-scroll to bottom if not paused
     const pauseCheckbox = document.getElementById('pause_autoscroll');
@@ -2991,6 +3168,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (logSearchFilter) {
         logSearchFilter.addEventListener('input', filterAndDisplayLogs);
     }
+
+    // Initialize log view mode toggle
+    initLogViewModeToggle();
 
     // Printer details modal close button, X button, and overlay backdrop click
     const detailsOverlay = document.getElementById('printer_details_overlay');

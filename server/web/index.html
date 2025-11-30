@@ -521,6 +521,18 @@
 
             <div class="panel log-panel" data-logview-panel="system">
                 <div class="log-controls">
+                    <div class="log-view-toggle">
+                        <button class="log-view-btn active" data-log-view-mode="table" title="Table View">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v1h14V2a1 1 0 0 0-1-1H2zM1 5v.5h6V5H1zm7 0v.5h7V5H8zM1 7v.5h6V7H1zm7 0v.5h7V7H8zM1 9v.5h6V9H1zm7 0v.5h7V9H8zM1 11v.5h6V11H1zm7 0v.5h7V11H8z"/>
+                            </svg>
+                        </button>
+                        <button class="log-view-btn" data-log-view-mode="raw" title="Raw View">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M5.854 4.854a.5.5 0 1 0-.708-.708l-3.5 3.5a.5.5 0 0 0 0 .708l3.5 3.5a.5.5 0 0 0 .708-.708L2.707 8l3.147-3.146zm4.292 0a.5.5 0 0 1 .708-.708l3.5 3.5a.5.5 0 0 1 0 .708l-3.5 3.5a.5.5 0 0 1-.708-.708L13.293 8l-3.147-3.146z"/>
+                            </svg>
+                        </button>
+                    </div>
                     <label class="log-control"><input type="checkbox" id="pause_autoscroll" /> Pause auto-scroll</label>
                     <select id="log_level_filter">
                         <option value="">All Levels</option>
@@ -535,7 +547,20 @@
                     <button id="download_logs_btn">Download Logs</button>
                     <button id="clear_log_btn">Clear Log</button>
                 </div>
-                <pre id="log"></pre>
+                <div id="log_table_container" class="log-table-container">
+                    <table class="log-table" id="log_table">
+                        <thead>
+                            <tr>
+                                <th class="log-col-time">Time</th>
+                                <th class="log-col-level">Level</th>
+                                <th class="log-col-message">Message</th>
+                                <th class="log-col-context">Context</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log_table_body"></tbody>
+                    </table>
+                </div>
+                <pre id="log" class="hidden"></pre>
             </div>
 
             <div class="panel log-panel hidden" data-logview-panel="audit" data-role="admin" style="display:none">
