@@ -3736,6 +3736,15 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		w.Header().Set("X-PrintMaster-Agent-ID", agentID)
 
 		// Ensure Content-Type is sensible for static assets
+		// First, force-fix known problematic extensions (printers often send wrong/empty types)
+		if u, err := url.Parse(targetURL); err == nil {
+			ext := strings.ToLower(path.Ext(u.Path))
+			switch ext {
+			case ".jq": // .jq is used by some printers for JavaScript (always force correct type)
+				w.Header().Set("Content-Type", "application/javascript")
+			}
+		}
+
 		contentType := w.Header().Get("Content-Type")
 		if contentType == "" || strings.HasPrefix(strings.ToLower(contentType), "text/plain") {
 			if u, err := url.Parse(targetURL); err == nil {
@@ -3746,7 +3755,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 						contentType = mt
 					} else {
 						switch ext {
-						case ".js":
+						case ".js": // standard JavaScript
 							w.Header().Set("Content-Type", "application/javascript")
 							contentType = "application/javascript"
 						case ".css":
