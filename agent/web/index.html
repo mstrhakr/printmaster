@@ -18,7 +18,7 @@
 
 <body>
     <div class="header-flex"
-        style="display: flex; align-items: center; margin-bottom: 12px; justify-content: space-between;">
+        style="display: flex; align-items: center; margin-bottom: 4px; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <h1 style="margin: 0;">PrintMaster Agent UI</h1>
             <div class="server-status-control" data-role="admin" style="display:none">
@@ -32,6 +32,15 @@
                 <div class="theme-toggle-icon"></div>
             </div>
         </label>
+    </div>
+    
+    <!-- Header info bar with version and server details -->
+    <div id="header_info_bar" class="header-info-bar">
+        <span class="header-info-item" id="header_version" title="Agent version">v—</span>
+        <span class="header-info-sep">•</span>
+        <span class="header-info-item" id="header_server" title="Server connection">Standalone</span>
+        <span class="header-info-sep hidden" id="header_tenant_sep">•</span>
+        <span class="header-info-item hidden" id="header_tenant" title="Tenant"></span>
     </div>
 
     <!-- Main content container with floating appearance -->

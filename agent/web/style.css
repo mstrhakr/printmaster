@@ -1,4 +1,43 @@
 /* Solarized Dark inspired theme with centralized color system */
+
+/* Header info bar */
+.header-info-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    padding: 4px 0;
+    flex-wrap: wrap;
+}
+
+.header-info-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.header-info-item.clickable {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+}
+
+.header-info-item.clickable:hover {
+    color: var(--highlight);
+}
+
+.header-info-sep {
+    color: var(--border);
+    user-select: none;
+}
+
+.header-info-bar .hidden {
+    display: none;
+}
+
 :root {
   /* Base colors - Dark Mode (default) */
   --bg: #002b36;

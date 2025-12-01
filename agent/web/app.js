@@ -1,9 +1,93 @@
 // Global settings placeholder so sections can stash the latest snapshot.
 const globalSettings = { discovery: {}, developer: {}, security: {} };
 
+// Cached header info for display
+let cachedAgentVersion = null;
+let cachedServerInfo = null;
+
 const AGENT_UI_STATE_KEYS = {
     ACTIVE_TAB: 'pm_agent_active_tab',
 };
+
+// Update the header info bar with version and server details
+async function updateHeaderInfoBar() {
+    const versionEl = document.getElementById('header_version');
+    const serverEl = document.getElementById('header_server');
+    const tenantEl = document.getElementById('header_tenant');
+    const tenantSep = document.getElementById('header_tenant_sep');
+    
+    // Fetch version if not cached
+    if (!cachedAgentVersion) {
+        try {
+            const resp = await fetch('/api/version');
+            if (resp.ok) {
+                cachedAgentVersion = await resp.json();
+            }
+        } catch (e) {
+            console.warn('Failed to fetch version:', e);
+        }
+    }
+    
+    // Update version display
+    if (versionEl && cachedAgentVersion) {
+        const ver = cachedAgentVersion.version || 'unknown';
+        const buildType = cachedAgentVersion.build_type || '';
+        versionEl.textContent = 'v' + ver + (buildType && buildType !== 'release' ? ' (' + buildType + ')' : '');
+        versionEl.title = 'Agent version: ' + ver + 
+            (cachedAgentVersion.git_commit ? '\nCommit: ' + cachedAgentVersion.git_commit : '') +
+            (cachedAgentVersion.build_time ? '\nBuilt: ' + cachedAgentVersion.build_time : '');
+    }
+    
+    // Update server info from currentServerStatus (set by server connection code)
+    if (serverEl) {
+        if (currentServerStatus && currentServerStatus.enabled && currentServerStatus.url) {
+            const mode = currentServerStatus.connection_mode || (currentServerStatus.connected ? 'connected' : 'disconnected');
+            const serverUrl = currentServerStatus.url || '';
+            // Extract hostname from URL
+            let serverHost = serverUrl;
+            try {
+                const url = new URL(serverUrl);
+                serverHost = url.hostname + (url.port && url.port !== '443' && url.port !== '80' ? ':' + url.port : '');
+            } catch (e) {}
+            
+            serverEl.textContent = serverHost;
+            serverEl.title = 'Server: ' + serverUrl + '\nConnection: ' + mode;
+            serverEl.classList.add('clickable');
+            serverEl.onclick = () => {
+                const btn = document.getElementById('join_token_btn');
+                if (btn) btn.click();
+            };
+        } else {
+            serverEl.textContent = 'Standalone';
+            serverEl.title = 'Not connected to a server';
+            serverEl.classList.remove('clickable');
+            serverEl.onclick = null;
+        }
+    }
+    
+    // Tenant info - check if we have it cached in the server info modal data
+    if (tenantEl && tenantSep) {
+        const tenantId = cachedServerInfo && cachedServerInfo.tenant_id;
+        if (tenantId) {
+            tenantEl.textContent = 'Tenant: ' + tenantId;
+            tenantEl.title = 'Tenant ID: ' + tenantId;
+            tenantEl.classList.remove('hidden');
+            tenantSep.classList.remove('hidden');
+        } else {
+            tenantEl.classList.add('hidden');
+            tenantSep.classList.add('hidden');
+        }
+    }
+}
+
+// Called when server status changes to update header
+function onServerStatusChanged(status) {
+    if (status && status.tenant_id) {
+        cachedServerInfo = cachedServerInfo || {};
+        cachedServerInfo.tenant_id = status.tenant_id;
+    }
+    updateHeaderInfoBar();
+}
 
 function getAgentUIState(key, fallback) {
     try {
@@ -2843,6 +2927,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     window.__pm_shared.toggleDatabaseFields();
 
     initializeAutoUpdatePanel();
+    
+    // Initialize header info bar
+    updateHeaderInfoBar();
 
     // Check if we're being accessed through the server's proxy
     // The server adds a special meta tag when proxying
@@ -4354,6 +4441,9 @@ function applyServerConnectionStatus(status, options = {}) {
     }
     populateServerInfoModal(currentServerStatus);
     updateServerStatusBadge(currentServerStatus);
+    
+    // Update header info bar with server details
+    onServerStatusChanged(currentServerStatus);
 }
 
 async function probeServerConnection(serverUrl) {
@@ -4489,6 +4579,12 @@ async function runJoinWorkflow(defaultURL) {
 
         const body = await submitJoinRequest(normalizedServer, token, { insecure });
         if (body && body.success) {
+            // Cache tenant info for header display
+            if (body.tenant_id) {
+                cachedServerInfo = cachedServerInfo || {};
+                cachedServerInfo.tenant_id = body.tenant_id;
+                updateHeaderInfoBar();
+            }
             window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
             return true;
         }
@@ -4777,6 +4873,12 @@ async function finalizeDeviceAuthJoin(joinToken, approvedName) {
             caPath: deviceAuthState.caPath,
             agentName: approvedName || deviceAuthState.agentName
         });
+        // Cache tenant info for header display
+        if (result && result.tenant_id) {
+            cachedServerInfo = cachedServerInfo || {};
+            cachedServerInfo.tenant_id = result.tenant_id;
+            updateHeaderInfoBar();
+        }
         window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Joined server. Tenant: ' + (result.tenant_id || 'unknown'), 'success', 4000);
         updateDeviceAuthStatusBadge('approved', 'Join complete');
         setDeviceAuthMessage('Joined server successfully.', 'success');
