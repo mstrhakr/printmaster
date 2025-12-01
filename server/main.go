@@ -3722,7 +3722,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 				"duration_ms", duration.Milliseconds())
 		}
 
-		// Set response headers
+		// Set response headers from agent
 		if respHeaders, ok := resp.Data["headers"].(map[string]interface{}); ok {
 			for k, v := range respHeaders {
 				if vStr, ok := v.(string); ok {
@@ -3732,19 +3732,12 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		}
 
 		// Add custom header to indicate this is a proxied response
-		// Agent UI can check for this header and disable device proxy buttons
 		w.Header().Set("X-PrintMaster-Proxied", "true")
 		w.Header().Set("X-PrintMaster-Agent-ID", agentID)
 
-		// Ensure Content-Type is sensible for static assets. Some agent-side
-		// servers may omit or return a generic "text/plain" Content-Type which
-		// combined with X-Content-Type-Options: nosniff (set by server) will
-		// cause browsers to block CSS/JS. If Content-Type looks generic or is
-		// missing, try to infer from the target URL extension or sniff the body
-		// bytes (below) and override the header so browsers accept the response.
+		// Ensure Content-Type is sensible for static assets
 		contentType := w.Header().Get("Content-Type")
 		if contentType == "" || strings.HasPrefix(strings.ToLower(contentType), "text/plain") {
-			// Try extension-based lookup
 			if u, err := url.Parse(targetURL); err == nil {
 				ext := strings.ToLower(path.Ext(u.Path))
 				if ext != "" {
@@ -3752,7 +3745,6 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 						w.Header().Set("Content-Type", mt)
 						contentType = mt
 					} else {
-						// Fallback common mappings when mime.TypeByExtension fails
 						switch ext {
 						case ".js":
 							w.Header().Set("Content-Type", "application/javascript")
@@ -3769,108 +3761,100 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 						case ".svg":
 							w.Header().Set("Content-Type", "image/svg+xml")
 							contentType = "image/svg+xml"
-						default:
-							// leave as-is
 						}
 					}
 				}
 			}
 		}
 
-		// Remove server-level security headers that would block proxied agent content
-		// The agent side already strips or rewrites CSP/X-Frame headers; remove them here
-		// so the browser receives the agent-provided headers (or none) and the UI can load
-		// external scripts/styles (for example, CDN-hosted flatpickr) when proxied.
+		// Remove server-level security headers that would block proxied content
 		w.Header().Del("Content-Security-Policy")
 		w.Header().Del("X-Frame-Options")
 
-		w.WriteHeader(statusCode)
-
-		// Write response body
+		// Process response body BEFORE calling WriteHeader (so we can update Content-Length/Content-Encoding)
+		var bodyBytes []byte
 		if bodyB64, ok := resp.Data["body"].(string); ok {
-			bodyBytes, err := base64.StdEncoding.DecodeString(bodyB64)
-			if err == nil {
-				// If this is HTML, inject minimal proxy metadata so the agent bundle
-				// can detect proxied mode and rewrite URLs itself. Handle gzip-compressed
-				// responses from agents by decompressing, transforming, and recompressing.
-				contentType := w.Header().Get("Content-Type")
-				if strings.Contains(strings.ToLower(contentType), "text/html") {
-					// Determine proxy base from the incoming request path so injected
-					// <base> and runtime rewrites point to the same proxied prefix
-					// (e.g. /api/v1/proxy/agent/{id}/ or /api/v1/proxy/device/{serial}/).
-					proxyBase := computeProxyBaseFromRequest(r)
-
-					// Detect gzip by magic bytes
-					if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
-						// Decompress
-						gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
-						if gerr == nil {
-							decompressed, rerr := io.ReadAll(gr)
-							_ = gr.Close()
-							if rerr == nil {
-								// Inject into decompressed HTML
-								transformed := injectProxyMetaAndBase(decompressed, proxyBase, agentID, targetURL)
-								// Recompress
-								var buf bytes.Buffer
-								gw := gzip.NewWriter(&buf)
-								if _, werr := gw.Write(transformed); werr == nil {
-									_ = gw.Close()
-									bodyBytes = buf.Bytes()
-									// Ensure Content-Encoding remains gzip
-									w.Header().Set("Content-Encoding", "gzip")
-									w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bodyBytes)))
-								} else {
-									// If recompress fails, fall back to sending decompressed HTML and remove Content-Encoding
-									_ = gw.Close()
-									w.Header().Del("Content-Encoding")
-									bodyBytes = transformed
-								}
-							}
-						}
-					} else {
-						bodyBytes = injectProxyMetaAndBase(bodyBytes, proxyBase, agentID, targetURL)
-					}
-				}
-
-				// For JavaScript (and similar) responses, rewrite common absolute
-				// fetch/XHR occurrences so they route through the proxy. Also handle
-				// gzip-compressed JS responses by decompressing/recompressing.
-				ctLower := strings.ToLower(contentType)
-				if strings.Contains(ctLower, "javascript") || strings.Contains(ctLower, "application/json") {
-					// Compute proxy base so JS rewrites use the same prefix the client used
-					proxyBase := computeProxyBaseFromRequest(r)
-					// Detect gzip by magic bytes
-					if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
-						gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
-						if gerr == nil {
-							decompressed, rerr := io.ReadAll(gr)
-							_ = gr.Close()
-							if rerr == nil {
-								transformed := rewriteProxyJS(decompressed, proxyBase, targetURL)
-								// Recompress
-								var buf bytes.Buffer
-								gw := gzip.NewWriter(&buf)
-								if _, werr := gw.Write(transformed); werr == nil {
-									_ = gw.Close()
-									bodyBytes = buf.Bytes()
-									w.Header().Set("Content-Encoding", "gzip")
-									w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bodyBytes)))
-								} else {
-									_ = gw.Close()
-									w.Header().Del("Content-Encoding")
-									bodyBytes = transformed
-								}
-							}
-						}
-					} else {
-						// Non-gzip JS: transform in-place
-						proxyBase := computeProxyBaseFromRequest(r)
-						bodyBytes = rewriteProxyJS(bodyBytes, proxyBase, targetURL)
-					}
-				}
-
-				w.Write(bodyBytes)
+			var err error
+			bodyBytes, err = base64.StdEncoding.DecodeString(bodyB64)
+			if err != nil {
+				bodyBytes = nil
 			}
+		}
+
+		// Transform HTML responses
+		if bodyBytes != nil && strings.Contains(strings.ToLower(contentType), "text/html") {
+			proxyBase := computeProxyBaseFromRequest(r)
+
+			// Detect gzip by magic bytes
+			if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
+				gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
+				if gerr == nil {
+					decompressed, rerr := io.ReadAll(gr)
+					_ = gr.Close()
+					if rerr == nil {
+						transformed := injectProxyMetaAndBase(decompressed, proxyBase, agentID, targetURL)
+						// Recompress
+						var buf bytes.Buffer
+						gw := gzip.NewWriter(&buf)
+						if _, werr := gw.Write(transformed); werr == nil {
+							_ = gw.Close()
+							bodyBytes = buf.Bytes()
+							w.Header().Set("Content-Encoding", "gzip")
+						} else {
+							_ = gw.Close()
+							w.Header().Del("Content-Encoding")
+							bodyBytes = transformed
+						}
+					}
+				}
+			} else {
+				bodyBytes = injectProxyMetaAndBase(bodyBytes, proxyBase, agentID, targetURL)
+				// Remove Content-Encoding if it was set (we're sending uncompressed now)
+				w.Header().Del("Content-Encoding")
+			}
+		}
+
+		// Transform JavaScript/JSON responses
+		ctLower := strings.ToLower(contentType)
+		if bodyBytes != nil && (strings.Contains(ctLower, "javascript") || strings.Contains(ctLower, "application/json")) {
+			proxyBase := computeProxyBaseFromRequest(r)
+
+			if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
+				gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
+				if gerr == nil {
+					decompressed, rerr := io.ReadAll(gr)
+					_ = gr.Close()
+					if rerr == nil {
+						transformed := rewriteProxyJS(decompressed, proxyBase, targetURL)
+						var buf bytes.Buffer
+						gw := gzip.NewWriter(&buf)
+						if _, werr := gw.Write(transformed); werr == nil {
+							_ = gw.Close()
+							bodyBytes = buf.Bytes()
+							w.Header().Set("Content-Encoding", "gzip")
+						} else {
+							_ = gw.Close()
+							w.Header().Del("Content-Encoding")
+							bodyBytes = transformed
+						}
+					}
+				}
+			} else {
+				bodyBytes = rewriteProxyJS(bodyBytes, proxyBase, targetURL)
+			}
+		}
+
+		// Update Content-Length to match transformed body
+		if bodyBytes != nil {
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bodyBytes)))
+		} else {
+			w.Header().Del("Content-Length")
+		}
+
+		// NOW write headers and body
+		w.WriteHeader(statusCode)
+		if bodyBytes != nil {
+			w.Write(bodyBytes)
 		}
 
 	case <-time.After(30 * time.Second):
