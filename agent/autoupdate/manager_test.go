@@ -294,6 +294,8 @@ func TestManagerForceInstallLatest(t *testing.T) {
 		t.Fatalf("NewManager error = %v", err)
 	}
 	manager.restartFn = func() error { return nil }
+	// Mock the helper launch to avoid spawning a real process that holds files open
+	manager.launchHelperFn = func(helperPath string) error { return nil }
 
 	if err := manager.ForceInstallLatest(context.Background(), "test"); err != nil {
 		t.Fatalf("ForceInstallLatest error = %v", err)

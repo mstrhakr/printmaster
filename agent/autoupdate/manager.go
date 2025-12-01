@@ -98,6 +98,7 @@ type Manager struct {
 	policyProvider   PolicyProvider
 	telemetry        TelemetrySink
 	restartFn        func() error
+	launchHelperFn   func(helperPath string) error // For testing: allows mocking the helper launch
 	progressCallback ProgressCallback
 
 	mu             sync.RWMutex
@@ -777,13 +778,20 @@ del "%%~f0"
 	}
 
 	// Launch the helper script detached - it will wait for us to exit, then do the copy
-	// Use "cmd /C start" with proper quoting:
-	// - First quoted arg after "start" is the window title
-	// - The actual command must also be quoted if it contains spaces
-	cmd := exec.Command("cmd.exe", "/C", "start", "/min", "PrintMaster Update", helperPath)
-	cmd.Dir = m.stateDir
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to launch update helper: %w", err)
+	if m.launchHelperFn != nil {
+		// Use mock function (for testing)
+		if err := m.launchHelperFn(helperPath); err != nil {
+			return fmt.Errorf("failed to launch update helper: %w", err)
+		}
+	} else {
+		// Production: use cmd /C start with proper quoting
+		// - First quoted arg after "start" is the window title
+		// - The actual command must also be quoted if it contains spaces
+		cmd := exec.Command("cmd.exe", "/C", "start", "/min", "PrintMaster Update", helperPath)
+		cmd.Dir = m.stateDir
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to launch update helper: %w", err)
+		}
 	}
 
 	m.logInfo("Update helper launched", "helper_path", helperPath, "is_service", isService)
