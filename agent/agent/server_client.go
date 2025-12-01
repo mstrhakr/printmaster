@@ -698,6 +698,9 @@ func (c *ServerClient) DownloadArtifact(ctx context.Context, manifest *UpdateMan
 		// Construct URL from base + version
 		downloadURL = fmt.Sprintf("%s/api/v1/agents/update/download/%s/%s/%s",
 			c.BaseURL, manifest.Component, manifest.Version, manifest.Platform+"-"+manifest.Arch)
+	} else if strings.HasPrefix(downloadURL, "/") {
+		// Server returned a relative URL - prepend the base URL
+		downloadURL = strings.TrimSuffix(c.BaseURL, "/") + downloadURL
 	}
 
 	// Create HTTP request

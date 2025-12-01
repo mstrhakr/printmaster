@@ -433,14 +433,17 @@ async function handleAutoUpdateCheck(evt) {
         const resp = await fetch('/api/autoupdate/check', { method: 'POST' });
         const payload = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-            throw new Error(payload && payload.error ? payload.error : resp.statusText);
+            // Prefer detailed message over error field, fall back to status text
+            const errMsg = (payload && payload.message) || (payload && payload.error) || resp.statusText;
+            throw new Error(errMsg);
         }
         if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
             window.__pm_shared.showToast('Update check scheduled', 'success');
         }
     } catch (err) {
+        console.error('Update check failed:', err);
         if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
-            window.__pm_shared.showToast('Failed to trigger update check: ' + (err && err.message ? err.message : err), 'error');
+            window.__pm_shared.showToast('Update check failed: ' + (err && err.message ? err.message : err), 'error');
         }
     } finally {
         btn.disabled = false;
@@ -460,10 +463,12 @@ async function handleAutoUpdateForce(evt) {
             const resp = await fetch('/api/autoupdate/cancel', { method: 'POST' });
             if (!resp.ok) {
                 const payload = await resp.json().catch(() => ({}));
-                throw new Error(payload && payload.error ? payload.error : resp.statusText);
+                const errMsg = (payload && payload.message) || (payload && payload.error) || resp.statusText;
+                throw new Error(errMsg);
             }
             window.__pm_shared.showToast('Cancel request sent', 'info');
         } catch (err) {
+            console.error('Failed to cancel update:', err);
             window.__pm_shared.showToast('Failed to cancel: ' + (err && err.message ? err.message : err), 'error');
         }
         return;
@@ -485,15 +490,17 @@ async function handleAutoUpdateForce(evt) {
         });
         const payload = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-            throw new Error(payload && payload.error ? payload.error : resp.statusText);
+            const errMsg = (payload && payload.message) || (payload && payload.error) || resp.statusText;
+            throw new Error(errMsg);
         }
         // Don't reset button here - let SSE progress events update the UI
         if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
             window.__pm_shared.showToast('Update started – progress will be shown in real-time.', 'success');
         }
     } catch (err) {
+        console.error('Force reinstall failed:', err);
         if (window.__pm_shared && typeof window.__pm_shared.showToast === 'function') {
-            window.__pm_shared.showToast('Failed to force reinstall: ' + (err && err.message ? err.message : err), 'error');
+            window.__pm_shared.showToast('Update failed: ' + (err && err.message ? err.message : err), 'error');
         }
         // Only reset on error
         btn.disabled = false;

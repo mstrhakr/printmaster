@@ -5534,8 +5534,20 @@ window.top.location.href = '/proxy/%s/';
 		autoUpdateManagerMu.RUnlock()
 
 		if manager == nil {
-			http.Error(w, "auto-update not available", http.StatusServiceUnavailable)
+			if appLogger != nil {
+				appLogger.Info("Update check requested but auto-update manager not initialized (check server connection)")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "auto-update not available",
+				"message": "Agent must be connected to a server for updates. Check server configuration.",
+			})
 			return
+		}
+
+		if appLogger != nil {
+			appLogger.Info("Manual update check triggered via API")
 		}
 
 		// Run check in background with a reasonable timeout
@@ -5544,6 +5556,8 @@ window.top.location.href = '/proxy/%s/';
 			defer cancel()
 			if err := manager.CheckNow(checkCtx); err != nil && appLogger != nil {
 				appLogger.Warn("Manual update check failed", "error", err)
+			} else if appLogger != nil {
+				appLogger.Info("Manual update check completed")
 			}
 		}()
 
@@ -5566,7 +5580,15 @@ window.top.location.href = '/proxy/%s/';
 		autoUpdateManagerMu.RUnlock()
 
 		if manager == nil {
-			http.Error(w, "auto-update not available", http.StatusServiceUnavailable)
+			if appLogger != nil {
+				appLogger.Info("Force update requested but auto-update manager not initialized (check server connection)")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "auto-update not available",
+				"message": "Agent must be connected to a server for updates. Check server configuration.",
+			})
 			return
 		}
 
@@ -5586,15 +5608,19 @@ window.top.location.href = '/proxy/%s/';
 			reason = "agent_ui_force_reinstall"
 		}
 
+		if appLogger != nil {
+			appLogger.Info("Force reinstall requested via API", "reason", reason)
+		}
+
 		go func(reason string) {
 			runCtx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 			defer cancel()
 			if err := manager.ForceInstallLatest(runCtx, reason); err != nil {
 				if appLogger != nil {
-					appLogger.Warn("Manual force reinstall failed", "error", err)
+					appLogger.Warn("Force reinstall failed", "error", err, "reason", reason)
 				}
 			} else if appLogger != nil {
-				appLogger.Info("Manual force reinstall triggered", "reason", reason)
+				appLogger.Info("Force reinstall completed successfully", "reason", reason)
 			}
 		}(reason)
 

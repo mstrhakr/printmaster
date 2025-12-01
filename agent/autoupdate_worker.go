@@ -185,13 +185,13 @@ func initAutoUpdateWorker(
 	uploadWorkerMu.RUnlock()
 
 	if worker == nil {
-		log.Debug("No upload worker available, auto-update disabled")
+		log.Info("Auto-update disabled: no upload worker available (agent not connected to server)")
 		return
 	}
 
 	serverClient := worker.Client()
 	if serverClient == nil {
-		log.Debug("No server client available, auto-update disabled")
+		log.Info("Auto-update disabled: no server client available")
 		return
 	}
 
@@ -221,7 +221,7 @@ func initAutoUpdateWorker(
 		agent.SetCommandHandler(func(command string, data map[string]interface{}) {
 			handleServerCommand(ctx, command, data, log)
 		})
-		log.Debug("Registered WebSocket command handler for server commands")
+		log.Info("Auto-update ready: WebSocket command handler registered")
 	}
 }
 
