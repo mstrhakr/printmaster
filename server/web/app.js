@@ -5404,6 +5404,7 @@ function renderServerDeviceCard(device) {
     const lastSeenText = escapeHtml(meta.lastSeenRelative || 'Never');
     const lastSeenTitle = escapeHtml(meta.lastSeenTooltip || 'Never');
     const agentName = escapeHtml(meta.agentName || 'Unassigned');
+    const capabilityBadges = renderDeviceCapabilityBadges(device);
     return `
         <div class="device-card" data-serial="${serial}" data-agent-id="${agentId}">
             <div class="device-card-header">
@@ -5411,6 +5412,7 @@ function renderServerDeviceCard(device) {
                     <div class="device-card-title">${escapeHtml(device.manufacturer || 'Unknown')} ${escapeHtml(device.model || '')}</div>
                     <div class="device-card-subtitle">Serial ${serial} ${asset}</div>
                     <div class="device-card-subtitle">${agentName}</div>
+                    ${capabilityBadges ? `<div class="device-card-capabilities">${capabilityBadges}</div>` : ''}
                 </div>
                 <div class="device-card-status">
                     ${renderDeviceStatusBadge(meta.status)}
@@ -5448,6 +5450,44 @@ function renderDeviceStatusBadge(statusMeta) {
     const code = statusMeta?.code || 'healthy';
     const label = statusMeta?.label || code;
     return `<span class="status-pill ${code}">${escapeHtml(label)}</span>`;
+}
+
+function renderDeviceCapabilityBadges(device) {
+    const badges = [];
+    const rd = device.raw_data || {};
+    
+    // Device type badge (most descriptive)
+    if (rd.device_type) {
+        badges.push(`<span class="capability-badge type">${escapeHtml(rd.device_type)}</span>`);
+    } else {
+        // Fallback to individual capabilities
+        if (rd.is_color) {
+            badges.push('<span class="capability-badge color">Color</span>');
+        } else if (rd.is_mono) {
+            badges.push('<span class="capability-badge mono">Mono</span>');
+        }
+    }
+    
+    // Function capabilities (only show if device_type not set, to avoid redundancy)
+    if (!rd.device_type) {
+        if (rd.is_copier) badges.push('<span class="capability-badge function">Copier</span>');
+        if (rd.is_scanner) badges.push('<span class="capability-badge function">Scanner</span>');
+        if (rd.is_fax) badges.push('<span class="capability-badge function">Fax</span>');
+    }
+    
+    // Technology badge
+    if (rd.is_laser) {
+        badges.push('<span class="capability-badge tech">Laser</span>');
+    } else if (rd.is_inkjet) {
+        badges.push('<span class="capability-badge tech">Inkjet</span>');
+    }
+    
+    // Duplex badge
+    if (rd.has_duplex) {
+        badges.push('<span class="capability-badge feature">Duplex</span>');
+    }
+    
+    return badges.join('');
 }
 
 function renderDeviceConsumableBadge(consumableMeta) {

@@ -2827,6 +2827,68 @@ input[type="checkbox"]:indeterminate::before {
   margin-left: 4px;
 }
 
+/* Device capability badges */
+.device-card-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.capability-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+/* Device type badge - most prominent */
+.capability-badge.type {
+  background: rgba(38, 139, 210, 0.15);
+  color: var(--highlight);
+  border-color: rgba(38, 139, 210, 0.35);
+}
+
+/* Color capability */
+.capability-badge.color {
+  background: rgba(211, 54, 130, 0.15);
+  color: #d33682;
+  border-color: rgba(211, 54, 130, 0.35);
+}
+
+/* Mono capability */
+.capability-badge.mono {
+  background: rgba(88, 110, 117, 0.15);
+  color: var(--muted);
+  border-color: rgba(88, 110, 117, 0.35);
+}
+
+/* Function capabilities (copier, scanner, fax) */
+.capability-badge.function {
+  background: rgba(42, 161, 152, 0.12);
+  color: var(--success);
+  border-color: rgba(42, 161, 152, 0.3);
+}
+
+/* Technology badges (laser, inkjet) */
+.capability-badge.tech {
+  background: rgba(181, 137, 0, 0.12);
+  color: var(--secondary);
+  border-color: rgba(181, 137, 0, 0.3);
+}
+
+/* Feature badges (duplex, etc) */
+.capability-badge.feature {
+  background: rgba(108, 113, 196, 0.12);
+  color: #6c71c4;
+  border-color: rgba(108, 113, 196, 0.3);
+}
+
 .device-card-subtitle.copyable {
   cursor: pointer;
   transition: color 0.2s ease;

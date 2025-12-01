@@ -208,6 +208,20 @@ func quickDiscovery(
 			// Parse PDUs to get printer info
 			pi, _ := agent.ParsePDUs(qr.IP, qr.PDUs, nil, nil)
 			pi.DiscoveryMethods = append(pi.DiscoveryMethods, "quick-discovery")
+
+			// Copy capabilities from QueryResult
+			if qr.Capabilities != nil {
+				pi.IsColor = qr.Capabilities.IsColor
+				pi.IsMono = qr.Capabilities.IsMono
+				pi.IsCopier = qr.Capabilities.IsCopier
+				pi.IsScanner = qr.Capabilities.IsScanner
+				pi.IsFax = qr.Capabilities.IsFax
+				pi.IsLaser = qr.Capabilities.IsLaser
+				pi.IsInkjet = qr.Capabilities.IsInkjet
+				pi.HasDuplex = qr.Capabilities.HasDuplex
+				pi.DeviceType = qr.Capabilities.DeviceType
+			}
+
 			results = append(results, pi)
 		}
 	}
@@ -304,6 +318,20 @@ func fullDiscovery(
 			if isPrinter {
 				pi.DiscoveryMethods = append(pi.DiscoveryMethods, "full-discovery")
 				pi.LastSeen = time.Now()
+
+				// Transfer detected capabilities from QueryResult
+				if qr.Capabilities != nil {
+					pi.IsColor = qr.Capabilities.IsColor
+					pi.IsMono = qr.Capabilities.IsMono
+					pi.IsCopier = qr.Capabilities.IsCopier
+					pi.IsScanner = qr.Capabilities.IsScanner
+					pi.IsFax = qr.Capabilities.IsFax
+					pi.IsLaser = qr.Capabilities.IsLaser
+					pi.IsInkjet = qr.Capabilities.IsInkjet
+					pi.HasDuplex = qr.Capabilities.HasDuplex
+					pi.DeviceType = qr.Capabilities.DeviceType
+				}
+
 				results = append(results, pi)
 
 				// Store device using the helper function
@@ -402,6 +430,19 @@ func LiveDiscoveryDetect(ctx context.Context, ip string, timeoutSeconds int) (*a
 		appLogger.Debug("SNMP parse", "ip", ip, "msg", msg)
 	})
 
+	// Copy capabilities from QueryResult
+	if result.Capabilities != nil {
+		pi.IsColor = result.Capabilities.IsColor
+		pi.IsMono = result.Capabilities.IsMono
+		pi.IsCopier = result.Capabilities.IsCopier
+		pi.IsScanner = result.Capabilities.IsScanner
+		pi.IsFax = result.Capabilities.IsFax
+		pi.IsLaser = result.Capabilities.IsLaser
+		pi.IsInkjet = result.Capabilities.IsInkjet
+		pi.HasDuplex = result.Capabilities.HasDuplex
+		pi.DeviceType = result.Capabilities.DeviceType
+	}
+
 	return &pi, nil
 }
 
@@ -441,6 +482,19 @@ func LiveDiscoveryDeepScan(ctx context.Context, ip string, timeoutSeconds int) (
 	pi, _ := agent.ParsePDUs(ip, result.PDUs, meta, func(msg string) {
 		appLogger.Debug("SNMP deep scan parse", "ip", ip, "msg", msg)
 	})
+
+	// Copy capabilities from QueryResult
+	if result.Capabilities != nil {
+		pi.IsColor = result.Capabilities.IsColor
+		pi.IsMono = result.Capabilities.IsMono
+		pi.IsCopier = result.Capabilities.IsCopier
+		pi.IsScanner = result.Capabilities.IsScanner
+		pi.IsFax = result.Capabilities.IsFax
+		pi.IsLaser = result.Capabilities.IsLaser
+		pi.IsInkjet = result.Capabilities.IsInkjet
+		pi.HasDuplex = result.Capabilities.HasDuplex
+		pi.DeviceType = result.Capabilities.DeviceType
+	}
 
 	appLogger.Debug("Live discovery: deep scan complete", "ip", ip, "serial", pi.Serial, "manufacturer", pi.Manufacturer, "model", pi.Model)
 
@@ -569,6 +623,19 @@ func CollectMetricsWithOIDs(ctx context.Context, ip string, serial string, vendo
 	pi, _ := agent.ParsePDUs(ip, result.PDUs, meta, func(msg string) {
 		appLogger.Debug("Metrics parse", "ip", ip, "msg", msg)
 	})
+
+	// Copy capabilities from QueryResult if present
+	if result.Capabilities != nil {
+		pi.IsColor = result.Capabilities.IsColor
+		pi.IsMono = result.Capabilities.IsMono
+		pi.IsCopier = result.Capabilities.IsCopier
+		pi.IsScanner = result.Capabilities.IsScanner
+		pi.IsFax = result.Capabilities.IsFax
+		pi.IsLaser = result.Capabilities.IsLaser
+		pi.IsInkjet = result.Capabilities.IsInkjet
+		pi.HasDuplex = result.Capabilities.HasDuplex
+		pi.DeviceType = result.Capabilities.DeviceType
+	}
 
 	appLogger.Info("Metrics parsed from PrinterInfo",
 		"ip", ip,

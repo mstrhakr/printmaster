@@ -307,8 +307,9 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 		logger.Global.Debug("SNMP query complete", "ip", ip, "profile", profile.String(), "pdu_count", len(pdus))
 	}
 
-	// Detect capabilities if QueryFull (has comprehensive data)
-	if profile == QueryFull {
+	// Detect capabilities if QueryFull or QueryEssential (both have enough data)
+	// QueryEssential includes BaseOIDs which contain SysDescr, SysObjectID, HrDeviceDescr, etc.
+	if profile == QueryFull || profile == QueryEssential {
 		caps := detectCapabilities(pdus, vendorHint)
 		result.Capabilities = &caps
 		if logger.Global != nil {

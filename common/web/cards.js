@@ -12,21 +12,57 @@
         if (!device) return '';
         const caps = [];
         try {
-            // Normalize source of metric-like fields: some callers will pass full
-            // device objects, others pass raw_data or metrics snapshots. Prefer
-            // raw_data/metrics when available.
+            // Normalize source of capability and metric fields
             const raw = device.raw_data || device.metrics || device.latest || device.latest_metrics || device.metrics_latest || device;
-            const hasColor = raw.color_impressions || raw.color_pages || device.color_impressions || device.color_pages || false;
-            const hasBlack = raw.page_count || raw.mono_impressions || device.page_count || device.mono_impressions || false;
-            if (hasColor) caps.push('<span class="capability-badge">Color</span>');
-            if (hasBlack && !hasColor) caps.push('<span class="capability-badge">Mono</span>');
-            if (device.fax) caps.push('<span class="capability-badge">Fax</span>');
-            if (device.scan) caps.push('<span class="capability-badge">Scan</span>');
-            if (device.duplex) caps.push('<span class="capability-badge">Duplex</span>');
+            
+            // Check for explicit capability flags first (from SNMP capability detection)
+            const hasExplicitCaps = raw.is_color !== undefined || raw.is_mono !== undefined || 
+                                    raw.is_copier !== undefined || raw.is_scanner !== undefined || 
+                                    raw.is_fax !== undefined || raw.device_type !== undefined;
+            
+            if (hasExplicitCaps) {
+                // Use device_type if available (most descriptive)
+                if (raw.device_type) {
+                    caps.push('<span class="capability-badge type">' + escapeHtmlCards(raw.device_type) + '</span>');
+                } else {
+                    // Fallback to individual color/mono
+                    if (raw.is_color) caps.push('<span class="capability-badge color">Color</span>');
+                    else if (raw.is_mono) caps.push('<span class="capability-badge mono">Mono</span>');
+                }
+                
+                // Function badges (only if no device_type to avoid redundancy)
+                if (!raw.device_type) {
+                    if (raw.is_copier) caps.push('<span class="capability-badge function">Copier</span>');
+                    if (raw.is_scanner) caps.push('<span class="capability-badge function">Scanner</span>');
+                    if (raw.is_fax) caps.push('<span class="capability-badge function">Fax</span>');
+                }
+                
+                // Technology badge
+                if (raw.is_laser) caps.push('<span class="capability-badge tech">Laser</span>');
+                else if (raw.is_inkjet) caps.push('<span class="capability-badge tech">Inkjet</span>');
+                
+                // Feature badge
+                if (raw.has_duplex) caps.push('<span class="capability-badge feature">Duplex</span>');
+            } else {
+                // Legacy fallback: infer capabilities from metrics
+                const hasColor = raw.color_impressions || raw.color_pages || device.color_impressions || device.color_pages || false;
+                const hasBlack = raw.page_count || raw.mono_impressions || device.page_count || device.mono_impressions || false;
+                if (hasColor) caps.push('<span class="capability-badge color">Color</span>');
+                if (hasBlack && !hasColor) caps.push('<span class="capability-badge mono">Mono</span>');
+                if (device.fax) caps.push('<span class="capability-badge function">Fax</span>');
+                if (device.scan) caps.push('<span class="capability-badge function">Scan</span>');
+                if (device.duplex) caps.push('<span class="capability-badge feature">Duplex</span>');
+            }
         } catch (e) {
             return '';
         }
         return caps.length ? '<div class="capabilities-container">' + caps.join('') + '</div>' : '';
+    }
+    
+    // Simple HTML escaping for card content
+    function escapeHtmlCards(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     function renderSavedCard(item) {

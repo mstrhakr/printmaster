@@ -71,6 +71,16 @@ func PrinterInfoToDevice(pi agent.PrinterInfo, isSaved bool) *Device {
 		"toner_alerts":           pi.TonerAlerts,
 		"meters":                 pi.Meters,
 		"learned_oids":           pi.LearnedOIDs, // Store learned OIDs for efficient metrics
+		// Capabilities
+		"is_color":    pi.IsColor,
+		"is_mono":     pi.IsMono,
+		"is_copier":   pi.IsCopier,
+		"is_scanner":  pi.IsScanner,
+		"is_fax":      pi.IsFax,
+		"is_laser":    pi.IsLaser,
+		"is_inkjet":   pi.IsInkjet,
+		"has_duplex":  pi.HasDuplex,
+		"device_type": pi.DeviceType,
 	}
 
 	return device
@@ -215,6 +225,35 @@ func DeviceToPrinterInfo(device *Device) agent.PrinterInfo {
 
 		if len(tonerMap) > 0 {
 			pi.TonerLevels = tonerMap
+		}
+
+		// Extract capability fields
+		if v, ok := device.RawData["is_color"].(bool); ok {
+			pi.IsColor = v
+		}
+		if v, ok := device.RawData["is_mono"].(bool); ok {
+			pi.IsMono = v
+		}
+		if v, ok := device.RawData["is_copier"].(bool); ok {
+			pi.IsCopier = v
+		}
+		if v, ok := device.RawData["is_scanner"].(bool); ok {
+			pi.IsScanner = v
+		}
+		if v, ok := device.RawData["is_fax"].(bool); ok {
+			pi.IsFax = v
+		}
+		if v, ok := device.RawData["is_laser"].(bool); ok {
+			pi.IsLaser = v
+		}
+		if v, ok := device.RawData["is_inkjet"].(bool); ok {
+			pi.IsInkjet = v
+		}
+		if v, ok := device.RawData["has_duplex"].(bool); ok {
+			pi.HasDuplex = v
+		}
+		if v, ok := device.RawData["device_type"].(string); ok {
+			pi.DeviceType = v
 		}
 	}
 
