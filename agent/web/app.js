@@ -811,14 +811,8 @@ function updatePrinters() {
     try {
         const showKnownDevices = document.getElementById('show_saved_in_discovered')?.checked || false;
 
-        // Map slider index to minute values (0 = all time)
-        const timeFilterValues = [1,2,5,10,15,30,60,120,180,360,720,1440,4320,0];
-        const slider = document.getElementById('time_slider');
-        const index = slider ? parseInt(slider.value) : (timeFilterValues.length - 1);
-        const timeMinutes = timeFilterValues[index] || 0;
-
+        // Always fetch all discovered devices (no time filter)
         let discoveredEndpoint = '/devices/discovered?include_known=' + showKnownDevices;
-        if (timeMinutes > 0) discoveredEndpoint += '&minutes=' + timeMinutes;
 
         Promise.all([
             fetch(discoveredEndpoint).then(r => r.ok ? r.json() : []),
@@ -3156,15 +3150,6 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     }
 
-    // Time filter slider
-    const timeSlider = document.getElementById('time_slider');
-    if (timeSlider) {
-        timeSlider.addEventListener('input', function () {
-            updateTimeFilter(this.value);
-        });
-        timeSlider.addEventListener('change', updatePrinters);
-    }
-
     // Discovered section buttons (use data-action attributes)
     const saveAllBtn = document.querySelector('#discovered_section button[data-action="save-all-discovered"]');
     if (saveAllBtn) {
@@ -3957,16 +3942,6 @@ function toggleAdvancedSettings() {
     }
 }
 
-// Update the compact time filter display label from slider index
-function updateTimeFilter(index) {
-    const labels = ['1m','2m','5m','10m','15m','30m','1h','2h','3h','6h','12h','1d','3d','All Time'];
-    let idx = parseInt(index, 10);
-    if (isNaN(idx) || idx < 0) idx = labels.length - 1;
-    if (idx >= labels.length) idx = labels.length - 1;
-    const el = document.getElementById('time_filter_value');
-    if (el) el.textContent = labels[idx];
-}
-
 function showAutosaveFeedback() {
     const feedback = document.getElementById('autosave_feedback');
     if (!feedback) return;
@@ -4342,9 +4317,6 @@ const savedSearchInput = document.getElementById('saved_search');
 if (savedSearchInput) {
     savedSearchInput.value = '';
 }
-
-// Initialize time filter slider display
-updateTimeFilter(13); // Start at "All Time"
 
 // Check auto-save preference
 const autoSave = localStorage.getItem('settings_autosave') === 'true';

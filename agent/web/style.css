@@ -702,114 +702,6 @@ h1 {
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4), 0 3px 12px rgba(0, 0, 0, 0.4);
 }
 
-/* Time Filter Slider */
-/* Compact Time Filter - Toggle-inspired design */
-.compact-time-filter {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  background: linear-gradient(to bottom, var(--toggle-off-bg-start) 0%, var(--toggle-off-bg-end) 100%);
-  border: 1px solid var(--toggle-off-border);
-  border-radius: 20px;
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), 0 2px 4px rgba(0, 0, 0, 0.2);
-  transition: all 0.3s ease;
-  min-width: 200px;
-}
-
-.compact-time-filter:hover {
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.4), 0 3px 6px rgba(0, 0, 0, 0.3);
-}
-
-.compact-time-filter-label {
-  font-size: 13px;
-  color: var(--text);
-  font-weight: 600;
-  white-space: nowrap;
-  min-width: 75px;
-}
-
-#time_filter_value {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-.compact-time-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  flex: 1;
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(to right, var(--accent) 0%, var(--accent) 0%, var(--bg) 0%);
-  outline: none;
-  transition: all 0.3s ease;
-  cursor: pointer;
-}
-
-.compact-time-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--toggle-knob-on-start) 0%, var(--toggle-knob-on-end) 100%);
-  cursor: pointer;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4),
-    0 0 0 2px var(--bg),
-    0 0 0 3px var(--accent),
-    inset 0 1px 2px rgba(255, 255, 255, 0.3);
-  transition: all 0.2s ease;
-}
-
-.compact-time-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5),
-    0 0 0 2px var(--bg),
-    0 0 0 4px var(--accent),
-    0 0 16px var(--accent),
-    inset 0 1px 2px rgba(255, 255, 255, 0.4);
-}
-
-.compact-time-slider::-webkit-slider-thumb:active {
-  transform: scale(1.05);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4),
-    0 0 0 2px var(--bg),
-    0 0 0 3px var(--accent),
-    inset 0 1px 2px rgba(255, 255, 255, 0.3);
-}
-
-.compact-time-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--toggle-knob-on-start) 0%, var(--toggle-knob-on-end) 100%);
-  cursor: pointer;
-  border: 2px solid var(--bg);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4),
-    0 0 0 1px var(--accent),
-    inset 0 1px 2px rgba(255, 255, 255, 0.3);
-  transition: all 0.2s ease;
-}
-
-.compact-time-slider::-moz-range-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5),
-    0 0 0 2px var(--accent),
-    0 0 16px var(--accent),
-    inset 0 1px 2px rgba(255, 255, 255, 0.4);
-}
-
-.compact-time-slider::-moz-range-thumb:active {
-  transform: scale(1.05);
-}
-
-.compact-time-slider::-moz-range-track {
-  height: 6px;
-  border-radius: 3px;
-  background: var(--bg);
-  border: none;
-}
-
 button {
   margin-right: 8px;
   background: var(--panel);
@@ -3203,17 +3095,6 @@ span.flatpickr-weekday {
   h1 {
     font-size: 1.5rem;
     margin-bottom: 6px;
-  }
-
-  .compact-time-filter {
-    min-width: 150px;
-    padding: 5px 10px;
-    gap: 8px;
-  }
-
-  .compact-time-filter-label {
-    font-size: 12px;
-    min-width: 60px;
   }
 
   .capability-badge {
