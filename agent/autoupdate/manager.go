@@ -761,8 +761,19 @@ del "%%~f0"
 	}
 
 	helperPath := filepath.Join(m.stateDir, "update_helper.bat")
+
+	// Ensure the state directory exists (it should, but verify)
+	if err := os.MkdirAll(m.stateDir, 0o755); err != nil {
+		return fmt.Errorf("failed to ensure update directory exists: %w", err)
+	}
+
 	if err := os.WriteFile(helperPath, []byte(helperScript), 0o755); err != nil {
 		return fmt.Errorf("failed to write update helper: %w", err)
+	}
+
+	// Verify the file was actually written before trying to launch it
+	if _, err := os.Stat(helperPath); err != nil {
+		return fmt.Errorf("update helper file not found after write: %w", err)
 	}
 
 	// Launch the helper script detached - it will wait for us to exit, then do the copy

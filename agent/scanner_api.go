@@ -207,6 +207,8 @@ func quickDiscovery(
 		if qr, ok := dr.Info.(*scanner.QueryResult); ok {
 			// Parse PDUs to get printer info
 			pi, _ := agent.ParsePDUs(qr.IP, qr.PDUs, nil, nil)
+			// Merge vendor-specific metrics (ICE-style OIDs)
+			agent.MergeVendorMetrics(&pi, qr.PDUs, qr.VendorHint)
 			pi.DiscoveryMethods = append(pi.DiscoveryMethods, "quick-discovery")
 
 			// Copy capabilities from QueryResult
@@ -315,6 +317,8 @@ func fullDiscovery(
 		// Convert QueryResult to PrinterInfo
 		if qr, ok := rawResult.(*scanner.QueryResult); ok {
 			pi, isPrinter := agent.ParsePDUs(qr.IP, qr.PDUs, nil, nil)
+			// Merge vendor-specific metrics (ICE-style OIDs)
+			agent.MergeVendorMetrics(&pi, qr.PDUs, qr.VendorHint)
 			if isPrinter {
 				pi.DiscoveryMethods = append(pi.DiscoveryMethods, "full-discovery")
 				pi.LastSeen = time.Now()
@@ -429,6 +433,8 @@ func LiveDiscoveryDetect(ctx context.Context, ip string, timeoutSeconds int) (*a
 	pi, _ := agent.ParsePDUs(ip, result.PDUs, meta, func(msg string) {
 		appLogger.Debug("SNMP parse", "ip", ip, "msg", msg)
 	})
+	// Merge vendor-specific metrics (ICE-style OIDs)
+	agent.MergeVendorMetrics(&pi, result.PDUs, result.VendorHint)
 
 	// Copy capabilities from QueryResult
 	if result.Capabilities != nil {
@@ -482,6 +488,8 @@ func LiveDiscoveryDeepScan(ctx context.Context, ip string, timeoutSeconds int) (
 	pi, _ := agent.ParsePDUs(ip, result.PDUs, meta, func(msg string) {
 		appLogger.Debug("SNMP deep scan parse", "ip", ip, "msg", msg)
 	})
+	// Merge vendor-specific metrics (ICE-style OIDs)
+	agent.MergeVendorMetrics(&pi, result.PDUs, result.VendorHint)
 
 	// Copy capabilities from QueryResult
 	if result.Capabilities != nil {
@@ -623,6 +631,8 @@ func CollectMetricsWithOIDs(ctx context.Context, ip string, serial string, vendo
 	pi, _ := agent.ParsePDUs(ip, result.PDUs, meta, func(msg string) {
 		appLogger.Debug("Metrics parse", "ip", ip, "msg", msg)
 	})
+	// Merge vendor-specific metrics (ICE-style OIDs)
+	agent.MergeVendorMetrics(&pi, result.PDUs, vendorHint)
 
 	// Copy capabilities from QueryResult if present
 	if result.Capabilities != nil {

@@ -161,3 +161,4 @@ server/.env
 # Test artifacts (local)
 server/test_results.json
 test_run_full.txt
+agent/docs/ICE Packet Capture.json

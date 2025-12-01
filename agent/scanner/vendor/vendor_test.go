@@ -161,13 +161,14 @@ func TestKyoceraVendorParse(t *testing.T) {
 
 func TestEpsonVendorParse(t *testing.T) {
 	pdus := []gosnmp.SnmpPDU{
-		// Epson enterprise OIDs
-		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.1.1.30.1.1", Value: 81563},  // Total pages
-		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.1.1.3.1.1", Value: 39797},   // B&W pages
-		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.1.1.4.1.1", Value: 41766},   // Color pages
-		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.1", Value: 49053}, // Total print computer
+		// Epson enterprise OIDs (ICE-style)
+		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.1.1.33.1.1", Value: 81563}, // Total pages (ICE)
+		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.1.1.6.1.1", Value: 39797},  // Mono pages (ICE)
+		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.1.1.4.1.1", Value: 41766},  // Color pages (ICE)
+		// Function counters
+		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.1", Value: 49053}, // Total print
 		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.2", Value: 32474}, // Total copy
-		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.6.1.5.1.1.1", Value: 39434}, // Color print computer
+		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.6.1.5.1.1.1", Value: 39434}, // Color print
 		{Name: ".1.3.6.1.4.1.1248.1.2.2.27.6.1.5.1.1.2", Value: 2313},  // Color copy
 	}
 

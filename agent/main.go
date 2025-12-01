@@ -4380,6 +4380,8 @@ func runInteractive(ctx context.Context, configFlag string) {
 
 		cols := agent.FullDiagnosticWalk(client, nil, []string{"1.3.6.1.2.1", "1.3.6.1.2.1.43", "1.3.6.1.4.1"}, 10000)
 		pi, _ := agent.ParsePDUs(req.IP, cols, nil, func(string) {})
+		// Merge vendor-specific metrics (ICE-style OIDs)
+		agent.MergeVendorMetrics(&pi, cols, "")
 
 		// Return only the fields relevant for device details
 		proposed := map[string]interface{}{

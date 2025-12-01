@@ -5,12 +5,14 @@ import (
 
 	"printmaster/agent/scanner/capabilities"
 	"printmaster/common/logger"
+	"printmaster/common/snmp/oids"
 
 	"github.com/gosnmp/gosnmp"
 )
 
 // EpsonVendor implements vendor-specific support for Epson devices.
 // Provides color/mono breakdown and function-specific counters via enterprise OID 1.3.6.1.4.1.1248.*
+// OID structure derived from ICE packet capture analysis.
 // Reference: docs/vendor/EPSON_OID_MAPPING.md
 type EpsonVendor struct{}
 
@@ -35,53 +37,81 @@ func (v *EpsonVendor) Detect(sysObjectID, sysDescr, model string) bool {
 
 func (v *EpsonVendor) BaseOIDs() []string {
 	return []string{
-		"1.3.6.1.2.1.1.1.0",         // sysDescr
-		"1.3.6.1.2.1.1.2.0",         // sysObjectID
-		"1.3.6.1.2.1.1.5.0",         // sysName
-		"1.3.6.1.2.1.25.3.2.1.3.1",  // hrDeviceDescr
-		"1.3.6.1.2.1.43.5.1.1.16.1", // prtGeneralPrinterName
-		"1.3.6.1.2.1.43.5.1.1.17.1", // prtGeneralSerialNumber
-		"1.3.6.1.2.1.25.3.5.1.1.1",  // hrPrinterStatus
+		oids.SysDescr,
+		oids.SysObjectID,
+		oids.SysUpTime, // ICE queries this
+		oids.SysName,
+		oids.SysLocation, // ICE queries this
+		oids.HrDeviceDescr,
+		oids.HrDeviceStatus, // ICE queries this
+		oids.PrtGeneralPrinterName,
+		oids.PrtGeneralSerialNumber,
+		oids.HrPrinterStatus + ".1",
+		oids.HrPrinterDetectedErrorState + ".1",
+		// Epson-specific identity
+		oids.EpsonModelName,
+		oids.EpsonSerialNumber,
 	}
 }
 
 func (v *EpsonVendor) MetricOIDs(caps *capabilities.DeviceCapabilities) []string {
-	oids := []string{
+	baseOIDs := []string{
 		// Standard Printer-MIB (fallback)
-		"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount (instance .1)
+		oids.PrtMarkerLifeCount + ".1", // prtMarkerLifeCount (instance .1)
 
-		// Epson enterprise OID base: 1.3.6.1.4.1.1248.1.2.2.27.*
-		// Page count totals
-		"1.3.6.1.4.1.1248.1.2.2.27.1.1.30.1.1", // Total pages
-		"1.3.6.1.4.1.1248.1.2.2.27.1.1.3.1.1",  // B&W pages
-		"1.3.6.1.4.1.1248.1.2.2.27.1.1.4.1.1",  // Color pages
+		// Epson enterprise page count summaries - ICE OIDs
+		oids.EpsonTotalPages,
+		oids.EpsonColorPages,
+		oids.EpsonMonoPages,
+		// Legacy OIDs for older devices
+		oids.EpsonTotalPagesLegacy,
+		oids.EpsonMonoPagesLegacy,
 	}
 
-	// Add function counters if device is MFP
-	if caps != nil && (caps.IsCopier || caps.IsScanner) {
-		oids = append(oids,
-			// Function counters (combined B&W + Color)
-			"1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.1", // Total print from computer
-			"1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.2", // Total copy
+	// ICE-style function counters for all 4 functions (print, copy, fax, scan)
+	// These are table OIDs that walk: .27.6.1.<column>.1.1.<function>
+	functionCounters := []string{
+		// Function names (column 2)
+		oids.EpsonFunctionNames + ".1", // Print
+		oids.EpsonFunctionNames + ".2", // Copy
+		oids.EpsonFunctionNames + ".3", // Fax
+		oids.EpsonFunctionNames + ".4", // Scan
 
-			// Color-specific counters
-			"1.3.6.1.4.1.1248.1.2.2.27.6.1.5.1.1.1", // Color print from computer
-			"1.3.6.1.4.1.1248.1.2.2.27.6.1.5.1.1.2", // Color copy
-		)
+		// B&W counts (column 3)
+		oids.EpsonFunctionBWCount + ".1", // Print B&W
+		oids.EpsonFunctionBWCount + ".2", // Copy B&W
+		oids.EpsonFunctionBWCount + ".3", // Fax B&W
+		oids.EpsonFunctionBWCount + ".4", // Scan B&W
+
+		// Total counts (column 4)
+		oids.EpsonFunctionTotalCount + ".1", // Print Total
+		oids.EpsonFunctionTotalCount + ".2", // Copy Total
+		oids.EpsonFunctionTotalCount + ".3", // Fax Total
+		oids.EpsonFunctionTotalCount + ".4", // Scan Total
+
+		// Color counts (column 5)
+		oids.EpsonFunctionColorCount + ".1", // Print Color
+		oids.EpsonFunctionColorCount + ".2", // Copy Color
+		oids.EpsonFunctionColorCount + ".3", // Fax Color
+		oids.EpsonFunctionColorCount + ".4", // Scan Color
 	}
 
-	return oids
+	baseOIDs = append(baseOIDs, functionCounters...)
+	return baseOIDs
 }
 
 func (v *EpsonVendor) SupplyOIDs() []string {
-	// Use standard Printer-MIB supply tables
-	// Epson uses standard prtMarkerSuppliesTable for toner/ink levels
+	// Use both standard Printer-MIB and Epson-specific supply tables
 	return []string{
-		"1.3.6.1.2.1.43.11.1.1.6", // prtMarkerSuppliesDescription
-		"1.3.6.1.2.1.43.11.1.1.9", // prtMarkerSuppliesLevel
-		"1.3.6.1.2.1.43.11.1.1.8", // prtMarkerSuppliesMaxCapacity
-		"1.3.6.1.2.1.43.11.1.1.4", // prtMarkerSuppliesClass
-		"1.3.6.1.2.1.43.11.1.1.5", // prtMarkerSuppliesType
+		// Standard Printer-MIB supplies
+		oids.PrtMarkerSuppliesDesc,
+		oids.PrtMarkerSuppliesLevel,
+		oids.PrtMarkerSuppliesMaxCap,
+		oids.PrtMarkerSuppliesClass,
+		oids.PrtMarkerSuppliesType,
+		// Epson-specific ink levels (more detailed)
+		oids.EpsonSuppliesStatus,
+		oids.EpsonSuppliesLevel,
 	}
 }
 
@@ -91,16 +121,17 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		logger.Global.TraceTag("vendor_parse", "Parsing Epson vendor PDUs", "pdu_count", len(pdus))
 	}
 
-	// Extract Epson enterprise counters
-	totalPages := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.1.1.30.1.1")
-	bwPages := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.1.1.3.1.1")
-	colorPages := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.1.1.4.1.1")
-
-	totalPrintComputer := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.1")
-	totalCopy := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.2")
-
-	colorPrintComputer := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.6.1.5.1.1.1")
-	colorCopy := getOIDInt(pdus, "1.3.6.1.4.1.1248.1.2.2.27.6.1.5.1.1.2")
+	// Extract Epson enterprise summary counters
+	// Try ICE OIDs first, fall back to legacy if not found
+	totalPages := getOIDInt(pdus, oids.EpsonTotalPages)
+	if totalPages == 0 {
+		totalPages = getOIDInt(pdus, oids.EpsonTotalPagesLegacy)
+	}
+	colorPages := getOIDInt(pdus, oids.EpsonColorPages)
+	monoPages := getOIDInt(pdus, oids.EpsonMonoPages)
+	if monoPages == 0 {
+		monoPages = getOIDInt(pdus, oids.EpsonMonoPagesLegacy)
+	}
 
 	// Page count totals
 	if totalPages > 0 {
@@ -108,53 +139,86 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["page_count"] = totalPages
 	}
 
-	if bwPages > 0 {
-		result["mono_pages"] = bwPages
+	if monoPages > 0 {
+		result["mono_pages"] = monoPages
 	}
 
 	if colorPages > 0 {
 		result["color_pages"] = colorPages
 	}
 
-	// Function-specific counters
-	if totalCopy > 0 {
-		result["copy_pages"] = totalCopy
+	// Parse function counters (ICE-style)
+	// Print function (1)
+	printTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".1")
+	printColor := getOIDInt(pdus, oids.EpsonFunctionColorCount+".1")
+	printBW := getOIDInt(pdus, oids.EpsonFunctionBWCount+".1")
+	if printTotal > 0 {
+		result["print_pages"] = printTotal
 	}
-
-	if colorCopy > 0 {
-		result["copy_color_pages"] = colorCopy
-
-		// Calculate B&W copy by subtraction
-		if totalCopy > 0 {
-			bwCopy := totalCopy - colorCopy
-			if bwCopy > 0 {
-				result["copy_mono_pages"] = bwCopy
-			}
+	if printColor > 0 {
+		result["print_color_pages"] = printColor
+	}
+	if printBW > 0 {
+		result["print_mono_pages"] = printBW
+	} else if printTotal > 0 && printColor > 0 {
+		// Calculate B&W by subtraction if not directly available
+		if bw := printTotal - printColor; bw > 0 {
+			result["print_mono_pages"] = bw
 		}
 	}
 
-	// Print from computer counters
-	if colorPrintComputer > 0 {
-		result["print_color_pages"] = colorPrintComputer
+	// Copy function (2)
+	copyTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".2")
+	copyColor := getOIDInt(pdus, oids.EpsonFunctionColorCount+".2")
+	copyBW := getOIDInt(pdus, oids.EpsonFunctionBWCount+".2")
+	if copyTotal > 0 {
+		result["copy_pages"] = copyTotal
 	}
-
-	if totalPrintComputer > 0 && colorPrintComputer > 0 {
-		// Calculate B&W print by subtraction
-		bwPrint := totalPrintComputer - colorPrintComputer
-		if bwPrint > 0 {
-			result["print_mono_pages"] = bwPrint
+	if copyColor > 0 {
+		result["copy_color_pages"] = copyColor
+	}
+	if copyBW > 0 {
+		result["copy_mono_pages"] = copyBW
+	} else if copyTotal > 0 && copyColor > 0 {
+		if bw := copyTotal - copyColor; bw > 0 {
+			result["copy_mono_pages"] = bw
 		}
 	}
 
-	// Parse supply levels using generic parser
+	// Fax function (3)
+	faxTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".3")
+	faxBW := getOIDInt(pdus, oids.EpsonFunctionBWCount+".3")
+	if faxTotal > 0 {
+		result["fax_pages"] = faxTotal
+	}
+	if faxBW > 0 {
+		result["fax_mono_pages"] = faxBW
+	}
+
+	// Scan function (4)
+	scanTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".4")
+	if scanTotal > 0 {
+		result["scan_count"] = scanTotal
+	}
+
+	// Parse supply levels using generic parser (handles both standard and Epson supplies)
 	supplies := parseSuppliesTable(pdus)
 	for k, v := range supplies {
 		result[k] = v
 	}
 
+	// Also try Epson-specific ink levels
+	epsonSupplies := v.parseEpsonSupplies(pdus)
+	for k, v := range epsonSupplies {
+		// Only add if not already set by standard table
+		if _, exists := result[k]; !exists {
+			result[k] = v
+		}
+	}
+
 	// Fallback to standard Printer-MIB if enterprise OIDs failed
 	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDInt(pdus, "1.3.6.1.2.1.43.10.2.1.4.1.1"); pageCount > 0 {
+		if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
 			result["page_count"] = pageCount
 			result["total_pages"] = pageCount
 		}
@@ -171,5 +235,37 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 		logger.Global.Debug("Epson parsing complete", "mono_pages", mono, "color_pages", color)
 	}
+	return result
+}
+
+// parseEpsonSupplies parses Epson-specific ink level table (1.2.2.2.1.1)
+func (v *EpsonVendor) parseEpsonSupplies(pdus []gosnmp.SnmpPDU) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	// Epson ink table: .1.2.2.2.1.1.3.1.<ink_index>
+	// Indexes typically: 1=Black, 2=Cyan, 3=Magenta, 4=Yellow, etc.
+	colorMap := map[string]string{
+		".1": "ink_black",
+		".2": "ink_cyan",
+		".3": "ink_magenta",
+		".4": "ink_yellow",
+		".5": "ink_light_cyan",
+		".6": "ink_light_magenta",
+	}
+
+	for _, pdu := range pdus {
+		oid := normalizeOID(pdu.Name)
+		// Check if this is an Epson ink level OID
+		if strings.HasPrefix(oid, "1.3.6.1.4.1.1248.1.2.2.2.1.1.3.1.") {
+			suffix := strings.TrimPrefix(oid, "1.3.6.1.4.1.1248.1.2.2.2.1.1.3.1")
+			if metricName, ok := colorMap[suffix]; ok {
+				level := coerceToInt(pdu.Value)
+				if level >= 0 && level <= 100 {
+					result[metricName] = float64(level)
+				}
+			}
+		}
+	}
+
 	return result
 }

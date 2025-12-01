@@ -86,3 +86,108 @@ func TestParsePDUs_VendorDeviceIDSetsModelAndSerial(t *testing.T) {
 		t.Fatalf("expected description from DES field, got %q", pi.Description)
 	}
 }
+
+func TestMergeVendorMetrics_EpsonICEOIDs(t *testing.T) {
+	t.Parallel()
+
+	// Simulate Epson enterprise OIDs as ICE would query them
+	// OIDs must match the constants in common/snmp/oids/oids.go exactly
+	pdus := []gosnmp.SnmpPDU{
+		// sysObjectID to trigger Epson vendor detection
+		{Name: "1.3.6.1.2.1.1.2.0", Type: gosnmp.OctetString, Value: []byte("1.3.6.1.4.1.1248.1.2")},
+		// ICE-style Epson page counts (using exact OIDs from constants: EpsonTotalPages, etc.)
+		{Name: "1.3.6.1.4.1.1248.1.2.2.27.1.1.33.1.1", Type: gosnmp.Integer, Value: 15000}, // EpsonTotalPages
+		{Name: "1.3.6.1.4.1.1248.1.2.2.27.1.1.6.1.1", Type: gosnmp.Integer, Value: 8000},   // EpsonMonoPages
+		{Name: "1.3.6.1.4.1.1248.1.2.2.27.1.1.4.1.1", Type: gosnmp.Integer, Value: 7000},   // EpsonColorPages
+		// Function counters (EpsonFunctionTotalCount + ".<function>" for print/copy/scan)
+		{Name: "1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.1", Type: gosnmp.Integer, Value: 10000}, // Print total
+		{Name: "1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.2", Type: gosnmp.Integer, Value: 3000},  // Copy total
+		{Name: "1.3.6.1.4.1.1248.1.2.2.27.6.1.4.1.1.4", Type: gosnmp.Integer, Value: 500},   // Scan count
+	}
+
+	pi := PrinterInfo{
+		IP:           "10.0.0.5",
+		Manufacturer: "Epson",
+	}
+
+	MergeVendorMetrics(&pi, pdus, "Epson")
+
+	// Verify page counts were merged
+	if pi.PageCount != 15000 {
+		t.Errorf("expected PageCount 15000, got %d", pi.PageCount)
+	}
+	if pi.MonoImpressions != 8000 {
+		t.Errorf("expected MonoImpressions 8000, got %d", pi.MonoImpressions)
+	}
+	if pi.ColorImpressions != 7000 {
+		t.Errorf("expected ColorImpressions 7000, got %d", pi.ColorImpressions)
+	}
+
+	// Verify Meters map was populated
+	if pi.Meters == nil {
+		t.Fatalf("expected Meters map to be initialized")
+	}
+	if pi.Meters["total_pages"] != 15000 {
+		t.Errorf("expected Meters[total_pages] 15000, got %d", pi.Meters["total_pages"])
+	}
+	if pi.Meters["mono_pages"] != 8000 {
+		t.Errorf("expected Meters[mono_pages] 8000, got %d", pi.Meters["mono_pages"])
+	}
+	if pi.Meters["color_pages"] != 7000 {
+		t.Errorf("expected Meters[color_pages] 7000, got %d", pi.Meters["color_pages"])
+	}
+}
+
+func TestMergeVendorMetrics_KyoceraICEOIDs(t *testing.T) {
+	t.Parallel()
+
+	// Simulate Kyocera enterprise OIDs
+	pdus := []gosnmp.SnmpPDU{
+		// sysObjectID to trigger Kyocera vendor detection
+		{Name: "1.3.6.1.2.1.1.2.0", Type: gosnmp.OctetString, Value: []byte("1.3.6.1.4.1.1347")},
+		// Kyocera function counters (ICE-style)
+		{Name: "1.3.6.1.4.1.1347.42.3.1.2.1.1.1.1", Type: gosnmp.Integer, Value: 5000}, // Print B&W
+		{Name: "1.3.6.1.4.1.1347.42.3.1.2.1.1.1.2", Type: gosnmp.Integer, Value: 2000}, // Print Color
+		{Name: "1.3.6.1.4.1.1347.42.3.1.2.1.1.1.3", Type: gosnmp.Integer, Value: 1500}, // Copy B&W
+		{Name: "1.3.6.1.4.1.1347.42.3.1.2.1.1.1.4", Type: gosnmp.Integer, Value: 800},  // Copy Color
+	}
+
+	pi := PrinterInfo{
+		IP:           "10.0.0.6",
+		Manufacturer: "Kyocera",
+	}
+
+	MergeVendorMetrics(&pi, pdus, "Kyocera")
+
+	// Verify Meters map was populated with function counters
+	if pi.Meters == nil {
+		t.Fatalf("expected Meters map to be initialized")
+	}
+
+	// Check that some metrics were extracted (specific values depend on Kyocera Parse implementation)
+	if len(pi.Meters) == 0 {
+		t.Errorf("expected some meters to be extracted from Kyocera OIDs")
+	}
+}
+
+func TestMergeVendorMetrics_GenericVendorNoMerge(t *testing.T) {
+	t.Parallel()
+
+	// Generic vendor should not add any vendor-specific metrics
+	pdus := []gosnmp.SnmpPDU{
+		{Name: "1.3.6.1.2.1.1.2.0", Type: gosnmp.OctetString, Value: []byte("1.3.6.1.4.1.9999")}, // Unknown vendor
+		{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 1000},                 // Standard marker count
+	}
+
+	pi := PrinterInfo{
+		IP:        "10.0.0.7",
+		PageCount: 500, // Pre-existing value from ParsePDUs
+	}
+
+	MergeVendorMetrics(&pi, pdus, "")
+
+	// PageCount should remain unchanged (generic vendor skips merge)
+	if pi.PageCount != 500 {
+		t.Errorf("expected PageCount to remain 500 for generic vendor, got %d", pi.PageCount)
+	}
+}

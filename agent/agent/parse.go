@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"printmaster/agent/scanner"
+	"printmaster/agent/scanner/vendor"
 	"printmaster/agent/supplies"
 	"printmaster/common/util"
 
@@ -1254,4 +1255,189 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 		}
 	}
 	return pi, isPrinter
+}
+
+// MergeVendorMetrics enhances a PrinterInfo with vendor-specific metrics.
+// This should be called after ParsePDUs to apply ICE-style vendor parsing.
+// It detects the vendor from the PDUs, calls the vendor's Parse() method,
+// and merges the extracted metrics into the PrinterInfo.
+//
+// Parameters:
+//   - pi: Pointer to PrinterInfo to enhance (modified in place)
+//   - pdus: Raw SNMP PDUs from the device
+//   - vendorHint: Optional vendor name hint (e.g., "Epson", "Kyocera")
+func MergeVendorMetrics(pi *PrinterInfo, pdus []gosnmp.SnmpPDU, vendorHint string) {
+	if pi == nil || len(pdus) == 0 {
+		return
+	}
+
+	// Extract sysObjectID, sysDescr, model from PDUs for vendor detection
+	var sysObjectID, sysDescr, model string
+	for _, pdu := range pdus {
+		oid := strings.TrimPrefix(pdu.Name, ".")
+		switch oid {
+		case "1.3.6.1.2.1.1.2.0": // sysObjectID
+			sysObjectID = pduToString(pdu.Value)
+		case "1.3.6.1.2.1.1.1.0": // sysDescr
+			sysDescr = pduToString(pdu.Value)
+		case "1.3.6.1.2.1.25.3.2.1.3.1": // hrDeviceDescr
+			if model == "" {
+				model = pduToString(pdu.Value)
+			}
+		}
+	}
+
+	// Use manufacturer from pi if available and vendorHint not provided
+	if vendorHint == "" && pi.Manufacturer != "" {
+		vendorHint = pi.Manufacturer
+	}
+
+	// Detect vendor module
+	var vendorModule vendor.VendorModule
+	if vendorHint != "" {
+		vendorModule = vendor.GetVendorByName(vendorHint)
+	}
+	if vendorModule == nil {
+		vendorModule = vendor.DetectVendor(sysObjectID, sysDescr, model)
+	}
+
+	// Skip if generic vendor (no special parsing needed)
+	if vendorModule == nil || vendorModule.Name() == "Generic" {
+		return
+	}
+
+	// Call vendor-specific Parse()
+	metrics := vendorModule.Parse(pdus)
+	if len(metrics) == 0 {
+		return
+	}
+
+	// Initialize maps if needed
+	if pi.Meters == nil {
+		pi.Meters = make(map[string]int)
+	}
+	if pi.TonerLevels == nil {
+		pi.TonerLevels = make(map[string]int)
+	}
+
+	// Merge metrics into PrinterInfo
+	for key, value := range metrics {
+		switch key {
+		// Page counts
+		case "total_pages", "page_count":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				if pi.PageCount == 0 || v > pi.PageCount {
+					pi.PageCount = v
+				}
+				pi.Meters["total_pages"] = v
+			}
+		case "mono_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.MonoImpressions = v
+				pi.Meters["mono_pages"] = v
+			}
+		case "color_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.ColorImpressions = v
+				pi.Meters["color_pages"] = v
+			}
+
+		// Function-specific counters (ICE-style)
+		case "print_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["print_pages"] = v
+			}
+		case "print_mono_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["print_mono_pages"] = v
+			}
+		case "print_color_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["print_color_pages"] = v
+			}
+		case "copy_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["copy_pages"] = v
+			}
+		case "copy_mono_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["copy_mono_pages"] = v
+			}
+		case "copy_color_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["copy_color_pages"] = v
+			}
+		case "fax_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["fax_pages"] = v
+			}
+		case "fax_mono_pages":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["fax_mono_pages"] = v
+			}
+		case "scan_count":
+			if v, ok := toIntValue(value); ok && v > 0 {
+				pi.Meters["scans"] = v
+			}
+
+		// Toner/ink levels
+		case "toner_black", "ink_black":
+			if v, ok := toIntValue(value); ok && v >= 0 {
+				pi.TonerLevelBlack = v
+				pi.TonerLevels["black"] = v
+			}
+		case "toner_cyan", "ink_cyan":
+			if v, ok := toIntValue(value); ok && v >= 0 {
+				pi.TonerLevelCyan = v
+				pi.TonerLevels["cyan"] = v
+			}
+		case "toner_magenta", "ink_magenta":
+			if v, ok := toIntValue(value); ok && v >= 0 {
+				pi.TonerLevelMagenta = v
+				pi.TonerLevels["magenta"] = v
+			}
+		case "toner_yellow", "ink_yellow":
+			if v, ok := toIntValue(value); ok && v >= 0 {
+				pi.TonerLevelYellow = v
+				pi.TonerLevels["yellow"] = v
+			}
+
+		default:
+			// Handle supply_* keys
+			if strings.HasPrefix(key, "supply_") || strings.HasPrefix(key, "toner_") || strings.HasPrefix(key, "ink_") {
+				if v, ok := toIntValue(value); ok && v >= 0 {
+					pi.TonerLevels[key] = v
+				}
+			} else {
+				// Generic meter value
+				if v, ok := toIntValue(value); ok && v > 0 {
+					pi.Meters[key] = v
+				}
+			}
+		}
+	}
+}
+
+// toIntValue converts interface{} to int, handling common types
+func toIntValue(v interface{}) (int, bool) {
+	switch val := v.(type) {
+	case int:
+		return val, true
+	case int64:
+		return int(val), true
+	case int32:
+		return int(val), true
+	case uint:
+		return int(val), true
+	case uint64:
+		return int(val), true
+	case uint32:
+		return int(val), true
+	case float64:
+		return int(val), true
+	case float32:
+		return int(val), true
+	default:
+		return 0, false
+	}
 }

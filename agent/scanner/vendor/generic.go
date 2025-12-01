@@ -35,11 +35,17 @@ func (v *GenericVendor) BaseOIDs() []string {
 	return []string{
 		oids.SysDescr,
 		oids.SysObjectID,
+		oids.SysUpTime, // ICE queries this
 		oids.SysName,
+		oids.SysLocation, // ICE queries this
 		oids.HrDeviceDescr,
+		oids.HrDeviceStatus, // ICE queries this
 		oids.PrtGeneralPrinterName,
 		oids.PrtGeneralSerialNumber,
 		oids.HrPrinterStatus + ".1",
+		oids.HrPrinterDetectedErrorState + ".1",
+		// PWG Port Monitor IEEE 1284 Device ID (contains capability info)
+		oids.PpmPrinterIEEE1284DeviceID + ".1",
 	}
 }
 
