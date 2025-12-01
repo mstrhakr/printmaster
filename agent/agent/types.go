@@ -106,14 +106,14 @@ type PrinterInfo struct {
 	LearnedOIDs LearnedOIDMap `json:"learned_oids,omitempty"`
 
 	// Capability flags (detected via SNMP evidence analysis)
-	IsColor   bool   `json:"is_color,omitempty"`   // Device supports color printing
-	IsMono    bool   `json:"is_mono,omitempty"`    // Device is mono-only
-	IsCopier  bool   `json:"is_copier,omitempty"`  // Device has copy capability
-	IsScanner bool   `json:"is_scanner,omitempty"` // Device has scan capability
-	IsFax     bool   `json:"is_fax,omitempty"`     // Device has fax capability
-	IsLaser   bool   `json:"is_laser,omitempty"`   // Laser print technology
-	IsInkjet  bool   `json:"is_inkjet,omitempty"`  // Inkjet print technology
-	HasDuplex bool   `json:"has_duplex,omitempty"` // Duplex (two-sided) printing supported
+	IsColor    bool   `json:"is_color,omitempty"`    // Device supports color printing
+	IsMono     bool   `json:"is_mono,omitempty"`     // Device is mono-only
+	IsCopier   bool   `json:"is_copier,omitempty"`   // Device has copy capability
+	IsScanner  bool   `json:"is_scanner,omitempty"`  // Device has scan capability
+	IsFax      bool   `json:"is_fax,omitempty"`      // Device has fax capability
+	IsLaser    bool   `json:"is_laser,omitempty"`    // Laser print technology
+	IsInkjet   bool   `json:"is_inkjet,omitempty"`   // Inkjet print technology
+	HasDuplex  bool   `json:"has_duplex,omitempty"`  // Duplex (two-sided) printing supported
 	DeviceType string `json:"device_type,omitempty"` // Classified type: "Color MFP", "Mono Printer", etc.
 }
 
