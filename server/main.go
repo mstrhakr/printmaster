@@ -3592,7 +3592,17 @@ func proxyDeviceRequest(w http.ResponseWriter, r *http.Request, serial string, t
 		return
 	}
 
-	targetURL := fmt.Sprintf("http://%s%s", device.IP, targetPath)
+	// Build target URL for the device's web UI
+	// Priority: 1) Use WebUIURL if set, 2) Try HTTPS first (common for modern printers), 3) Fall back to HTTP
+	var targetURL string
+	if device.WebUIURL != "" {
+		// Use the stored WebUIURL as the base
+		baseURL := strings.TrimSuffix(device.WebUIURL, "/")
+		targetURL = baseURL + targetPath
+	} else {
+		// Default to HTTPS since many modern printers use it (agent handles InsecureSkipVerify)
+		targetURL = fmt.Sprintf("https://%s%s", device.IP, targetPath)
+	}
 	proxyThroughWebSocket(w, r, device.AgentID, targetURL)
 }
 
