@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -703,24 +704,93 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 func (m *Manager) applyUpdateWindows(stagingPath string) error {
 	// On Windows, we write a helper batch file that:
 	// 1. Waits for the current process to exit
-	// 2. Copies the new binary
-	// 3. Starts the new binary
-	// This is similar to the server's approach
+	// 2. Copies the new binary over the old one
+	// 3. Restarts the service (or starts the binary directly)
+	//
+	// The batch file is launched detached so it continues running after we exit.
 
-	helperScript := fmt.Sprintf(`@echo off
-timeout /t 2 /nobreak >nul
+	// Determine if we're running as a service
+	isService := os.Getenv("SERVICE_NAME") != "" || isWindowsService()
+
+	var helperScript string
+	if isService {
+		// Running as a Windows service - use SC to restart
+		helperScript = fmt.Sprintf(`@echo off
+echo PrintMaster Agent Update Helper
+echo Waiting for agent to stop...
+timeout /t 3 /nobreak >nul
+
+echo Copying new binary...
 copy /y "%s" "%s"
-if %%errorlevel%% neq 0 exit /b %%errorlevel%%
+if %%errorlevel%% neq 0 (
+    echo ERROR: Failed to copy new binary
+    exit /b %%errorlevel%%
+)
+
+echo Starting service...
+sc start PrintMasterAgent
+if %%errorlevel%% neq 0 (
+    echo WARNING: SC start returned %%errorlevel%% - service may already be starting
+)
+
+echo Update complete, cleaning up...
+timeout /t 2 /nobreak >nul
+del "%%~f0"
+`, stagingPath, m.binaryPath)
+	} else {
+		// Running standalone - just start the binary
+		helperScript = fmt.Sprintf(`@echo off
+echo PrintMaster Agent Update Helper
+echo Waiting for agent to stop...
+timeout /t 3 /nobreak >nul
+
+echo Copying new binary...
+copy /y "%s" "%s"
+if %%errorlevel%% neq 0 (
+    echo ERROR: Failed to copy new binary
+    exit /b %%errorlevel%%
+)
+
+echo Starting agent...
 start "" "%s"
+
+echo Update complete, cleaning up...
+timeout /t 2 /nobreak >nul
 del "%%~f0"
 `, stagingPath, m.binaryPath, m.binaryPath)
+	}
 
 	helperPath := filepath.Join(m.stateDir, "update_helper.bat")
 	if err := os.WriteFile(helperPath, []byte(helperScript), 0o755); err != nil {
 		return fmt.Errorf("failed to write update helper: %w", err)
 	}
 
-	return nil // The actual update will happen on restart
+	// Launch the helper script detached - it will wait for us to exit, then do the copy
+	cmd := exec.Command("cmd.exe", "/C", "start", "/min", "", helperPath)
+	cmd.Dir = m.stateDir
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch update helper: %w", err)
+	}
+
+	m.logInfo("Update helper launched", "helper_path", helperPath, "is_service", isService)
+	return nil
+}
+
+// isWindowsService checks if we're running as a Windows service
+func isWindowsService() bool {
+	// Check common indicators of running as a service
+	// 1. Parent process is services.exe
+	// 2. SESSION_NAME environment variable is set to "Services"
+	if sessionName := os.Getenv("SESSIONNAME"); sessionName == "Services" {
+		return true
+	}
+	// Also check if stdin is not a terminal (common for services)
+	if fi, err := os.Stdin.Stat(); err == nil {
+		if (fi.Mode() & os.ModeCharDevice) == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) rollback(backupPath string) error {
