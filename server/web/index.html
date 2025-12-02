@@ -512,7 +512,11 @@
                         <h3>Users</h3>
                         <p class="users-subtitle">Manage local users, roles, and permissions</p>
                     </div>
-                    <div>
+                    <div class="users-header-actions">
+                        <button id="invite_user_btn" class="btn-outline" title="Invite user via email">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/></svg>
+                            Invite
+                        </button>
                         <button id="new_user_btn" class="btn-primary">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
                             New User
@@ -858,34 +862,135 @@
 
     <!-- User Modal (create/edit) -->
     <div class="modal" id="user_modal" style="display:none;">
-        <div class="modal-content" style="max-width:520px;">
+        <div class="modal-content user-modal-content">
             <div class="modal-header">
                 <span class="modal-title" id="user_modal_title">Add User</span>
                 <span class="modal-close" id="user_modal_close_x">&times;</span>
             </div>
-            <div class="modal-body">
-                <label style="display:block;margin-bottom:6px;">Username</label>
-                <input id="user_username" type="text" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" />
-                <label style="display:block;margin-bottom:6px;">Email</label>
-                <input id="user_email" type="email" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Optional" />
-                <label style="display:block;margin-bottom:6px;">Password <span id="user_password_optional" style="color:var(--muted);font-weight:normal;"></span></label>
-                <input id="user_password" type="password" style="width:100%;padding:8px;margin-bottom:4px;border-radius:4px;border:1px solid var(--border);" />
-                <div id="user_password_hint" style="font-size:12px;color:var(--muted);margin-bottom:8px;">Minimum 8 characters</div>
-                <label style="display:block;margin-bottom:6px;">Role</label>
-                <select id="user_role" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);">
-                    <option value="user">User</option>
-                    <option value="readonly">Read-only</option>
-                    <option value="admin">Admin</option>
-                </select>
-                <label style="display:block;margin-bottom:6px;">Tenant (optional)</label>
-                <select id="user_tenant" style="width:100%;padding:8px;margin-bottom:8px;border-radius:4px;border:1px solid var(--border);">
-                    <option value="">(Global / Server)</option>
-                </select>
-                <div id="user_error" style="color:var(--danger);display:none;margin-top:6px;"></div>
+            <div class="modal-body user-modal-body">
+                <div class="user-form-grid">
+                    <div class="user-form-section">
+                        <h4 class="user-form-section-title">Account Details</h4>
+                        <label class="user-form-label">
+                            <span>Username <span class="required">*</span></span>
+                            <input id="user_username" type="text" class="user-form-input" placeholder="johndoe" />
+                        </label>
+                        <label class="user-form-label">
+                            <span>Email</span>
+                            <input id="user_email" type="email" class="user-form-input" placeholder="john@example.com" />
+                        </label>
+                        <label class="user-form-label">
+                            <span>Role</span>
+                            <select id="user_role" class="user-form-input">
+                                <option value="viewer">Viewer</option>
+                                <option value="operator">Operator</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </label>
+                        <label class="user-form-label">
+                            <span>Tenant</span>
+                            <select id="user_tenant" class="user-form-input">
+                                <option value="">(Global / Server)</option>
+                            </select>
+                            <span class="user-form-helper">Assign user to a specific tenant or leave global for server-wide access</span>
+                        </label>
+                    </div>
+                    
+                    <div class="user-form-section" id="user_password_section">
+                        <div class="user-form-section-header">
+                            <h4 class="user-form-section-title">Password</h4>
+                            <label class="user-form-checkbox" id="user_change_password_toggle" style="display:none;">
+                                <input type="checkbox" id="user_change_password" />
+                                <span>Change password</span>
+                            </label>
+                        </div>
+                        <div id="user_password_fields">
+                            <label class="user-form-label">
+                                <span>Password <span class="required" id="user_password_required">*</span></span>
+                                <input id="user_password" type="password" class="user-form-input" placeholder="Enter password" autocomplete="new-password" />
+                            </label>
+                            <label class="user-form-label">
+                                <span>Confirm Password <span class="required" id="user_password_confirm_required">*</span></span>
+                                <input id="user_password_confirm" type="password" class="user-form-input" placeholder="Confirm password" autocomplete="new-password" />
+                            </label>
+                            <div class="password-strength" id="user_password_strength">
+                                <div class="password-strength-bar">
+                                    <div class="password-strength-fill" id="user_password_strength_fill"></div>
+                                </div>
+                                <div class="password-strength-text" id="user_password_strength_text">Enter a password</div>
+                            </div>
+                            <div class="password-requirements" id="user_password_requirements">
+                                <div class="requirement" data-req="length"><span class="req-icon">○</span> Minimum 8 characters</div>
+                                <div class="requirement" data-req="uppercase"><span class="req-icon">○</span> Uppercase letter</div>
+                                <div class="requirement" data-req="lowercase"><span class="req-icon">○</span> Lowercase letter</div>
+                                <div class="requirement" data-req="number"><span class="req-icon">○</span> Number</div>
+                                <div class="requirement" data-req="special"><span class="req-icon">○</span> Special character</div>
+                                <div class="requirement" data-req="match"><span class="req-icon">○</span> Passwords match</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="user_error" class="user-form-error"></div>
             </div>
-            <div class="modal-footer">
-                <button class="modal-button modal-button-secondary" id="user_cancel">Cancel</button>
-                <button class="modal-button modal-button-primary" id="user_submit">Create</button>
+            <div class="modal-footer user-modal-footer">
+                <button class="btn-outline" id="user_cancel">Cancel</button>
+                <button class="btn-primary" id="user_submit">Create User</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invite User Modal -->
+    <div class="modal" id="invite_user_modal" style="display:none;">
+        <div class="modal-content user-modal-content">
+            <div class="modal-header">
+                <span class="modal-title">Invite User</span>
+                <span class="modal-close" id="invite_user_modal_close_x">&times;</span>
+            </div>
+            <div class="modal-body user-modal-body">
+                <div class="invite-info">
+                    <svg width="48" height="48" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/></svg>
+                    <div class="invite-description">
+                        <h4>Send an email invitation</h4>
+                        <p>The user will receive an email with a link to set up their account and create a password.</p>
+                    </div>
+                </div>
+                <div class="user-form-section" style="margin-top:20px;">
+                    <label class="user-form-label">
+                        <span>Email Address <span class="required">*</span></span>
+                        <input id="invite_email" type="email" class="user-form-input" placeholder="john@example.com" />
+                    </label>
+                    <label class="user-form-label">
+                        <span>Username</span>
+                        <input id="invite_username" type="text" class="user-form-input" placeholder="Leave blank to use email prefix" />
+                        <span class="user-form-helper">Optional. If blank, username will be derived from email address.</span>
+                    </label>
+                    <label class="user-form-label">
+                        <span>Role</span>
+                        <select id="invite_role" class="user-form-input">
+                            <option value="viewer">Viewer</option>
+                            <option value="operator">Operator</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </label>
+                    <label class="user-form-label">
+                        <span>Tenant</span>
+                        <select id="invite_tenant" class="user-form-input">
+                            <option value="">(Global / Server)</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="invite_error" class="user-form-error"></div>
+                <div id="invite_smtp_warning" class="user-form-warning" style="display:none;">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M7.002 11a1 1 0 1 1 2 0 1 1 0 0 1-2 0zM7.1 4.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995z"/></svg>
+                    <span>Email invitations require SMTP to be configured in server settings.</span>
+                </div>
+            </div>
+            <div class="modal-footer user-modal-footer">
+                <button class="btn-outline" id="invite_user_cancel">Cancel</button>
+                <button class="btn-primary" id="invite_user_submit" disabled>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M15.964.686a.5.5 0 0 0-.65-.65L.767 5.855H.766l-.452.18a.5.5 0 0 0-.082.887l.41.26.001.002 4.995 3.178 3.178 4.995.002.002.26.41a.5.5 0 0 0 .886-.083l6-15Zm-1.833 1.89L6.637 10.07l-.215-.338a.5.5 0 0 0-.154-.154l-.338-.215 7.494-7.494 1.178-.471-.47 1.178Z"/></svg>
+                    Send Invitation
+                </button>
             </div>
         </div>
     </div>

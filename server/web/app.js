@@ -2364,24 +2364,177 @@ async function submitTenantForm(){
 }
 
 // ====== Users UI ======
+let smtpEnabled = false;
+
 function initUsersUI(){
     if (usersUIInitialized) return;
     usersUIInitialized = true;
+    
     const btn = document.getElementById('new_user_btn');
     if(btn){
         btn.addEventListener('click', ()=>{
             openUserModal();
         });
     }
-    // Wire modal close/buttons
+    
+    // Invite user button
+    const inviteBtn = document.getElementById('invite_user_btn');
+    if(inviteBtn){
+        inviteBtn.addEventListener('click', ()=>{
+            openInviteModal();
+        });
+    }
+    
+    // Wire user modal close/buttons
     const userModal = document.getElementById('user_modal');
     if(userModal){
-        document.getElementById('user_modal_close_x').addEventListener('click', ()=> userModal.style.display='none');
-        document.getElementById('user_cancel').addEventListener('click', ()=> userModal.style.display='none');
+        document.getElementById('user_modal_close_x').addEventListener('click', ()=> closeUserModal());
+        document.getElementById('user_cancel').addEventListener('click', ()=> closeUserModal());
         document.getElementById('user_submit').addEventListener('click', submitCreateUser);
+        
+        // Password field live validation
+        const pwField = document.getElementById('user_password');
+        const pwConfirmField = document.getElementById('user_password_confirm');
+        if(pwField){
+            pwField.addEventListener('input', updatePasswordStrength);
+        }
+        if(pwConfirmField){
+            pwConfirmField.addEventListener('input', updatePasswordStrength);
+        }
+        
+        // Change password toggle for edit mode
+        const changePwCheckbox = document.getElementById('user_change_password');
+        if(changePwCheckbox){
+            changePwCheckbox.addEventListener('change', (e) => {
+                const fields = document.getElementById('user_password_fields');
+                if(fields){
+                    fields.classList.toggle('collapsed', !e.target.checked);
+                }
+            });
+        }
     }
+    
+    // Wire invite modal close/buttons
+    const inviteModal = document.getElementById('invite_user_modal');
+    if(inviteModal){
+        document.getElementById('invite_user_modal_close_x').addEventListener('click', ()=> closeInviteModal());
+        document.getElementById('invite_user_cancel').addEventListener('click', ()=> closeInviteModal());
+        document.getElementById('invite_user_submit').addEventListener('click', submitInviteUser);
+    }
+    
+    // Check SMTP status
+    checkSMTPStatus();
 
     loadUsers();
+}
+
+async function checkSMTPStatus(){
+    try{
+        const r = await fetch('/api/v1/server/settings');
+        if(r.ok){
+            const data = await r.json();
+            smtpEnabled = data.smtp?.enabled === true && data.smtp?.host;
+        }
+    }catch(e){
+        smtpEnabled = false;
+    }
+}
+
+function closeUserModal(){
+    const modal = document.getElementById('user_modal');
+    if(modal){
+        modal.style.display = 'none';
+        modal.removeAttribute('data-edit-id');
+    }
+}
+
+function closeInviteModal(){
+    const modal = document.getElementById('invite_user_modal');
+    if(modal){
+        modal.style.display = 'none';
+    }
+}
+
+function openInviteModal(){
+    const modal = document.getElementById('invite_user_modal');
+    if(!modal) return;
+    
+    // Reset form
+    document.getElementById('invite_email').value = '';
+    document.getElementById('invite_username').value = '';
+    document.getElementById('invite_role').value = 'viewer';
+    document.getElementById('invite_error').textContent = '';
+    
+    // Populate tenant select
+    const tenantSel = document.getElementById('invite_tenant');
+    if(tenantSel){
+        tenantSel.innerHTML = '<option value="">(Global / Server)</option>';
+        if(window._tenants && Array.isArray(window._tenants)){
+            window._tenants.forEach(t=>{
+                const opt = document.createElement('option');
+                opt.value = t.id || t.uuid || '';
+                opt.textContent = t.name || opt.value;
+                tenantSel.appendChild(opt);
+            });
+        }
+    }
+    
+    // Show/hide SMTP warning
+    const smtpWarning = document.getElementById('invite_smtp_warning');
+    const submitBtn = document.getElementById('invite_user_submit');
+    if(smtpEnabled){
+        if(smtpWarning) smtpWarning.style.display = 'none';
+        if(submitBtn) submitBtn.disabled = false;
+    } else {
+        if(smtpWarning) smtpWarning.style.display = 'flex';
+        if(submitBtn) submitBtn.disabled = true;
+    }
+    
+    modal.style.display = 'flex';
+}
+
+async function submitInviteUser(){
+    const email = document.getElementById('invite_email').value.trim();
+    const username = document.getElementById('invite_username').value.trim();
+    const role = document.getElementById('invite_role').value;
+    const tenant = document.getElementById('invite_tenant').value;
+    const errEl = document.getElementById('invite_error');
+    
+    errEl.textContent = '';
+    
+    if(!email){
+        errEl.textContent = 'Email address is required';
+        return;
+    }
+    
+    // Basic email validation
+    if(!email.includes('@') || !email.includes('.')){
+        errEl.textContent = 'Please enter a valid email address';
+        return;
+    }
+    
+    try{
+        const payload = { email, role };
+        if(username) payload.username = username;
+        if(tenant) payload.tenant_id = tenant;
+        
+        const r = await fetch('/api/v1/users/invite', { 
+            method: 'POST', 
+            headers: {'content-type':'application/json'}, 
+            body: JSON.stringify(payload) 
+        });
+        
+        if(!r.ok){
+            const txt = await r.text();
+            throw new Error(txt || 'Failed to send invitation');
+        }
+        
+        closeInviteModal();
+        window.__pm_shared.showToast('Invitation sent to ' + email, 'success');
+        loadUsers();
+    }catch(err){
+        errEl.textContent = (err && err.message) ? err.message : 'Failed to send invitation';
+    }
 }
 
 async function loadUsers(){
@@ -2807,13 +2960,103 @@ function validatePasswordClient(password) {
     return null;
 }
 
-async function openUserModal(){
+// Password strength evaluation
+function evaluatePasswordStrength(password) {
+    if (!password) return { score: 0, label: 'Enter a password', strength: '' };
+    
+    let score = 0;
+    const checks = {
+        length: password.length >= (passwordPolicy?.min_length || 8),
+        uppercase: /[A-Z]/.test(password),
+        lowercase: /[a-z]/.test(password),
+        number: /[0-9]/.test(password),
+        special: /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]/.test(password),
+    };
+    
+    if (checks.length) score++;
+    if (checks.uppercase) score++;
+    if (checks.lowercase) score++;
+    if (checks.number) score++;
+    if (checks.special) score++;
+    if (password.length >= 12) score++;
+    if (password.length >= 16) score++;
+    
+    let strength, label;
+    if (score <= 2) { strength = 'weak'; label = 'Weak password'; }
+    else if (score <= 3) { strength = 'fair'; label = 'Fair password'; }
+    else if (score <= 5) { strength = 'good'; label = 'Good password'; }
+    else { strength = 'strong'; label = 'Strong password'; }
+    
+    return { score, label, strength, checks };
+}
+
+function updatePasswordStrength() {
+    const password = document.getElementById('user_password')?.value || '';
+    const confirmPassword = document.getElementById('user_password_confirm')?.value || '';
+    const fill = document.getElementById('user_password_strength_fill');
+    const text = document.getElementById('user_password_strength_text');
+    const requirements = document.getElementById('user_password_requirements');
+    
+    const result = evaluatePasswordStrength(password);
+    
+    if (fill) {
+        fill.setAttribute('data-strength', result.strength);
+    }
+    if (text) {
+        text.textContent = result.label;
+    }
+    
+    if (requirements) {
+        // Update each requirement indicator
+        const reqs = {
+            length: password.length >= (passwordPolicy?.min_length || 8),
+            uppercase: !passwordPolicy?.require_uppercase || /[A-Z]/.test(password),
+            lowercase: !passwordPolicy?.require_lowercase || /[a-z]/.test(password),
+            number: !passwordPolicy?.require_number || /[0-9]/.test(password),
+            special: !passwordPolicy?.require_special || /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]/.test(password),
+            match: password && confirmPassword && password === confirmPassword,
+        };
+        
+        requirements.querySelectorAll('.requirement').forEach(el => {
+            const reqType = el.getAttribute('data-req');
+            // Hide requirement if policy doesn't require it
+            if (reqType === 'uppercase' && !passwordPolicy?.require_uppercase) {
+                el.style.display = 'none';
+                return;
+            }
+            if (reqType === 'lowercase' && !passwordPolicy?.require_lowercase) {
+                el.style.display = 'none';
+                return;
+            }
+            if (reqType === 'number' && !passwordPolicy?.require_number) {
+                el.style.display = 'none';
+                return;
+            }
+            if (reqType === 'special' && !passwordPolicy?.require_special) {
+                el.style.display = 'none';
+                return;
+            }
+            el.style.display = '';
+            el.classList.toggle('met', reqs[reqType] === true);
+        });
+        
+        // Update min length text
+        const lengthReq = requirements.querySelector('[data-req="length"]');
+        if (lengthReq) {
+            const minLen = passwordPolicy?.min_length || 8;
+            lengthReq.innerHTML = `<span class="req-icon"></span> Minimum ${minLen} characters`;
+        }
+    }
+}
+
+async function openUserModal(editMode = false){
     const modal = document.getElementById('user_modal');
     if(!modal) return;
+    
     // Load password policy if not cached
     if (!passwordPolicy) await loadPasswordPolicy();
-    updatePasswordHint();
-    // populate tenant select from cached tenants
+    
+    // Populate tenant select from cached tenants
     const sel = document.getElementById('user_tenant');
     if(sel){
         sel.innerHTML = '<option value="">(Global / Server)</option>';
@@ -2826,18 +3069,39 @@ async function openUserModal(){
             });
         }
     }
+    
     // Clear edit mode
     modal.removeAttribute('data-edit-id');
-    document.getElementById('user_submit').textContent = 'Create';
-    // reset fields
+    
+    // Set title and button text
+    document.getElementById('user_modal_title').textContent = 'Add User';
+    document.getElementById('user_submit').textContent = 'Create User';
+    
+    // Reset fields
     document.getElementById('user_username').value = '';
     document.getElementById('user_email').value = '';
     document.getElementById('user_password').value = '';
-    document.getElementById('user_role').value = 'user';
-    document.getElementById('user_error').style.display='none';
-    // Update password label for new user
-    const pwLabel = document.querySelector('label[for="user_password"]');
-    if (pwLabel) pwLabel.textContent = 'Password *';
+    document.getElementById('user_password_confirm').value = '';
+    document.getElementById('user_role').value = 'viewer';
+    document.getElementById('user_tenant').value = '';
+    document.getElementById('user_error').textContent = '';
+    
+    // Show password section for new users, hide change password toggle
+    const changePwToggle = document.getElementById('user_change_password_toggle');
+    const changePwCheckbox = document.getElementById('user_change_password');
+    const pwFields = document.getElementById('user_password_fields');
+    const pwRequired = document.getElementById('user_password_required');
+    const pwConfirmRequired = document.getElementById('user_password_confirm_required');
+    
+    if (changePwToggle) changePwToggle.style.display = 'none';
+    if (changePwCheckbox) changePwCheckbox.checked = false;
+    if (pwFields) pwFields.classList.remove('collapsed');
+    if (pwRequired) pwRequired.style.display = '';
+    if (pwConfirmRequired) pwConfirmRequired.style.display = '';
+    
+    // Reset password strength
+    updatePasswordStrength();
+    
     modal.style.display = 'flex';
     document.getElementById('user_username').focus();
 }
@@ -2847,28 +3111,37 @@ async function submitCreateUser(){
     const username = document.getElementById('user_username').value.trim();
     const email = document.getElementById('user_email').value.trim();
     const password = document.getElementById('user_password').value;
-    const role = document.getElementById('user_role').value || 'user';
+    const confirmPassword = document.getElementById('user_password_confirm').value;
+    const role = document.getElementById('user_role').value || 'viewer';
     const tenant = document.getElementById('user_tenant').value || '';
     const errEl = document.getElementById('user_error');
     const editId = modal.getAttribute('data-edit-id');
-    errEl.style.display='none';
+    const changePwCheckbox = document.getElementById('user_change_password');
+    const isChangingPassword = !editId || (changePwCheckbox && changePwCheckbox.checked);
+    
+    errEl.textContent = '';
 
     if(!username){
-        errEl.textContent = 'Username is required'; errEl.style.display='block'; return;
+        errEl.textContent = 'Username is required'; 
+        return;
     }
 
-    // Password required for new users, optional for edit
+    // Password required for new users, optional for edit (only if checkbox checked)
     if(!editId && !password){
-        errEl.textContent = 'Password is required for new users'; errEl.style.display='block'; return;
+        errEl.textContent = 'Password is required for new users'; 
+        return;
     }
-
-    // Validate password if provided
-    if(password){
+    
+    // Validate password if changing it
+    if(isChangingPassword && password){
         if (!passwordPolicy) await loadPasswordPolicy();
         const pwError = validatePasswordClient(password);
         if(pwError){
             errEl.textContent = pwError;
-            errEl.style.display='block';
+            return;
+        }
+        if (password !== confirmPassword) {
+            errEl.textContent = 'Passwords do not match';
             return;
         }
     }
@@ -2876,7 +3149,7 @@ async function submitCreateUser(){
     try{
         const payload = { username, role };
         if(email) payload.email = email;
-        if(password) payload.password = password; // Only include if provided
+        if(isChangingPassword && password) payload.password = password;
         if(tenant) payload.tenant_id = tenant;
 
         let r;
@@ -2890,14 +3163,12 @@ async function submitCreateUser(){
             const txt = await r.text();
             throw new Error(txt || 'Request failed');
         }
-        const created = await r.json();
-        modal.style.display='none';
-        modal.removeAttribute('data-edit-id');
-        document.getElementById('user_submit').textContent = 'Create';
+        await r.json();
+        closeUserModal();
         window.__pm_shared.showToast(editId ? 'User updated' : 'User created', 'success');
         loadUsers();
     }catch(err){
-        errEl.textContent = (err && err.message) ? err.message : 'Failed to create user'; errEl.style.display='block';
+        errEl.textContent = (err && err.message) ? err.message : 'Failed to save user';
     }
 }
 
@@ -2906,23 +3177,58 @@ async function openUserEditModal(id){
     try{
         // Load password policy if not cached
         if (!passwordPolicy) await loadPasswordPolicy();
-        updatePasswordHint();
+        
+        // Populate tenant select
+        const sel = document.getElementById('user_tenant');
+        if(sel){
+            sel.innerHTML = '<option value="">(Global / Server)</option>';
+            if(window._tenants && Array.isArray(window._tenants)){
+                window._tenants.forEach(t=>{
+                    const opt = document.createElement('option');
+                    opt.value = t.id || t.uuid || '';
+                    opt.textContent = t.name || opt.value;
+                    sel.appendChild(opt);
+                });
+            }
+        }
+        
         const r = await fetch('/api/v1/users/'+encodeURIComponent(id));
         if(!r.ok) throw new Error(await r.text());
         const u = await r.json();
         const modal = document.getElementById('user_modal');
+        
+        // Set title and button for edit mode
+        document.getElementById('user_modal_title').textContent = 'Edit User';
+        document.getElementById('user_submit').textContent = 'Save Changes';
+        
+        // Populate fields
         document.getElementById('user_username').value = u.username || '';
         document.getElementById('user_email').value = u.email || '';
         document.getElementById('user_password').value = '';
-        document.getElementById('user_role').value = u.role || 'user';
+        document.getElementById('user_password_confirm').value = '';
+        document.getElementById('user_role').value = u.role || 'viewer';
         document.getElementById('user_tenant').value = u.tenant_id || '';
-        // store editing id on modal
+        document.getElementById('user_error').textContent = '';
+        
+        // Store editing id on modal
         modal.setAttribute('data-edit-id', id);
-        document.getElementById('user_submit').textContent = 'Save';
-        document.getElementById('user_error').style.display='none';
-        // Update password label to show it's optional when editing
-        const pwLabel = document.querySelector('label[for="user_password"]');
-        if (pwLabel) pwLabel.textContent = 'Password (leave blank to keep current)';
+        
+        // Show change password toggle, hide password fields by default
+        const changePwToggle = document.getElementById('user_change_password_toggle');
+        const changePwCheckbox = document.getElementById('user_change_password');
+        const pwFields = document.getElementById('user_password_fields');
+        const pwRequired = document.getElementById('user_password_required');
+        const pwConfirmRequired = document.getElementById('user_password_confirm_required');
+        
+        if (changePwToggle) changePwToggle.style.display = '';
+        if (changePwCheckbox) changePwCheckbox.checked = false;
+        if (pwFields) pwFields.classList.add('collapsed');
+        if (pwRequired) pwRequired.style.display = 'none';
+        if (pwConfirmRequired) pwConfirmRequired.style.display = 'none';
+        
+        // Reset password strength
+        updatePasswordStrength();
+        
         modal.style.display = 'flex';
     }catch(err){
         window.__pm_shared.showAlert('Failed to load user: '+(err.message||err), 'Error', true, false);

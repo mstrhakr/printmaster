@@ -2102,6 +2102,269 @@ select:focus {
   flex-shrink: 0;
 }
 
+.users-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ============================================
+   User Modal Styles
+   ============================================ */
+
+.user-modal-content {
+  max-width: 640px;
+  width: 100%;
+}
+
+.user-modal-body {
+  padding: 20px 24px;
+}
+
+.user-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 640px) {
+  .user-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.user-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.user-form-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-form-section-title {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.user-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.user-form-label > span:first-child {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.user-form-label .required {
+  color: var(--danger);
+}
+
+.user-form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--fg);
+  font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.user-form-input:focus {
+  outline: none;
+  border-color: var(--highlight);
+  box-shadow: 0 0 0 3px rgba(38, 139, 210, 0.15);
+}
+
+.user-form-input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.user-form-helper {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.user-form-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.user-form-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--highlight);
+}
+
+.user-form-error {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(220, 50, 47, 0.1);
+  border: 1px solid rgba(220, 50, 47, 0.3);
+  border-radius: 6px;
+  color: #ff8a87;
+  font-size: 13px;
+  display: none;
+}
+
+.user-form-error:not(:empty) {
+  display: block;
+}
+
+.user-form-warning {
+  margin-top: 16px;
+  padding: 12px;
+  background: rgba(181, 137, 0, 0.1);
+  border: 1px solid rgba(181, 137, 0, 0.3);
+  border-radius: 6px;
+  color: #ffe49e;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-form-warning svg {
+  flex-shrink: 0;
+}
+
+.user-modal-footer {
+  padding: 16px 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Password Strength Indicator */
+.password-strength {
+  margin-top: 8px;
+}
+
+.password-strength-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.password-strength-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.password-strength-fill[data-strength="weak"] {
+  width: 25%;
+  background: #dc322f;
+}
+
+.password-strength-fill[data-strength="fair"] {
+  width: 50%;
+  background: #cb4b16;
+}
+
+.password-strength-fill[data-strength="good"] {
+  width: 75%;
+  background: #b58900;
+}
+
+.password-strength-fill[data-strength="strong"] {
+  width: 100%;
+  background: #2aa198;
+}
+
+.password-strength-text {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.password-requirements {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+  font-size: 12px;
+}
+
+.password-requirements .requirement {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+
+.password-requirements .requirement.met {
+  color: #68d9c2;
+}
+
+.password-requirements .requirement .req-icon {
+  font-size: 10px;
+}
+
+.password-requirements .requirement.met .req-icon::before {
+  content: '✓';
+}
+
+.password-requirements .requirement:not(.met) .req-icon::before {
+  content: '○';
+}
+
+/* Hide password section when collapsed in edit mode */
+#user_password_fields.collapsed {
+  display: none;
+}
+
+/* Invite User Modal */
+.invite-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px;
+  background: rgba(38, 139, 210, 0.08);
+  border: 1px solid rgba(38, 139, 210, 0.2);
+  border-radius: 10px;
+}
+
+.invite-info svg {
+  color: var(--highlight);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.invite-description h4 {
+  margin: 0 0 6px 0;
+  font-size: 16px;
+  color: var(--fg);
+}
+
+.invite-description p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .users-stats-bar {
   display: flex;
   gap: 24px;
