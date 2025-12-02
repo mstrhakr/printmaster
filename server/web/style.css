@@ -2803,6 +2803,22 @@ input[type="checkbox"]:indeterminate::before {
   border: 1px solid rgba(38, 139, 210, 0.2);
 }
 
+/* Agent updates policy in updates tab - no outer border since it's inside a panel */
+#agent_update_policy_root .auto-update-policy {
+  border: none;
+  padding: 0;
+  background: transparent;
+}
+
+#agent_update_policy_root .settings-section-header h5 {
+  color: var(--text);
+  font-size: 14px;
+}
+
+#agent_update_policy_root .settings-actions {
+  justify-content: flex-end;
+}
+
 .auto-update-policy .settings-section-header {
   flex-direction: column;
   align-items: flex-start;

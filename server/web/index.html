@@ -480,14 +480,24 @@
                     </div>
 
                     <div class="panel" style="margin-top:16px;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-                            <h4 style="margin:0;color:var(--highlight)">Cached Release Artifacts</h4>
-                            <div style="display:flex;gap:8px;">
-                                <button id="releases_sync_btn" class="ghost-btn">Sync from GitHub</button>
-                            </div>
+                        <h4 style="margin-top:0;color:var(--highlight)">Agent Updates</h4>
+                        
+                        <!-- Agent Update Policy Section (rendered dynamically) -->
+                        <div id="agent_update_policy_root" class="settings-form-root" style="margin-bottom:16px;">
+                            <div class="muted-text">Loading agent update policy…</div>
                         </div>
-                        <div id="releases_artifacts_container" class="card" style="padding:12px;overflow:auto;">
-                            <div class="muted-text">Loading cached artifacts…</div>
+
+                        <!-- Cached Release Artifacts Sub-card -->
+                        <div class="card" style="padding:16px;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                                <div style="font-weight:600;font-size:14px;color:var(--highlight)">Cached Release Artifacts</div>
+                                <div style="display:flex;gap:8px;">
+                                    <button id="releases_sync_btn" class="ghost-btn">Sync from GitHub</button>
+                                </div>
+                            </div>
+                            <div id="releases_artifacts_container" style="overflow:auto;">
+                                <div class="muted-text">Loading cached artifacts…</div>
+                            </div>
                         </div>
                     </div>
                 </div>
