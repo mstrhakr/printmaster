@@ -11,8 +11,17 @@
   # Set to true if behind Nginx Proxy Manager, Traefik, etc.
   behind_proxy = false
   
+  # Set to true if using Cloudflare proxy (automatically trusts Cloudflare IPs)
+  # This also enables behind_proxy behavior
+  cloudflare_proxy = false
+  
   # Set to true if your reverse proxy handles HTTPS
   proxy_use_https = false
+  
+  # Trusted proxies for client IP header parsing.
+  # Can be IP addresses, CIDR ranges, or hostnames (resolved at startup).
+  # Defaults to private network ranges when behind_proxy=true.
+  # trusted_proxies = ["nginx", "10.0.0.0/8"]
   
   # Bind address (0.0.0.0 = all interfaces, 127.0.0.1 = localhost only)
   bind_address = "0.0.0.0"

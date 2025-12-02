@@ -10,6 +10,7 @@ import (
 	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	"printmaster/server/tenancy"
+	"sync"
 	"testing"
 	"time"
 )
@@ -709,7 +710,7 @@ func TestGenerateToken(t *testing.T) {
 }
 
 func TestExtractClientIP(t *testing.T) {
-	t.Parallel()
+	// Note: Not using t.Parallel() because we need to set serverConfig for proxy tests
 
 	tests := []struct {
 		name          string
@@ -717,6 +718,7 @@ func TestExtractClientIP(t *testing.T) {
 		xForwardedFor string
 		xRealIP       string
 		expectedIP    string
+		behindProxy   bool // Whether to simulate being behind a proxy
 	}{
 		{
 			name:       "Direct connection",
@@ -725,27 +727,57 @@ func TestExtractClientIP(t *testing.T) {
 		},
 		{
 			name:          "Behind proxy with X-Forwarded-For",
-			remoteAddr:    "10.0.0.1:12345",
+			remoteAddr:    "10.0.0.1:12345", // Trusted private IP
 			xForwardedFor: "203.0.113.1, 192.168.1.1",
 			expectedIP:    "203.0.113.1",
+			behindProxy:   true,
 		},
 		{
-			name:       "Behind proxy with X-Real-IP",
-			remoteAddr: "10.0.0.1:12345",
-			xRealIP:    "203.0.113.2",
-			expectedIP: "203.0.113.2",
+			name:        "Behind proxy with X-Real-IP",
+			remoteAddr:  "10.0.0.1:12345", // Trusted private IP
+			xRealIP:     "203.0.113.2",
+			expectedIP:  "203.0.113.2",
+			behindProxy: true,
 		},
 		{
 			name:          "X-Forwarded-For takes precedence",
-			remoteAddr:    "10.0.0.1:12345",
+			remoteAddr:    "10.0.0.1:12345", // Trusted private IP
 			xForwardedFor: "203.0.113.3",
 			xRealIP:       "203.0.113.4",
 			expectedIP:    "203.0.113.3",
+			behindProxy:   true,
+		},
+		{
+			name:          "Ignores proxy headers when not behind proxy",
+			remoteAddr:    "192.168.1.100:12345",
+			xForwardedFor: "203.0.113.5",
+			expectedIP:    "192.168.1.100",
+			behindProxy:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Save and restore serverConfig
+			oldConfig := serverConfig
+			if tt.behindProxy {
+				serverConfig = &Config{
+					Server: ServerConfig{
+						BehindProxy: true,
+					},
+				}
+				// Reset the trusted proxies cache for this test
+				parsedTrustedProxies = nil
+				trustedProxiesOnce = sync.Once{}
+			} else {
+				serverConfig = nil
+			}
+			defer func() {
+				serverConfig = oldConfig
+				parsedTrustedProxies = nil
+				trustedProxiesOnce = sync.Once{}
+			}()
+
 			req := httptest.NewRequest("GET", "/", nil)
 			req.RemoteAddr = tt.remoteAddr
 			if tt.xForwardedFor != "" {

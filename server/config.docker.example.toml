@@ -8,12 +8,22 @@
   # HTTPS port (for direct access or dual-TLS)
   https_port = 9443
   
-  # Enable reverse proxy mode (trusts X-Forwarded headers)
+  # Enable reverse proxy mode (trusts X-Forwarded-For, CF-Connecting-IP, etc.)
   behind_proxy = true
+  
+  # Set to true if using Cloudflare proxy (automatically trusts Cloudflare IPs)
+  # Useful when Cloudflare connects directly to this server
+  cloudflare_proxy = false
   
   # Use HTTPS even when behind proxy (dual-TLS setup)
   # Set to false if nginx terminates TLS (most common)
   proxy_use_https = false
+  
+  # Trusted proxies for client IP header parsing.
+  # Can be IP addresses, CIDR ranges, or hostnames (resolved at startup).
+  # In Docker Compose, you can use the service name (e.g., "nginx", "traefik").
+  # Defaults to private network ranges when behind_proxy=true.
+  # trusted_proxies = ["nginx", "172.16.0.0/12"]
   
   # Bind to all interfaces (required for Docker)
   bind_address = "0.0.0.0"

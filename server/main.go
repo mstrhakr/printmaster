@@ -1302,8 +1302,8 @@ func generateToken() (string, error) {
 // requireAuth is middleware that validates Bearer token authentication
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract client IP address
-		clientIP := extractIPFromAddr(r.RemoteAddr)
+		// Extract client IP address (respects X-Forwarded-For when behind proxy)
+		clientIP := getRealIP(r)
 
 		// Extract Bearer token from Authorization header
 		authHeader := r.Header.Get("Authorization")
@@ -1527,7 +1527,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// rate limit
 		if authRateLimiter != nil {
-			clientIP := extractIPFromAddr(r.RemoteAddr)
+			clientIP := getRealIP(r)
 			authRateLimiter.RecordFailure(clientIP, req.Username)
 		}
 		logAuditEntry(ctx, &storage.AuditEntry{
@@ -2186,7 +2186,7 @@ func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// rate limiting: limit requests per IP+email to prevent abuse
-	clientIP := extractIPFromAddr(r.RemoteAddr)
+	clientIP := getRealIP(r)
 	if authRateLimiter != nil {
 		if isBlocked, _ := authRateLimiter.IsBlocked(clientIP, req.Email); isBlocked {
 			http.Error(w, "Too many requests. Try again later.", http.StatusTooManyRequests)
@@ -2452,23 +2452,9 @@ func displayNameForAgent(agent *storage.Agent) string {
 }
 
 // extractClientIP gets the client IP address from the request
+// Uses getRealIP which respects X-Forwarded-For when behind a trusted proxy
 func extractClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (if behind proxy)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
-	}
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-	// Fall back to RemoteAddr
-	ip := r.RemoteAddr
-	// Strip port if present
-	if idx := strings.LastIndex(ip, ":"); idx != -1 {
-		ip = ip[:idx]
-	}
-	return ip
+	return getRealIP(r)
 }
 
 func setupRoutes(cfg *Config) {

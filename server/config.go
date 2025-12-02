@@ -35,14 +35,16 @@ type Config struct {
 
 // ServerConfig holds server-specific settings
 type ServerConfig struct {
-	HTTPPort            int    `toml:"http_port"`
-	HTTPSPort           int    `toml:"https_port"`
-	BehindProxy         bool   `toml:"behind_proxy"`
-	ProxyUseHTTPS       bool   `toml:"proxy_use_https"` // If true, use HTTPS even when behind proxy (default: false for HTTP)
-	BindAddress         string `toml:"bind_address"`    // Address to bind to (default: 0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
-	AutoApproveAgents   bool   `toml:"auto_approve_agents"`
-	AgentTimeoutMinutes int    `toml:"agent_timeout_minutes"`
-	SelfUpdateEnabled   bool   `toml:"self_update_enabled"`
+	HTTPPort            int      `toml:"http_port"`
+	HTTPSPort           int      `toml:"https_port"`
+	BehindProxy         bool     `toml:"behind_proxy"`
+	CloudflareProxy     bool     `toml:"cloudflare_proxy"`  // If true, automatically trust Cloudflare IP ranges
+	ProxyUseHTTPS       bool     `toml:"proxy_use_https"`   // If true, use HTTPS even when behind proxy (default: false for HTTP)
+	TrustedProxies      []string `toml:"trusted_proxies"`   // CIDR ranges, IPs, or hostnames to trust for proxy headers
+	BindAddress         string   `toml:"bind_address"`      // Address to bind to (default: 0.0.0.0 for all interfaces, 127.0.0.1 for localhost)
+	AutoApproveAgents   bool     `toml:"auto_approve_agents"`
+	AgentTimeoutMinutes int      `toml:"agent_timeout_minutes"`
+	SelfUpdateEnabled   bool     `toml:"self_update_enabled"`
 }
 
 // ReleasesConfig tunes the GitHub release intake worker.

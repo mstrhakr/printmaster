@@ -35,8 +35,8 @@ var (
 
 // handleAgentWebSocket handles WebSocket connections from agents
 func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore storage.Store) {
-	// Extract client IP address
-	clientIP := extractIPFromAddr(r.RemoteAddr)
+	// Extract client IP address (respects X-Forwarded-For when behind proxy)
+	clientIP := getRealIP(r)
 
 	// Extract and validate authentication token from query parameter
 	token := r.URL.Query().Get("token")

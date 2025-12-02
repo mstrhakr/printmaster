@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -200,4 +202,199 @@ func extractIPFromAddr(remoteAddr string) string {
 		return remoteAddr // Return as-is if parse fails
 	}
 	return host
+}
+
+// getRealIP extracts the real client IP from a request, respecting X-Forwarded-For
+// and X-Real-IP headers when behind a trusted proxy.
+func getRealIP(r *http.Request) string {
+	remoteIP := extractIPFromAddr(r.RemoteAddr)
+
+	// Only trust proxy headers if behind_proxy or cloudflare_proxy is enabled
+	if serverConfig == nil || (!serverConfig.Server.BehindProxy && !serverConfig.Server.CloudflareProxy) {
+		return remoteIP
+	}
+
+	// Check if the direct connection is from a trusted proxy
+	if !isTrustedProxy(remoteIP) {
+		return remoteIP
+	}
+
+	// Try CF-Connecting-IP first (Cloudflare's definitive client IP header)
+	if cfIP := r.Header.Get("CF-Connecting-IP"); cfIP != "" {
+		if net.ParseIP(cfIP) != nil {
+			return cfIP
+		}
+	}
+
+	// Try True-Client-IP (Cloudflare Enterprise, also used by Akamai)
+	if tcIP := r.Header.Get("True-Client-IP"); tcIP != "" {
+		if net.ParseIP(tcIP) != nil {
+			return tcIP
+		}
+	}
+
+	// Try X-Forwarded-For (may contain chain: client, proxy1, proxy2)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// Take the first (leftmost) IP which should be the original client
+		ips := strings.Split(xff, ",")
+		for _, ip := range ips {
+			ip = strings.TrimSpace(ip)
+			if net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
+	}
+
+	// Fall back to X-Real-IP (simpler, set by nginx)
+	if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+		// Validate it looks like an IP
+		if net.ParseIP(realIP) != nil {
+			return realIP
+		}
+	}
+
+	return remoteIP
+}
+
+// defaultTrustedProxyCIDRs contains private network ranges commonly used by Docker/reverse proxies
+var defaultTrustedProxyCIDRs = []string{
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"127.0.0.0/8",
+	"::1/128",
+	"fc00::/7",
+}
+
+// cloudflareIPv4CIDRs contains Cloudflare's IPv4 ranges
+// Source: https://www.cloudflare.com/ips-v4
+// Last updated: 2024-12
+var cloudflareIPv4CIDRs = []string{
+	"173.245.48.0/20",
+	"103.21.244.0/22",
+	"103.22.200.0/22",
+	"103.31.4.0/22",
+	"141.101.64.0/18",
+	"108.162.192.0/18",
+	"190.93.240.0/20",
+	"188.114.96.0/20",
+	"197.234.240.0/22",
+	"198.41.128.0/17",
+	"162.158.0.0/15",
+	"104.16.0.0/13",
+	"104.24.0.0/14",
+	"172.64.0.0/13",
+	"131.0.72.0/22",
+}
+
+// cloudflareIPv6CIDRs contains Cloudflare's IPv6 ranges
+// Source: https://www.cloudflare.com/ips-v6
+// Last updated: 2024-12
+var cloudflareIPv6CIDRs = []string{
+	"2400:cb00::/32",
+	"2606:4700::/32",
+	"2803:f800::/32",
+	"2405:b500::/32",
+	"2405:8100::/32",
+	"2a06:98c0::/29",
+	"2c0f:f248::/32",
+}
+
+// parsedTrustedProxies caches parsed CIDR networks
+var parsedTrustedProxies []*net.IPNet
+var trustedProxiesOnce sync.Once
+
+// initTrustedProxies parses the trusted proxy CIDRs once
+func initTrustedProxies() {
+	trustedProxiesOnce.Do(func() {
+		var entries []string
+
+		// Start with user-configured proxies or defaults
+		if serverConfig != nil && len(serverConfig.Server.TrustedProxies) > 0 {
+			entries = serverConfig.Server.TrustedProxies
+		} else {
+			entries = defaultTrustedProxyCIDRs
+		}
+
+		// Add Cloudflare IPs if cloudflare_proxy is enabled
+		if serverConfig != nil && serverConfig.Server.CloudflareProxy {
+			logInfo("Cloudflare proxy mode enabled, adding Cloudflare IP ranges to trusted proxies")
+			entries = append(entries, cloudflareIPv4CIDRs...)
+			entries = append(entries, cloudflareIPv6CIDRs...)
+		}
+
+		for _, entry := range entries {
+			entry = strings.TrimSpace(entry)
+			if entry == "" {
+				continue
+			}
+
+			// Check if it's a CIDR notation
+			if strings.Contains(entry, "/") {
+				_, network, err := net.ParseCIDR(entry)
+				if err != nil {
+					logWarn("Invalid trusted proxy CIDR", "entry", entry, "error", err)
+					continue
+				}
+				parsedTrustedProxies = append(parsedTrustedProxies, network)
+				continue
+			}
+
+			// Check if it's a bare IP address
+			if ip := net.ParseIP(entry); ip != nil {
+				// Convert to CIDR
+				var cidr string
+				if ip.To4() != nil {
+					cidr = entry + "/32"
+				} else {
+					cidr = entry + "/128"
+				}
+				_, network, err := net.ParseCIDR(cidr)
+				if err != nil {
+					logWarn("Invalid trusted proxy IP", "entry", entry, "error", err)
+					continue
+				}
+				parsedTrustedProxies = append(parsedTrustedProxies, network)
+				continue
+			}
+
+			// Must be a hostname - resolve it
+			ips, err := net.LookupIP(entry)
+			if err != nil {
+				logWarn("Failed to resolve trusted proxy hostname", "hostname", entry, "error", err)
+				continue
+			}
+			for _, ip := range ips {
+				var cidr string
+				if ip.To4() != nil {
+					cidr = ip.String() + "/32"
+				} else {
+					cidr = ip.String() + "/128"
+				}
+				_, network, err := net.ParseCIDR(cidr)
+				if err != nil {
+					continue
+				}
+				parsedTrustedProxies = append(parsedTrustedProxies, network)
+				logInfo("Resolved trusted proxy hostname", "hostname", entry, "ip", ip.String())
+			}
+		}
+	})
+}
+
+// isTrustedProxy checks if an IP is in the trusted proxy list
+func isTrustedProxy(ipStr string) bool {
+	initTrustedProxies()
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+
+	for _, network := range parsedTrustedProxies {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
