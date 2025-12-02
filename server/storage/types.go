@@ -503,10 +503,11 @@ type Store interface {
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.
 type SettingsRecord struct {
-	SchemaVersion string              `json:"schema_version"`
-	Settings      pmsettings.Settings `json:"settings"`
-	UpdatedAt     time.Time           `json:"updated_at"`
-	UpdatedBy     string              `json:"updated_by,omitempty"`
+	SchemaVersion   string              `json:"schema_version"`
+	Settings        pmsettings.Settings `json:"settings"`
+	ManagedSections []string            `json:"managed_sections,omitempty"` // e.g. ["discovery", "snmp", "features"]
+	UpdatedAt       time.Time           `json:"updated_at"`
+	UpdatedBy       string              `json:"updated_by,omitempty"`
 }
 
 // TenantSettingsRecord stores tenant-specific override patches (partial payloads).

@@ -42,7 +42,12 @@ func (r *Resolver) ResolveGlobal(ctx context.Context) (Snapshot, error) {
 	if rec == nil {
 		defaults := pmsettings.DefaultSettings()
 		pmsettings.Sanitize(&defaults)
-		return Snapshot{SchemaVersion: pmsettings.SchemaVersion, Settings: defaults}, nil
+		// Default: all sections managed when no record exists
+		return Snapshot{
+			SchemaVersion:   pmsettings.SchemaVersion,
+			Settings:        defaults,
+			ManagedSections: []string{"discovery", "snmp", "features"},
+		}, nil
 	}
 	settings := rec.Settings
 	pmsettings.Sanitize(&settings)
@@ -50,11 +55,17 @@ func (r *Resolver) ResolveGlobal(ctx context.Context) (Snapshot, error) {
 	if strings.TrimSpace(version) == "" {
 		version = pmsettings.SchemaVersion
 	}
+	// Use stored managed sections or default to all sections
+	managedSections := rec.ManagedSections
+	if len(managedSections) == 0 {
+		managedSections = []string{"discovery", "snmp", "features"}
+	}
 	return Snapshot{
-		SchemaVersion: version,
-		Settings:      settings,
-		UpdatedAt:     rec.UpdatedAt,
-		UpdatedBy:     rec.UpdatedBy,
+		SchemaVersion:   version,
+		Settings:        settings,
+		ManagedSections: managedSections,
+		UpdatedAt:       rec.UpdatedAt,
+		UpdatedBy:       rec.UpdatedBy,
 	}, nil
 }
 

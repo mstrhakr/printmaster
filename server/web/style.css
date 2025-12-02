@@ -2564,9 +2564,218 @@ input[type="checkbox"]:indeterminate::before {
   background: rgba(0, 0, 0, 0.15);
 }
 
+/* ===================== Managed Sections Panel ===================== */
+.managed-sections-panel {
+  background: var(--panel);
+  border: 1px solid rgba(38, 139, 210, 0.2);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-md);
+}
+
+.managed-sections-header {
+  margin-bottom: 12px;
+}
+
+.managed-sections-header h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--highlight);
+}
+
+.managed-sections-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.managed-sections-toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.managed-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.managed-section-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.managed-section-toggle.active {
+  border-color: rgba(38, 139, 210, 0.4);
+  background: rgba(38, 139, 210, 0.08);
+}
+
+.toggle-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.toggle-description {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.toggle-switch {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  display: block;
+  width: 40px;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
+  position: relative;
+  transition: background 0.2s;
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 2px;
+  top: 2px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--highlight);
+}
+
+.toggle-switch input:checked + .toggle-slider::after {
+  transform: translateX(18px);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Section disabled state when not managed */
+.settings-section-panel.section-disabled {
+  opacity: 0.6;
+}
+
+.settings-section-panel.section-disabled .settings-section-header h4 {
+  color: var(--muted);
+}
+
+.section-status-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.section-status-badge.agent-controlled {
+  background: rgba(181, 137, 0, 0.15);
+  color: var(--warn);
+}
+
+/* ===================== Override Summary (Metric Card Style) ===================== */
 #settings_summary_panel {
   position: sticky;
   top: 16px;
+}
+
+#settings_summary_panel h4 {
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.override-summary-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  min-height: 100px;
+}
+
+.override-summary-empty::before {
+  content: '✓';
+  display: block;
+  font-size: 24px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.override-card {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow-md);
+}
+
+.override-card:last-child {
+  margin-bottom: 0;
+}
+
+.override-card-path {
+  font-family: var(--font-code, monospace);
+  font-size: 12px;
+  color: var(--highlight);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.override-card-value {
+  font-size: 14px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.override-card-value.bool-true {
+  color: var(--success);
+}
+
+.override-card-value.bool-false {
+  color: var(--danger);
+}
+
+.override-summary-count {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 12px;
 }
 
 #settings_summary_panel button {

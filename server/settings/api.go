@@ -175,11 +175,16 @@ func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
 		if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
 			return
 		}
-		var payload pmsettings.Settings
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		// Decode wrapper struct that includes both settings and managed_sections
+		var wrapper struct {
+			pmsettings.Settings
+			ManagedSections []string `json:"managed_sections,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&wrapper); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid json")
 			return
 		}
+		payload := wrapper.Settings
 
 		// Check for locked keys (set by environment variables)
 		// Convert settings struct to flat map for checking
@@ -205,10 +210,15 @@ func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
 		}
 		pmsettings.Sanitize(&payload)
 		actor := api.actorLabel(r)
+
+		// Validate and normalize managed sections
+		managedSections := normalizeManagedSections(wrapper.ManagedSections)
+
 		rec := &storage.SettingsRecord{
-			SchemaVersion: pmsettings.SchemaVersion,
-			Settings:      payload,
-			UpdatedBy:     actor,
+			SchemaVersion:   pmsettings.SchemaVersion,
+			Settings:        payload,
+			ManagedSections: managedSections,
+			UpdatedBy:       actor,
 		}
 		if err := api.store.UpsertGlobalSettings(r.Context(), rec); err != nil {
 			writeStoreError(w, err)
@@ -455,4 +465,32 @@ func collectOverrideKeys(m map[string]interface{}) []string {
 	walk(m, "")
 	sort.Strings(keys)
 	return keys
+}
+
+// ValidManagedSections are the sections that can be server-managed.
+var ValidManagedSections = map[string]bool{
+	"discovery": true,
+	"snmp":      true,
+	"features":  true,
+}
+
+// normalizeManagedSections validates and normalizes the managed sections list.
+// If empty or nil, returns all sections enabled by default.
+func normalizeManagedSections(sections []string) []string {
+	if len(sections) == 0 {
+		// Default: all sections managed
+		return []string{"discovery", "snmp", "features"}
+	}
+	// Filter to only valid sections
+	result := make([]string, 0, len(sections))
+	seen := make(map[string]bool)
+	for _, s := range sections {
+		s = strings.TrimSpace(strings.ToLower(s))
+		if ValidManagedSections[s] && !seen[s] {
+			result = append(result, s)
+			seen[s] = true
+		}
+	}
+	sort.Strings(result)
+	return result
 }

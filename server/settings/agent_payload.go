@@ -11,10 +11,11 @@ import (
 
 // AgentSnapshot captures the subset of settings sent to agents plus a change token.
 type AgentSnapshot struct {
-	Version       string              `json:"version"`
-	SchemaVersion string              `json:"schema_version"`
-	UpdatedAt     time.Time           `json:"updated_at"`
-	Settings      pmsettings.Settings `json:"settings"`
+	Version         string              `json:"version"`
+	SchemaVersion   string              `json:"schema_version"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+	Settings        pmsettings.Settings `json:"settings"`
+	ManagedSections []string            `json:"managed_sections,omitempty"` // e.g. ["discovery", "snmp", "features"]
 }
 
 // BuildAgentSnapshot resolves the appropriate settings for an agent and rewrites the
@@ -54,9 +55,10 @@ func agentSnapshotFromSnapshot(snapshot Snapshot) (AgentSnapshot, error) {
 		return AgentSnapshot{}, err
 	}
 	return AgentSnapshot{
-		Version:       version,
-		SchemaVersion: schemaVersion,
-		UpdatedAt:     snapshot.UpdatedAt,
-		Settings:      settingsCopy,
+		Version:         version,
+		SchemaVersion:   schemaVersion,
+		UpdatedAt:       snapshot.UpdatedAt,
+		Settings:        settingsCopy,
+		ManagedSections: snapshot.ManagedSections,
 	}, nil
 }

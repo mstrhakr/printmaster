@@ -7,10 +7,11 @@ import (
 
 // Snapshot represents a resolved settings payload and its metadata.
 type Snapshot struct {
-	SchemaVersion string              `json:"schema_version"`
-	Settings      pmsettings.Settings `json:"settings"`
-	UpdatedAt     time.Time           `json:"updated_at"`
-	UpdatedBy     string              `json:"updated_by,omitempty"`
+	SchemaVersion   string              `json:"schema_version"`
+	Settings        pmsettings.Settings `json:"settings"`
+	ManagedSections []string            `json:"managed_sections,omitempty"` // e.g. ["discovery", "snmp", "features"]
+	UpdatedAt       time.Time           `json:"updated_at"`
+	UpdatedBy       string              `json:"updated_by,omitempty"`
 }
 
 // TenantSnapshot extends Snapshot with tenant-specific override metadata.

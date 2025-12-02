@@ -6205,6 +6205,10 @@ const settingsUIState = {
     globalDraft: null,
     globalDirty: false,
     globalSettingsDirty: false,
+    // Managed sections control (which categories are server-managed)
+    managedSections: new Set(['discovery', 'snmp', 'features']),
+    originalManagedSections: new Set(['discovery', 'snmp', 'features']),
+    managedSectionsDirty: false,
     tenantList: [],
     selectedTenantId: '',
     tenantSnapshot: null,
@@ -6348,7 +6352,8 @@ function syncSettingsDirtyFlags() {
     const policy = settingsUIState.updatePolicy || {};
     const globalPolicyDirty = policy.global ? policy.global.dirty : false;
     const tenantPolicyDirty = policy.tenant ? policy.tenant.dirty : false;
-    settingsUIState.globalDirty = !!(settingsUIState.globalSettingsDirty || globalPolicyDirty);
+    // Include managedSectionsDirty in globalDirty check
+    settingsUIState.globalDirty = !!(settingsUIState.globalSettingsDirty || globalPolicyDirty || settingsUIState.managedSectionsDirty);
     settingsUIState.tenantDirty = !!(settingsUIState.tenantSettingsDirty || tenantPolicyDirty);
 }
 
@@ -6526,6 +6531,13 @@ async function loadGlobalSettingsSnapshot() {
     settingsUIState.globalSnapshot = snapshot;
     settingsUIState.globalDraft = cloneSettings(getSettingsPayload(snapshot));
     settingsUIState.globalSettingsDirty = false;
+    // Sync managed sections from snapshot
+    const managedArr = (snapshot && Array.isArray(snapshot.managed_sections))
+        ? snapshot.managed_sections
+        : ['discovery', 'snmp', 'features'];
+    settingsUIState.managedSections = new Set(managedArr);
+    settingsUIState.originalManagedSections = new Set(managedArr);
+    settingsUIState.managedSectionsDirty = false;
     syncSettingsDirtyFlags();
 }
 
@@ -6701,16 +6713,34 @@ function renderSettingsForm() {
         ? settingsUIState.globalDraft
         : (settingsUIState.tenantDraft || settingsUIState.globalDraft);
     root.innerHTML = '';
+
+    // Add section management controls at top when in global scope
+    if (scope === 'global') {
+        const controlPanel = renderManagedSectionsPanel();
+        if (controlPanel) {
+            root.appendChild(controlPanel);
+        }
+    }
+
     orderedSettingsSections().forEach(sectionKey => {
         const fields = settingsUIState.groupedFields[sectionKey];
         if (!fields || !fields.length) {
             return;
         }
+        // Check if this section is managed (only relevant for global scope)
+        const isSectionManaged = settingsUIState.managedSections.has(sectionKey);
+        
         const sectionEl = document.createElement('div');
         sectionEl.className = 'settings-section-panel';
+        if (scope === 'global' && !isSectionManaged) {
+            sectionEl.classList.add('section-disabled');
+        }
         const header = document.createElement('div');
         header.className = 'settings-section-header';
-        header.innerHTML = `<h4>${escapeHtml(SETTINGS_SECTION_LABELS[sectionKey] || sectionKey)}</h4>`;
+        const managedBadge = (scope === 'global' && !isSectionManaged)
+            ? '<span class="section-status-badge agent-controlled">Agent Controlled</span>'
+            : '';
+        header.innerHTML = `<h4>${escapeHtml(SETTINGS_SECTION_LABELS[sectionKey] || sectionKey)}</h4>${managedBadge}`;
         sectionEl.appendChild(header);
 
         const list = document.createElement('div');
@@ -6718,11 +6748,11 @@ function renderSettingsForm() {
         
         // Use subsections for discovery, otherwise render flat list
         if (sectionKey === 'discovery') {
-            renderDiscoveryWithSubsections(list, fields, draft, scope);
+            renderDiscoveryWithSubsections(list, fields, draft, scope, isSectionManaged);
         } else {
             fields.forEach(field => {
                 const value = getValueByPath(draft, field.path);
-                const row = renderSettingsFieldRow(field, value, scope);
+                const row = renderSettingsFieldRow(field, value, scope, isSectionManaged);
                 if (row) {
                     list.appendChild(row);
                 }
@@ -6738,9 +6768,71 @@ function renderSettingsForm() {
 }
 
 /**
+ * Render the managed sections control panel
+ */
+function renderManagedSectionsPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'managed-sections-panel';
+    panel.innerHTML = `
+        <div class="managed-sections-header">
+            <h4>Section Management</h4>
+            <span class="managed-sections-hint">Control which settings categories are centrally managed vs agent-controlled</span>
+        </div>
+        <div class="managed-sections-toggles">
+            ${renderManagedSectionToggle('discovery', 'Discovery', 'IP scanning, probe methods, and auto-discovery behavior')}
+            ${renderManagedSectionToggle('snmp', 'SNMP', 'Community strings and SNMP protocol settings')}
+            ${renderManagedSectionToggle('features', 'Features', 'Feature flags and optional capabilities')}
+        </div>
+    `;
+    // Bind toggle events
+    panel.querySelectorAll('.managed-section-toggle input').forEach(input => {
+        input.addEventListener('change', (e) => {
+            handleManagedSectionToggle(e.target.dataset.section, e.target.checked);
+        });
+    });
+    return panel;
+}
+
+function renderManagedSectionToggle(sectionKey, label, description) {
+    const isManaged = settingsUIState.managedSections.has(sectionKey);
+    const canEdit = userCan('settings.write');
+    return `
+        <label class="managed-section-toggle ${isManaged ? 'active' : ''}">
+            <div class="toggle-content">
+                <span class="toggle-label">${escapeHtml(label)}</span>
+                <span class="toggle-description">${escapeHtml(description)}</span>
+            </div>
+            <div class="toggle-switch">
+                <input type="checkbox" data-section="${sectionKey}" ${isManaged ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
+                <span class="toggle-slider"></span>
+            </div>
+        </label>
+    `;
+}
+
+function handleManagedSectionToggle(sectionKey, isManaged) {
+    if (isManaged) {
+        settingsUIState.managedSections.add(sectionKey);
+    } else {
+        settingsUIState.managedSections.delete(sectionKey);
+    }
+    // Check if managed sections changed from original
+    const originalSet = settingsUIState.originalManagedSections;
+    const currentSet = settingsUIState.managedSections;
+    const changed = originalSet.size !== currentSet.size ||
+        [...originalSet].some(s => !currentSet.has(s)) ||
+        [...currentSet].some(s => !originalSet.has(s));
+    settingsUIState.managedSectionsDirty = changed;
+    syncSettingsDirtyFlags();
+    // Re-render to update section disabled states
+    renderSettingsForm();
+    updateActionButtons();
+}
+
+/**
  * Render discovery fields organized into logical subsections
  */
-function renderDiscoveryWithSubsections(container, fields, draft, scope) {
+function renderDiscoveryWithSubsections(container, fields, draft, scope, isSectionManaged = true) {
     const fieldMap = {};
     fields.forEach(f => { fieldMap[f.path] = f; });
     const rendered = new Set();
@@ -6762,7 +6854,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope) {
         subsectionFields.forEach(field => {
             rendered.add(field.path);
             const value = getValueByPath(draft, field.path);
-            const row = renderSettingsFieldRow(field, value, scope);
+            const row = renderSettingsFieldRow(field, value, scope, isSectionManaged);
             if (row) {
                 container.appendChild(row);
             }
@@ -6779,7 +6871,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope) {
         
         remaining.forEach(field => {
             const value = getValueByPath(draft, field.path);
-            const row = renderSettingsFieldRow(field, value, scope);
+            const row = renderSettingsFieldRow(field, value, scope, isSectionManaged);
             if (row) {
                 container.appendChild(row);
             }
@@ -6787,13 +6879,15 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope) {
     }
 }
 
-function renderSettingsFieldRow(field, value, scope) {
+function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
     const row = document.createElement('div');
     row.className = 'settings-field-row';
     row.dataset.fieldType = (field.type || 'text').toLowerCase();
     
     // Check if this field is locked by environment variable
     const isLocked = settingsUIState.lockedKeys.has(field.path);
+    // Section not managed means fields are read-only indicators
+    const sectionNotManaged = scope === 'global' && !isSectionManaged;
     
     const label = document.createElement('div');
     label.className = 'settings-field-label';
@@ -6810,8 +6904,8 @@ function renderSettingsFieldRow(field, value, scope) {
     }
     const { input, element } = inputFragment;
     const canEdit = userCan('settings.write');
-    // Disable input if user can't edit, no tenant selected (for tenant scope), OR locked by env
-    input.disabled = !canEdit || (scope === 'tenant' && !settingsUIState.selectedTenantId) || isLocked;
+    // Disable input if user can't edit, no tenant selected (for tenant scope), locked by env, OR section not managed
+    input.disabled = !canEdit || (scope === 'tenant' && !settingsUIState.selectedTenantId) || isLocked || sectionNotManaged;
     control.appendChild(element);
 
     // Show lock badge if locked by environment variable
@@ -7349,13 +7443,20 @@ async function saveGlobalSettings() {
     }
     const pending = [];
     const settingsChanged = !!settingsUIState.globalSettingsDirty;
+    const managedSectionsChanged = !!settingsUIState.managedSectionsDirty;
     const policyState = getPolicyState('global');
     const policyChanged = !!(policyState && policyState.dirty);
-    if (settingsChanged) {
+    
+    // If settings or managed sections changed, save both together
+    if (settingsChanged || managedSectionsChanged) {
+        const payload = {
+            ...settingsUIState.globalDraft,
+            managed_sections: Array.from(settingsUIState.managedSections)
+        };
         pending.push(fetchJSON('/api/v1/settings/global', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(settingsUIState.globalDraft)
+            body: JSON.stringify(payload)
         }));
     }
     if (policyChanged) {
@@ -7365,7 +7466,7 @@ async function saveGlobalSettings() {
         return;
     }
     await Promise.all(pending);
-    if (settingsChanged) {
+    if (settingsChanged || managedSectionsChanged) {
         await loadGlobalSettingsSnapshot();
         if (settingsUIState.selectedTenantId) {
             await loadTenantSnapshot(settingsUIState.selectedTenantId);
@@ -7483,20 +7584,85 @@ async function resetTenantOverrides(event) {
 
 function renderOverrideSummary() {
     const container = document.getElementById('settings_override_list');
+    const titleEl = document.getElementById('settings_summary_title');
     if (!container) return;
-    if (settingsUIState.scope !== 'tenant' || !settingsUIState.selectedTenantId) {
-        container.textContent = 'Select a tenant to view override details.';
+    
+    // In global scope, show managed sections summary
+    if (settingsUIState.scope === 'global') {
+        if (titleEl) titleEl.textContent = 'Management Summary';
+        const managedArr = Array.from(settingsUIState.managedSections);
+        const allSections = ['discovery', 'snmp', 'features'];
+        const agentControlled = allSections.filter(s => !settingsUIState.managedSections.has(s));
+        
+        if (agentControlled.length === 0) {
+            container.innerHTML = `
+                <div class="override-summary-count">All sections centrally managed</div>
+                <div class="override-summary-empty">
+                    <span style="font-size:12px;">Agents will receive server-defined settings for all categories.</span>
+                </div>
+            `;
+        } else {
+            const cards = agentControlled.map(section => {
+                const label = SETTINGS_SECTION_LABELS[section] || section;
+                return `
+                    <div class="override-card">
+                        <div class="override-card-path">Agent-Controlled</div>
+                        <div class="override-card-value">${escapeHtml(label)}</div>
+                    </div>
+                `;
+            }).join('');
+            container.innerHTML = `
+                <div class="override-summary-count">${agentControlled.length} section${agentControlled.length > 1 ? 's' : ''} controlled locally by agents</div>
+                ${cards}
+            `;
+        }
+        return;
+    }
+    
+    // Tenant scope: show override details
+    titleEl.textContent = 'Override Summary';
+    if (!settingsUIState.selectedTenantId) {
+        container.innerHTML = '<div class="override-summary-empty"><span>Select a tenant to view override details.</span></div>';
         return;
     }
     const overrides = flattenOverrides(settingsUIState.tenantOverridesDraft);
     if (!overrides.length) {
-        container.innerHTML = '<div class="muted-text">No overrides. This tenant inherits all global defaults.</div>';
+        container.innerHTML = '<div class="override-summary-empty"><span>No overrides. This tenant inherits all global defaults.</span></div>';
         return;
     }
-    const list = overrides.map(item => {
-        return `<li><strong>${escapeHtml(item.path)}</strong><div>${escapeHtml(String(item.value))}</div></li>`;
-    }).join('');
-    container.innerHTML = `<ul class="settings-override-list">${list}</ul>`;
+    
+    // Group overrides by section for better organization
+    const grouped = {};
+    overrides.forEach(item => {
+        const section = item.path.split('.')[0] || 'other';
+        if (!grouped[section]) {
+            grouped[section] = [];
+        }
+        grouped[section].push(item);
+    });
+    
+    let html = `<div class="override-summary-count">${overrides.length} override${overrides.length > 1 ? 's' : ''} active</div>`;
+    
+    Object.entries(grouped).forEach(([section, items]) => {
+        const sectionLabel = SETTINGS_SECTION_LABELS[section] || section;
+        html += `<div style="font-size:11px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px;letter-spacing:0.05em;">${escapeHtml(sectionLabel)}</div>`;
+        items.forEach(item => {
+            let valueClass = '';
+            let displayValue = String(item.value);
+            if (typeof item.value === 'boolean') {
+                valueClass = item.value ? 'bool-true' : 'bool-false';
+                displayValue = item.value ? '✓ Enabled' : '✗ Disabled';
+            }
+            html += `
+                <div class="override-card">
+                    <div class="override-card-path">${escapeHtml(item.path)}</div>
+                    <div class="override-card-value ${valueClass}">${escapeHtml(displayValue)}</div>
+                </div>
+            `;
+        });
+    });
+    
+    container.innerHTML = html;
 }
 
 function updateActionButtons() {
