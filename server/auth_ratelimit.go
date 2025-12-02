@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -266,38 +267,57 @@ var defaultTrustedProxyCIDRs = []string{
 	"fc00::/7",
 }
 
-// cloudflareIPv4CIDRs contains Cloudflare's IPv4 ranges
-// Source: https://www.cloudflare.com/ips-v4
-// Last updated: 2024-12
-var cloudflareIPv4CIDRs = []string{
-	"173.245.48.0/20",
-	"103.21.244.0/22",
-	"103.22.200.0/22",
-	"103.31.4.0/22",
-	"141.101.64.0/18",
-	"108.162.192.0/18",
-	"190.93.240.0/20",
-	"188.114.96.0/20",
-	"197.234.240.0/22",
-	"198.41.128.0/17",
-	"162.158.0.0/15",
-	"104.16.0.0/13",
-	"104.24.0.0/14",
-	"172.64.0.0/13",
-	"131.0.72.0/22",
+// cloudflareIPURLs are the authoritative sources for Cloudflare's IP ranges
+var cloudflareIPURLs = []string{
+	"https://www.cloudflare.com/ips-v4",
+	"https://www.cloudflare.com/ips-v6",
 }
 
-// cloudflareIPv6CIDRs contains Cloudflare's IPv6 ranges
-// Source: https://www.cloudflare.com/ips-v6
-// Last updated: 2024-12
-var cloudflareIPv6CIDRs = []string{
-	"2400:cb00::/32",
-	"2606:4700::/32",
-	"2803:f800::/32",
-	"2405:b500::/32",
-	"2405:8100::/32",
-	"2a06:98c0::/29",
-	"2c0f:f248::/32",
+// fetchCloudflareIPs fetches the current Cloudflare IP ranges from their official endpoints
+func fetchCloudflareIPs() []string {
+	var cidrs []string
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	for _, url := range cloudflareIPURLs {
+		resp, err := client.Get(url)
+		if err != nil {
+			logWarn("Failed to fetch Cloudflare IPs", "url", url, "error", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			logWarn("Cloudflare IP fetch returned non-200", "url", url, "status", resp.StatusCode)
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			logWarn("Failed to read Cloudflare IP response", "url", url, "error", err)
+			continue
+		}
+
+		// Parse the response - one CIDR per line
+		lines := strings.Split(string(body), "\n")
+		for _, line := range lines {
+			cidr := strings.TrimSpace(line)
+			if cidr == "" {
+				continue
+			}
+			// Validate it's a valid CIDR
+			if _, _, err := net.ParseCIDR(cidr); err == nil {
+				cidrs = append(cidrs, cidr)
+			}
+		}
+	}
+
+	if len(cidrs) > 0 {
+		logInfo("Fetched Cloudflare IP ranges", "count", len(cidrs))
+	} else {
+		logWarn("No Cloudflare IPs fetched, CF-Connecting-IP header may not be trusted from Cloudflare")
+	}
+
+	return cidrs
 }
 
 // parsedTrustedProxies caches parsed CIDR networks
@@ -318,9 +338,9 @@ func initTrustedProxies() {
 
 		// Add Cloudflare IPs if cloudflare_proxy is enabled
 		if serverConfig != nil && serverConfig.Server.CloudflareProxy {
-			logInfo("Cloudflare proxy mode enabled, adding Cloudflare IP ranges to trusted proxies")
-			entries = append(entries, cloudflareIPv4CIDRs...)
-			entries = append(entries, cloudflareIPv6CIDRs...)
+			logInfo("Cloudflare proxy mode enabled, fetching Cloudflare IP ranges...")
+			cloudflareIPs := fetchCloudflareIPs()
+			entries = append(entries, cloudflareIPs...)
 		}
 
 		for _, entry := range entries {
