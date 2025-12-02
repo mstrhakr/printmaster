@@ -2365,6 +2365,115 @@ select:focus {
   line-height: 1.5;
 }
 
+/* ====== Tenant Modal ====== */
+.tenant-modal-content {
+  max-width: 720px;
+  width: 100%;
+}
+
+.tenant-modal-body {
+  padding: 20px 24px;
+}
+
+.tenant-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 720px) {
+  .tenant-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tenant-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tenant-notes-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tenant-section-title {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tenant-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.tenant-form-label > span:first-child {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.tenant-form-label .required {
+  color: var(--danger);
+}
+
+.tenant-form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--fg);
+  font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  resize: vertical;
+}
+
+.tenant-form-input:focus {
+  outline: none;
+  border-color: var(--highlight);
+  box-shadow: 0 0 0 3px rgba(38, 139, 210, 0.15);
+}
+
+.tenant-form-input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.tenant-form-helper {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.tenant-form-error {
+  color: var(--danger);
+  font-size: 13px;
+  padding: 10px 12px;
+  background: rgba(220, 50, 47, 0.1);
+  border: 1px solid rgba(220, 50, 47, 0.3);
+  border-radius: 6px;
+  margin-top: 12px;
+}
+
+.tenant-form-error:empty {
+  display: none;
+}
+
+.tenant-modal-footer {
+  padding: 16px 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .users-stats-bar {
   display: flex;
   gap: 24px;

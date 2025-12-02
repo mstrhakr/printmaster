@@ -9,7 +9,7 @@ const BASE_TAB_LABELS = {
 };
 const TAB_DEFINITIONS = {
     tenants: {
-        label: 'Customers',
+        label: 'Tenants',
         requiredAction: 'tenants.read',
         templateId: 'tab-template-tenants',
         onMount: () => initTenantsUI()
@@ -2174,7 +2174,7 @@ function updateCheckAllUpdatesButton() {
     }
 }
 
-// ====== Tenants / Customers UI ======
+// ====== Tenants UI ======
 function initTenantsUI(){
     if (tenantsUIInitialized) return;
     tenantsUIInitialized = true;
@@ -2283,16 +2283,15 @@ function openTenantModal(tenant){
     if (!modal) return;
     if (tenant && tenant.id) {
         modal.setAttribute('data-edit-id', tenant.id);
-        document.getElementById('tenant_modal_title').textContent = 'Edit Customer';
-        document.getElementById('tenant_save').textContent = 'Save';
+        document.getElementById('tenant_modal_title').textContent = 'Edit Tenant';
+        document.getElementById('tenant_save').textContent = 'Save Changes';
     } else {
         modal.removeAttribute('data-edit-id');
-        document.getElementById('tenant_modal_title').textContent = 'New Customer';
-        document.getElementById('tenant_save').textContent = 'Create';
+        document.getElementById('tenant_modal_title').textContent = 'New Tenant';
+        document.getElementById('tenant_save').textContent = 'Create Tenant';
     }
     const safe = (key) => (tenant && tenant[key]) ? tenant[key] : '';
     document.getElementById('tenant_name').value = safe('name');
-    document.getElementById('tenant_business_unit').value = safe('business_unit');
     document.getElementById('tenant_login_domain').value = safe('login_domain');
     document.getElementById('tenant_contact_name').value = safe('contact_name');
     document.getElementById('tenant_contact_email').value = safe('contact_email');
@@ -2301,7 +2300,7 @@ function openTenantModal(tenant){
     document.getElementById('tenant_address').value = safe('address');
     document.getElementById('tenant_description').value = safe('description');
     const errEl = document.getElementById('tenant_error');
-    if (errEl) errEl.style.display = 'none';
+    if (errEl) errEl.textContent = '';
     modal.style.display = 'flex';
     setTimeout(()=>{
         try { document.getElementById('tenant_name').focus(); } catch (e) {}
@@ -2314,14 +2313,13 @@ function closeTenantModal(){
     modal.style.display = 'none';
     modal.removeAttribute('data-edit-id');
     const errEl = document.getElementById('tenant_error');
-    if (errEl) errEl.style.display = 'none';
+    if (errEl) errEl.textContent = '';
 }
 
 function collectTenantFormData(){
     return {
         name: (document.getElementById('tenant_name').value || '').trim(),
         description: (document.getElementById('tenant_description').value || '').trim(),
-        business_unit: (document.getElementById('tenant_business_unit').value || '').trim(),
         contact_name: (document.getElementById('tenant_contact_name').value || '').trim(),
         contact_email: (document.getElementById('tenant_contact_email').value || '').trim(),
         contact_phone: (document.getElementById('tenant_contact_phone').value || '').trim(),
@@ -2347,10 +2345,10 @@ async function submitTenantForm(){
     try {
         if (editId) {
             await updateTenant(editId, payload);
-            window.__pm_shared.showToast('Customer updated', 'success');
+            window.__pm_shared.showToast('Tenant updated', 'success');
         } else {
             await createTenant(payload);
-            window.__pm_shared.showToast('Customer created', 'success');
+            window.__pm_shared.showToast('Tenant created', 'success');
         }
         closeTenantModal();
         loadTenants();

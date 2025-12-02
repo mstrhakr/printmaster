@@ -337,10 +337,10 @@
             </div>
         </div>
 
-        <!-- Tenants / Customers Tab (rendered dynamically) -->
+        <!-- Tenants Tab (rendered dynamically) -->
         <template id="tab-template-tenants">
             <div style="margin-top:12px;" data-tab="tenants" class="hidden">
-                <h3>Customers</h3>
+                <h3>Tenants</h3>
                 <div class="subtab-bar" id="tenants_subtab_bar">
                     <button class="subtab tenants-subtab active" data-tenantsview="directory">Directory</button>
                     <button class="subtab tenants-subtab" data-tenantsview="bundles">Installer Bundles</button>
@@ -997,54 +997,64 @@
 
     <!-- Tenant Modal -->
     <div class="modal" id="tenant_modal" style="display:none;">
-        <div class="modal-content" style="max-width:520px;">
+        <div class="modal-content tenant-modal-content">
             <div class="modal-header">
-                <span class="modal-title" id="tenant_modal_title">New Customer</span>
+                <span class="modal-title" id="tenant_modal_title">New Tenant</span>
                 <button class="modal-close-x" id="tenant_modal_close_x" title="Close">&times;</button>
             </div>
-            <div class="modal-body" style="display:flex;flex-direction:column;gap:10px;">
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Customer Name
-                    <input id="tenant_name" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="Acme Corp" />
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Business Unit / Site
-                    <input id="tenant_business_unit" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="North Campus" />
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Login Domain for SSO
-                    <input id="tenant_login_domain" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="example.com" />
-                    <span style="font-size:12px;color:var(--muted);">Used to auto-detect this customer during single sign-on. Enter an email domain (no protocol).</span>
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Contact Name
-                    <input id="tenant_contact_name" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="Jane Smith" />
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Contact Email
-                    <input id="tenant_contact_email" type="email" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="jane@example.com" />
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Contact Phone
-                    <input id="tenant_contact_phone" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="+1 800 555 1234" />
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Billing / Reference Code
-                    <input id="tenant_billing_code" type="text" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;" placeholder="ACME-OPS-01" />
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Address
-                    <textarea id="tenant_address" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;"></textarea>
-                </label>
-                <label style="display:flex;flex-direction:column;font-size:13px;gap:4px;">
-                    Notes
-                    <textarea id="tenant_description" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:4px;"></textarea>
-                </label>
-                <div id="tenant_error" style="color:var(--danger);display:none;font-size:13px;"></div>
+            <div class="modal-body tenant-modal-body">
+                <div class="tenant-form-grid">
+                    <!-- Left column: Core identity -->
+                    <div class="tenant-form-section">
+                        <div class="tenant-section-title">Tenant Information</div>
+                        <label class="tenant-form-label">
+                            <span>Tenant Name <span class="required">*</span></span>
+                            <input id="tenant_name" type="text" class="tenant-form-input" placeholder="Acme Corp" />
+                        </label>
+                        <label class="tenant-form-label">
+                            <span>Billing / Reference Code</span>
+                            <input id="tenant_billing_code" type="text" class="tenant-form-input" placeholder="ACME-OPS-01" />
+                            <span class="tenant-form-helper">Internal reference for invoicing or tracking</span>
+                        </label>
+                        <label class="tenant-form-label">
+                            <span>Login Domain (SSO)</span>
+                            <input id="tenant_login_domain" type="text" class="tenant-form-input" placeholder="example.com" />
+                            <span class="tenant-form-helper">Email domain for automatic tenant detection during SSO</span>
+                        </label>
+                    </div>
+                    <!-- Right column: Contact details -->
+                    <div class="tenant-form-section">
+                        <div class="tenant-section-title">Primary Contact</div>
+                        <label class="tenant-form-label">
+                            <span>Contact Name</span>
+                            <input id="tenant_contact_name" type="text" class="tenant-form-input" placeholder="Jane Smith" />
+                        </label>
+                        <label class="tenant-form-label">
+                            <span>Contact Email</span>
+                            <input id="tenant_contact_email" type="email" class="tenant-form-input" placeholder="jane@example.com" />
+                        </label>
+                        <label class="tenant-form-label">
+                            <span>Contact Phone</span>
+                            <input id="tenant_contact_phone" type="text" class="tenant-form-input" placeholder="+1 800 555 1234" />
+                        </label>
+                        <label class="tenant-form-label">
+                            <span>Address</span>
+                            <textarea id="tenant_address" rows="2" class="tenant-form-input" placeholder="123 Main St, City, State"></textarea>
+                        </label>
+                    </div>
+                </div>
+                <!-- Full-width notes section -->
+                <div class="tenant-form-section tenant-notes-section">
+                    <label class="tenant-form-label">
+                        <span>Notes</span>
+                        <textarea id="tenant_description" rows="2" class="tenant-form-input" placeholder="Additional notes about this tenant..."></textarea>
+                    </label>
+                </div>
+                <div id="tenant_error" class="tenant-form-error"></div>
             </div>
-            <div class="modal-footer">
-                <button class="modal-button modal-button-secondary" id="tenant_cancel">Cancel</button>
-                <button class="modal-button modal-button-primary" id="tenant_save">Create</button>
+            <div class="modal-footer tenant-modal-footer">
+                <button class="btn-outline" id="tenant_cancel">Cancel</button>
+                <button class="btn-primary" id="tenant_save">Create Tenant</button>
             </div>
         </div>
     </div>
