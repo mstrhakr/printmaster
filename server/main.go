@@ -3891,6 +3891,12 @@ func injectProxyMetaAndBase(body []byte, proxyBase string, agentID string, targe
 	bodyStr = strings.ReplaceAll(bodyStr, `url("/`, "url(\""+proxyBase)
 	bodyStr = strings.ReplaceAll(bodyStr, `url('/`, "url('"+proxyBase)
 
+	// Rewrite relative paths with ../ to absolute proxy paths.
+	// Many printer web UIs (e.g., Epson at /PRESENTATION/ADVANCED/COMMON/TOP)
+	// use paths like ../INFO_PRTINFO/TOP which resolve relative to the current
+	// page location. We need to properly resolve these against the target URL.
+	bodyStr = rewriteParentRelativePaths(bodyStr, proxyBase, targetURL)
+
 	// Rewrite common JavaScript absolute calls so they route through the proxy.
 	// This covers fetch('/...') and common XHR/open patterns which are not
 	// affected by a <base> element and must be rewritten manually.
@@ -3932,6 +3938,94 @@ func injectProxyMetaAndBase(body []byte, proxyBase string, agentID string, targe
 	bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
 
 	return []byte(bodyStr)
+}
+
+// rewriteParentRelativePaths rewrites relative paths that start with ../ to
+// absolute proxy paths. This handles patterns like href="../INFO/TOP" which
+// are common in printer web UIs (e.g., Epson pages at /PRESENTATION/ADVANCED/COMMON/TOP
+// use ../INFO_PRTINFO/TOP to link to /PRESENTATION/ADVANCED/INFO_PRTINFO/TOP).
+func rewriteParentRelativePaths(s string, proxyBase string, targetURL string) string {
+	// Parse the target URL to get the path for resolving relative references
+	var basePath string
+	if u, err := url.Parse(targetURL); err == nil {
+		basePath = path.Dir(u.Path) // Directory containing the current page
+	}
+
+	// Common HTML attribute patterns with ../ relative paths
+	patterns := []struct {
+		prefix string
+		quote  string
+	}{
+		{`href="`, `"`},
+		{`href='`, `'`},
+		{`src="`, `"`},
+		{`src='`, `'`},
+		{`action="`, `"`},
+		{`action='`, `'`},
+	}
+
+	for _, p := range patterns {
+		s = rewriteAttrParentPaths(s, p.prefix, p.quote, proxyBase, basePath)
+	}
+	return s
+}
+
+// rewriteAttrParentPaths finds attribute values starting with ../ and rewrites
+// them to absolute proxy paths by properly resolving the relative path.
+func rewriteAttrParentPaths(s string, attrPrefix string, quote string, proxyBase string, basePath string) string {
+	var result strings.Builder
+	result.Grow(len(s))
+
+	searchFrom := 0
+	for {
+		// Find next attribute
+		idx := strings.Index(s[searchFrom:], attrPrefix)
+		if idx == -1 {
+			result.WriteString(s[searchFrom:])
+			break
+		}
+		absIdx := searchFrom + idx
+
+		// Write everything up to and including the attribute prefix
+		result.WriteString(s[searchFrom : absIdx+len(attrPrefix)])
+
+		// Find the value start position
+		valueStart := absIdx + len(attrPrefix)
+
+		// Check if value starts with ../
+		if strings.HasPrefix(s[valueStart:], "../") {
+			// Find the end of the attribute value
+			endQuote := strings.Index(s[valueStart:], quote)
+			if endQuote == -1 {
+				// Malformed HTML, just continue
+				searchFrom = valueStart
+				continue
+			}
+
+			relPath := s[valueStart : valueStart+endQuote]
+
+			// Resolve the relative path against the base path
+			// path.Join + path.Clean handles ../ properly
+			resolvedPath := path.Clean(path.Join(basePath, relPath))
+
+			// Write the rewritten absolute proxy path
+			result.WriteString(proxyBase)
+			// Remove leading slash from resolved path since proxyBase ends with /
+			if strings.HasPrefix(resolvedPath, "/") {
+				result.WriteString(resolvedPath[1:])
+			} else {
+				result.WriteString(resolvedPath)
+			}
+			result.WriteString(quote)
+
+			searchFrom = valueStart + endQuote + 1
+		} else {
+			// Not a ../ path, continue searching
+			searchFrom = valueStart
+		}
+	}
+
+	return result.String()
 }
 
 // computeProxyBaseFromRequest derives the proxy base prefix used by the
