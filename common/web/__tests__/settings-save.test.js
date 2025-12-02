@@ -9,7 +9,7 @@ describe('saveAllSettings payload', () => {
         document.body.innerHTML = '';
         // Create minimal set of elements referenced by saveAllSettings
         const ids = [
-            'dev_debug_logging','dev_dump_parse_debug','dev_show_legacy','dev_snmp_community',
+            'dev_debug_logging','dev_dump_parse_debug','dev_snmp_community',
             'dev_snmp_timeout','dev_snmp_retries','dev_discover_concurrency','dev_asset_id_regex',
             'scan_local_subnet_enabled','manual_ranges_enabled','discovery_arp_enabled','discovery_icmp_enabled',
             'discovery_tcp_enabled','discovery_mdns_enabled','discovery_snmp_enabled','discovery_live_mdns_enabled',
@@ -25,13 +25,13 @@ describe('saveAllSettings payload', () => {
             // default types and values
             if (id === 'dev_debug_logging') el.value = 'info';
             if (id === 'metrics_rescan_interval') el.value = '15';
-            if (id.endsWith('_enabled') || id === 'dev_dump_parse_debug' || id === 'dev_show_legacy') el.type = 'checkbox';
+            if (id.endsWith('_enabled') || id === 'dev_dump_parse_debug') el.type = 'checkbox';
             document.body.appendChild(el);
         });
         // Ensure checkboxes have .checked property
         document.getElementById('metrics_rescan_enabled').checked = true;
         document.getElementById('dev_dump_parse_debug').checked = false;
-        document.getElementById('dev_show_legacy').checked = false;
+
     });
 
     test('metrics_rescan_interval_minutes is integer in payload', async () => {

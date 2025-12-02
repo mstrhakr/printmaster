@@ -4116,7 +4116,6 @@ function addAutoSaveHandlers() {
     // Developer settings
     document.getElementById('dev_debug_logging')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_dump_parse_debug')?.addEventListener('change', window.__settingsChangeHandler);
-    document.getElementById('dev_show_legacy')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_community')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_timeout')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_retries')?.addEventListener('change', window.__settingsChangeHandler);
@@ -4162,7 +4161,6 @@ function removeAutoSaveHandlers() {
 
     document.getElementById('dev_debug_logging')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_dump_parse_debug')?.removeEventListener('change', window.__settingsChangeHandler);
-    document.getElementById('dev_show_legacy')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_community')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_timeout')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_snmp_retries')?.removeEventListener('change', window.__settingsChangeHandler);
