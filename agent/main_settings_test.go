@@ -41,7 +41,7 @@ func TestLoadUnifiedSettingsRetainsDiscoveryToggles(t *testing.T) {
 	}
 }
 
-func TestLoadUnifiedSettingsUsesManagedSnapshotButAllowsLocalDeveloperOverrides(t *testing.T) {
+func TestLoadUnifiedSettingsUsesManagedSnapshotButAllowsLocalLoggingOverrides(t *testing.T) {
 	store := newFakeConfigStore()
 	mgr := NewSettingsManager(store)
 	prev := settingsManager
@@ -54,25 +54,27 @@ func TestLoadUnifiedSettingsUsesManagedSnapshotButAllowsLocalDeveloperOverrides(
 		UpdatedAt:     time.Unix(300, 0),
 		Settings:      pmsettings.DefaultSettings(),
 	}
-	snap.Settings.Developer.SNMPTimeoutMS = 3333
-	snap.Settings.Developer.LogLevel = "warn"
+	snap.Settings.SNMP.TimeoutMS = 3333
+	snap.Settings.Logging.Level = "warn"
 
 	if _, err := mgr.ApplyServerSnapshot(snap); err != nil {
 		t.Fatalf("apply snapshot failed: %v", err)
 	}
 
 	store.values["settings"] = map[string]interface{}{
-		"developer": map[string]interface{}{
-			"log_level":       "debug",
-			"snmp_timeout_ms": 1234,
+		"logging": map[string]interface{}{
+			"level": "debug",
+		},
+		"snmp": map[string]interface{}{
+			"timeout_ms": 1234,
 		},
 	}
 
 	result := loadUnifiedSettings(store)
-	if result.Developer.SNMPTimeoutMS != 3333 {
-		t.Fatalf("expected server-managed value to persist, got %d", result.Developer.SNMPTimeoutMS)
+	if result.SNMP.TimeoutMS != 3333 {
+		t.Fatalf("expected server-managed value to persist, got %d", result.SNMP.TimeoutMS)
 	}
-	if result.Developer.LogLevel != "debug" {
-		t.Fatalf("expected local developer overrides to apply, got %s", result.Developer.LogLevel)
+	if result.Logging.Level != "debug" {
+		t.Fatalf("expected local logging overrides to apply, got %s", result.Logging.Level)
 	}
 }

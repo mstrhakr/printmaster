@@ -12,14 +12,13 @@ import (
 func TestBuildAgentSnapshotStripsAgentLocalFields(t *testing.T) {
 	store := newFakeStore()
 	cfg := pmsettings.DefaultSettings()
-	cfg.Security.CustomCertPath = "/etc/custom.crt"
-	cfg.Security.CustomKeyPath = "/etc/custom.key"
-	cfg.Security.EnableHTTP = false
-	cfg.Security.HTTPPort = "9000"
-	cfg.Security.HTTPSPort = "9443"
-	cfg.Developer.LogLevel = "debug"
-	cfg.Developer.DumpParseDebug = true
-	cfg.Developer.ShowLegacy = true
+	cfg.Web.CustomCertPath = "/etc/custom.crt"
+	cfg.Web.CustomKeyPath = "/etc/custom.key"
+	cfg.Web.EnableHTTP = false
+	cfg.Web.HTTPPort = "9000"
+	cfg.Web.HTTPSPort = "9443"
+	cfg.Logging.Level = "debug"
+	cfg.Logging.DumpParseDebug = true
 	store.global = &storage.SettingsRecord{
 		SchemaVersion: "v9",
 		Settings:      cfg,
@@ -32,17 +31,17 @@ func TestBuildAgentSnapshotStripsAgentLocalFields(t *testing.T) {
 		t.Fatalf("build snapshot failed: %v", err)
 	}
 	defaults := pmsettings.DefaultSettings()
-	if snapshot.Settings.Security.CustomCertPath != defaults.Security.CustomCertPath {
-		t.Fatalf("expected custom cert path stripped, got %s", snapshot.Settings.Security.CustomCertPath)
+	if snapshot.Settings.Web.CustomCertPath != defaults.Web.CustomCertPath {
+		t.Fatalf("expected custom cert path stripped, got %s", snapshot.Settings.Web.CustomCertPath)
 	}
-	if snapshot.Settings.Security.CustomKeyPath != defaults.Security.CustomKeyPath {
-		t.Fatalf("expected custom key path stripped, got %s", snapshot.Settings.Security.CustomKeyPath)
+	if snapshot.Settings.Web.CustomKeyPath != defaults.Web.CustomKeyPath {
+		t.Fatalf("expected custom key path stripped, got %s", snapshot.Settings.Web.CustomKeyPath)
 	}
-	if snapshot.Settings.Security.EnableHTTP != defaults.Security.EnableHTTP {
-		t.Fatalf("expected enable_http reset to %v, got %v", defaults.Security.EnableHTTP, snapshot.Settings.Security.EnableHTTP)
+	if snapshot.Settings.Web.EnableHTTP != defaults.Web.EnableHTTP {
+		t.Fatalf("expected enable_http reset to %v, got %v", defaults.Web.EnableHTTP, snapshot.Settings.Web.EnableHTTP)
 	}
-	if snapshot.Settings.Developer.LogLevel != defaults.Developer.LogLevel {
-		t.Fatalf("expected developer log level reset to %s, got %s", defaults.Developer.LogLevel, snapshot.Settings.Developer.LogLevel)
+	if snapshot.Settings.Logging.Level != defaults.Logging.Level {
+		t.Fatalf("expected logging level reset to %s, got %s", defaults.Logging.Level, snapshot.Settings.Logging.Level)
 	}
 	if snapshot.Version == "" {
 		t.Fatalf("expected settings version to be set")

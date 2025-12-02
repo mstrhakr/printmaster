@@ -1,47 +1,59 @@
 package settings
 
-const SchemaVersion = "v1"
+const SchemaVersion = "v2"
 
 // DefaultSettings returns the canonical defaults used when no persisted settings exist.
 func DefaultSettings() Settings {
 	return Settings{
 		Discovery: DiscoverySettings{
-			SubnetScan:                   true,
-			ManualRanges:                 false,
-			RangesText:                   "",
-			DetectedSubnet:               "",
-			IPScanningEnabled:            true,
-			ARPEnabled:                   true,
-			ICMPEnabled:                  true,
-			TCPEnabled:                   true,
-			MDNSEnabled:                  false,
-			SNMPEnabled:                  true,
-			AutoDiscoverEnabled:          false,
-			AutosaveDiscoveredDevices:    false,
-			ShowDiscoverButtonAnyway:     false,
-			ShowDiscoveredDevicesAnyway:  false,
-			PassiveDiscoveryEnabled:      true,
-			AutoDiscoverLiveMDNS:         true,
-			AutoDiscoverLiveWSD:          true,
-			AutoDiscoverLiveSSDP:         false,
-			AutoDiscoverLiveSNMPTrap:     false,
-			AutoDiscoverLiveLLMNR:        false,
+			// IP Scanning
+			SubnetScan:        true,
+			ManualRanges:      false,
+			RangesText:        "",
+			DetectedSubnet:    "",
+			IPScanningEnabled: true,
+			Concurrency:       50,
+
+			// Probe Methods
+			ARPEnabled:  true,
+			ICMPEnabled: true,
+			TCPEnabled:  true,
+			SNMPEnabled: true,
+			MDNSEnabled: false,
+
+			// Automatic Discovery
+			AutoDiscoverEnabled:         false,
+			AutosaveDiscoveredDevices:   false,
+			ShowDiscoverButtonAnyway:    false,
+			ShowDiscoveredDevicesAnyway: false,
+
+			// Passive Listeners
+			PassiveDiscoveryEnabled:  true,
+			AutoDiscoverLiveMDNS:     true,
+			AutoDiscoverLiveWSD:      true,
+			AutoDiscoverLiveSSDP:     false,
+			AutoDiscoverLiveSNMPTrap: false,
+			AutoDiscoverLiveLLMNR:    false,
+
+			// Metrics Collection
 			MetricsRescanEnabled:         false,
 			MetricsRescanIntervalMinutes: 60,
 		},
-		Developer: DeveloperSettings{
-			AssetIDRegex:           "",
-			SNMPCommunity:          "",
-			LogLevel:               "info",
-			DumpParseDebug:         false,
-			ShowLegacy:             false,
-			SNMPTimeoutMS:          2000,
-			SNMPRetries:            1,
-			DiscoverConcurrency:    50,
-			EpsonRemoteModeEnabled: false,
+		SNMP: SNMPSettings{
+			Community: "",
+			TimeoutMS: 2000,
+			Retries:   1,
 		},
-		Security: SecuritySettings{
-			CredentialsEnabled:  true,
+		Features: FeaturesSettings{
+			EpsonRemoteModeEnabled: false,
+			CredentialsEnabled:     true,
+			AssetIDRegex:           "",
+		},
+		Logging: LoggingSettings{
+			Level:          "info",
+			DumpParseDebug: false,
+		},
+		Web: WebSettings{
 			EnableHTTP:          true,
 			EnableHTTPS:         true,
 			HTTPPort:            "8080",

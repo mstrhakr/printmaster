@@ -16,7 +16,7 @@ func TestSettingsManagerReloadsPersistedSnapshot(t *testing.T) {
 		UpdatedAt:     time.Unix(100, 0),
 		Settings:      pmsettings.DefaultSettings(),
 	}
-	seeded.Settings.Developer.SNMPTimeoutMS = 4242
+	seeded.Settings.SNMP.TimeoutMS = 4242
 	if err := store.SetConfigValue(serverManagedSettingsKey, seeded); err != nil {
 		t.Fatalf("failed to seed store: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestSettingsManagerReloadsPersistedSnapshot(t *testing.T) {
 	if !managed {
 		t.Fatalf("expected managed flag to be true")
 	}
-	if base.Developer.SNMPTimeoutMS != 4242 {
+	if base.SNMP.TimeoutMS != 4242 {
 		t.Fatalf("expected loaded settings to reflect persisted snapshot")
 	}
 }
@@ -54,7 +54,7 @@ func TestSettingsManagerApplyServerSnapshotPersistsAndReturnsUnified(t *testing.
 		UpdatedAt:     time.Unix(200, 0),
 		Settings:      pmsettings.DefaultSettings(),
 	}
-	snap.Settings.Developer.SNMPTimeoutMS = 9001
+	snap.Settings.SNMP.TimeoutMS = 9001
 
 	result, err := mgr.ApplyServerSnapshot(snap)
 	if err != nil {
@@ -66,7 +66,7 @@ func TestSettingsManagerApplyServerSnapshotPersistsAndReturnsUnified(t *testing.
 	if store.setCount(serverManagedSettingsKey) != 1 {
 		t.Fatalf("expected snapshot persisted once, got %d", store.setCount(serverManagedSettingsKey))
 	}
-	if result.Developer.SNMPTimeoutMS != 9001 {
+	if result.SNMP.TimeoutMS != 9001 {
 		t.Fatalf("expected unified settings to include server-managed values")
 	}
 }

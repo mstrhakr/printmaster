@@ -6116,10 +6116,12 @@ function openDeviceMetrics(serial) {
 // ====== Managed Settings UI ======
 const SETTINGS_SECTION_LABELS = {
     discovery: 'Discovery',
-    developer: 'Developer',
-    security: 'Security'
+    snmp: 'SNMP',
+    features: 'Features',
+    logging: 'Logging',
+    web: 'Web Server'
 };
-const SETTINGS_SECTION_ORDER = ['discovery', 'developer', 'security'];
+const SETTINGS_SECTION_ORDER = ['discovery', 'snmp', 'features', 'logging', 'web'];
 
 // Subsection groupings for discovery section
 // Fields are grouped in order - any field not listed goes to "Other"
@@ -6127,7 +6129,7 @@ const DISCOVERY_SUBSECTIONS = [
     {
         key: 'ip_scanning',
         label: 'IP Scanning',
-        fields: ['discovery.ip_scanning_enabled', 'discovery.subnet_scan', 'discovery.manual_ranges']
+        fields: ['discovery.ip_scanning_enabled', 'discovery.subnet_scan', 'discovery.manual_ranges', 'discovery.concurrency']
     },
     {
         key: 'probe_methods',

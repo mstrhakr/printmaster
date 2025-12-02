@@ -7,10 +7,10 @@ func TestDefaultSettings(t *testing.T) {
 	if !def.Discovery.SubnetScan {
 		t.Fatal("expected subnet_scan default true")
 	}
-	if def.Developer.LogLevel != "info" {
-		t.Fatalf("unexpected log level %s", def.Developer.LogLevel)
+	if def.Logging.Level != "info" {
+		t.Fatalf("unexpected log level %s", def.Logging.Level)
 	}
-	if !def.Security.CredentialsEnabled {
+	if !def.Features.CredentialsEnabled {
 		t.Fatal("credentials enabled default expected true")
 	}
 }
@@ -18,21 +18,21 @@ func TestDefaultSettings(t *testing.T) {
 func TestSanitize(t *testing.T) {
 	s := DefaultSettings()
 	s.Discovery.MetricsRescanIntervalMinutes = 999999
-	s.Developer.SNMPTimeoutMS = -10
-	s.Developer.SNMPRetries = -1
-	s.Developer.DiscoverConcurrency = 0
+	s.SNMP.TimeoutMS = -10
+	s.SNMP.Retries = -1
+	s.Discovery.Concurrency = 0
 	Sanitize(&s)
 	if s.Discovery.MetricsRescanIntervalMinutes != 1440 {
 		t.Fatalf("interval not clamped, got %d", s.Discovery.MetricsRescanIntervalMinutes)
 	}
-	if s.Developer.SNMPTimeoutMS != 500 {
-		t.Fatalf("timeout not clamped, got %d", s.Developer.SNMPTimeoutMS)
+	if s.SNMP.TimeoutMS != 500 {
+		t.Fatalf("timeout not clamped, got %d", s.SNMP.TimeoutMS)
 	}
-	if s.Developer.SNMPRetries != 0 {
-		t.Fatalf("retries not clamped, got %d", s.Developer.SNMPRetries)
+	if s.SNMP.Retries != 0 {
+		t.Fatalf("retries not clamped, got %d", s.SNMP.Retries)
 	}
-	if s.Developer.DiscoverConcurrency != 1 {
-		t.Fatalf("concurrency not clamped, got %d", s.Developer.DiscoverConcurrency)
+	if s.Discovery.Concurrency != 1 {
+		t.Fatalf("concurrency not clamped, got %d", s.Discovery.Concurrency)
 	}
 }
 
@@ -44,7 +44,7 @@ func TestDefaultSchemaIncludesCriticalFields(t *testing.T) {
 	checks := map[string]bool{
 		"discovery.subnet_scan":                 false,
 		"discovery.autosave_discovered_devices": false,
-		"developer.show_legacy":                 false,
+		"logging.level":                         false,
 	}
 	for _, field := range schema.Fields {
 		if _, ok := checks[field.Path]; ok {

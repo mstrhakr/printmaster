@@ -134,7 +134,7 @@ func TestAPIHandleGlobalPutPersistsSettings(t *testing.T) {
 		ActorResolver: func(*http.Request) string { return "alice" },
 	})
 	payload := pmsettings.DefaultSettings()
-	payload.Developer.SNMPTimeoutMS = 1234
+	payload.SNMP.TimeoutMS = 1234
 	body, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings/global", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
@@ -145,7 +145,7 @@ func TestAPIHandleGlobalPutPersistsSettings(t *testing.T) {
 	if store.lastGlobal == nil {
 		t.Fatalf("global settings were not persisted")
 	}
-	if store.lastGlobal.Settings.Developer.SNMPTimeoutMS != 1234 {
+	if store.lastGlobal.Settings.SNMP.TimeoutMS != 1234 {
 		t.Fatalf("override not saved")
 	}
 	if store.lastGlobal.UpdatedBy != "alice" {

@@ -1138,16 +1138,16 @@ func structToMap(src interface{}) map[string]interface{} {
 	return out
 }
 
-func applyDeveloperSettingsEffects(dev *pmsettings.DeveloperSettings) {
-	if dev == nil {
+func applyFeaturesSettingsEffects(feat *pmsettings.FeaturesSettings) {
+	if feat == nil {
 		return
 	}
 	configEnabled := configEpsonRemoteModeEnabled
-	effective := dev.EpsonRemoteModeEnabled || configEnabled
+	effective := feat.EpsonRemoteModeEnabled || configEnabled
 	previous := featureflags.EpsonRemoteModeEnabled()
 	featureflags.SetEpsonRemoteMode(effective)
 	if configEnabled {
-		dev.EpsonRemoteModeEnabled = effective
+		feat.EpsonRemoteModeEnabled = effective
 	}
 	if appLogger != nil && effective != previous {
 		appLogger.Info("Epson remote mode updated", "enabled", effective, "config_override", configEnabled)
@@ -1161,7 +1161,7 @@ func applyEffectiveSettingsSnapshot(cfg pmsettings.Settings) {
 		delete(discMap, "detected_subnet")
 		applyDiscoveryEffectsFunc(discMap)
 	}
-	applyDeveloperSettingsEffects(&cfg.Developer)
+	applyFeaturesSettingsEffects(&cfg.Features)
 }
 
 func loadUnifiedSettings(store storage.AgentConfigStore) pmsettings.Settings {
@@ -1186,22 +1186,28 @@ func loadUnifiedSettings(store storage.AgentConfigStore) pmsettings.Settings {
 	if ipnets, err := agent.GetLocalSubnets(); err == nil && len(ipnets) > 0 {
 		base.Discovery.DetectedSubnet = ipnets[0].String()
 	}
+	// Load unified settings structure
 	var unified map[string]interface{}
 	if err := store.GetConfigValue("settings", &unified); err == nil && unified != nil {
-		if devRaw, ok := unified["developer"].(map[string]interface{}); ok {
-			if managed {
-				mapIntoStruct(filterAgentLocalDeveloper(devRaw), &base.Developer)
-			} else {
-				mapIntoStruct(devRaw, &base.Developer)
-			}
+		// SNMP settings (fleet-managed, don't allow local override when managed)
+		if snmpRaw, ok := unified["snmp"].(map[string]interface{}); ok && !managed {
+			mapIntoStruct(snmpRaw, &base.SNMP)
+		}
+		// Features settings (fleet-managed, don't allow local override when managed)
+		if featRaw, ok := unified["features"].(map[string]interface{}); ok && !managed {
+			mapIntoStruct(featRaw, &base.Features)
+		}
+		// Logging settings (agent-local, always allow local override)
+		if logRaw, ok := unified["logging"].(map[string]interface{}); ok {
+			mapIntoStruct(logRaw, &base.Logging)
+		}
+		// Web settings (agent-local, always allow local override)
+		if webRaw, ok := unified["web"].(map[string]interface{}); ok {
+			mapIntoStruct(webRaw, &base.Web)
 		}
 	}
-	var security map[string]interface{}
-	if err := store.GetConfigValue("security_settings", &security); err == nil && security != nil {
-		mapIntoStruct(security, &base.Security)
-	}
 	pmsettings.Sanitize(&base)
-	applyDeveloperSettingsEffects(&base.Developer)
+	applyFeaturesSettingsEffects(&base.Features)
 	return base
 }
 
@@ -1723,24 +1729,6 @@ func maybeStartAutoUpdateWorker(appCtx context.Context, agentCfg *AgentConfig, d
 		return
 	}
 	go initAutoUpdateWorker(appCtx, agentCfg, dataDir, log)
-}
-
-func filterAgentLocalDeveloper(src map[string]interface{}) map[string]interface{} {
-	if len(src) == 0 {
-		return map[string]interface{}{}
-	}
-	allowed := map[string]struct{}{
-		"log_level":        {},
-		"dump_parse_debug": {},
-		"show_legacy":      {},
-	}
-	out := make(map[string]interface{})
-	for key, value := range src {
-		if _, ok := allowed[key]; ok {
-			out[key] = value
-		}
-	}
-	return out
 }
 
 // tryLearnOIDForValue performs an SNMP walk to find an OID that returns the specified value
@@ -2449,7 +2437,8 @@ func runInteractive(ctx context.Context, configFlag string) {
 	settingsManager = NewSettingsManager(agentConfigStore)
 	applyServerConfigFromStore(agentConfig, agentConfigStore, appLogger)
 
-	// Migration: consolidate legacy dev_settings / developer_settings into unified "settings" key
+	// Migration: consolidate legacy dev_settings / developer_settings / security_settings into unified "settings" key
+	// Also migrates from old Developer/Security structure to new SNMP/Features/Logging/Web structure.
 	// This is idempotent and creates a timestamped backup of legacy data before deleting it.
 	func() {
 		if agentConfigStore == nil {
@@ -2461,40 +2450,141 @@ func runInteractive(ctx context.Context, configFlag string) {
 			settings = map[string]interface{}{}
 		}
 
-		// If developer is already present, nothing to do
-		if _, ok := settings["developer"]; ok {
-			return
+		migrated := false
+		timestamp := time.Now().Format(time.RFC3339)
+
+		// Migrate legacy "developer" section to new structure
+		if devRaw, ok := settings["developer"].(map[string]interface{}); ok {
+			bkKey := "backup.developer." + timestamp
+			_ = agentConfigStore.SetConfigValue(bkKey, devRaw)
+
+			// Extract SNMP settings
+			snmp := map[string]interface{}{}
+			if v, ok := devRaw["snmp_community"]; ok {
+				snmp["community"] = v
+			}
+			if v, ok := devRaw["snmp_timeout_ms"]; ok {
+				snmp["timeout_ms"] = v
+			}
+			if v, ok := devRaw["snmp_retries"]; ok {
+				snmp["retries"] = v
+			}
+			if len(snmp) > 0 {
+				settings["snmp"] = snmp
+			}
+
+			// Extract Features settings
+			features := map[string]interface{}{}
+			if v, ok := devRaw["epson_remote_mode_enabled"]; ok {
+				features["epson_remote_mode_enabled"] = v
+			}
+			if v, ok := devRaw["asset_id_regex"]; ok {
+				features["asset_id_regex"] = v
+			}
+			if len(features) > 0 {
+				settings["features"] = features
+			}
+
+			// Extract Logging settings
+			logging := map[string]interface{}{}
+			if v, ok := devRaw["log_level"]; ok {
+				logging["level"] = v
+			}
+			if v, ok := devRaw["dump_parse_debug"]; ok {
+				logging["dump_parse_debug"] = v
+			}
+			if len(logging) > 0 {
+				settings["logging"] = logging
+			}
+
+			// Move discover_concurrency to discovery
+			if v, ok := devRaw["discover_concurrency"]; ok {
+				var disc map[string]interface{}
+				_ = agentConfigStore.GetConfigValue("discovery_settings", &disc)
+				if disc == nil {
+					disc = map[string]interface{}{}
+				}
+				disc["concurrency"] = v
+				_ = agentConfigStore.SetConfigValue("discovery_settings", disc)
+			}
+
+			delete(settings, "developer")
+			migrated = true
+			appLogger.Info("Migrated legacy developer settings to new structure", "backup_key", bkKey)
 		}
 
-		// Try legacy keys
+		// Migrate legacy security_settings to web section
+		var security map[string]interface{}
+		if err := agentConfigStore.GetConfigValue("security_settings", &security); err == nil && security != nil {
+			bkKey := "backup.security_settings." + timestamp
+			_ = agentConfigStore.SetConfigValue(bkKey, security)
+
+			web := map[string]interface{}{}
+			if v, ok := security["enable_http"]; ok {
+				web["enable_http"] = v
+			}
+			if v, ok := security["enable_https"]; ok {
+				web["enable_https"] = v
+			}
+			if v, ok := security["http_port"]; ok {
+				web["http_port"] = v
+			}
+			if v, ok := security["https_port"]; ok {
+				web["https_port"] = v
+			}
+			if v, ok := security["redirect_http_to_https"]; ok {
+				web["redirect_http_to_https"] = v
+			}
+			if v, ok := security["custom_cert_path"]; ok {
+				web["custom_cert_path"] = v
+			}
+			if v, ok := security["custom_key_path"]; ok {
+				web["custom_key_path"] = v
+			}
+			if len(web) > 0 {
+				settings["web"] = web
+			}
+
+			// Move credentials_enabled to features
+			if v, ok := security["credentials_enabled"]; ok {
+				feat, _ := settings["features"].(map[string]interface{})
+				if feat == nil {
+					feat = map[string]interface{}{}
+				}
+				feat["credentials_enabled"] = v
+				settings["features"] = feat
+			}
+
+			_ = agentConfigStore.DeleteConfigValue("security_settings")
+			migrated = true
+			appLogger.Info("Migrated legacy security_settings to web/features", "backup_key", bkKey)
+		}
+
+		// Migrate legacy dev_settings if present
 		var legacy map[string]interface{}
 		if err := agentConfigStore.GetConfigValue("dev_settings", &legacy); err == nil && legacy != nil {
-			// backup legacy data under a timestamped key in case of accidental data loss
-			bkKey := "backup.dev_settings." + time.Now().Format(time.RFC3339)
+			bkKey := "backup.dev_settings." + timestamp
 			_ = agentConfigStore.SetConfigValue(bkKey, legacy)
-			settings["developer"] = legacy
-			if err := agentConfigStore.SetConfigValue("settings", settings); err == nil {
-				_ = agentConfigStore.DeleteConfigValue("dev_settings")
-				appLogger.Info("Migrated legacy dev_settings into settings.developer", "backup_key", bkKey)
-			}
-			return
+			_ = agentConfigStore.DeleteConfigValue("dev_settings")
+			migrated = true
+			appLogger.Info("Cleaned up legacy dev_settings", "backup_key", bkKey)
 		}
 
-		// Also check developer_settings key if present
-		legacy = nil
+		// Migrate legacy developer_settings if present
 		if err := agentConfigStore.GetConfigValue("developer_settings", &legacy); err == nil && legacy != nil {
-			bkKey := "backup.developer_settings." + time.Now().Format(time.RFC3339)
+			bkKey := "backup.developer_settings." + timestamp
 			_ = agentConfigStore.SetConfigValue(bkKey, legacy)
-			settings["developer"] = legacy
-			if err := agentConfigStore.SetConfigValue("settings", settings); err == nil {
-				_ = agentConfigStore.DeleteConfigValue("developer_settings")
-				appLogger.Info("Migrated legacy developer_settings into settings.developer", "backup_key", bkKey)
-			}
-			return
+			_ = agentConfigStore.DeleteConfigValue("developer_settings")
+			migrated = true
+			appLogger.Info("Cleaned up legacy developer_settings", "backup_key", bkKey)
+		}
+
+		if migrated {
+			_ = agentConfigStore.SetConfigValue("settings", settings)
 		}
 	}()
 
-	// Prime runtime settings (developer/discovery) so feature flags reflect stored values before services start.
+	// Prime runtime settings so feature flags reflect stored values before services start.
 	loadUnifiedSettings(agentConfigStore)
 
 	// Clean up old database backups (keep 10 most recent)
@@ -5973,14 +6063,16 @@ window.top.location.href = '/proxy/%s/';
 			isServerManaged := settingsManager != nil && settingsManager.HasManagedSnapshot()
 			resp := map[string]interface{}{
 				"discovery":        snapshot.Discovery,
-				"developer":        snapshot.Developer,
-				"security":         snapshot.Security,
+				"snmp":             snapshot.SNMP,
+				"features":         snapshot.Features,
+				"logging":          snapshot.Logging,
+				"web":              snapshot.Web,
 				"server_managed":   isServerManaged,
 				"managed_sections": []string{},
 			}
 			if isServerManaged {
-				// When server-managed, discovery settings are locked (developer has local overrides)
-				resp["managed_sections"] = []string{"discovery"}
+				// When server-managed, discovery/snmp/features are locked (logging/web are local)
+				resp["managed_sections"] = []string{"discovery", "snmp", "features"}
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
@@ -5989,8 +6081,10 @@ window.top.location.href = '/proxy/%s/';
 		case http.MethodPost:
 			var req struct {
 				Discovery map[string]interface{} `json:"discovery"`
-				Developer map[string]interface{} `json:"developer"`
-				Security  map[string]interface{} `json:"security"`
+				SNMP      map[string]interface{} `json:"snmp"`
+				Features  map[string]interface{} `json:"features"`
+				Logging   map[string]interface{} `json:"logging"`
+				Web       map[string]interface{} `json:"web"`
 				Reset     bool                   `json:"reset"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -6000,14 +6094,7 @@ window.top.location.href = '/proxy/%s/';
 
 			if req.Reset {
 				_ = agentConfigStore.SetConfigValue("discovery_settings", map[string]interface{}{})
-				var envelope map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("settings", &envelope)
-				if envelope == nil {
-					envelope = map[string]interface{}{}
-				}
-				envelope["developer"] = map[string]interface{}{}
-				_ = agentConfigStore.SetConfigValue("settings", envelope)
-				_ = agentConfigStore.SetConfigValue("security_settings", map[string]interface{}{})
+				_ = agentConfigStore.SetConfigValue("settings", map[string]interface{}{})
 				stopAutoDiscover()
 				stopLiveMDNS()
 				stopLiveWSDiscovery()
@@ -6024,7 +6111,7 @@ window.top.location.href = '/proxy/%s/';
 				if ipnets, err := agent.GetLocalSubnets(); err == nil && len(ipnets) > 0 {
 					defaults.Discovery.DetectedSubnet = ipnets[0].String()
 				}
-				applyDeveloperSettingsEffects(&defaults.Developer)
+				applyFeaturesSettingsEffects(&defaults.Features)
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(defaults)
 				return
@@ -6064,34 +6151,48 @@ window.top.location.href = '/proxy/%s/';
 				current.Discovery = updated
 			}
 
-			if req.Developer != nil {
-				updated := current.Developer
-				mapIntoStruct(req.Developer, &updated)
-				var envelope map[string]interface{}
-				_ = agentConfigStore.GetConfigValue("settings", &envelope)
-				if envelope == nil {
-					envelope = map[string]interface{}{}
-				}
-				envelope["developer"] = structToMap(updated)
-				if err := agentConfigStore.SetConfigValue("settings", envelope); err != nil {
-					http.Error(w, "failed to save developer settings: "+err.Error(), http.StatusInternalServerError)
-					return
-				}
-				current.Developer = updated
+			// Save all settings to unified envelope
+			var envelope map[string]interface{}
+			_ = agentConfigStore.GetConfigValue("settings", &envelope)
+			if envelope == nil {
+				envelope = map[string]interface{}{}
 			}
 
-			if req.Security != nil {
-				updated := current.Security
-				mapIntoStruct(req.Security, &updated)
-				if err := agentConfigStore.SetConfigValue("security_settings", structToMap(updated)); err != nil {
-					http.Error(w, "failed to save security settings: "+err.Error(), http.StatusInternalServerError)
-					return
-				}
-				current.Security = updated
+			if req.SNMP != nil {
+				updated := current.SNMP
+				mapIntoStruct(req.SNMP, &updated)
+				envelope["snmp"] = structToMap(updated)
+				current.SNMP = updated
+			}
+
+			if req.Features != nil {
+				updated := current.Features
+				mapIntoStruct(req.Features, &updated)
+				envelope["features"] = structToMap(updated)
+				current.Features = updated
+			}
+
+			if req.Logging != nil {
+				updated := current.Logging
+				mapIntoStruct(req.Logging, &updated)
+				envelope["logging"] = structToMap(updated)
+				current.Logging = updated
+			}
+
+			if req.Web != nil {
+				updated := current.Web
+				mapIntoStruct(req.Web, &updated)
+				envelope["web"] = structToMap(updated)
+				current.Web = updated
+			}
+
+			if err := agentConfigStore.SetConfigValue("settings", envelope); err != nil {
+				http.Error(w, "failed to save settings: "+err.Error(), http.StatusInternalServerError)
+				return
 			}
 
 			pmsettings.Sanitize(&current)
-			applyDeveloperSettingsEffects(&current.Developer)
+			applyFeaturesSettingsEffects(&current.Features)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(current)
 			return
@@ -6428,30 +6529,46 @@ window.top.location.href = '/proxy/%s/';
 	customCertPath := ""
 	customKeyPath := ""
 
-	// Try to load settings from config
+	// Try to load settings from unified_settings (new format) first, then fall back to legacy
 	if agentConfigStore != nil {
-		var securitySettings map[string]interface{}
-		if err := agentConfigStore.GetConfigValue("security_settings", &securitySettings); err == nil {
-			if val, ok := securitySettings["enable_http"].(bool); ok {
-				enableHTTP = val
+		// First try new unified settings (v2 schema)
+		unified := loadUnifiedSettings(agentConfigStore)
+		// Check if web settings have been loaded (HTTPPort is always set with defaults)
+		if unified.Web.HTTPPort != "" {
+			enableHTTP = unified.Web.EnableHTTP
+			enableHTTPS = unified.Web.EnableHTTPS
+			httpPort = unified.Web.HTTPPort
+			if unified.Web.HTTPSPort != "" {
+				httpsPort = unified.Web.HTTPSPort
 			}
-			if val, ok := securitySettings["enable_https"].(bool); ok {
-				enableHTTPS = val
-			}
-			if val, ok := securitySettings["http_port"].(string); ok && val != "" {
-				httpPort = val
-			}
-			if val, ok := securitySettings["https_port"].(string); ok && val != "" {
-				httpsPort = val
-			}
-			if val, ok := securitySettings["redirect_http_to_https"].(bool); ok {
-				redirectHTTPToHTTPS = val
-			}
-			if val, ok := securitySettings["custom_cert_path"].(string); ok {
-				customCertPath = val
-			}
-			if val, ok := securitySettings["custom_key_path"].(string); ok {
-				customKeyPath = val
+			redirectHTTPToHTTPS = unified.Web.RedirectHTTPToHTTPS
+			customCertPath = unified.Web.CustomCertPath
+			customKeyPath = unified.Web.CustomKeyPath
+		} else {
+			// Legacy fallback: read from old security_settings key
+			var securitySettings map[string]interface{}
+			if err := agentConfigStore.GetConfigValue("security_settings", &securitySettings); err == nil {
+				if val, ok := securitySettings["enable_http"].(bool); ok {
+					enableHTTP = val
+				}
+				if val, ok := securitySettings["enable_https"].(bool); ok {
+					enableHTTPS = val
+				}
+				if val, ok := securitySettings["http_port"].(string); ok && val != "" {
+					httpPort = val
+				}
+				if val, ok := securitySettings["https_port"].(string); ok && val != "" {
+					httpsPort = val
+				}
+				if val, ok := securitySettings["redirect_http_to_https"].(bool); ok {
+					redirectHTTPToHTTPS = val
+				}
+				if val, ok := securitySettings["custom_cert_path"].(string); ok {
+					customCertPath = val
+				}
+				if val, ok := securitySettings["custom_key_path"].(string); ok {
+					customKeyPath = val
+				}
 			}
 		}
 	}

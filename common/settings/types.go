@@ -23,54 +23,74 @@ const (
 )
 
 // Settings captures the canonical configuration surface for PrintMaster agents/tenants.
+// Fleet-managed sections: Discovery, SNMP, Features
+// Agent-local sections: Logging, Web
 type Settings struct {
 	Discovery DiscoverySettings `json:"discovery" toml:"discovery"`
-	Developer DeveloperSettings `json:"developer" toml:"developer"`
-	Security  SecuritySettings  `json:"security" toml:"security"`
+	SNMP      SNMPSettings      `json:"snmp" toml:"snmp"`
+	Features  FeaturesSettings  `json:"features" toml:"features"`
+	Logging   LoggingSettings   `json:"logging" toml:"logging"`
+	Web       WebSettings       `json:"web" toml:"web"`
 }
 
-// DiscoverySettings control how printers are discovered and rescanned.
+// DiscoverySettings control how printers are discovered and rescanned (fleet-managed).
 type DiscoverySettings struct {
-	SubnetScan                   bool   `json:"subnet_scan"`
-	ManualRanges                 bool   `json:"manual_ranges"`
-	RangesText                   string `json:"ranges_text"`
-	DetectedSubnet               string `json:"detected_subnet"`
-	IPScanningEnabled            bool   `json:"ip_scanning_enabled"`
-	ARPEnabled                   bool   `json:"arp_enabled"`
-	ICMPEnabled                  bool   `json:"icmp_enabled"`
-	TCPEnabled                   bool   `json:"tcp_enabled"`
-	MDNSEnabled                  bool   `json:"mdns_enabled"`
-	SNMPEnabled                  bool   `json:"snmp_enabled"`
-	AutoDiscoverEnabled          bool   `json:"auto_discover_enabled"`
-	AutosaveDiscoveredDevices    bool   `json:"autosave_discovered_devices"`
-	ShowDiscoverButtonAnyway     bool   `json:"show_discover_button_anyway"`
-	ShowDiscoveredDevicesAnyway  bool   `json:"show_discovered_devices_anyway"`
-	PassiveDiscoveryEnabled      bool   `json:"passive_discovery_enabled"`
-	AutoDiscoverLiveMDNS         bool   `json:"auto_discover_live_mdns"`
-	AutoDiscoverLiveWSD          bool   `json:"auto_discover_live_wsd"`
-	AutoDiscoverLiveSSDP         bool   `json:"auto_discover_live_ssdp"`
-	AutoDiscoverLiveSNMPTrap     bool   `json:"auto_discover_live_snmptrap"`
-	AutoDiscoverLiveLLMNR        bool   `json:"auto_discover_live_llmnr"`
-	MetricsRescanEnabled         bool   `json:"metrics_rescan_enabled"`
-	MetricsRescanIntervalMinutes int    `json:"metrics_rescan_interval_minutes"`
+	// IP Scanning
+	SubnetScan        bool   `json:"subnet_scan"`
+	ManualRanges      bool   `json:"manual_ranges"`
+	RangesText        string `json:"ranges_text"`
+	DetectedSubnet    string `json:"detected_subnet"`
+	IPScanningEnabled bool   `json:"ip_scanning_enabled"`
+	Concurrency       int    `json:"concurrency"`
+
+	// Probe Methods
+	ARPEnabled  bool `json:"arp_enabled"`
+	ICMPEnabled bool `json:"icmp_enabled"`
+	TCPEnabled  bool `json:"tcp_enabled"`
+	SNMPEnabled bool `json:"snmp_enabled"`
+	MDNSEnabled bool `json:"mdns_enabled"`
+
+	// Automatic Discovery
+	AutoDiscoverEnabled         bool `json:"auto_discover_enabled"`
+	AutosaveDiscoveredDevices   bool `json:"autosave_discovered_devices"`
+	ShowDiscoverButtonAnyway    bool `json:"show_discover_button_anyway"`
+	ShowDiscoveredDevicesAnyway bool `json:"show_discovered_devices_anyway"`
+
+	// Passive Listeners
+	PassiveDiscoveryEnabled  bool `json:"passive_discovery_enabled"`
+	AutoDiscoverLiveMDNS     bool `json:"auto_discover_live_mdns"`
+	AutoDiscoverLiveWSD      bool `json:"auto_discover_live_wsd"`
+	AutoDiscoverLiveSSDP     bool `json:"auto_discover_live_ssdp"`
+	AutoDiscoverLiveSNMPTrap bool `json:"auto_discover_live_snmptrap"`
+	AutoDiscoverLiveLLMNR    bool `json:"auto_discover_live_llmnr"`
+
+	// Metrics Collection
+	MetricsRescanEnabled         bool `json:"metrics_rescan_enabled"`
+	MetricsRescanIntervalMinutes int  `json:"metrics_rescan_interval_minutes"`
 }
 
-// DeveloperSettings include diagnostic and advanced tuning options intended for administrators.
-type DeveloperSettings struct {
-	AssetIDRegex           string `json:"asset_id_regex"`
-	SNMPCommunity          string `json:"snmp_community"`
-	LogLevel               string `json:"log_level"`
-	DumpParseDebug         bool   `json:"dump_parse_debug"`
-	ShowLegacy             bool   `json:"show_legacy"`
-	SNMPTimeoutMS          int    `json:"snmp_timeout_ms"`
-	SNMPRetries            int    `json:"snmp_retries"`
-	DiscoverConcurrency    int    `json:"discover_concurrency"`
+// SNMPSettings configure SNMP queries (fleet-managed).
+type SNMPSettings struct {
+	Community string `json:"community"`
+	TimeoutMS int    `json:"timeout_ms"`
+	Retries   int    `json:"retries"`
+}
+
+// FeaturesSettings toggle optional features (fleet-managed).
+type FeaturesSettings struct {
 	EpsonRemoteModeEnabled bool   `json:"epson_remote_mode_enabled"`
+	CredentialsEnabled     bool   `json:"credentials_enabled"`
+	AssetIDRegex           string `json:"asset_id_regex"`
 }
 
-// SecuritySettings describe listener and credential behaviors for the embedded agent UI/API.
-type SecuritySettings struct {
-	CredentialsEnabled  bool   `json:"credentials_enabled"`
+// LoggingSettings configure agent logging (agent-local).
+type LoggingSettings struct {
+	Level          string `json:"level"`
+	DumpParseDebug bool   `json:"dump_parse_debug"`
+}
+
+// WebSettings configure the agent's embedded web server (agent-local).
+type WebSettings struct {
 	EnableHTTP          bool   `json:"enable_http"`
 	EnableHTTPS         bool   `json:"enable_https"`
 	HTTPPort            string `json:"http_port"`

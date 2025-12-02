@@ -1,5 +1,5 @@
 // Global settings placeholder so sections can stash the latest snapshot.
-const globalSettings = { discovery: {}, developer: {}, security: {} };
+const globalSettings = { discovery: {}, snmp: {}, features: {}, logging: {}, web: {} };
 
 // Cached header info for display
 let cachedAgentVersion = null;
@@ -3506,31 +3506,39 @@ function loadSettings() {
     fetch('/settings').then(async r => {
         if (!r.ok) { window.__pm_shared.warn('failed to load settings'); return; }
         const s = await r.json();
-        const dev = s.developer || {};
+        const snmp = s.snmp || {};
+        const feat = s.features || {};
+        const log = s.logging || {};
         const disc = s.discovery || {};
-        const sec = s.security || {};
+        const web = s.web || {};
 
         // Track which sections are server-managed
         serverManagedSections = new Set(s.managed_sections || []);
         applyServerManagedState();
 
-        // Store security settings globally for use in device modal rendering
-        globalSettings.security = sec;
+        // Store web settings globally for use in device modal rendering
+        globalSettings.web = web;
+        globalSettings.features = feat;
 
         // Populate all form fields from settings
-        document.getElementById('dev_debug_logging').value = dev.log_level || 'info';
-        document.getElementById('dev_dump_parse_debug').checked = !!dev.dump_parse_debug;
-        document.getElementById('dev_show_legacy').checked = !!dev.show_legacy;
-        document.getElementById('dev_snmp_community').value = dev.snmp_community || '';
-        document.getElementById('dev_snmp_timeout').value = dev.snmp_timeout_ms || 2000;
-        document.getElementById('dev_snmp_retries').value = dev.snmp_retries || 1;
-        document.getElementById('dev_discover_concurrency').value = dev.discover_concurrency || 50;
-        document.getElementById('dev_asset_id_regex').value = dev.asset_id_regex || '';
+        // Logging settings
+        document.getElementById('dev_debug_logging').value = log.level || 'info';
+        document.getElementById('dev_dump_parse_debug').checked = !!log.dump_parse_debug;
+        
+        // SNMP settings
+        document.getElementById('dev_snmp_community').value = snmp.community || '';
+        document.getElementById('dev_snmp_timeout').value = snmp.timeout_ms || 2000;
+        document.getElementById('dev_snmp_retries').value = snmp.retries || 1;
+        
+        // Features settings
+        document.getElementById('dev_asset_id_regex').value = feat.asset_id_regex || '';
         const epsonRemoteToggle = document.getElementById('dev_epson_remote_mode');
         if (epsonRemoteToggle) {
-            epsonRemoteToggle.checked = dev.epson_remote_mode_enabled === true;
+            epsonRemoteToggle.checked = feat.epson_remote_mode_enabled === true;
         }
-
+        
+        // Discovery settings
+        document.getElementById('dev_discover_concurrency').value = disc.concurrency || 50;
         document.getElementById('scan_local_subnet_enabled').checked = disc.subnet_scan !== false;
         document.getElementById('manual_ranges_enabled').checked = disc.manual_ranges !== false;
     // Master IP scanning toggle (default enabled)
@@ -3604,40 +3612,40 @@ function loadSettings() {
             passiveMethodsContainer.style.display = passiveEnabled ? 'block' : 'none';
         }
 
-        // Populate security settings
+        // Populate credentials setting from features
         const credentialsCheckbox = document.getElementById('enable_saved_credentials');
         if (credentialsCheckbox) {
-            credentialsCheckbox.checked = sec.credentials_enabled !== false;
+            credentialsCheckbox.checked = feat.credentials_enabled !== false;
         }
 
-        // Populate network settings (HTTP/HTTPS)
+        // Populate network settings (HTTP/HTTPS) from web settings
         const enableHttpCheckbox = document.getElementById('enable_http');
         if (enableHttpCheckbox) {
-            enableHttpCheckbox.checked = sec.enable_http !== false;
+            enableHttpCheckbox.checked = web.enable_http !== false;
         }
         const httpPortInput = document.getElementById('http_port');
         if (httpPortInput) {
-            httpPortInput.value = sec.http_port || '8080';
+            httpPortInput.value = web.http_port || '8080';
         }
         const enableHttpsCheckbox = document.getElementById('enable_https');
         if (enableHttpsCheckbox) {
-            enableHttpsCheckbox.checked = sec.enable_https !== false;
+            enableHttpsCheckbox.checked = web.enable_https !== false;
         }
         const httpsPortInput = document.getElementById('https_port');
         if (httpsPortInput) {
-            httpsPortInput.value = sec.https_port || '8443';
+            httpsPortInput.value = web.https_port || '8443';
         }
         const redirectCheckbox = document.getElementById('redirect_http_to_https');
         if (redirectCheckbox) {
-            redirectCheckbox.checked = sec.redirect_http_to_https === true;
+            redirectCheckbox.checked = web.redirect_http_to_https === true;
         }
         const customCertPathInput = document.getElementById('custom_cert_path');
         if (customCertPathInput) {
-            customCertPathInput.value = sec.custom_cert_path || '';
+            customCertPathInput.value = web.custom_cert_path || '';
         }
         const customKeyPathInput = document.getElementById('custom_key_path');
         if (customKeyPathInput) {
-            customKeyPathInput.value = sec.custom_key_path || '';
+            customKeyPathInput.value = web.custom_key_path || '';
         }
 
         // Apply the "Show Discover Button Anyway" toggle state
@@ -3929,19 +3937,22 @@ function renderPrinterInfo(pi) {
 
 function saveDevSettings() {
     const logLevel = document.getElementById('dev_debug_logging').value;
-    const body = {
-        log_level: logLevel,
-        dump_parse_debug: document.getElementById('dev_dump_parse_debug').checked,
-        show_legacy: document.getElementById('dev_show_legacy').checked,
-        snmp_community: document.getElementById('dev_snmp_community').value,
-        snmp_timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
-        snmp_retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1,
-        discover_concurrency: parseInt(document.getElementById('dev_discover_concurrency').value) || 50,
+    // Compose the new settings structure
+    const snmpSettings = {
+        community: document.getElementById('dev_snmp_community').value,
+        timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
+        retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1
+    };
+    const featuresSettings = {
         asset_id_regex: document.getElementById('dev_asset_id_regex').value || '',
         epson_remote_mode_enabled: document.getElementById('dev_epson_remote_mode')?.checked ?? false
     };
-    // POST developer settings as part of the unified /settings endpoint
-    fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ developer: body }) })
+    const loggingSettings = {
+        log_level: logLevel,
+        dump_parse_debug: document.getElementById('dev_dump_parse_debug').checked
+    };
+    // POST settings as part of the unified /settings endpoint
+    fetch('/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ snmp: snmpSettings, features: featuresSettings, logging: loggingSettings }) })
         .then(async r => { 
             if (!r.ok) { 
                 const t = await r.text(); 
@@ -4205,7 +4216,10 @@ async function saveAllSettings(btn) {
                     if (iv < 5) iv = 5;
                     if (iv > 1440) iv = 1440;
                     return iv;
-                })()
+                })(),
+
+            // Performance
+            concurrency: parseInt(document.getElementById('dev_discover_concurrency').value) || 50
         };
 
         // Include ranges text directly in unified save payload
@@ -4214,24 +4228,31 @@ async function saveAllSettings(btn) {
             discoverySettings.ranges_text = rangesTextEl.value || '';
         }
 
-        // Compose developer settings
+        // Read log level for logging settings
         const logLevel = document.getElementById('dev_debug_logging').value;
-        const devSettings = {
-            log_level: logLevel,
-            debug_logging: (logLevel === 'debug' || logLevel === 'trace'), // backward compat
-            dump_parse_debug: document.getElementById('dev_dump_parse_debug').checked,
-            show_legacy: document.getElementById('dev_show_legacy').checked,
-            snmp_community: document.getElementById('dev_snmp_community').value,
-            snmp_timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
-            snmp_retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1,
-            discover_concurrency: parseInt(document.getElementById('dev_discover_concurrency').value) || 50,
+
+        // Compose SNMP settings (moved from developer)
+        const snmpSettings = {
+            community: document.getElementById('dev_snmp_community').value,
+            timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
+            retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1
+        };
+
+        // Compose features settings
+        const featuresSettings = {
+            credentials_enabled: document.getElementById('enable_saved_credentials')?.checked ?? true,
             asset_id_regex: document.getElementById('dev_asset_id_regex').value || '',
             epson_remote_mode_enabled: document.getElementById('dev_epson_remote_mode')?.checked ?? false
         };
 
-        // Compose security settings
-        const securitySettings = {
-            credentials_enabled: document.getElementById('enable_saved_credentials')?.checked ?? true,
+        // Compose logging settings (agent-local)
+        const loggingSettings = {
+            log_level: logLevel,
+            dump_parse_debug: document.getElementById('dev_dump_parse_debug').checked
+        };
+
+        // Compose web settings (agent-local)
+        const webSettings = {
             enable_http: document.getElementById('enable_http')?.checked ?? true,
             http_port: document.getElementById('http_port')?.value || '8080',
             enable_https: document.getElementById('enable_https')?.checked ?? true,
@@ -4244,7 +4265,7 @@ async function saveAllSettings(btn) {
         const rUnified = await fetch('/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ discovery: discoverySettings, developer: devSettings, security: securitySettings })
+            body: JSON.stringify({ discovery: discoverySettings, snmp: snmpSettings, features: featuresSettings, logging: loggingSettings, web: webSettings })
         });
         if (!rUnified.ok) {
             const t = await rUnified.text();
