@@ -120,7 +120,7 @@ type Agent struct {
 	LastDeviceSync  time.Time `json:"last_device_sync,omitempty"`  // Last device upload
 	LastMetricsSync time.Time `json:"last_metrics_sync,omitempty"` // Last metrics upload
 	TenantID        string    `json:"tenant_id,omitempty"`
-	SiteIDs         []string  `json:"site_ids,omitempty"`          // Sites this agent belongs to (can serve multiple sites)
+	SiteIDs         []string  `json:"site_ids,omitempty"` // Sites this agent belongs to (can serve multiple sites)
 }
 
 // Device represents a printer device discovered by an agent (extends common Device)
@@ -261,15 +261,15 @@ type Tenant struct {
 
 // Site represents a location/grouping within a tenant for organizing agents and devices
 type Site struct {
-	ID          string          `json:"id"`
-	TenantID    string          `json:"tenant_id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Address     string          `json:"address,omitempty"`
+	ID          string           `json:"id"`
+	TenantID    string           `json:"tenant_id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Address     string           `json:"address,omitempty"`
 	FilterRules []SiteFilterRule `json:"filter_rules,omitempty"` // Rules for matching devices to this site
-	CreatedAt   time.Time       `json:"created_at"`
-	AgentCount  int             `json:"agent_count,omitempty"`  // Computed: number of agents assigned
-	DeviceCount int             `json:"device_count,omitempty"` // Computed: number of devices matching
+	CreatedAt   time.Time        `json:"created_at"`
+	AgentCount  int              `json:"agent_count,omitempty"`  // Computed: number of agents assigned
+	DeviceCount int              `json:"device_count,omitempty"` // Computed: number of devices matching
 }
 
 // SiteFilterRule defines a rule for matching devices to a site
