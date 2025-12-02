@@ -1181,7 +1181,7 @@ function normalizeServerSettings(raw) {
             letsencrypt_accept_tos: safeBool(tlsSection.letsencrypt_accept_tos),
         },
         logging: {
-            level: safeStr(loggingSection.level || 'INFO') || 'INFO',
+            level: (safeStr(loggingSection.level || 'INFO') || 'INFO').toUpperCase(),
         },
         smtp: {
             enabled: safeBool(smtpSection.enabled),
@@ -1299,7 +1299,7 @@ function renderServerSettingsField(sectionKey, field) {
     const inputId = `server_setting_${sectionKey}_${field.key}`;
     const isLocked = field.configKey && serverSettingsVM.lockedKeys.has(field.configKey);
     const disabledAttr = isLocked ? 'disabled' : '';
-    const lockBadge = isLocked ? '<span style="font-size:11px;color:var(--warn);background:rgba(255,153,0,0.15);padding:2px 6px;border-radius:4px;">Env managed</span>' : '';
+    const lockBadge = isLocked ? '<span style="font-size:11px;color:var(--warn);background:rgba(255,153,0,0.15);padding:2px 6px;border-radius:4px;">ENV Override</span>' : '';
     const labelText = escapeHtml(field.label || '');
     let control = '';
     if (field.type === 'checkbox') {

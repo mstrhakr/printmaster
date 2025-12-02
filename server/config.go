@@ -307,10 +307,17 @@ func LoadConfig(configPath string) (*Config, *ConfigSourceTracker, error) {
 		tracker.EnvKeys["smtp.from"] = true
 	}
 
-	// Apply common environment variable overrides (component-specific prefixed env var supported)
+	// Logging env overrides with tracking (check prefixed first, then generic)
+	if val := os.Getenv("SERVER_LOG_LEVEL"); val != "" {
+		cfg.Logging.Level = strings.ToLower(val)
+		tracker.EnvKeys["logging.level"] = true
+	} else if val := os.Getenv("LOG_LEVEL"); val != "" {
+		cfg.Logging.Level = strings.ToLower(val)
+		tracker.EnvKeys["logging.level"] = true
+	}
+
+	// Apply common environment variable overrides for database (component-specific prefixed env var supported)
 	config.ApplyDatabaseEnvOverrides(&cfg.Database, "SERVER")
-	config.ApplyLoggingEnvOverrides(&cfg.Logging)
-	// Note: database and logging env overrides don't track keys currently (can extend if needed)
 
 	return cfg, tracker, nil
 }
