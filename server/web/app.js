@@ -2402,30 +2402,51 @@ function renderUsers(list){
     const el = document.getElementById('users_list');
     if(!el) return;
     if(!Array.isArray(list) || list.length===0){
-        el.innerHTML = '<div class="muted-text">No users found.</div>';
+        el.innerHTML = '<div class="users-empty-state"><div class="muted-text">No users found.</div></div>';
         return;
     }
 
+    // Role badge styling
+    const roleBadge = (role) => {
+        const r = (role || 'viewer').toLowerCase();
+        return `<span class="role-badge role-${r}">${escapeHtml(r)}</span>`;
+    };
+
     const rows = list.map(u=>{
         const username = escapeHtml(u.username || '—');
-        const email = escapeHtml(u.email || '(no email)');
-        const role = escapeHtml(u.role || 'user');
-        const tenantMarkup = u.tenant_id ? escapeHtml(u.tenant_id) : '<span class="muted-text">(global)</span>';
+        const email = escapeHtml(u.email || '');
+        const role = u.role || 'viewer';
+        const tenantLabel = u.tenant_id ? formatTenantDisplay(u.tenant_id) : '';
+        const tenantMarkup = tenantLabel ? `<span class="user-tenant-chip">${escapeHtml(tenantLabel)}</span>` : '<span class="user-tenant-chip global">Global</span>';
         const idAttr = escapeHtml(u.id || '');
         const usernameAttr = escapeHtml(u.username || '');
+        const createdAt = u.created_at ? formatRelativeTime(new Date(u.created_at)) : '';
+        const initial = (u.username || 'U')[0].toUpperCase();
         return `
-            <tr>
+            <tr data-user-id="${idAttr}">
                 <td>
-                    <div class="table-primary">${username}</div>
-                    <div class="muted-text">${email}</div>
+                    <div class="user-cell">
+                        <div class="user-avatar">${initial}</div>
+                        <div class="user-info">
+                            <div class="user-name">${username}</div>
+                            ${email ? `<div class="user-email">${escapeHtml(email)}</div>` : ''}
+                        </div>
+                    </div>
                 </td>
-                <td>${role}</td>
+                <td>${roleBadge(role)}</td>
                 <td>${tenantMarkup}</td>
+                <td class="user-created-col">${createdAt ? `<span title="${u.created_at}">${createdAt}</span>` : '—'}</td>
                 <td class="actions-col">
                     <div class="table-actions">
-                        <button data-action="user-sessions" data-id="${idAttr}" data-username="${usernameAttr}">Sessions</button>
-                        <button data-action="edit-user" data-id="${idAttr}">Edit</button>
-                        <button data-action="delete-user" data-id="${idAttr}">Delete</button>
+                        <button class="btn-icon" data-action="user-sessions" data-id="${idAttr}" data-username="${usernameAttr}" title="View Sessions">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/></svg>
+                        </button>
+                        <button class="btn-icon" data-action="edit-user" data-id="${idAttr}" title="Edit User">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/></svg>
+                        </button>
+                        <button class="btn-icon btn-danger" data-action="delete-user" data-id="${idAttr}" title="Delete User">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/><path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/></svg>
+                        </button>
                     </div>
                 </td>
             </tr>
@@ -2433,20 +2454,41 @@ function renderUsers(list){
     }).join('\n');
 
     el.innerHTML = `
-        <div class="table-wrapper">
-            <table class="simple-table">
-                <thead>
-                    <tr>
-                        <th>User</th>
-                        <th>Role</th>
-                        <th>Tenant</th>
-                        <th class="actions-col">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rows}
-                </tbody>
-            </table>
+        <div class="users-stats-bar">
+            <div class="users-stat">
+                <span class="users-stat-value">${list.length}</span>
+                <span class="users-stat-label">Total Users</span>
+            </div>
+            <div class="users-stat">
+                <span class="users-stat-value">${list.filter(u => u.role === 'admin').length}</span>
+                <span class="users-stat-label">Admins</span>
+            </div>
+            <div class="users-stat">
+                <span class="users-stat-value">${list.filter(u => u.role === 'operator').length}</span>
+                <span class="users-stat-label">Operators</span>
+            </div>
+            <div class="users-stat">
+                <span class="users-stat-value">${list.filter(u => u.role === 'viewer').length}</span>
+                <span class="users-stat-label">Viewers</span>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="table-wrapper">
+                <table class="simple-table users-table">
+                    <thead>
+                        <tr>
+                            <th>User</th>
+                            <th>Role</th>
+                            <th>Tenant</th>
+                            <th>Created</th>
+                            <th class="actions-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
         </div>
     `;
 
@@ -2480,68 +2522,235 @@ function renderUsers(list){
     });
 }
 
+// Track active sessions modal for proper updates
+let activeSessionsModal = null;
+
 async function loadUserSessions(userId, username){
     try{
         const r = await fetch('/api/v1/sessions?user_id='+encodeURIComponent(userId));
         if(!r.ok) throw new Error(await r.text());
         const sessions = await r.json();
-        showSessionsModal(sessions, username);
+        showSessionsModal(sessions, username, userId);
     }catch(err){
         window.__pm_shared.showAlert('Failed to load sessions: '+(err.message||err), 'Error', true, false);
     }
 }
 
-function showSessionsModal(sessions, username){
-    // create simple modal
-    const modal = document.createElement('div');
-    modal.style.position = 'fixed'; modal.style.left='0'; modal.style.top='0'; modal.style.right='0'; modal.style.bottom='0';
-    modal.style.background = 'rgba(0,0,0,0.5)'; modal.style.display='flex'; modal.style.alignItems='center'; modal.style.justifyContent='center';
-    modal.style.zIndex = 9999;
-    const box = document.createElement('div');
-    box.style.background = 'var(--bg)'; box.style.color='var(--fg)'; box.style.padding='16px'; box.style.borderRadius='6px'; box.style.width='600px'; box.style.maxHeight='80vh'; box.style.overflow='auto';
-    const title = document.createElement('div'); title.style.display='flex'; title.style.justifyContent='space-between'; title.style.alignItems='center';
-    const h = document.createElement('div'); h.style.fontWeight='600'; h.textContent = 'Sessions for '+(username||'user');
-    const close = document.createElement('button'); close.textContent='Close'; close.addEventListener('click', ()=> document.body.removeChild(modal));
-    title.appendChild(h); title.appendChild(close);
-    box.appendChild(title);
-    const list = document.createElement('div'); list.style.marginTop='12px';
-    if(!Array.isArray(sessions) || sessions.length===0){
-        list.innerHTML = '<div style="color:var(--muted)">No sessions found.</div>';
-    } else {
-        const rows = sessions.map(s => {
-            const created = s.created_at ? new Date(s.created_at).toLocaleString() : '';
-            const expires = s.expires_at ? new Date(s.expires_at).toLocaleString() : '';
-            const user = s.username || '';
-            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--muted)">
-                <div style="font-size:13px">
-                    <div><strong>${escapeHtml(user)}</strong></div>
-                    <div style="color:var(--muted);font-size:12px">Created: ${escapeHtml(created)} &nbsp; Expires: ${escapeHtml(expires)}</div>
-                </div>
-                <div>
-                    <button data-action="revoke-session" data-key="${escapeHtml(s.token || '')}">Revoke</button>
-                </div>
-            </div>`;
-        }).join('\n');
-        list.innerHTML = rows;
+// Sessions modal sort state
+let sessionsSort = { key: 'created_at', dir: 'desc' };
+
+function showSessionsModal(sessions, username, userId){
+    // Remove existing modal if present (prevents stacking)
+    if (activeSessionsModal && activeSessionsModal.parentNode) {
+        activeSessionsModal.parentNode.removeChild(activeSessionsModal);
     }
-    box.appendChild(list);
+    
+    const currentTokenHash = currentUser?.session_token_hash || '';
+    
+    const modal = document.createElement('div');
+    modal.className = 'sessions-modal-overlay';
+    activeSessionsModal = modal;
+    
+    const box = document.createElement('div');
+    box.className = 'sessions-modal';
+    
+    // Sort sessions
+    const sortedSessions = [...(sessions || [])].sort((a, b) => {
+        const aVal = a[sessionsSort.key] || '';
+        const bVal = b[sessionsSort.key] || '';
+        const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        return sessionsSort.dir === 'asc' ? cmp : -cmp;
+    });
+    
+    const hasCurrentSession = sortedSessions.some(s => s.token === currentTokenHash);
+    const hasOtherSessions = sortedSessions.some(s => s.token !== currentTokenHash);
+    
+    const sortIcon = (key) => {
+        if (sessionsSort.key !== key) return '';
+        return sessionsSort.dir === 'asc' ? ' ▲' : ' ▼';
+    };
+    
+    let content = `
+        <div class="sessions-modal-header">
+            <div class="sessions-modal-title">
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/></svg>
+                Sessions for ${escapeHtml(username || 'user')}
+            </div>
+            <button class="sessions-modal-close" data-action="close">&times;</button>
+        </div>
+        <div class="sessions-modal-body">
+    `;
+    
+    if (!sortedSessions.length) {
+        content += '<div class="sessions-empty">No active sessions found.</div>';
+    } else {
+        content += `
+            <div class="sessions-table-wrapper">
+                <table class="sessions-table">
+                    <thead>
+                        <tr>
+                            <th data-sort-key="created_at" class="sortable">Created${sortIcon('created_at')}</th>
+                            <th data-sort-key="expires_at" class="sortable">Expires${sortIcon('expires_at')}</th>
+                            <th>Status</th>
+                            <th class="actions-col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        sortedSessions.forEach(s => {
+            const created = s.created_at ? new Date(s.created_at) : null;
+            const expires = s.expires_at ? new Date(s.expires_at) : null;
+            const createdStr = created ? formatRelativeTime(created) : '—';
+            const expiresStr = expires ? formatRelativeTime(expires) : '—';
+            const createdFull = created ? created.toLocaleString() : '';
+            const expiresFull = expires ? expires.toLocaleString() : '';
+            const isCurrent = s.token === currentTokenHash;
+            const isExpired = expires && expires < new Date();
+            
+            content += `
+                <tr class="${isCurrent ? 'current-session' : ''} ${isExpired ? 'expired-session' : ''}">
+                    <td title="${escapeHtml(createdFull)}">${createdStr}</td>
+                    <td title="${escapeHtml(expiresFull)}">${expiresStr}</td>
+                    <td>
+                        ${isCurrent ? '<span class="session-badge current">Current</span>' : ''}
+                        ${isExpired ? '<span class="session-badge expired">Expired</span>' : ''}
+                        ${!isCurrent && !isExpired ? '<span class="session-badge active">Active</span>' : ''}
+                    </td>
+                    <td class="actions-col">
+                        ${isCurrent ? `
+                            <button class="btn-sm btn-outline" data-action="revoke-others" title="End all other sessions">End Others</button>
+                        ` : `
+                            <button class="btn-sm btn-danger" data-action="revoke-session" data-key="${escapeHtml(s.token || '')}">Revoke</button>
+                        `}
+                    </td>
+                </tr>
+            `;
+        });
+        
+        content += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+    
+    content += '</div>';
+    
+    // Footer with bulk actions
+    if (sortedSessions.length > 0) {
+        content += `
+            <div class="sessions-modal-footer">
+                <div class="sessions-count">${sortedSessions.length} session${sortedSessions.length !== 1 ? 's' : ''}</div>
+                <div class="sessions-actions">
+                    <button class="btn-outline" data-action="close">Close</button>
+                    <button class="btn-danger" data-action="revoke-all">End All Sessions</button>
+                </div>
+            </div>
+        `;
+    } else {
+        content += `
+            <div class="sessions-modal-footer">
+                <div class="sessions-actions">
+                    <button class="btn-outline" data-action="close">Close</button>
+                </div>
+            </div>
+        `;
+    }
+    
+    box.innerHTML = content;
     modal.appendChild(box);
     document.body.appendChild(modal);
-
-    // Attach revoke handlers
-    modal.querySelectorAll('button[data-action="revoke-session"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    
+    // Close handlers
+    modal.querySelector('[data-action="close"]').addEventListener('click', () => {
+        document.body.removeChild(modal);
+        activeSessionsModal = null;
+    });
+    modal.querySelectorAll('.sessions-modal-close').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.body.removeChild(modal);
+            activeSessionsModal = null;
+        });
+    });
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            document.body.removeChild(modal);
+            activeSessionsModal = null;
+        }
+    });
+    
+    // Sort handlers
+    modal.querySelectorAll('th[data-sort-key]').forEach(th => {
+        th.addEventListener('click', () => {
+            const key = th.getAttribute('data-sort-key');
+            if (sessionsSort.key === key) {
+                sessionsSort.dir = sessionsSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+                sessionsSort.key = key;
+                sessionsSort.dir = 'desc';
+            }
+            showSessionsModal(sessions, username, userId);
+        });
+    });
+    
+    // Revoke single session
+    modal.querySelectorAll('button[data-action="revoke-session"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const key = b.getAttribute('data-key');
-            if(!confirm('Revoke session?')) return;
-            try{
-                const r = await fetch('/api/v1/sessions/'+encodeURIComponent(key), { method: 'DELETE' });
-                if(!r.ok) throw new Error(await r.text());
+            if (!await window.__pm_shared.confirm('Revoke this session?', 'Confirm')) return;
+            try {
+                const r = await fetch('/api/v1/sessions/' + encodeURIComponent(key), { method: 'DELETE' });
+                if (!r.ok) throw new Error(await r.text());
                 window.__pm_shared.showToast('Session revoked', 'success');
-                // refresh list
-                const id = sessions.length>0 ? sessions[0].user_id : null;
-                if(id) await loadUserSessions(id, username);
-            }catch(err){
-                window.__pm_shared.showAlert('Failed to revoke session: '+(err.message||err), 'Error', true, false);
+                await loadUserSessions(userId, username);
+            } catch (err) {
+                window.__pm_shared.showAlert('Failed to revoke session: ' + (err.message || err), 'Error', true, false);
+            }
+        });
+    });
+    
+    // Revoke all other sessions
+    modal.querySelectorAll('button[data-action="revoke-others"]').forEach(b => {
+        b.addEventListener('click', async () => {
+            const otherSessions = sortedSessions.filter(s => s.token !== currentTokenHash);
+            if (otherSessions.length === 0) {
+                window.__pm_shared.showToast('No other sessions to revoke', 'info');
+                return;
+            }
+            if (!await window.__pm_shared.confirm(`End ${otherSessions.length} other session${otherSessions.length !== 1 ? 's' : ''}?`, 'Confirm')) return;
+            try {
+                for (const s of otherSessions) {
+                    await fetch('/api/v1/sessions/' + encodeURIComponent(s.token), { method: 'DELETE' });
+                }
+                window.__pm_shared.showToast('Other sessions ended', 'success');
+                await loadUserSessions(userId, username);
+            } catch (err) {
+                window.__pm_shared.showAlert('Failed to revoke sessions: ' + (err.message || err), 'Error', true, false);
+            }
+        });
+    });
+    
+    // Revoke all sessions
+    modal.querySelectorAll('button[data-action="revoke-all"]').forEach(b => {
+        b.addEventListener('click', async () => {
+            const willLogOut = sortedSessions.some(s => s.token === currentTokenHash);
+            const msg = willLogOut 
+                ? `End all ${sortedSessions.length} session${sortedSessions.length !== 1 ? 's' : ''}? You will be logged out.`
+                : `End all ${sortedSessions.length} session${sortedSessions.length !== 1 ? 's' : ''}?`;
+            if (!await window.__pm_shared.confirm(msg, 'Confirm')) return;
+            try {
+                for (const s of sortedSessions) {
+                    await fetch('/api/v1/sessions/' + encodeURIComponent(s.token), { method: 'DELETE' });
+                }
+                window.__pm_shared.showToast('All sessions ended', 'success');
+                if (willLogOut) {
+                    window.location.href = '/login';
+                } else {
+                    await loadUserSessions(userId, username);
+                }
+            } catch (err) {
+                window.__pm_shared.showAlert('Failed to revoke sessions: ' + (err.message || err), 'Error', true, false);
             }
         });
     });

@@ -507,16 +507,21 @@
         <!-- Users Tab (rendered dynamically) -->
         <template id="tab-template-users">
             <div style="margin-top:12px;" data-tab="users" class="hidden">
-                <h3>Users</h3>
-                <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
-                    <div style="color:var(--muted);">Manage local users and roles</div>
+                <div class="users-header">
                     <div>
-                        <button id="new_user_btn">New User</button>
+                        <h3>Users</h3>
+                        <p class="users-subtitle">Manage local users, roles, and permissions</p>
+                    </div>
+                    <div>
+                        <button id="new_user_btn" class="btn-primary">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                            New User
+                        </button>
                     </div>
                 </div>
 
                 <div id="users_list">
-                    <div style="color:var(--muted);">Loading users...</div>
+                    <div class="users-loading">Loading users...</div>
                 </div>
             </div>
         </template>

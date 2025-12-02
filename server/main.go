@@ -1865,14 +1865,20 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := principal.User
+	// Compute session token hash for current session identification
+	var sessionTokenHash string
+	if token := sessionTokenFromRequest(r); token != "" {
+		sessionTokenHash = storage.TokenHash(token)
+	}
 	// don't expose password hash
 	out := map[string]interface{}{
-		"id":         u.ID,
-		"username":   u.Username,
-		"role":       u.Role,
-		"tenant_id":  u.TenantID,
-		"tenant_ids": principal.TenantIDs,
-		"created_at": u.CreatedAt.Format(time.RFC3339),
+		"id":                 u.ID,
+		"username":           u.Username,
+		"role":               u.Role,
+		"tenant_id":          u.TenantID,
+		"tenant_ids":         principal.TenantIDs,
+		"created_at":         u.CreatedAt.Format(time.RFC3339),
+		"session_token_hash": sessionTokenHash,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(out)

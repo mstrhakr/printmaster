@@ -1424,6 +1424,11 @@ func tokenHash(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// TokenHash computes a stable SHA-256 hex digest of a session token (exported).
+func TokenHash(token string) string {
+	return tokenHash(token)
+}
+
 // ListJoinTokens lists tokens for a tenant (admin view)
 func (s *SQLiteStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*JoinToken, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, token_hash, tenant_id, expires_at, one_time, created_at, used_at, revoked FROM join_tokens WHERE tenant_id = ? ORDER BY created_at DESC`, tenantID)
