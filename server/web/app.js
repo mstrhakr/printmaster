@@ -155,7 +155,7 @@ const DEVICE_CONSUMABLE_LABELS = {
 };
 const DEVICES_SORT_KEYS = ['last_seen', 'manufacturer', 'agent', 'tenant', 'status', 'location', 'ip'];
 const DEVICES_VIEW_OPTIONS = ['cards', 'table'];
-const DEVICES_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_VIEW, 'cards', DEVICES_VIEW_OPTIONS);
+const DEVICES_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_VIEW, 'table', DEVICES_VIEW_OPTIONS);
 const DEVICES_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_KEY, 'last_seen', DEVICES_SORT_KEYS);
 const DEVICES_DEFAULT_SORT_DIR = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_DIR, 'desc', ['asc', 'desc']);
 const DEVICES_METRICS_MAX_AGE_MS = 60 * 1000;
@@ -171,7 +171,7 @@ const AGENT_STATUS_COLORS = {
 };
 const AGENTS_SORT_KEYS = ['last_seen', 'name', 'tenant', 'status', 'connection', 'version', 'platform'];
 const AGENTS_VIEW_OPTIONS = ['cards', 'table'];
-const AGENTS_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_VIEW, 'cards', AGENTS_VIEW_OPTIONS);
+const AGENTS_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_VIEW, 'table', AGENTS_VIEW_OPTIONS);
 const AGENTS_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_KEY, 'last_seen', AGENTS_SORT_KEYS);
 const AGENTS_DEFAULT_SORT_DIR = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_DIR, 'desc', ['asc', 'desc']);
 const AGENTS_METRICS_MAX_AGE_MS = 60 * 1000;
@@ -197,7 +197,7 @@ const devicesVM = {
         sortKey: DEVICES_DEFAULT_SORT_KEY || 'last_seen',
         sortDir: DEVICES_DEFAULT_SORT_DIR || 'desc',
     },
-    view: DEVICES_DEFAULT_VIEW || 'cards',
+    view: DEVICES_DEFAULT_VIEW || 'table',
     stats: {
         total: 0,
         filtered: 0,
@@ -234,7 +234,7 @@ const agentsVM = {
         sortKey: AGENTS_DEFAULT_SORT_KEY || 'last_seen',
         sortDir: AGENTS_DEFAULT_SORT_DIR || 'desc',
     },
-    view: AGENTS_DEFAULT_VIEW || 'cards',
+    view: AGENTS_DEFAULT_VIEW || 'table',
     stats: {
         total: 0,
         filtered: 0,
