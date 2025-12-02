@@ -1868,6 +1868,60 @@ select:focus {
   border: 1px solid var(--border);
 }
 
+/* Toner level bars - compact vertical progress indicators */
+.toner-bars {
+  display: inline-flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 20px;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.toner-bar {
+  width: 6px;
+  height: 100%;
+  border-radius: 2px;
+  position: relative;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.toner-bar::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--toner-level, 0%);
+  background: var(--toner-color, #757575);
+  border-radius: 2px;
+  transition: height 0.3s ease;
+}
+
+.toner-bar.critical::after {
+  animation: toner-pulse 1.5s ease-in-out infinite;
+}
+
+.toner-bar.low::after {
+  opacity: 0.85;
+}
+
+@keyframes toner-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Slightly larger bars in card view */
+.device-card-status .toner-bars {
+  height: 24px;
+}
+
+.device-card-status .toner-bar {
+  width: 7px;
+}
+
 #devices_table_wrapper .table-wrapper,
 #agents_table_wrapper .table-wrapper {
   margin-top: 12px;

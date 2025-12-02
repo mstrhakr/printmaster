@@ -5370,7 +5370,7 @@ function renderDeviceTable(devices) {
                 </td>
                 <td>
                     ${renderDeviceStatusBadge(meta.status)}
-                    ${meta.consumable ? `<div style="margin-top:6px;">${renderDeviceConsumableBadge(meta.consumable)}</div>` : ''}
+                    ${meta.tonerData && meta.tonerData.length > 0 ? `<div style="margin-top:6px;">${renderTonerBars(meta.tonerData)}</div>` : ''}
                 </td>
                 <td>${escapeHtml(meta.agentName || 'Unassigned')}</td>
                 <td>${escapeHtml(tenantLabel)}</td>
@@ -5417,7 +5417,7 @@ function renderServerDeviceCard(device) {
                 </div>
                 <div class="device-card-status">
                     ${renderDeviceStatusBadge(meta.status)}
-                    ${meta.consumable ? renderDeviceConsumableBadge(meta.consumable) : ''}
+                    ${renderTonerBars(meta.tonerData)}
                 </div>
             </div>
             <div class="device-card-info">
@@ -5498,6 +5498,88 @@ function renderDeviceConsumableBadge(consumableMeta) {
         text += ` ${consumableMeta.level}%`;
     }
     return `<span class="consumable-pill" data-band="${consumableMeta.code || 'unknown'}">${escapeHtml(text)}</span>`;
+}
+
+// Map toner names to CSS colors
+const TONER_COLORS = {
+    'toner_black': '#1a1a1a',
+    'toner_cyan': '#00bcd4',
+    'toner_magenta': '#e91e63',
+    'toner_yellow': '#ffc107',
+    'toner_photo_black': '#333',
+    'toner_matte_black': '#444',
+    'toner_light_cyan': '#4dd0e1',
+    'toner_light_magenta': '#f48fb1',
+    'toner_gray': '#9e9e9e',
+    'toner_light_gray': '#bdbdbd',
+    'toner_orange': '#ff9800',
+    'toner_green': '#4caf50',
+    'toner_red': '#f44336',
+    'toner_blue': '#2196f3',
+    'black': '#1a1a1a',
+    'cyan': '#00bcd4',
+    'magenta': '#e91e63',
+    'yellow': '#ffc107',
+    'photo_black': '#333',
+    'photo black': '#333',
+    'matte_black': '#444',
+    'matte black': '#444',
+    'light_cyan': '#4dd0e1',
+    'light cyan': '#4dd0e1',
+    'light_magenta': '#f48fb1',
+    'light magenta': '#f48fb1',
+    'gray': '#9e9e9e',
+    'light_gray': '#bdbdbd',
+    'light gray': '#bdbdbd',
+    'orange': '#ff9800',
+    'green': '#4caf50',
+    'red': '#f44336',
+    'blue': '#2196f3',
+};
+
+function getTonerColor(name) {
+    const key = (name || '').toLowerCase().replace(/[^a-z_]/g, '_');
+    if (TONER_COLORS[key]) return TONER_COLORS[key];
+    // Try partial match
+    for (const [k, v] of Object.entries(TONER_COLORS)) {
+        if (key.includes(k) || k.includes(key)) return v;
+    }
+    // Default gray for unknown
+    return '#757575';
+}
+
+function getDeviceTonerData(device) {
+    const source = device.toner_levels || device.toner || device.consumables || device.supplies;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return [];
+    const entries = [];
+    for (const [name, value] of Object.entries(source)) {
+        const level = normalizePercentage(value);
+        if (typeof level === 'number') {
+            entries.push({ name, level, color: getTonerColor(name) });
+        }
+    }
+    // Sort by color order: black, cyan, magenta, yellow, then rest
+    const order = ['black', 'cyan', 'magenta', 'yellow'];
+    entries.sort((a, b) => {
+        const aKey = a.name.toLowerCase();
+        const bKey = b.name.toLowerCase();
+        const aIdx = order.findIndex(c => aKey.includes(c));
+        const bIdx = order.findIndex(c => bKey.includes(c));
+        if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        if (aIdx !== -1) return -1;
+        if (bIdx !== -1) return 1;
+        return aKey.localeCompare(bKey);
+    });
+    return entries;
+}
+
+function renderTonerBars(tonerData) {
+    if (!tonerData || tonerData.length === 0) return '';
+    const bars = tonerData.map(t => {
+        const levelClass = t.level <= 10 ? 'critical' : t.level <= 25 ? 'low' : '';
+        return `<div class="toner-bar ${levelClass}" title="${escapeHtml(t.name)}: ${t.level}%" style="--toner-color: ${t.color}; --toner-level: ${t.level}%"></div>`;
+    }).join('');
+    return `<div class="toner-bars">${bars}</div>`;
 }
 
 function renderDevicesStats() {
@@ -5790,6 +5872,7 @@ function enrichSingleDevice(device) {
     const lastSeenDate = lastSeenIso ? new Date(lastSeenIso) : null;
     const location = device.location || device.site || device.department || device.building || '';
     const tonerLevels = getDeviceConsumableLevels(device);
+    const tonerData = getDeviceTonerData(device);
     const status = classifyDeviceStatus(device);
     const consumable = classifyConsumableBand(device, tonerLevels);
     return {
@@ -5801,6 +5884,7 @@ function enrichSingleDevice(device) {
             location,
             status,
             consumable,
+            tonerData,
             lastSeenRelative: lastSeenDate ? formatRelativeTime(lastSeenDate) : 'Never',
             lastSeenTooltip: lastSeenDate ? lastSeenDate.toLocaleString() : 'Never',
             lastSeenMs: lastSeenDate ? lastSeenDate.getTime() : 0,
