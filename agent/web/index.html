@@ -523,83 +523,6 @@
                     <div style="color:var(--muted);font-size:12px;margin-left:208px;margin-top:-6px;">
                         Regular expression to extract asset IDs from device names or locations.
                     </div>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_webhook" />
-                        <span>Enable webhook notifications</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Send device events to external
-                            endpoint</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Webhook URL:</span>
-                        <input id="webhook_url" type="text" style="width:320px"
-                            placeholder="https://example.com/webhook" />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Endpoint for device
-                            notifications</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_syslog" />
-                        <span>Send logs to syslog server</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Forward logs to central syslog</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Syslog server:</span>
-                        <input id="syslog_server" type="text" style="width:220px"
-                            placeholder="syslog.example.com:514" />
-                        <span style="color:var(--muted);font-size:12px;">TODO: host:port for syslog
-                            forwarding</span>
-                    </label>
-
-                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
-                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Integration
-                            Settings</summary>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="enable_mqtt" />
-                                <span>Enable MQTT publishing</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Publish device data to MQTT
-                                    broker</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">MQTT broker URL:</span>
-                                <input id="mqtt_broker" type="text" style="width:320px"
-                                    placeholder="mqtt://broker.example.com:1883" />
-                                <span style="color:var(--muted);font-size:12px;">TODO: MQTT connection string</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">MQTT topic prefix:</span>
-                                <input id="mqtt_topic_prefix" type="text" style="width:220px"
-                                    placeholder="printmaster/" />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Base topic for published
-                                    messages</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="enable_prometheus" />
-                                <span>Expose Prometheus metrics</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: /metrics endpoint for
-                                    monitoring</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Prometheus port:</span>
-                                <input id="prometheus_port" type="number" style="width:120px" min="1024" max="65535"
-                                    value="9090" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Metrics server port
-                                    (1024-65535)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="enable_api_auth" disabled />
-                                <span>Require API authentication</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Protect API with
-                                    tokens/keys</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">API key header name:</span>
-                                <input id="api_key_header" type="text" style="width:220px" placeholder="X-API-Key"
-                                    value="X-API-Key" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: HTTP header for API
-                                    key</span>
-                            </label>
-                        </div>
-                    </details>
                 </div>
             </div>
 
@@ -680,34 +603,6 @@
                                 <span>Bind to all network interfaces (0.0.0.0)</span>
                                 <span style="color:var(--muted);font-size:12px;">⚠️ Allow external connections (security risk)</span>
                             </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Network interface filter:</span>
-                                <input id="network_interface_filter" type="text" style="width:220px"
-                                    placeholder="eth0,wlan0" />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Comma-separated interface
-                                    names to
-                                    use</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Custom DNS servers:</span>
-                                <input id="custom_dns_servers" type="text" style="width:320px"
-                                    placeholder="8.8.8.8,1.1.1.1" />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Override system DNS
-                                    (comma-separated)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="enable_cors" />
-                                <span>Enable CORS for API</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Allow cross-origin
-                                    requests</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">CORS allowed origins:</span>
-                                <input id="cors_origins" type="text" style="width:320px"
-                                    placeholder="https://example.com" />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Comma-separated allowed
-                                    origins</span>
-                            </label>
                         </div>
                     </details>
                 </div>
@@ -720,83 +615,11 @@
                     <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
                         Configure security and authentication options.
                     </div>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <input type="checkbox" id="require_login" disabled />
-                        <span>Require login for web UI</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Password-protect agent
-                            interface</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <span style="min-width:200px;">Session timeout (minutes):</span>
-                        <input id="session_timeout" type="number" style="width:120px" min="5" max="1440" value="60" disabled />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Auto-logout after inactivity
-                            (5-1440min)</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <input type="checkbox" id="encrypt_credentials" checked disabled />
-                        <span>Encrypt stored credentials</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: AES-256 encryption for
-                            passwords</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                        <input type="checkbox" id="auto_lock_devices" disabled />
-                        <span>Auto-lock device configs after save</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Prevent accidental overwrites</span>
-                    </label>
                     <label style="display:flex;align-items:center;gap:8px;">
                         <input type="checkbox" id="enable_saved_credentials" checked />
                         <span>Enable saved credentials</span>
                         <span style="color:var(--muted);font-size:12px;">Allow saving/using web UI credentials for proxy auto-login</span>
                     </label>
-
-                    <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
-                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Security
-                            Settings
-                        </summary>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="enable_2fa" disabled />
-                                <span>Enable two-factor authentication</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: TOTP-based 2FA for
-                                    login</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="audit_logging" disabled />
-                                <span>Enable audit logging</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Log all configuration
-                                    changes</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Max login attempts:</span>
-                                <input id="max_login_attempts" type="number" style="width:120px" min="1" max="20"
-                                    value="5" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Lockout after N failed
-                                    attempts
-                                    (1-20)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Lockout duration (minutes):</span>
-                                <input id="lockout_duration" type="number" style="width:120px" min="1" max="1440"
-                                    value="15" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: How long to block after
-                                    failed
-                                    logins</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <input type="checkbox" id="ip_whitelist_enabled" disabled />
-                                <span>Enable IP whitelist</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Only allow specific IPs to
-                                    access
-                                    UI</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;opacity:0.5;">
-                                <span style="min-width:200px;">Allowed IP addresses:</span>
-                                <input id="ip_whitelist" type="text" style="width:320px"
-                                    placeholder="192.168.1.0/24,10.0.0.0/8" disabled />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Comma-separated CIDRs</span>
-                            </label>
-                        </div>
-                    </details>
                 </div>
             </div>
 
@@ -805,261 +628,43 @@
                 <h4 style="margin-top:0;color:var(--highlight)">Data Management</h4>
                 <div style="display:flex;flex-direction:column;gap:12px;">
                     <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
-                        Configure database backend and data retention policies.
+                        Configure data retention and database operations.
                     </div>
 
-                    <!-- Database Backend Selection -->
+                    <!-- Database Info -->
                     <div
                         style="border:1px solid var(--border);padding:12px;border-radius:4px;background:rgba(0,75,86,0.1);">
-                        <div style="color:var(--highlight);margin-bottom:8px;font-weight:bold;">Database Backend
-                        </div>
-                        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                            <span style="min-width:200px;">Database Type:</span>
-                            <select id="db_backend_type" style="width:220px;">
-                                <option value="sqlite" selected>SQLite (Local File)</option>
-                                <option value="postgresql">PostgreSQL (Remote)</option>
-                                <option value="mysql">MySQL (Remote)</option>
-                                <option value="mssql">MS SQL Server (Remote)</option>
-                                <option value="mongodb">MongoDB (Remote)</option>
-                            </select>
-                        </label>
-
-                        <!-- SQLite-specific fields (default visible) -->
-                        <div id="db_sqlite_fields" style="margin-left:12px;display:flex;flex-direction:column;gap:8px;">
+                        <div style="color:var(--highlight);margin-bottom:8px;font-weight:bold;">Database</div>
+                        <div style="display:flex;flex-direction:column;gap:8px;">
                             <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Database file path:</span>
+                                <span style="min-width:188px;">Database file:</span>
                                 <input id="sqlite_db_path" type="text" style="width:320px;" value="printmaster.db"
                                     readonly />
                                 <span style="color:var(--muted);font-size:12px;">Local SQLite database</span>
                             </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="sqlite_wal_mode" checked disabled />
-                                <span>WAL mode (Write-Ahead Logging)</span>
-                                <span style="color:var(--muted);font-size:12px;">Better concurrency for local
-                                    DB</span>
-                            </label>
-                        </div>
-
-                        <!-- PostgreSQL fields (hidden by default) -->
-                        <div id="db_postgresql_fields"
-                            style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Host:</span>
-                                <input id="pg_host" type="text" style="width:220px;" placeholder="localhost" />
-                                <span style="min-width:60px;">Port:</span>
-                                <input id="pg_port" type="number" style="width:100px;" placeholder="5432"
-                                    value="5432" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Database name:</span>
-                                <input id="pg_database" type="text" style="width:220px;" placeholder="printmaster" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Username:</span>
-                                <input id="pg_username" type="text" style="width:220px;" placeholder="postgres" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Password:</span>
-                                <input id="pg_password" type="password" style="width:220px;" placeholder="••••••••" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="pg_ssl_mode" />
-                                <span>Enable SSL/TLS connection</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Secure remote
-                                    connection</span>
-                            </label>
-                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
-                                ⚠️ Requires PostgreSQL driver and application restart
-                            </div>
-                        </div>
-
-                        <!-- MySQL fields (hidden by default) -->
-                        <div id="db_mysql_fields" style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Host:</span>
-                                <input id="mysql_host" type="text" style="width:220px;" placeholder="localhost" />
-                                <span style="min-width:60px;">Port:</span>
-                                <input id="mysql_port" type="number" style="width:100px;" placeholder="3306"
-                                    value="3306" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Database name:</span>
-                                <input id="mysql_database" type="text" style="width:220px;" placeholder="printmaster" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Username:</span>
-                                <input id="mysql_username" type="text" style="width:220px;" placeholder="root" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Password:</span>
-                                <input id="mysql_password" type="password" style="width:220px;"
-                                    placeholder="••••••••" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="mysql_ssl_mode" />
-                                <span>Enable SSL/TLS connection</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Secure remote
-                                    connection</span>
-                            </label>
-                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
-                                ⚠️ Requires MySQL driver and application restart
-                            </div>
-                        </div>
-
-                        <!-- MS SQL fields (hidden by default) -->
-                        <div id="db_mssql_fields" style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Server:</span>
-                                <input id="mssql_server" type="text" style="width:220px;" placeholder="localhost" />
-                                <span style="min-width:60px;">Port:</span>
-                                <input id="mssql_port" type="number" style="width:100px;" placeholder="1433"
-                                    value="1433" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Database name:</span>
-                                <input id="mssql_database" type="text" style="width:220px;" placeholder="printmaster" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Username:</span>
-                                <input id="mssql_username" type="text" style="width:220px;" placeholder="sa" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Password:</span>
-                                <input id="mssql_password" type="password" style="width:220px;"
-                                    placeholder="••••••••" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="mssql_encrypt" />
-                                <span>Encrypt connection</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Force encrypted
-                                    connection</span>
-                            </label>
-                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
-                                ⚠️ Requires SQL Server driver and application restart
-                            </div>
-                        </div>
-
-                        <!-- MongoDB fields (hidden by default) -->
-                        <div id="db_mongodb_fields"
-                            style="margin-left:12px;display:none;flex-direction:column;gap:8px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Connection String:</span>
-                                <input id="mongodb_uri" type="text" style="width:420px;"
-                                    placeholder="mongodb://localhost:27017/printmaster" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Database name:</span>
-                                <input id="mongodb_database" type="text" style="width:220px;"
-                                    placeholder="printmaster" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Username (optional):</span>
-                                <input id="mongodb_username" type="text" style="width:220px;" placeholder="admin" />
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:188px;">Password (optional):</span>
-                                <input id="mongodb_password" type="password" style="width:220px;"
-                                    placeholder="••••••••" />
-                            </label>
-                            <div style="color:var(--muted);font-size:12px;margin-top:4px;">
-                                ⚠️ Requires MongoDB driver and application restart. NoSQL schema - different query
-                                patterns.
-                            </div>
                         </div>
                     </div>
 
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="auto_backup_enabled" />
-                        <span>Enable automatic database backups</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Daily backup of database</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Backup retention (days):</span>
-                        <input id="backup_retention_days" type="number" style="width:120px" min="1" max="365"
-                            value="30" />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Keep backups for N days
-                            (1-365)</span>
-                    </label>
                     <label style="display:flex;align-items:center;gap:8px;">
                         <span style="min-width:200px;">Metrics history retention:</span>
                         <input id="metrics_retention_days" type="number" style="width:120px" min="7" max="1825"
                             value="365" />
                         <span style="color:var(--muted);font-size:12px;">Keep metrics for N days (7-1825)</span>
                     </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="compress_old_metrics" checked />
-                        <span>Compress old metrics data</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Reduce storage for historical
-                            data</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="auto_prune_stale" />
-                        <span>Auto-delete stale devices</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Remove devices not seen in N
-                            days</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Stale device threshold (days):</span>
-                        <input id="stale_device_days" type="number" style="width:120px" min="30" max="365" value="90" />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Mark as stale after N days
-                            offline</span>
-                    </label>
 
                     <details style="margin-top:8px;border:1px solid var(--border);padding:8px;border-radius:4px;">
-                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Advanced Data
-                            Management
-                            (For Advanced Users)</summary>
+                        <summary style="cursor:pointer;color:var(--highlight);font-weight:500;">Dangerous Operations</summary>
                         <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">Database vacuum schedule:</span>
-                                <select id="db_vacuum_schedule" style="width:180px;">
-                                    <option value="never">Never</option>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly" selected>Weekly</option>
-                                    <option value="monthly">Monthly</option>
-                                </select>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Optimize database file size
-                                    (SQLite
-                                    only)</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="export_metrics_csv" />
-                                <span>Auto-export metrics to CSV</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Daily CSV export for external
-                                    analysis</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <span style="min-width:200px;">CSV export path:</span>
-                                <input id="csv_export_path" type="text" style="width:320px" placeholder="exports/" />
-                                <span style="color:var(--muted);font-size:12px;">TODO: Directory for CSV
-                                    files</span>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:8px;">
-                                <input type="checkbox" id="anonymize_exports" />
-                                <span>Anonymize exported data</span>
-                                <span style="color:var(--muted);font-size:12px;">TODO: Hash IPs/serials in
-                                    exports</span>
-                            </label>
-
-                            <!-- Clear Database - SQLite Only -->
-                            <div id="clear_db_section"
-                                style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
-                                <div style="color:var(--highlight);margin-bottom:8px;font-weight:bold;">⚠️ Dangerous
-                                    Operations (SQLite Only)</div>
+                            <!-- Clear Database -->
+                            <div id="clear_db_section">
+                                <div style="color:var(--highlight);margin-bottom:8px;font-weight:bold;">⚠️ Clear Database</div>
                                 <div style="color:var(--muted);font-size:13px;margin-bottom:8px;">
-                                    <strong style="color:var(--text);">Clear Database</strong> - Backs up the
-                                    current SQLite
-                                    database and starts fresh. All devices, metrics, and history will be saved to a
-                                    backup
-                                    file (printmaster.db.backup_TIMESTAMP).
+                                    Backs up the current SQLite database and starts fresh. All devices, metrics, and history 
+                                    will be saved to a backup file (printmaster.db.backup_TIMESTAMP).
                                 </div>
                                 <button id="clear_database_btn" class="delete" style="padding:8px 16px;">
                                     🗑️ Clear Database (Backup & Reset)
                                 </button>
-                                <div style="color:var(--muted);font-size:11px;margin-top:6px;">
-                                    This operation only works with SQLite backend. Remote databases require manual
-                                    cleanup.
-                                </div>
                             </div>
                         </div>
                     </details>
@@ -1072,95 +677,14 @@
                         Customize the web interface appearance and behavior.
                     </div>
                     <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Theme:</span>
-                        <select id="ui_theme" style="width:180px;">
-                            <option value="dark" selected>Dark (Solarized)</option>
-                            <option value="light">Light</option>
-                            <option value="auto">Auto (System)</option>
-                        </select>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Color scheme preference</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Default tab on load:</span>
-                        <select id="default_tab" style="width:180px;">
-                            <option value="devices" selected>Devices</option>
-                            <option value="discovery">Discovery</option>
-                            <option value="settings">Settings</option>
-                            <option value="logs">Logs</option>
-                        </select>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Which tab to show first</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Devices per page:</span>
-                        <input id="devices_per_page" type="number" style="width:120px" min="10" max="500" value="50" />
-                        <span style="color:var(--muted);font-size:12px;">TODO: Pagination size (10-500)</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="auto_refresh_devices" checked />
-                        <span>Auto-refresh device list</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Poll for updates every N
-                            seconds</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Refresh interval (seconds):</span>
-                        <input id="refresh_interval" type="number" style="width:120px" min="5" max="300" value="30" />
-                        <span style="color:var(--muted);font-size:12px;">TODO: How often to update (5-300s)</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
                         <input type="checkbox" id="dev_show_legacy" />
                         <span>Show legacy main-page components</span>
                         <span style="color:var(--muted);font-size:12px;">For backward compatibility</span>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="show_advanced_columns" />
-                        <span>Show advanced device columns</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: MAC, firmware, page counts,
-                            etc.</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_notifications" checked />
-                        <span>Enable browser notifications</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Alert on scan complete, errors,
-                            etc.</span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- Experimental Features -->
-            <div class="panel">
-                <h4 style="margin-top:0;color:var(--highlight)">Experimental Features</h4>
-                <div style="display:flex;flex-direction:column;gap:12px;">
-                    <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
-                        Bleeding-edge features that may be unstable. Use with caution.
-                    </div>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_ml_predictions" />
-                        <span>Enable ML-based toner predictions</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Predict replacement dates</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_auto_grouping" />
-                        <span>Auto-group devices by location</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Parse location strings for
-                            hierarchies</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_anomaly_detection" />
-                        <span>Enable anomaly detection</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Alert on unusual metrics
-                            patterns</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_smart_scheduling" />
-                        <span>Smart scan scheduling</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Optimize scan times based on
-                            usage</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" id="enable_cloud_sync" />
-                        <span>Cloud sync (experimental)</span>
-                        <span style="color:var(--muted);font-size:12px;">TODO: Sync data across multiple
-                            agents</span>
+                        <input type="checkbox" id="show_advanced_settings" checked />
+                        <span>Show advanced settings</span>
+                        <span style="color:var(--muted);font-size:12px;">Display additional configuration options</span>
                     </label>
                 </div>
             </div>
