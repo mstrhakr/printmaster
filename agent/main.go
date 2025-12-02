@@ -5969,8 +5969,21 @@ window.top.location.href = '/proxy/%s/';
 		switch r.Method {
 		case http.MethodGet:
 			snapshot := loadUnifiedSettings(agentConfigStore)
+			// Build response with server-managed metadata
+			isServerManaged := settingsManager != nil && settingsManager.HasManagedSnapshot()
+			resp := map[string]interface{}{
+				"discovery":        snapshot.Discovery,
+				"developer":        snapshot.Developer,
+				"security":         snapshot.Security,
+				"server_managed":   isServerManaged,
+				"managed_sections": []string{},
+			}
+			if isServerManaged {
+				// When server-managed, discovery settings are locked (developer has local overrides)
+				resp["managed_sections"] = []string{"discovery"}
+			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(snapshot)
+			json.NewEncoder(w).Encode(resp)
 			return
 
 		case http.MethodPost:

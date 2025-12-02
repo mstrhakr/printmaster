@@ -3438,6 +3438,69 @@ function restoreAgentActiveTab() {
 // Modal handlers
 
 
+// Track server-managed state globally
+let serverManagedSections = new Set();
+
+// Apply server-managed state to UI elements - disables fields and shows badge
+function applyServerManagedState() {
+    // Map section names to their container panel selectors
+    const sectionSelectors = {
+        'discovery': [
+            '#settings [data-section="discovery"]',
+            '.settings-grid .panel:has(#scan_local_subnet_enabled)',
+            '.settings-grid .panel:has(#discovery_arp_enabled)',
+            '.settings-grid .panel:has(#auto_discover_checkbox)',
+            '.settings-grid .panel:has(#passive_discovery_enabled)',
+            '.settings-grid .panel:has(#metrics_rescan_enabled)'
+        ]
+    };
+
+    // Remove any existing server-managed badges
+    document.querySelectorAll('.server-managed-badge').forEach(el => el.remove());
+
+    // For each managed section, disable inputs and add badge
+    for (const section of serverManagedSections) {
+        const selectors = sectionSelectors[section] || [];
+        for (const sel of selectors) {
+            document.querySelectorAll(sel).forEach(panel => {
+                // Add badge to panel header if not already present
+                const header = panel.querySelector('h4');
+                if (header && !header.querySelector('.server-managed-badge')) {
+                    const badge = document.createElement('span');
+                    badge.className = 'server-managed-badge';
+                    badge.style.cssText = 'font-size:11px;color:var(--primary);background:rgba(0,122,255,0.15);padding:2px 6px;border-radius:4px;margin-left:8px;font-weight:normal;';
+                    badge.textContent = 'Server Override';
+                    header.appendChild(badge);
+                }
+                // Disable all inputs within the panel
+                panel.querySelectorAll('input, select, textarea').forEach(input => {
+                    input.disabled = true;
+                });
+            });
+        }
+    }
+
+    // Also handle discovery-specific elements by ID
+    if (serverManagedSections.has('discovery')) {
+        const discoveryInputIds = [
+            'scan_local_subnet_enabled', 'manual_ranges_enabled', 'ip_scanning_enabled',
+            'discovery_arp_enabled', 'discovery_icmp_enabled', 'discovery_tcp_enabled',
+            'discovery_snmp_enabled', 'discovery_mdns_enabled',
+            'discovery_live_mdns_enabled', 'discovery_live_wsd_enabled',
+            'discovery_live_ssdp_enabled', 'discovery_live_snmptrap_enabled',
+            'discovery_live_llmnr_enabled', 'passive_discovery_enabled',
+            'metrics_rescan_enabled', 'metrics_rescan_interval',
+            'auto_discover_checkbox', 'autosave_checkbox',
+            'show_discover_button_anyway', 'show_discovered_devices_anyway',
+            'ranges_input'
+        ];
+        for (const id of discoveryInputIds) {
+            const el = document.getElementById(id);
+            if (el) el.disabled = true;
+        }
+    }
+}
+
 // Load settings from /settings endpoint and populate ALL UI elements
 function loadSettings() {
     fetch('/settings').then(async r => {
@@ -3446,6 +3509,10 @@ function loadSettings() {
         const dev = s.developer || {};
         const disc = s.discovery || {};
         const sec = s.security || {};
+
+        // Track which sections are server-managed
+        serverManagedSections = new Set(s.managed_sections || []);
+        applyServerManagedState();
 
         // Store security settings globally for use in device modal rendering
         globalSettings.security = sec;
