@@ -3441,16 +3441,31 @@ function renderTenants(list){
             t.created_at ? `<div class="muted-text">Created ${escapeHtml(formatDateTime(t.created_at))}</div>` : ''
         ].join('');
         return `
-            <tr>
-                <td>${businessLines}</td>
+            <tr class="tenant-row" data-tenant-id="${idAttr}">
+                <td>
+                    <div class="tenant-expand-cell">
+                        <button class="expand-btn" data-action="toggle-sites" data-tenant="${idAttr}" title="Expand sites">
+                            <svg class="expand-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                            </svg>
+                        </button>
+                        ${businessLines}
+                    </div>
+                </td>
                 <td>${contactLines || '<span class="muted-text">No contact info</span>'}</td>
                 <td>${metaLines}</td>
                 <td class="actions-col">
                     <div class="table-actions">
-                        <button data-action="view-sites" data-tenant="${idAttr}">Sites</button>
                         <button data-action="create-token" data-tenant="${idAttr}">Create Token</button>
                         <button data-action="view-tokens" data-tenant="${idAttr}">Tokens</button>
                         <button data-action="edit-tenant" data-tenant="${idAttr}">Edit</button>
+                    </div>
+                </td>
+            </tr>
+            <tr class="sites-expansion-row hidden" data-tenant-expansion="${idAttr}">
+                <td colspan="4">
+                    <div class="sites-expansion-content" data-sites-content="${idAttr}">
+                        <div class="muted-text">Loading sites...</div>
                     </div>
                 </td>
             </tr>
@@ -3459,7 +3474,7 @@ function renderTenants(list){
 
     el.innerHTML = `
         <div class="table-wrapper">
-            <table class="simple-table">
+            <table class="simple-table tenants-table">
                 <thead>
                     <tr>
                         <th>Tenant</th>
@@ -3475,6 +3490,14 @@ function renderTenants(list){
         </div>
     `;
 
+    // Wire up expand buttons
+    el.querySelectorAll('button[data-action="toggle-sites"]').forEach(b => {
+        b.addEventListener('click', async () => {
+            const tenantId = b.getAttribute('data-tenant');
+            await toggleTenantSites(tenantId, b);
+        });
+    });
+
     el.querySelectorAll('button[data-action="create-token"]').forEach(b=>{
         b.addEventListener('click', async ()=>{
             const tenant = b.getAttribute('data-tenant');
@@ -3485,12 +3508,6 @@ function renderTenants(list){
         b.addEventListener('click', async ()=>{
             const tenant = b.getAttribute('data-tenant');
             await showTokensList(tenant);
-        });
-    });
-    el.querySelectorAll('button[data-action="view-sites"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
-            const tenantId = b.getAttribute('data-tenant');
-            await openSitesListModal(tenantId);
         });
     });
     el.querySelectorAll('button[data-action="edit-tenant"]').forEach(b=>{
@@ -3513,6 +3530,191 @@ async function updateTenant(id, body){
     if(!r.ok) throw new Error(await r.text());
     return r.json();
 }
+
+// ====== Tenant Sites Expandable Rows ======
+async function toggleTenantSites(tenantId, btn) {
+    const row = btn.closest('tr');
+    const sitesRow = row.nextElementSibling;
+    if (!sitesRow || !sitesRow.classList.contains('sites-expansion-row')) return;
+    
+    const container = sitesRow.querySelector('.sites-expansion-content');
+    const isExpanded = !sitesRow.classList.contains('hidden');
+    
+    if (isExpanded) {
+        // Collapse
+        sitesRow.classList.add('hidden');
+        btn.classList.remove('expanded');
+    } else {
+        // Expand - load sites if not loaded
+        sitesRow.classList.remove('hidden');
+        btn.classList.add('expanded');
+        
+        if (!container.hasAttribute('data-loaded')) {
+            container.innerHTML = '<div class="loading-text">Loading sites...</div>';
+            try {
+                const sites = await fetchSitesForTenant(tenantId);
+                const agents = await fetchAgentsForTenant(tenantId);
+                container.innerHTML = renderSitesTree(tenantId, sites, agents);
+                container.setAttribute('data-loaded', 'true');
+                wireSitesTreeEvents(container, tenantId);
+            } catch (e) {
+                container.innerHTML = `<div class="error-text">Failed to load: ${e.message}</div>`;
+            }
+        }
+    }
+}
+
+async function fetchSitesForTenant(tenantId) {
+    const r = await fetch(`/api/v1/tenants/${encodeURIComponent(tenantId)}/sites`);
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    return data.sites || [];
+}
+
+async function fetchAgentsForTenant(tenantId) {
+    // Fetch agents assigned to this tenant
+    const r = await fetch(`/api/v1/agents`);
+    if (!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+    // Filter agents by tenant
+    return (data.agents || []).filter(a => a.tenant_id === tenantId);
+}
+
+function renderSitesTree(tenantId, sites, agents) {
+    if (sites.length === 0 && agents.length === 0) {
+        return `
+            <div class="sites-tree-empty">
+                <span>No sites configured.</span>
+                <button class="btn btn-xs btn-primary" onclick="openSiteModal('${tenantId}', null)">+ Add Site</button>
+            </div>
+        `;
+    }
+    
+    // Build a map of site -> agents
+    const siteAgents = {};
+    const unassignedAgents = [];
+    agents.forEach(a => {
+        const siteIds = a.site_ids || [];
+        if (siteIds.length === 0) {
+            unassignedAgents.push(a);
+        } else {
+            siteIds.forEach(sid => {
+                if (!siteAgents[sid]) siteAgents[sid] = [];
+                siteAgents[sid].push(a);
+            });
+        }
+    });
+    
+    let html = '<div class="sites-tree">';
+    
+    // Toolbar
+    html += `<div class="sites-tree-toolbar">
+        <button class="btn btn-xs btn-primary" onclick="openSiteModal('${tenantId}', null)">+ Add Site</button>
+    </div>`;
+    
+    // Sites with their agents
+    sites.forEach(site => {
+        const siteAgentList = siteAgents[site.id] || [];
+        html += `
+            <div class="site-node" data-site-id="${site.id}">
+                <div class="site-header">
+                    <span class="site-icon">📍</span>
+                    <span class="site-name">${escapeHtml(site.name)}</span>
+                    <span class="site-meta">${siteAgentList.length} agents, ${site.device_count || 0} devices</span>
+                    <div class="site-actions">
+                        <button class="btn btn-xs" onclick="openSiteModal('${tenantId}', '${site.id}')">Edit</button>
+                        <button class="btn btn-xs btn-danger" onclick="deleteSiteInline('${tenantId}', '${site.id}')">×</button>
+                    </div>
+                </div>
+                <div class="site-agents">
+                    ${siteAgentList.map(a => `
+                        <div class="agent-leaf">
+                            <span class="agent-icon">🖥️</span>
+                            <span class="agent-name">${escapeHtml(a.name || a.id)}</span>
+                            <span class="agent-status ${a.status || 'unknown'}">${a.status || 'unknown'}</span>
+                        </div>
+                    `).join('')}
+                    ${siteAgentList.length === 0 ? '<div class="no-agents-text">No agents assigned</div>' : ''}
+                </div>
+            </div>
+        `;
+    });
+    
+    // Unassigned agents
+    if (unassignedAgents.length > 0) {
+        html += `
+            <div class="site-node unassigned-node">
+                <div class="site-header">
+                    <span class="site-icon">📦</span>
+                    <span class="site-name">Unassigned Agents</span>
+                    <span class="site-meta">${unassignedAgents.length} agents</span>
+                </div>
+                <div class="site-agents">
+                    ${unassignedAgents.map(a => `
+                        <div class="agent-leaf">
+                            <span class="agent-icon">🖥️</span>
+                            <span class="agent-name">${escapeHtml(a.name || a.id)}</span>
+                            <span class="agent-status ${a.status || 'unknown'}">${a.status || 'unknown'}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function wireSitesTreeEvents(container, tenantId) {
+    // Events are wired via onclick attributes for simplicity
+}
+
+async function deleteSiteInline(tenantId, siteId) {
+    if (!confirm('Delete this site? Agents will be unassigned.')) return;
+    try {
+        const r = await fetch(`/api/v1/tenants/${encodeURIComponent(tenantId)}/sites/${encodeURIComponent(siteId)}`, {method: 'DELETE'});
+        if (!r.ok) throw new Error(await r.text());
+        // Refresh the tree
+        await refreshTenantSitesTree(tenantId);
+    } catch (e) {
+        alert('Failed to delete site: ' + e.message);
+    }
+}
+
+async function refreshTenantSitesTree(tenantId) {
+    // Find the tenant row and reload sites
+    const rows = document.querySelectorAll('#tenants_content tr[data-tenant-id]');
+    for (const row of rows) {
+        if (row.getAttribute('data-tenant-id') === tenantId) {
+            const sitesRow = row.nextElementSibling;
+            if (sitesRow && sitesRow.classList.contains('sites-expansion-row')) {
+                const container = sitesRow.querySelector('.sites-expansion-content');
+                if (container) {
+                    container.removeAttribute('data-loaded');
+                    // Refresh if expanded
+                    if (!sitesRow.classList.contains('hidden')) {
+                        container.innerHTML = '<div class="loading-text">Loading sites...</div>';
+                        const sites = await fetchSitesForTenant(tenantId);
+                        const agents = await fetchAgentsForTenant(tenantId);
+                        container.innerHTML = renderSitesTree(tenantId, sites, agents);
+                        container.setAttribute('data-loaded', 'true');
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
+
+// Global function called from onclick handlers in tree
+window.openSiteModal = async function(tenantId, siteId) {
+    currentSitesTenantId = tenantId;
+    await openSiteEditModal(siteId);
+};
+
+// Global function for inline delete
+window.deleteSiteInline = deleteSiteInline;
 
 // ====== Sites Management ======
 let currentSitesTenantId = null;
@@ -3823,7 +4025,9 @@ async function saveSite() {
 
         closeSiteModal();
         window.__pm_shared.showToast(currentSiteEditId ? 'Site updated' : 'Site created', 'success');
+        // Refresh both the list modal (if open) and the tree view
         await loadSitesList(currentSitesTenantId);
+        await refreshTenantSitesTree(currentSitesTenantId);
     } catch (err) {
         errEl.textContent = err.message || 'Failed to save site';
     }
@@ -3837,6 +4041,7 @@ async function deleteSite(siteId) {
         if (!r.ok) throw new Error(await r.text());
         window.__pm_shared.showToast('Site deleted', 'success');
         await loadSitesList(currentSitesTenantId);
+        await refreshTenantSitesTree(currentSitesTenantId);
     } catch (err) {
         window.__pm_shared.showAlert('Failed to delete site: ' + (err.message || err), 'Error', true, false);
     }

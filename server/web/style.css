@@ -2758,6 +2758,219 @@ select:focus {
   color: #859900;
 }
 
+/* ====== Tenant Expandable Sites Tree ====== */
+.tenant-expand-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: rgba(38, 139, 210, 0.15);
+  border: 1px solid rgba(38, 139, 210, 0.3);
+  border-radius: 6px;
+  color: var(--highlight);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tenant-expand-btn:hover {
+  background: rgba(38, 139, 210, 0.25);
+  border-color: var(--highlight);
+}
+
+/* Expand button styling */
+.expand-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.expand-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--fg);
+}
+
+.expand-btn .expand-icon {
+  transition: transform 0.2s ease;
+}
+
+.expand-btn.expanded .expand-icon {
+  transform: rotate(90deg);
+}
+
+.tenant-expand-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* Sites expansion row */
+.sites-expansion-row {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.sites-expansion-row.hidden {
+  display: none;
+}
+
+.sites-expansion-row > td {
+  padding: 0 !important;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.05);
+}
+
+.sites-expansion-content {
+  padding: 16px 20px 16px 44px;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sites-tree-empty {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.sites-tree-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sites-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.site-node {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.site-node.unassigned-node {
+  border-style: dashed;
+  opacity: 0.8;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.site-icon {
+  font-size: 16px;
+}
+
+.site-name {
+  font-weight: 600;
+  flex: 1;
+}
+
+.site-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.site-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.site-agents {
+  padding: 0 14px 10px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agent-leaf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+
+.agent-icon {
+  font-size: 14px;
+}
+
+.agent-leaf .agent-name {
+  flex: 1;
+  font-size: 13px;
+}
+
+.agent-leaf .agent-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.agent-leaf .agent-status.connected {
+  background: rgba(133, 153, 0, 0.2);
+  color: #859900;
+}
+
+.agent-leaf .agent-status.disconnected {
+  background: rgba(220, 50, 47, 0.2);
+  color: var(--danger);
+}
+
+.agent-leaf .agent-status.unknown {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+}
+
+.no-agents-text {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+  padding: 4px 10px;
+}
+
+.loading-text {
+  color: var(--muted);
+  font-style: italic;
+  padding: 12px;
+}
+
+.error-text {
+  color: var(--danger);
+  padding: 12px;
+}
+
 .btn-sm {
   padding: 4px 10px;
   font-size: 12px;
