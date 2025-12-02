@@ -2181,6 +2181,7 @@ function initTenantsUI(){
     initTenantModal();
     initTenantsSubTabs();
     initTenantBundlesUI();
+    initSitesUI();
     switchTenantsView(activeTenantsView, true);
     const btn = document.getElementById('new_tenant_btn');
     if(btn){
@@ -3446,6 +3447,7 @@ function renderTenants(list){
                 <td>${metaLines}</td>
                 <td class="actions-col">
                     <div class="table-actions">
+                        <button data-action="view-sites" data-tenant="${idAttr}">Sites</button>
                         <button data-action="create-token" data-tenant="${idAttr}">Create Token</button>
                         <button data-action="view-tokens" data-tenant="${idAttr}">Tokens</button>
                         <button data-action="edit-tenant" data-tenant="${idAttr}">Edit</button>
@@ -3460,7 +3462,7 @@ function renderTenants(list){
             <table class="simple-table">
                 <thead>
                     <tr>
-                        <th>Customer</th>
+                        <th>Tenant</th>
                         <th>Contact</th>
                         <th>Details</th>
                         <th class="actions-col">Actions</th>
@@ -3485,6 +3487,12 @@ function renderTenants(list){
             await showTokensList(tenant);
         });
     });
+    el.querySelectorAll('button[data-action="view-sites"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const tenantId = b.getAttribute('data-tenant');
+            await openSitesListModal(tenantId);
+        });
+    });
     el.querySelectorAll('button[data-action="edit-tenant"]').forEach(b=>{
         b.addEventListener('click', ()=>{
             const tenantId = b.getAttribute('data-tenant') || '';
@@ -3504,6 +3512,353 @@ async function updateTenant(id, body){
     const r = await fetch('/api/v1/tenants/'+encodeURIComponent(id), {method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
     if(!r.ok) throw new Error(await r.text());
     return r.json();
+}
+
+// ====== Sites Management ======
+let currentSitesTenantId = null;
+let currentSiteEditId = null;
+let currentSiteFilterRules = [];
+
+async function openSitesListModal(tenantId) {
+    currentSitesTenantId = tenantId;
+    const modal = document.getElementById('sites_list_modal');
+    if (!modal) return;
+
+    const tenant = (window._tenants || []).find(t => (t.id || t.uuid || '') === tenantId);
+    const tenantName = tenant ? tenant.name : tenantId;
+    
+    document.getElementById('sites_list_modal_title').textContent = `Sites - ${tenantName}`;
+    document.getElementById('sites_list_subtitle').textContent = `Manage sites for ${tenantName}`;
+    document.getElementById('sites_list_content').innerHTML = '<div class="muted-text">Loading sites...</div>';
+    
+    modal.style.display = 'flex';
+    
+    await loadSitesList(tenantId);
+}
+
+async function loadSitesList(tenantId) {
+    const container = document.getElementById('sites_list_content');
+    try {
+        const r = await fetch(`/api/v1/tenants/${encodeURIComponent(tenantId)}/sites`);
+        if (!r.ok) throw new Error(await r.text());
+        const sites = await r.json();
+        renderSitesList(sites || []);
+    } catch (err) {
+        container.innerHTML = `<div style="color:var(--danger);">Failed to load sites: ${escapeHtml(err.message || err)}</div>`;
+    }
+}
+
+function renderSitesList(sites) {
+    const container = document.getElementById('sites_list_content');
+    if (!sites || sites.length === 0) {
+        container.innerHTML = '<div class="muted-text">No sites defined yet. Click "Add Site" to create one.</div>';
+        return;
+    }
+    
+    const rows = sites.map(site => {
+        const agentBadge = `<span class="site-agents-badge">${site.agent_count || 0} agent${site.agent_count !== 1 ? 's' : ''}</span>`;
+        const rulesBadge = site.filter_rules && site.filter_rules.length > 0 
+            ? `<span class="site-rules-badge">${site.filter_rules.length} rule${site.filter_rules.length !== 1 ? 's' : ''}</span>`
+            : '';
+        return `
+            <tr>
+                <td class="site-name-cell">${escapeHtml(site.name)}</td>
+                <td>${escapeHtml(site.address || '-')}</td>
+                <td>${agentBadge} ${rulesBadge}</td>
+                <td class="actions-col">
+                    <div class="table-actions">
+                        <button data-action="edit-site" data-site-id="${escapeHtml(site.id)}">Edit</button>
+                        <button data-action="delete-site" data-site-id="${escapeHtml(site.id)}" data-site-name="${escapeHtml(site.name)}">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <table class="sites-table">
+            <thead>
+                <tr>
+                    <th>Site Name</th>
+                    <th>Address</th>
+                    <th>Agents / Rules</th>
+                    <th class="actions-col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+
+    container.querySelectorAll('button[data-action="edit-site"]').forEach(b => {
+        b.addEventListener('click', async () => {
+            const siteId = b.getAttribute('data-site-id');
+            await openSiteEditModal(siteId);
+        });
+    });
+
+    container.querySelectorAll('button[data-action="delete-site"]').forEach(b => {
+        b.addEventListener('click', async () => {
+            const siteId = b.getAttribute('data-site-id');
+            const siteName = b.getAttribute('data-site-name');
+            const confirmed = await window.__pm_shared.showConfirm(`Delete site "${siteName}"? This will remove all agent assignments.`, 'Delete Site');
+            if (confirmed) {
+                await deleteSite(siteId);
+            }
+        });
+    });
+}
+
+function closeSitesListModal() {
+    const modal = document.getElementById('sites_list_modal');
+    if (modal) modal.style.display = 'none';
+    currentSitesTenantId = null;
+}
+
+async function openSiteEditModal(siteId) {
+    currentSiteEditId = siteId || null;
+    currentSiteFilterRules = [];
+    
+    const modal = document.getElementById('site_modal');
+    if (!modal) return;
+
+    // Set title and button
+    if (siteId) {
+        document.getElementById('site_modal_title').textContent = 'Edit Site';
+        document.getElementById('site_save').textContent = 'Save Changes';
+    } else {
+        document.getElementById('site_modal_title').textContent = 'New Site';
+        document.getElementById('site_save').textContent = 'Create Site';
+    }
+
+    // Reset form
+    document.getElementById('site_name').value = '';
+    document.getElementById('site_address').value = '';
+    document.getElementById('site_description').value = '';
+    document.getElementById('site_error').textContent = '';
+    document.getElementById('site_filter_rules').innerHTML = '';
+    
+    // Load agents for this tenant
+    await loadSiteAgentsList([]);
+
+    if (siteId) {
+        try {
+            const r = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(siteId)}`);
+            if (!r.ok) throw new Error(await r.text());
+            const site = await r.json();
+            
+            document.getElementById('site_name').value = site.name || '';
+            document.getElementById('site_address').value = site.address || '';
+            document.getElementById('site_description').value = site.description || '';
+            
+            currentSiteFilterRules = site.filter_rules || [];
+            renderSiteFilterRules();
+            
+            // Load assigned agents
+            const agentsR = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(siteId)}/agents`);
+            if (agentsR.ok) {
+                const agentsData = await agentsR.json();
+                await loadSiteAgentsList(agentsData.agent_ids || []);
+            }
+        } catch (err) {
+            document.getElementById('site_error').textContent = 'Failed to load site: ' + (err.message || err);
+        }
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadSiteAgentsList(selectedAgentIds) {
+    const container = document.getElementById('site_agents_list');
+    container.innerHTML = '<div class="muted-text">Loading agents...</div>';
+    
+    try {
+        const r = await fetch('/api/v1/agents');
+        if (!r.ok) throw new Error(await r.text());
+        const agents = await r.json();
+        
+        // Filter to agents belonging to this tenant (or no tenant)
+        const tenantAgents = agents.filter(a => 
+            !a.tenant_id || a.tenant_id === currentSitesTenantId
+        );
+        
+        if (tenantAgents.length === 0) {
+            container.innerHTML = '<div class="muted-text">No agents available for this tenant.</div>';
+            return;
+        }
+
+        const selectedSet = new Set(selectedAgentIds);
+        const items = tenantAgents.map(agent => {
+            const checked = selectedSet.has(agent.agent_id) ? 'checked' : '';
+            const status = agent.status || 'unknown';
+            return `
+                <label class="site-agent-item">
+                    <input type="checkbox" value="${escapeHtml(agent.agent_id)}" ${checked} />
+                    <span class="agent-name">${escapeHtml(agent.name || agent.hostname || agent.agent_id)}</span>
+                    <span class="agent-meta">${escapeHtml(status)}</span>
+                </label>
+            `;
+        }).join('');
+        
+        container.innerHTML = items;
+    } catch (err) {
+        container.innerHTML = `<div style="color:var(--danger);">Failed to load agents: ${escapeHtml(err.message || err)}</div>`;
+    }
+}
+
+function renderSiteFilterRules() {
+    const container = document.getElementById('site_filter_rules');
+    if (!currentSiteFilterRules || currentSiteFilterRules.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const ruleTypes = [
+        { value: 'ip_range', label: 'IP Range (CIDR)', placeholder: '192.168.1.0/24' },
+        { value: 'ip_prefix', label: 'IP Prefix', placeholder: '192.168.1.' },
+        { value: 'hostname_pattern', label: 'Hostname Pattern', placeholder: 'printer-*' },
+        { value: 'serial_pattern', label: 'Serial Pattern', placeholder: 'HP*' }
+    ];
+
+    const html = currentSiteFilterRules.map((rule, index) => {
+        const typeOptions = ruleTypes.map(t => 
+            `<option value="${t.value}" ${rule.type === t.value ? 'selected' : ''}>${t.label}</option>`
+        ).join('');
+        const placeholder = ruleTypes.find(t => t.value === rule.type)?.placeholder || '';
+        
+        return `
+            <div class="site-filter-rule" data-index="${index}">
+                <select class="rule-type">${typeOptions}</select>
+                <input type="text" class="rule-pattern" value="${escapeHtml(rule.pattern)}" placeholder="${placeholder}" />
+                <button type="button" class="remove-rule-btn" title="Remove rule">&times;</button>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = html;
+
+    // Wire up change/remove handlers
+    container.querySelectorAll('.site-filter-rule').forEach(el => {
+        const index = parseInt(el.getAttribute('data-index'), 10);
+        el.querySelector('.rule-type').addEventListener('change', e => {
+            currentSiteFilterRules[index].type = e.target.value;
+        });
+        el.querySelector('.rule-pattern').addEventListener('input', e => {
+            currentSiteFilterRules[index].pattern = e.target.value;
+        });
+        el.querySelector('.remove-rule-btn').addEventListener('click', () => {
+            currentSiteFilterRules.splice(index, 1);
+            renderSiteFilterRules();
+        });
+    });
+}
+
+function addSiteFilterRule() {
+    currentSiteFilterRules.push({ type: 'ip_prefix', pattern: '' });
+    renderSiteFilterRules();
+}
+
+function closeSiteModal() {
+    const modal = document.getElementById('site_modal');
+    if (modal) modal.style.display = 'none';
+    currentSiteEditId = null;
+    currentSiteFilterRules = [];
+}
+
+async function saveSite() {
+    const name = document.getElementById('site_name').value.trim();
+    const address = document.getElementById('site_address').value.trim();
+    const description = document.getElementById('site_description').value.trim();
+    const errEl = document.getElementById('site_error');
+    
+    errEl.textContent = '';
+    
+    if (!name) {
+        errEl.textContent = 'Site name is required';
+        return;
+    }
+
+    // Collect selected agents
+    const agentCheckboxes = document.querySelectorAll('#site_agents_list input[type="checkbox"]:checked');
+    const selectedAgentIds = Array.from(agentCheckboxes).map(cb => cb.value);
+
+    // Filter out empty pattern rules
+    const filterRules = currentSiteFilterRules.filter(r => r.pattern && r.pattern.trim());
+
+    const payload = {
+        name,
+        address,
+        description,
+        filter_rules: filterRules
+    };
+
+    try {
+        let siteId = currentSiteEditId;
+        
+        if (currentSiteEditId) {
+            // Update existing site
+            const r = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(currentSiteEditId)}`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!r.ok) throw new Error(await r.text());
+        } else {
+            // Create new site
+            const r = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!r.ok) throw new Error(await r.text());
+            const newSite = await r.json();
+            siteId = newSite.id;
+        }
+
+        // Update agent assignments
+        await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(siteId)}/agents`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ agent_ids: selectedAgentIds })
+        });
+
+        closeSiteModal();
+        window.__pm_shared.showToast(currentSiteEditId ? 'Site updated' : 'Site created', 'success');
+        await loadSitesList(currentSitesTenantId);
+    } catch (err) {
+        errEl.textContent = err.message || 'Failed to save site';
+    }
+}
+
+async function deleteSite(siteId) {
+    try {
+        const r = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(siteId)}`, {
+            method: 'DELETE'
+        });
+        if (!r.ok) throw new Error(await r.text());
+        window.__pm_shared.showToast('Site deleted', 'success');
+        await loadSitesList(currentSitesTenantId);
+    } catch (err) {
+        window.__pm_shared.showAlert('Failed to delete site: ' + (err.message || err), 'Error', true, false);
+    }
+}
+
+// Wire up sites modal event listeners
+function initSitesUI() {
+    // Sites list modal
+    const sitesListModal = document.getElementById('sites_list_modal');
+    if (sitesListModal) {
+        document.getElementById('sites_list_modal_close_x').addEventListener('click', closeSitesListModal);
+        document.getElementById('sites_list_add_btn').addEventListener('click', () => openSiteEditModal(null));
+    }
+
+    // Site edit modal
+    const siteModal = document.getElementById('site_modal');
+    if (siteModal) {
+        document.getElementById('site_modal_close_x').addEventListener('click', closeSiteModal);
+        document.getElementById('site_cancel').addEventListener('click', closeSiteModal);
+        document.getElementById('site_save').addEventListener('click', saveSite);
+        document.getElementById('site_add_rule_btn').addEventListener('click', addSiteFilterRule);
+    }
 }
 
 async function handleCreateToken(tenantID){

@@ -2,8 +2,10 @@ package storage
 
 import (
 	"context"
+	"net"
 	pmsettings "printmaster/common/settings"
 	commonstorage "printmaster/common/storage"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -118,6 +120,7 @@ type Agent struct {
 	LastDeviceSync  time.Time `json:"last_device_sync,omitempty"`  // Last device upload
 	LastMetricsSync time.Time `json:"last_metrics_sync,omitempty"` // Last metrics upload
 	TenantID        string    `json:"tenant_id,omitempty"`
+	SiteIDs         []string  `json:"site_ids,omitempty"`          // Sites this agent belongs to (can serve multiple sites)
 }
 
 // Device represents a printer device discovered by an agent (extends common Device)
@@ -254,6 +257,108 @@ type Tenant struct {
 	Address      string    `json:"address,omitempty"`
 	LoginDomain  string    `json:"login_domain,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// Site represents a location/grouping within a tenant for organizing agents and devices
+type Site struct {
+	ID          string          `json:"id"`
+	TenantID    string          `json:"tenant_id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Address     string          `json:"address,omitempty"`
+	FilterRules []SiteFilterRule `json:"filter_rules,omitempty"` // Rules for matching devices to this site
+	CreatedAt   time.Time       `json:"created_at"`
+	AgentCount  int             `json:"agent_count,omitempty"`  // Computed: number of agents assigned
+	DeviceCount int             `json:"device_count,omitempty"` // Computed: number of devices matching
+}
+
+// SiteFilterRule defines a rule for matching devices to a site
+// When an agent has multiple sites, devices are matched to sites via these rules
+type SiteFilterRule struct {
+	Type    string `json:"type"`    // "ip_range", "ip_prefix", "hostname_pattern", "serial_pattern"
+	Pattern string `json:"pattern"` // The pattern to match (e.g., "192.168.1.0/24", "printer-*", "HP*")
+}
+
+// MatchesDevice checks if a device matches this filter rule
+func (r SiteFilterRule) MatchesDevice(ip, hostname, serial string) bool {
+	pattern := strings.TrimSpace(r.Pattern)
+	if pattern == "" {
+		return false
+	}
+
+	switch r.Type {
+	case "ip_range":
+		// CIDR notation: "192.168.1.0/24"
+		_, network, err := net.ParseCIDR(pattern)
+		if err != nil {
+			return false
+		}
+		deviceIP := net.ParseIP(ip)
+		if deviceIP == nil {
+			return false
+		}
+		return network.Contains(deviceIP)
+
+	case "ip_prefix":
+		// Simple prefix: "192.168.1."
+		return strings.HasPrefix(ip, pattern)
+
+	case "hostname_pattern":
+		// Glob-style pattern: "printer-*" or "*-floor2"
+		return matchGlobPattern(pattern, hostname)
+
+	case "serial_pattern":
+		// Glob-style pattern for serial numbers
+		return matchGlobPattern(pattern, serial)
+
+	default:
+		return false
+	}
+}
+
+// matchGlobPattern matches a simple glob pattern with * wildcard
+func matchGlobPattern(pattern, value string) bool {
+	if pattern == "*" {
+		return true
+	}
+	pattern = strings.ToLower(pattern)
+	value = strings.ToLower(value)
+
+	// Convert glob to regex: * becomes .*, escape other special chars
+	regexPattern := "^"
+	for _, c := range pattern {
+		switch c {
+		case '*':
+			regexPattern += ".*"
+		case '?':
+			regexPattern += "."
+		case '.', '+', '(', ')', '[', ']', '{', '}', '^', '$', '|', '\\':
+			regexPattern += "\\" + string(c)
+		default:
+			regexPattern += string(c)
+		}
+	}
+	regexPattern += "$"
+
+	re, err := regexp.Compile(regexPattern)
+	if err != nil {
+		return false
+	}
+	return re.MatchString(value)
+}
+
+// MatchesAnyRule checks if a device matches any of the site's filter rules
+// Returns true if no rules defined (site matches all devices from its agents)
+func (s *Site) MatchesDevice(ip, hostname, serial string) bool {
+	if len(s.FilterRules) == 0 {
+		return true // No rules = match all
+	}
+	for _, rule := range s.FilterRules {
+		if rule.MatchesDevice(ip, hostname, serial) {
+			return true
+		}
+	}
+	return false
 }
 
 // JoinToken represents an opaque join token record stored in DB (token value not stored raw)
@@ -406,6 +511,18 @@ type Store interface {
 	GetTenant(ctx context.Context, id string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]*Tenant, error)
 	FindTenantByDomain(ctx context.Context, domain string) (*Tenant, error)
+
+	// Sites (sub-tenant grouping for agents/devices)
+	CreateSite(ctx context.Context, site *Site) error
+	UpdateSite(ctx context.Context, site *Site) error
+	GetSite(ctx context.Context, id string) (*Site, error)
+	ListSitesByTenant(ctx context.Context, tenantID string) ([]*Site, error)
+	DeleteSite(ctx context.Context, id string) error
+	AssignAgentToSite(ctx context.Context, agentID, siteID string) error
+	UnassignAgentFromSite(ctx context.Context, agentID, siteID string) error
+	GetAgentSiteIDs(ctx context.Context, agentID string) ([]string, error)
+	GetSiteAgentIDs(ctx context.Context, siteID string) ([]string, error)
+	SetAgentSites(ctx context.Context, agentID string, siteIDs []string) error
 
 	// Join tokens (opaque tokens): CreateJoinToken returns the created JoinToken
 	// and the raw token string that should be returned to the caller (raw token

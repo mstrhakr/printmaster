@@ -212,6 +212,32 @@ func (s *SQLiteStore) initSchema() error {
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
 
+	-- Sites table for organizing devices within tenants
+	CREATE TABLE IF NOT EXISTS sites (
+		id TEXT PRIMARY KEY,
+		tenant_id TEXT NOT NULL,
+		name TEXT NOT NULL,
+		description TEXT,
+		address TEXT,
+		filter_rules TEXT, -- JSON array of filter rules
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_sites_tenant ON sites(tenant_id);
+
+	-- Agent-to-site assignments (many-to-many: one agent can serve multiple sites)
+	CREATE TABLE IF NOT EXISTS agent_sites (
+		agent_id TEXT NOT NULL,
+		site_id TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (agent_id, site_id),
+		FOREIGN KEY(site_id) REFERENCES sites(id) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_agent_sites_site ON agent_sites(site_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_sites_agent ON agent_sites(agent_id);
+
 	-- Join tokens for agent onboarding (store only token hash)
 	CREATE TABLE IF NOT EXISTS join_tokens (
 		id TEXT PRIMARY KEY,
@@ -968,6 +994,231 @@ func (s *SQLiteStore) tableHasColumn(table, column string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// ====== Sites Methods ======
+
+// CreateSite creates a new site within a tenant
+func (s *SQLiteStore) CreateSite(ctx context.Context, site *Site) error {
+	if site == nil {
+		return fmt.Errorf("site required")
+	}
+	if site.TenantID == "" {
+		return fmt.Errorf("tenant_id required")
+	}
+	if site.Name == "" {
+		return fmt.Errorf("name required")
+	}
+	if site.ID == "" {
+		b := make([]byte, 8)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		site.ID = hex.EncodeToString(b)
+	}
+	if site.CreatedAt.IsZero() {
+		site.CreatedAt = time.Now().UTC()
+	}
+
+	// Serialize filter rules to JSON
+	var rulesJSON []byte
+	if len(site.FilterRules) > 0 {
+		var err error
+		rulesJSON, err = json.Marshal(site.FilterRules)
+		if err != nil {
+			return fmt.Errorf("failed to marshal filter rules: %w", err)
+		}
+	}
+
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sites (id, tenant_id, name, description, address, filter_rules, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		site.ID, site.TenantID, site.Name, site.Description, site.Address, nullBytes(rulesJSON), site.CreatedAt)
+	return err
+}
+
+// UpdateSite updates an existing site
+func (s *SQLiteStore) UpdateSite(ctx context.Context, site *Site) error {
+	if site == nil {
+		return fmt.Errorf("site required")
+	}
+	if site.ID == "" {
+		return fmt.Errorf("site id required")
+	}
+
+	var rulesJSON []byte
+	if len(site.FilterRules) > 0 {
+		var err error
+		rulesJSON, err = json.Marshal(site.FilterRules)
+		if err != nil {
+			return fmt.Errorf("failed to marshal filter rules: %w", err)
+		}
+	}
+
+	res, err := s.db.ExecContext(ctx, `UPDATE sites SET name = ?, description = ?, address = ?, filter_rules = ? WHERE id = ?`,
+		site.Name, site.Description, site.Address, nullBytes(rulesJSON), site.ID)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// GetSite retrieves a site by ID
+func (s *SQLiteStore) GetSite(ctx context.Context, id string) (*Site, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT id, tenant_id, name, description, address, filter_rules, created_at FROM sites WHERE id = ?`, id)
+	return s.scanSite(row)
+}
+
+// ListSitesByTenant returns all sites for a tenant
+func (s *SQLiteStore) ListSitesByTenant(ctx context.Context, tenantID string) ([]*Site, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, tenant_id, name, description, address, filter_rules, created_at FROM sites WHERE tenant_id = ? ORDER BY name`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sites []*Site
+	for rows.Next() {
+		site, err := s.scanSiteRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		sites = append(sites, site)
+	}
+	return sites, rows.Err()
+}
+
+// DeleteSite removes a site and its agent associations
+func (s *SQLiteStore) DeleteSite(ctx context.Context, id string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM sites WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// scanSite scans a single site row
+func (s *SQLiteStore) scanSite(row *sql.Row) (*Site, error) {
+	var site Site
+	var rulesJSON sql.NullString
+	err := row.Scan(&site.ID, &site.TenantID, &site.Name, &site.Description, &site.Address, &rulesJSON, &site.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if rulesJSON.Valid && rulesJSON.String != "" {
+		if err := json.Unmarshal([]byte(rulesJSON.String), &site.FilterRules); err != nil {
+			logWarn("Failed to unmarshal site filter rules", "site_id", site.ID, "error", err)
+		}
+	}
+	return &site, nil
+}
+
+// scanSiteRow scans a site from rows iterator
+func (s *SQLiteStore) scanSiteRow(rows *sql.Rows) (*Site, error) {
+	var site Site
+	var rulesJSON sql.NullString
+	err := rows.Scan(&site.ID, &site.TenantID, &site.Name, &site.Description, &site.Address, &rulesJSON, &site.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if rulesJSON.Valid && rulesJSON.String != "" {
+		if err := json.Unmarshal([]byte(rulesJSON.String), &site.FilterRules); err != nil {
+			logWarn("Failed to unmarshal site filter rules", "site_id", site.ID, "error", err)
+		}
+	}
+	return &site, nil
+}
+
+// ====== Agent-Site Assignment Methods ======
+
+// AssignAgentToSite assigns an agent to a site
+func (s *SQLiteStore) AssignAgentToSite(ctx context.Context, agentID, siteID string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT OR IGNORE INTO agent_sites (agent_id, site_id, created_at) VALUES (?, ?, ?)`,
+		agentID, siteID, time.Now().UTC())
+	return err
+}
+
+// UnassignAgentFromSite removes an agent from a site
+func (s *SQLiteStore) UnassignAgentFromSite(ctx context.Context, agentID, siteID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM agent_sites WHERE agent_id = ? AND site_id = ?`, agentID, siteID)
+	return err
+}
+
+// GetAgentSiteIDs returns all site IDs for an agent
+func (s *SQLiteStore) GetAgentSiteIDs(ctx context.Context, agentID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT site_id FROM agent_sites WHERE agent_id = ?`, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var siteIDs []string
+	for rows.Next() {
+		var siteID string
+		if err := rows.Scan(&siteID); err != nil {
+			return nil, err
+		}
+		siteIDs = append(siteIDs, siteID)
+	}
+	return siteIDs, rows.Err()
+}
+
+// GetSiteAgentIDs returns all agent IDs assigned to a site
+func (s *SQLiteStore) GetSiteAgentIDs(ctx context.Context, siteID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT agent_id FROM agent_sites WHERE site_id = ?`, siteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agentIDs []string
+	for rows.Next() {
+		var agentID string
+		if err := rows.Scan(&agentID); err != nil {
+			return nil, err
+		}
+		agentIDs = append(agentIDs, agentID)
+	}
+	return agentIDs, rows.Err()
+}
+
+// SetAgentSites replaces all site assignments for an agent
+func (s *SQLiteStore) SetAgentSites(ctx context.Context, agentID string, siteIDs []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Clear existing assignments
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_sites WHERE agent_id = ?`, agentID); err != nil {
+		return err
+	}
+
+	// Add new assignments
+	now := time.Now().UTC()
+	for _, siteID := range siteIDs {
+		if siteID == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_sites (agent_id, site_id, created_at) VALUES (?, ?, ?)`, agentID, siteID, now); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// nullBytes returns nil for empty byte slices
+func nullBytes(b []byte) interface{} {
+	if len(b) == 0 {
+		return nil
+	}
+	return string(b)
 }
 
 // CreateJoinToken generates an opaque token for tenant onboarding and stores only its hash.

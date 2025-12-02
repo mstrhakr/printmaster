@@ -1059,6 +1059,82 @@
         </div>
     </div>
 
+    <!-- Sites List Modal -->
+    <div class="modal" id="sites_list_modal" style="display:none;">
+        <div class="modal-content sites-modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="sites_list_modal_title">Sites</span>
+                <button class="modal-close-x" id="sites_list_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body sites-modal-body">
+                <div class="sites-header">
+                    <p class="muted-text" id="sites_list_subtitle">Manage sites for this tenant</p>
+                    <button class="btn-primary" id="sites_list_add_btn">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                        Add Site
+                    </button>
+                </div>
+                <div id="sites_list_content">
+                    <div class="muted-text">Loading sites...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Site Edit Modal -->
+    <div class="modal" id="site_modal" style="display:none;">
+        <div class="modal-content site-modal-content">
+            <div class="modal-header">
+                <span class="modal-title" id="site_modal_title">New Site</span>
+                <button class="modal-close-x" id="site_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body site-modal-body">
+                <div class="site-form-grid">
+                    <div class="site-form-section">
+                        <div class="site-section-title">Site Details</div>
+                        <label class="site-form-label">
+                            <span>Site Name <span class="required">*</span></span>
+                            <input id="site_name" type="text" class="site-form-input" placeholder="North Campus" />
+                        </label>
+                        <label class="site-form-label">
+                            <span>Address</span>
+                            <textarea id="site_address" rows="2" class="site-form-input" placeholder="123 Main St, City, State"></textarea>
+                        </label>
+                        <label class="site-form-label">
+                            <span>Description</span>
+                            <textarea id="site_description" rows="2" class="site-form-input" placeholder="Site notes..."></textarea>
+                        </label>
+                    </div>
+                    <div class="site-form-section">
+                        <div class="site-section-title">Assigned Agents</div>
+                        <div id="site_agents_list" class="site-agents-list">
+                            <div class="muted-text">Loading agents...</div>
+                        </div>
+                        <span class="site-form-helper">Select agents that serve this site. Devices will be grouped by agent unless filter rules are set.</span>
+                    </div>
+                </div>
+                <div class="site-form-section site-rules-section">
+                    <div class="site-section-header">
+                        <div class="site-section-title">Device Filter Rules</div>
+                        <button class="btn-outline btn-sm" id="site_add_rule_btn">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                            Add Rule
+                        </button>
+                    </div>
+                    <p class="site-form-helper">When an agent serves multiple sites, use filter rules to route devices to the correct site. Leave empty to include all devices from assigned agents.</p>
+                    <div id="site_filter_rules" class="site-filter-rules">
+                        <!-- Filter rules will be rendered here -->
+                    </div>
+                </div>
+                <div id="site_error" class="site-form-error"></div>
+            </div>
+            <div class="modal-footer site-modal-footer">
+                <button class="btn-outline" id="site_cancel">Cancel</button>
+                <button class="btn-primary" id="site_save">Create Site</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/sso-admin.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
     <script src="/static/rbac.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
     <script src="/static/app.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>

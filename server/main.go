@@ -3099,7 +3099,8 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 	// Build response objects with a derived connection_type field
 	type agentView struct {
 		*storage.Agent
-		ConnectionType string `json:"connection_type"`
+		ConnectionType string   `json:"connection_type"`
+		SiteIDs        []string `json:"site_ids,omitempty"`
 	}
 
 	var resp []agentView
@@ -3109,7 +3110,10 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 
 		connType := deriveAgentConnectionType(agent)
 
-		resp = append(resp, agentView{Agent: agent, ConnectionType: connType})
+		// Fetch site IDs for this agent
+		siteIDs, _ := serverStore.GetAgentSiteIDs(ctx, agent.AgentID)
+
+		resp = append(resp, agentView{Agent: agent, ConnectionType: connType, SiteIDs: siteIDs})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
