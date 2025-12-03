@@ -3588,18 +3588,15 @@ func proxyDeviceRequest(w http.ResponseWriter, r *http.Request, serial string, t
 		return
 	}
 
-	// Build target URL for the device's web UI
-	// Priority: 1) Use WebUIURL if set, 2) Try HTTPS first (common for modern printers), 3) Fall back to HTTP
-	var targetURL string
-	if device.WebUIURL != "" {
-		// Use the stored WebUIURL as the base
-		baseURL := strings.TrimSuffix(device.WebUIURL, "/")
-		targetURL = baseURL + targetPath
-	} else {
-		// Default to HTTPS since many modern printers use it (agent handles InsecureSkipVerify)
-		targetURL = fmt.Sprintf("https://%s%s", device.IP, targetPath)
-	}
-	proxyThroughWebSocket(w, r, device.AgentID, targetURL)
+	// Proxy to the AGENT's local device proxy endpoint, not directly to the device.
+	// The agent's /proxy/{serial}/... endpoint handles all the complex stuff:
+	// - Vendor-specific authentication (Kyocera, Epson, etc.)
+	// - Session/cookie management
+	// - Content rewriting for relative URLs
+	// - Static resource caching
+	// This way we leverage the battle-tested agent proxy instead of reimplementing it poorly.
+	agentProxyURL := fmt.Sprintf("http://localhost:8080/proxy/%s%s", serial, targetPath)
+	proxyThroughWebSocket(w, r, device.AgentID, agentProxyURL)
 }
 
 func parseDeviceProxyPath(fullPath, prefix string) (string, string, error) {
@@ -3640,6 +3637,21 @@ func appendQueryToPath(path, rawQuery string) string {
 
 // proxyThroughWebSocket sends an HTTP request through WebSocket and returns the response
 func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID string, targetURL string) {
+	// Detect if we're proxying to the agent's device proxy endpoint
+	// In this case, the agent already handles all content rewriting, so we just need
+	// to translate the agent's prefix (/proxy/{serial}/) to server's prefix (/api/v1/proxy/device/{serial}/)
+	isAgentDeviceProxy := strings.Contains(targetURL, "/proxy/") && strings.HasPrefix(targetURL, "http://localhost:8080/proxy/")
+	var agentProxySerial string
+	if isAgentDeviceProxy {
+		// Extract serial from agent proxy URL: http://localhost:8080/proxy/{serial}/...
+		afterProxy := strings.TrimPrefix(targetURL, "http://localhost:8080/proxy/")
+		if idx := strings.Index(afterProxy, "/"); idx > 0 {
+			agentProxySerial = afterProxy[:idx]
+		} else {
+			agentProxySerial = afterProxy
+		}
+	}
+
 	// Generate unique request ID
 	requestID := fmt.Sprintf("%s-%d", agentID, time.Now().UnixNano())
 	start := time.Now()
@@ -3681,7 +3693,8 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		"agent_id", agentID,
 		"request_id", requestID,
 		"method", r.Method,
-		"url", targetURL)
+		"url", targetURL,
+		"is_agent_device_proxy", isAgentDeviceProxy)
 
 	// Send proxy request to agent via WebSocket
 	if err := sendProxyRequest(agentID, requestID, targetURL, r.Method, headers, bodyStr); err != nil {
@@ -3786,7 +3799,69 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 			}
 		}
 
-		// Transform HTML responses
+		// For agent device proxy responses, the agent already did all the content rewriting
+		// with /proxy/{serial}/ prefix. We just need to translate that to the server's
+		// /api/v1/proxy/device/{serial}/ prefix. Much simpler!
+		if isAgentDeviceProxy && agentProxySerial != "" && bodyBytes != nil {
+			agentPrefix := "/proxy/" + agentProxySerial
+			serverPrefix := "/api/v1/proxy/device/" + agentProxySerial
+
+			// Handle gzip-compressed responses
+			if len(bodyBytes) >= 2 && bodyBytes[0] == 0x1f && bodyBytes[1] == 0x8b {
+				gr, gerr := gzip.NewReader(bytes.NewReader(bodyBytes))
+				if gerr == nil {
+					decompressed, rerr := io.ReadAll(gr)
+					_ = gr.Close()
+					if rerr == nil {
+						// Simple string replacement of agent prefix to server prefix
+						transformed := bytes.ReplaceAll(decompressed, []byte(agentPrefix), []byte(serverPrefix))
+						// Recompress
+						var buf bytes.Buffer
+						gw := gzip.NewWriter(&buf)
+						if _, werr := gw.Write(transformed); werr == nil {
+							_ = gw.Close()
+							bodyBytes = buf.Bytes()
+							w.Header().Set("Content-Encoding", "gzip")
+						} else {
+							_ = gw.Close()
+							w.Header().Del("Content-Encoding")
+							bodyBytes = transformed
+						}
+					}
+				}
+			} else {
+				// Simple string replacement - agent prefix to server prefix
+				bodyBytes = bytes.ReplaceAll(bodyBytes, []byte(agentPrefix), []byte(serverPrefix))
+				w.Header().Del("Content-Encoding")
+			}
+
+			// Also rewrite Location headers for redirects
+			if loc := w.Header().Get("Location"); loc != "" {
+				w.Header().Set("Location", strings.ReplaceAll(loc, agentPrefix, serverPrefix))
+			}
+
+			// Rewrite Set-Cookie paths
+			for _, cookie := range w.Header().Values("Set-Cookie") {
+				if strings.Contains(cookie, agentPrefix) {
+					w.Header().Del("Set-Cookie")
+					w.Header().Add("Set-Cookie", strings.ReplaceAll(cookie, agentPrefix, serverPrefix))
+				}
+			}
+
+			// Update Content-Length and write response
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bodyBytes)))
+			w.WriteHeader(statusCode)
+			if bodyBytes != nil {
+				w.Write(bodyBytes)
+			}
+			return
+		}
+
+		// === Below is for AGENT UI PROXY only (proxying to agent's own web UI) ===
+		// Device proxying now goes through agent's /proxy/{serial}/ endpoint which
+		// handles all the complex content rewriting, so we just do prefix translation above.
+
+		// Transform HTML responses (for agent UI proxy)
 		if bodyBytes != nil && strings.Contains(strings.ToLower(contentType), "text/html") {
 			proxyBase := computeProxyBaseFromRequest(r)
 
