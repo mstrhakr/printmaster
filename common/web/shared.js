@@ -44,6 +44,70 @@ window.__pm_shared = window.__pm_shared || {};
 })();
 
 // ============================================================================
+// Proxy-Aware Fetch Wrapper
+// ============================================================================
+// When the agent UI is accessed through the server's proxy, we need to prefix
+// all root-absolute URLs (like /api/devices) with the proxy base path.
+// Instead of modifying every fetch() call, we intercept fetch globally.
+(function proxyAwareFetch() {
+    try {
+        if (typeof window === 'undefined' || typeof fetch !== 'function') return;
+
+        // Detect proxy base from <base href="..."> element (injected by server proxy)
+        function getProxyBase() {
+            try {
+                const baseEl = document.querySelector('base');
+                if (baseEl && baseEl.href) {
+                    const u = new URL(baseEl.href, window.location.href);
+                    // Return pathname without trailing slash, e.g. "/api/v1/proxy/agent/abc123"
+                    let path = u.pathname || '';
+                    if (path.endsWith('/')) path = path.slice(0, -1);
+                    // Only return if it looks like a proxy path
+                    if (path.includes('/proxy/')) {
+                        return path;
+                    }
+                }
+            } catch (e) { /* ignore */ }
+            return '';
+        }
+
+        const originalFetch = window.fetch;
+        window.fetch = function(input, init) {
+            try {
+                const proxyBase = getProxyBase();
+                if (proxyBase) {
+                    let url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                    // Only rewrite root-absolute paths that aren't already prefixed
+                    if (url && url.charAt(0) === '/' && !url.startsWith(proxyBase)) {
+                        const newUrl = proxyBase + url;
+                        if (typeof input === 'string') {
+                            input = newUrl;
+                        } else if (input && input.url) {
+                            input = new Request(newUrl, input);
+                        }
+                    }
+                }
+            } catch (e) { /* fail safe - just use original */ }
+            return originalFetch.apply(this, arguments);
+        };
+
+        // Also intercept XMLHttpRequest for older code patterns
+        const originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+            try {
+                const proxyBase = getProxyBase();
+                if (proxyBase && typeof url === 'string' && url.charAt(0) === '/' && !url.startsWith(proxyBase)) {
+                    url = proxyBase + url;
+                }
+            } catch (e) { /* fail safe */ }
+            return originalOpen.call(this, method, url, ...rest);
+        };
+    } catch (e) {
+        try { console.warn('proxy-aware fetch shim failed', e); } catch (e2) {}
+    }
+})();
+
+// ============================================================================
 // Shared Auth Utilities (client-side)
 // ============================================================================
 // Provides a unified way for server and agent UIs to fetch the current

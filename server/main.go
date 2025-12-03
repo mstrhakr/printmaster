@@ -3982,43 +3982,22 @@ func injectProxyMetaAndBase(body []byte, proxyBase string, agentID string, targe
 	// page location. We need to properly resolve these against the target URL.
 	bodyStr = rewriteParentRelativePaths(bodyStr, proxyBase, targetURL)
 
-	// Rewrite common JavaScript absolute calls so they route through the proxy.
-	// This covers fetch('/...') and common XHR/open patterns which are not
-	// affected by a <base> element and must be rewritten manually.
-	bodyStr = strings.ReplaceAll(bodyStr, "fetch('/", "fetch('"+proxyBase)
-	bodyStr = strings.ReplaceAll(bodyStr, "fetch(\"/", "fetch(\""+proxyBase)
-	bodyStr = strings.ReplaceAll(bodyStr, "fetch( '/", "fetch( '"+proxyBase)
-	bodyStr = strings.ReplaceAll(bodyStr, "fetch( \"/", "fetch( \""+proxyBase)
+	// NOTE: fetch/XHR URL rewriting is now handled by shared.js which intercepts
+	// these calls at runtime and prefixes URLs based on the <base> element.
+	// This is cleaner than string-based rewrites which can miss dynamically
+	// constructed URLs.
 
-	// XMLHttpRequest / open() variants (common patterns)
-	bodyStr = strings.ReplaceAll(bodyStr, "XMLHttpRequest.open('GET','/", "XMLHttpRequest.open('GET','"+proxyBase)
-	bodyStr = strings.ReplaceAll(bodyStr, "XMLHttpRequest.open(\"GET\",\"/", "XMLHttpRequest.open(\"GET\",\""+proxyBase)
-	bodyStr = strings.ReplaceAll(bodyStr, "open('GET','/", "open('GET','"+proxyBase)
-	bodyStr = strings.ReplaceAll(bodyStr, "open(\"GET\",\"/", "open(\"GET\",\""+proxyBase)
-
-	// Inject meta tag after <head> tag (do this last so injected base won't be rewritten above)
+	// Inject meta tag after <head> tag
 	headIdx := strings.Index(strings.ToLower(bodyStr), "<head>")
 	if headIdx == -1 {
 		return []byte(bodyStr)
 	}
 	insertPos := headIdx + len("<head>")
-	// Small runtime shim injected into proxied HTML to rewrite root-absolute
-	// fetch/XHR requests at runtime. This is more robust than string-only
-	// rewrites because scripts can construct URLs dynamically (e.g. using
-	// window.location.origin). The shim prepends the proxy base for any URL
-	// that starts with '/'. Keep this small and defensive.
-	// Runtime shim: only rewrite root-absolute URLs that are NOT already
-	// prefixed with the proxy base. This avoids double-prefixing when the
-	// server rewrites script literals (which produce URLs that start with
-	// the proxy base) and the runtime shim then prepends the proxy base
-	// again.
-	script := `<script>(function(){try{var _pb="` + proxyBase + `";var _f=window.fetch;window.fetch=function(input,init){try{var u=typeof input==='string'?input:input&&input.url; if(typeof u==='string'){ if(!(u.indexOf(_pb)===0) && u.charAt(0)==='/'){ if(typeof input==='string') input=_pb+u.slice(1); else input=new Request(_pb+u.slice(1),input); } } }catch(e){} return _f.apply(this,arguments)};var _open=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(method,url){try{ if(typeof url==='string'){ if(!(url.indexOf(_pb)===0) && url.charAt(0)==='/'){ url=_pb+url.slice(1); } } }catch(e){} return _open.apply(this,arguments);} }catch(e){} })();</script>`
-
-	// Inject meta tags and <base>. Note: globalSettings initialization is
-	// provided via shared client script (common/web/shared.js) to keep
-	// client-side globals centralized.
+	// Inject meta tags and <base>. The fetch/XHR interception is now handled
+	// by shared.js which detects the <base> element and prefixes URLs automatically.
+	// This is much cleaner than injecting inline scripts.
 	metaTag := `<meta http-equiv="X-PrintMaster-Proxied" content="true"><meta http-equiv="X-PrintMaster-Agent-ID" content="` + agentID + `">` +
-		`<base href="` + proxyBase + `">` + script
+		`<base href="` + proxyBase + `">`
 
 	bodyStr = bodyStr[:insertPos] + metaTag + bodyStr[insertPos:]
 
@@ -4139,39 +4118,19 @@ func computeProxyBaseFromRequest(r *http.Request) string {
 	return path
 }
 
-// rewriteProxyJS performs simple string-based rewrites on JavaScript/JSON
-// payloads to convert absolute paths (e.g., fetch('/scan_metrics')) to the
-// proxy-based path. This is a pragmatic approach and not a full JS parser.
+// rewriteProxyJS handles only origin replacement in JavaScript payloads.
+// Runtime fetch/XHR interception is handled by the shared.js interceptor
+// which detects the <base href> tag and auto-prefixes root-absolute URLs.
 func rewriteProxyJS(body []byte, proxyBase string, targetURL string) []byte {
 	s := string(body)
 
-	// Replace absolute origin occurrences
+	// Replace absolute origin occurrences (hardcoded external URLs)
 	if u, err := url.Parse(targetURL); err == nil {
 		origin := u.Scheme + "://" + u.Host
 		s = strings.ReplaceAll(s, origin, proxyBase)
 		protoRel := "//" + u.Host
 		s = strings.ReplaceAll(s, protoRel, proxyBase)
 	}
-
-	// JS fetch() common patterns
-	s = strings.ReplaceAll(s, "fetch('/", "fetch('"+proxyBase)
-	s = strings.ReplaceAll(s, "fetch(\"/", "fetch(\""+proxyBase)
-	s = strings.ReplaceAll(s, "fetch( '/", "fetch( '"+proxyBase)
-	s = strings.ReplaceAll(s, "fetch( \"/", "fetch( \""+proxyBase)
-
-	// XHR / open patterns
-	s = strings.ReplaceAll(s, "XMLHttpRequest.open('GET','/", "XMLHttpRequest.open('GET','"+proxyBase)
-	s = strings.ReplaceAll(s, "XMLHttpRequest.open(\"GET\",\"/", "XMLHttpRequest.open(\"GET\",\""+proxyBase)
-	s = strings.ReplaceAll(s, "open('GET','/", "open('GET','"+proxyBase)
-	s = strings.ReplaceAll(s, "open(\"GET\",\"/", "open(\"GET\",\""+proxyBase)
-
-	// Common API endpoints — rewrite simple literal occurrences
-	s = strings.ReplaceAll(s, "'/settings'", "'"+proxyBase+"settings'")
-	s = strings.ReplaceAll(s, "\"/settings\"", "\""+proxyBase+"settings\"")
-	s = strings.ReplaceAll(s, "'/devices/list'", "'"+proxyBase+"devices/list'")
-	s = strings.ReplaceAll(s, "\"/devices/list\"", "\""+proxyBase+"devices/list\"")
-	s = strings.ReplaceAll(s, "'/scan_metrics'", "'"+proxyBase+"scan_metrics'")
-	s = strings.ReplaceAll(s, "\"/scan_metrics\"", "\""+proxyBase+"scan_metrics\"")
 
 	return []byte(s)
 }
