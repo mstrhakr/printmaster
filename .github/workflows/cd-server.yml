@@ -1,0 +1,280 @@
+name: CD Server
+
+on:
+  push:
+    tags:
+      - 'server-v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Wait for CI to pass on this commit
+  wait-for-ci:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    steps:
+    - name: Wait for CI checks to pass
+      uses: fountainhead/action-wait-for-check@v1.2.0
+      id: wait-for-ci
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        checkName: Test Server
+        ref: ${{ github.sha }}
+        timeoutSeconds: 600
+        intervalSeconds: 15
+
+    - name: Fail if CI did not pass
+      if: steps.wait-for-ci.outputs.conclusion != 'success'
+      run: |
+        echo "CI check 'Test Server' did not pass (conclusion: ${{ steps.wait-for-ci.outputs.conclusion }})"
+        exit 1
+
+  build-server:
+    name: Build Server Binaries
+    needs: [wait-for-ci]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: false
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-server-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('server/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-server-
+      continue-on-error: true
+    
+    - name: Get version
+      id: version
+      shell: bash
+      run: |
+        echo "server_version=$(cat server/VERSION)" >> $GITHUB_OUTPUT
+        echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+    
+    - name: Build Server
+      working-directory: ./server
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 0
+      run: |
+        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.server_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
+    
+    - name: Upload Server Binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: server-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: server/printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+  build-docker:
+    name: Build Docker Images (Multi-Arch)
+    needs: [wait-for-ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        install: true
+        driver-opts: |
+          image=moby/buildkit:latest
+          network=host
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Get version
+      id: version
+      run: |
+        echo "version=$(cat server/VERSION)" >> $GITHUB_OUTPUT
+        echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-server
+        tags: |
+          type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
+          type=raw,value=latest,enable=true
+          type=raw,value=${{ steps.version.outputs.version }}
+        labels: |
+          org.opencontainers.image.description=PrintMaster Server container image (build ${{ steps.version.outputs.version }} / commit ${{ steps.version.outputs.git_commit }})
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./server/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          VERSION=${{ steps.version.outputs.version }}
+          BUILD_TIME=${{ steps.version.outputs.build_time }}
+          GIT_COMMIT=${{ steps.version.outputs.git_commit }}
+        cache-from: type=gha,scope=distroless
+        cache-to: type=gha,mode=max,scope=distroless
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        provenance: false
+        sbom: false
+
+  release-server:
+    name: Create Server Release
+    needs: [build-server, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Get version info
+      id: version
+      run: |
+        echo "version=$(cat server/VERSION)" >> $GITHUB_OUTPUT
+        echo "tag=server-v$(cat server/VERSION)" >> $GITHUB_OUTPUT
+    
+    - name: Prepare release binaries
+      run: |
+        cd artifacts
+        for dir in */; do
+          name="${dir%/}"
+          binary=$(find "$dir" -maxdepth 1 -type f -name "printmaster-*" | head -n 1)
+          if [ -n "$binary" ]; then
+            cp "$binary" "./$(basename "$binary")"
+            echo "Prepared: $(basename "$binary")"
+          fi
+        done
+        echo "=== Release Binaries ==="
+        ls -lh printmaster-* 2>/dev/null || true
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        TAG_NAME="server-v${{ steps.version.outputs.version }}"
+        LAST_TAG=$(git tag -l "server-v*" --sort=-version:refname | grep -v "^${TAG_NAME}$" | head -n 1)
+        
+        if [ -z "$LAST_TAG" ]; then
+          CHANGELOG="Initial release"
+        else
+          CHANGELOG=$(git log ${LAST_TAG}..${TAG_NAME} --pretty=format:"- %s (%h)" --no-merges | grep -v "^- chore: Release" || echo "- Bug fixes and improvements")
+        fi
+        
+        {
+          echo 'CHANGELOG<<EOF'
+          echo "$CHANGELOG"
+          echo 'EOF'
+        } >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: PrintMaster Server v${{ steps.version.outputs.version }}
+        body: |
+          ## PrintMaster Server v${{ steps.version.outputs.version }}
+          
+          ### 📝 Changes
+          
+          ${{ steps.changelog.outputs.CHANGELOG }}
+          
+          ---
+          
+          ### 📦 Installation
+          
+          #### Docker (Recommended)
+          ```bash
+          # Pull the latest image (supports amd64, arm64, arm/v7)
+          docker pull ghcr.io/mstrhakr/printmaster-server:${{ steps.version.outputs.version }}
+          docker pull ghcr.io/mstrhakr/printmaster-server:latest
+          
+          # Run the container
+          docker run -d \
+            --name printmaster-server \
+            -p 9090:9090 \
+            -v printmaster-data:/var/lib/printmaster/server \
+            ghcr.io/mstrhakr/printmaster-server:latest
+          ```
+          
+          #### Binary Installation
+          1. Download the appropriate binary for your platform from the Assets section below
+          2. Extract the archive
+          3. Run the binary with `--help` to see available options
+          
+          **Supported Platforms:**
+          - Windows (amd64)
+          - Linux (amd64, arm64)
+          - macOS (amd64, arm64)
+          
+          ### ⏱️ Build Information
+          - **Workflow run:** ${{ github.run_id }}
+          - **Commit:** ${{ github.sha }}
+          
+          ### 🔗 Links
+          - [Documentation](https://github.com/mstrhakr/printmaster/tree/main/docs)
+          - [Docker Images](https://github.com/mstrhakr/printmaster/pkgs/container/printmaster-server)
+          - [Issue Tracker](https://github.com/mstrhakr/printmaster/issues)
+        files: artifacts/printmaster-*
+        fail_on_unmatched_files: false
+        draft: false
+        prerelease: false

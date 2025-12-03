@@ -1,0 +1,257 @@
+name: CD Agent
+
+on:
+  push:
+    tags:
+      - 'agent-v*'
+
+jobs:
+  # Wait for CI to pass on this commit
+  wait-for-ci:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    steps:
+    - name: Wait for CI checks to pass
+      uses: fountainhead/action-wait-for-check@v1.2.0
+      id: wait-for-ci
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        checkName: Test Agent
+        ref: ${{ github.sha }}
+        timeoutSeconds: 600
+        intervalSeconds: 15
+
+    - name: Fail if CI did not pass
+      if: steps.wait-for-ci.outputs.conclusion != 'success'
+      run: |
+        echo "CI check 'Test Agent' did not pass (conclusion: ${{ steps.wait-for-ci.outputs.conclusion }})"
+        exit 1
+
+  build-agent:
+    name: Build Agent Binaries
+    needs: [wait-for-ci]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: false
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-agent-${{ matrix.goos }}-${{ matrix.goarch }}-${{ hashFiles('agent/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-agent-
+      continue-on-error: true
+    
+    - name: Get version
+      id: version
+      shell: bash
+      run: |
+        echo "agent_version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
+        echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+    
+    - name: Build Agent
+      working-directory: ./agent
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 0
+      run: |
+        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.agent_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
+
+    - name: Install WiX Toolset (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $wixUrl = 'https://github.com/wixtoolset/wix3/releases/download/wix3112rtm/wix311-binaries.zip'
+        $wixRoot = Join-Path $env:RUNNER_TEMP 'wix311'
+        if (!(Test-Path $wixRoot)) {
+          New-Item -ItemType Directory -Path $wixRoot | Out-Null
+        }
+        $zipPath = Join-Path $wixRoot 'wix.zip'
+        Invoke-WebRequest -Uri $wixUrl -OutFile $zipPath -UseBasicParsing
+        Expand-Archive -Path $zipPath -DestinationPath $wixRoot -Force
+        Remove-Item $zipPath -Force
+        $binPath = Join-Path $wixRoot 'wix311-binaries'
+        if (!(Test-Path (Join-Path $binPath 'candle.exe'))) {
+          $binPath = $wixRoot
+        }
+        "$binPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Build Agent MSI
+      if: matrix.os == 'windows-latest'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $agentVersion = '${{ steps.version.outputs.agent_version }}'
+        if (-not $agentVersion) { throw 'agent version not detected' }
+        $agentExe = Join-Path (Get-Location) "agent\printmaster-agent-v${agentVersion}-windows-amd64.exe"
+        if (!(Test-Path $agentExe)) {
+          throw "Agent binary not found at $agentExe"
+        }
+        $distDir = Join-Path (Get-Location) 'agent\dist'
+        if (!(Test-Path $distDir)) {
+          New-Item -ItemType Directory -Path $distDir | Out-Null
+        }
+        $wixobj = Join-Path $distDir 'printmaster-agent.wixobj'
+        $wxs = 'build\windows\msi\printmaster-agent.wxs'
+        $candleArgs = @(
+          '-nologo',
+          "-dProductVersion=$agentVersion",
+          "-dAgentBinaryPath=$agentExe",
+          '-out', $wixobj,
+          $wxs
+        )
+        & candle.exe @candleArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $msiName = "printmaster-agent-v${agentVersion}-windows-amd64.msi"
+        $msiPath = Join-Path $distDir $msiName
+        $lightArgs = @(
+          '-nologo',
+          '-out', $msiPath,
+          $wixobj
+        )
+        & light.exe @lightArgs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    
+    - name: Upload Agent Binary
+      uses: actions/upload-artifact@v4
+      with:
+        name: agent-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: agent/printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+    - name: Upload Agent MSI
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: agent-windows-msi
+        path: agent/dist/printmaster-agent-v${{ steps.version.outputs.agent_version }}-windows-amd64.msi
+
+  release-agent:
+    name: Create Agent Release
+    needs: [build-agent]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Get version info
+      id: version
+      run: |
+        echo "version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
+        echo "tag=agent-v$(cat agent/VERSION)" >> $GITHUB_OUTPUT
+    
+    - name: Prepare release binaries
+      run: |
+        cd artifacts
+        for dir in */; do
+          name="${dir%/}"
+          binary=$(find "$dir" -maxdepth 1 -type f -name "printmaster-*" | head -n 1)
+          if [ -n "$binary" ]; then
+            cp "$binary" "./$(basename "$binary")"
+            echo "Prepared: $(basename "$binary")"
+          fi
+        done
+        echo "=== Release Binaries ==="
+        ls -lh printmaster-* 2>/dev/null || true
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        TAG_NAME="agent-v${{ steps.version.outputs.version }}"
+        LAST_TAG=$(git tag -l "agent-v*" --sort=-version:refname | grep -v "^${TAG_NAME}$" | head -n 1)
+        
+        if [ -z "$LAST_TAG" ]; then
+          CHANGELOG="Initial release"
+        else
+          CHANGELOG=$(git log ${LAST_TAG}..${TAG_NAME} --pretty=format:"- %s (%h)" --no-merges | grep -v "^- chore: Release" || echo "- Bug fixes and improvements")
+        fi
+        
+        {
+          echo 'CHANGELOG<<EOF'
+          echo "$CHANGELOG"
+          echo 'EOF'
+        } >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: PrintMaster Agent v${{ steps.version.outputs.version }}
+        body: |
+          ## PrintMaster Agent v${{ steps.version.outputs.version }}
+          
+          ### 📝 Changes
+          
+          ${{ steps.changelog.outputs.CHANGELOG }}
+          
+          ---
+          
+          ### 📦 Installation
+          
+          #### Binary Installation
+          1. Download the appropriate binary for your platform from the Assets section below
+          2. Extract the archive
+          3. Run the binary with `--help` to see available options
+          
+          #### Windows MSI Installer
+          Download `printmaster-agent-v${{ steps.version.outputs.version }}-windows-amd64.msi` for easy installation on Windows.
+          
+          **Supported Platforms:**
+          - Windows (amd64) - EXE and MSI installer
+          - Linux (amd64, arm64)
+          - macOS (amd64, arm64)
+          
+          ### ⏱️ Build Information
+          - **Workflow run:** ${{ github.run_id }}
+          - **Commit:** ${{ github.sha }}
+          
+          ### 🔗 Links
+          - [Documentation](https://github.com/mstrhakr/printmaster/tree/main/docs)
+          - [Issue Tracker](https://github.com/mstrhakr/printmaster/issues)
+        files: artifacts/printmaster-*
+        fail_on_unmatched_files: false
+        draft: false
+        prerelease: false
