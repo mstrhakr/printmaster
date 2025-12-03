@@ -38,7 +38,7 @@ func NormalizeDescription(desc string) string {
 		}
 		return "toner_cyan"
 	}
-	if containsAny(lower, []string{"magenta", " mg", "mg ", "mag"}) || lower == "m" {
+	if containsAny(lower, []string{"magenta", " mg", "mg ", " mag", "mag "}) || lower == "m" {
 		if isDrumWord && !isTonerWord {
 			return ""
 		}
