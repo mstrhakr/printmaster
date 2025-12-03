@@ -922,6 +922,22 @@ function initLogSubTabs() {
     // Initialize log view mode toggle (table vs raw)
     initLogViewModeToggle();
 
+    // Log action buttons
+    const copyLogsBtn = document.getElementById('copy_logs_btn');
+    if (copyLogsBtn) {
+        copyLogsBtn.addEventListener('click', copyLogs);
+    }
+
+    const downloadLogsBtn = document.getElementById('download_logs_btn');
+    if (downloadLogsBtn) {
+        downloadLogsBtn.addEventListener('click', downloadLogs);
+    }
+
+    const clearLogBtn = document.getElementById('clear_log_btn');
+    if (clearLogBtn) {
+        clearLogBtn.addEventListener('click', clearLogs);
+    }
+
     const refreshBtn = document.getElementById('refresh_audit_logs_btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => loadAuditLogs());
@@ -7642,9 +7658,11 @@ async function loadSettingsSources() {
     try {
         const sources = await fetchJSON('/api/v1/server/settings/sources');
         settingsUIState.lockedKeys = new Set(sources.locked_keys || []);
+        settingsUIState.effectiveValues = sources.effective_values || {};
     } catch (err) {
         // If endpoint doesn't exist or errors, assume no locks
         settingsUIState.lockedKeys = new Set();
+        settingsUIState.effectiveValues = {};
     }
 }
 
@@ -8243,6 +8261,12 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
     // Section not managed means fields are read-only indicators
     const sectionNotManaged = scope === 'global' && !isSectionManaged;
     
+    // For locked fields, use the effective runtime value instead of DB value
+    let displayValue = value;
+    if (isLocked && settingsUIState.effectiveValues && settingsUIState.effectiveValues.hasOwnProperty(field.path)) {
+        displayValue = settingsUIState.effectiveValues[field.path];
+    }
+    
     const label = document.createElement('div');
     label.className = 'settings-field-label';
     label.innerHTML = `
@@ -8252,7 +8276,7 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
 
     const control = document.createElement('div');
     control.className = 'settings-field-control';
-    const inputFragment = createInputForField(field, value);
+    const inputFragment = createInputForField(field, displayValue);
     if (!inputFragment || !inputFragment.input || !inputFragment.element) {
         return null;
     }
@@ -8266,8 +8290,8 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
     if (isLocked) {
         const lockBadge = document.createElement('span');
         lockBadge.className = 'settings-badge locked';
-        lockBadge.textContent = '🔒 Locked';
-        lockBadge.title = 'This setting is locked by an environment variable and cannot be changed through managed settings';
+        lockBadge.textContent = '🔒 ENV';
+        lockBadge.title = 'This setting is set by an environment variable and cannot be changed through managed settings';
         control.appendChild(lockBadge);
     }
 
@@ -9508,6 +9532,85 @@ function updateAuditLiveStatus() {
         return;
     }
     statusEl.textContent = auditAutoRefreshHandle ? 'Auto-refresh on' : 'Auto-refresh ready';
+}
+
+// Copy current logs to clipboard
+async function copyLogs() {
+    try {
+        const response = await fetch('/api/logs');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        const lines = data.logs || [];
+        const text = lines.join('\n');
+        await navigator.clipboard.writeText(text);
+        window.__pm_shared.showToast('Logs copied to clipboard', 'success', 1500);
+    } catch (e) {
+        window.__pm_shared.error('Copy logs failed:', e);
+        window.__pm_shared.showToast('Failed to copy logs: ' + e.message, 'error');
+    }
+}
+
+// Download logs as file
+async function downloadLogs() {
+    try {
+        const response = await fetch('/api/logs');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        const lines = data.logs || [];
+        const text = lines.join('\n');
+        const blob = new Blob([text], { type: 'text/plain' });
+        const filename = `server-logs-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')}.log`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        window.__pm_shared.showToast('Logs downloaded', 'success');
+    } catch (e) {
+        window.__pm_shared.error('Download logs failed:', e);
+        window.__pm_shared.showToast('Failed to download logs: ' + e.message, 'error');
+    }
+}
+
+// Clear server logs (rotate)
+async function clearLogs() {
+    try {
+        const confirmed = await window.__pm_shared.showConfirm(
+            'Clear server logs? This will rotate the current log file.',
+            'Clear Logs'
+        );
+        if (!confirmed) return;
+        
+        const resp = await fetch('/api/logs/clear', { method: 'POST' });
+        if (!resp.ok) {
+            const text = await resp.text();
+            window.__pm_shared.showToast('Clear logs failed: ' + text, 'error');
+            return;
+        }
+        
+        // Clear the display
+        currentLogLines = [];
+        const logEl = document.getElementById('log');
+        if (logEl) {
+            logEl.innerHTML = '<span style="color:#586e75">(logs cleared - waiting for new entries)</span>';
+        }
+        const tbody = document.getElementById('log_table_body');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#586e75">(logs cleared - waiting for new entries)</td></tr>';
+        }
+        
+        window.__pm_shared.showToast('Logs cleared and rotated', 'success');
+    } catch (e) {
+        window.__pm_shared.error('Clear logs failed:', e);
+        window.__pm_shared.showToast('Failed to clear logs: ' + e.message, 'error');
+    }
 }
 
 async function loadLogs() {
