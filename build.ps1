@@ -803,6 +803,16 @@ switch ($Target) {
         $success = $true
     }
     'agent' {
+        # Run linters for common (shared dependency) first
+        if (-not (Invoke-Linters -Component 'common')) {
+            Write-BuildLog "Linter checks failed for common" "ERROR"
+            exit 1
+        }
+        # Run tests for common
+        if (-not (Invoke-Tests -Component 'common')) {
+            Write-BuildLog "Tests failed for common" "ERROR"
+            exit 1
+        }
         # Run linters before build
         if (-not (Invoke-Linters -Component 'agent')) {
             Write-BuildLog "Linter checks failed for agent" "ERROR"
@@ -816,6 +826,16 @@ switch ($Target) {
         $success = Build-Agent -IsRelease:$Release -IncrementVersion:$IncrementVersion
     }
     'server' {
+        # Run linters for common (shared dependency) first
+        if (-not (Invoke-Linters -Component 'common')) {
+            Write-BuildLog "Linter checks failed for common" "ERROR"
+            exit 1
+        }
+        # Run tests for common
+        if (-not (Invoke-Tests -Component 'common')) {
+            Write-BuildLog "Tests failed for common" "ERROR"
+            exit 1
+        }
         # Run linters before build
         if (-not (Invoke-Linters -Component 'server')) {
             Write-BuildLog "Linter checks failed for server" "ERROR"
@@ -829,6 +849,16 @@ switch ($Target) {
         $success = Build-Server -IsRelease:$Release -IncrementVersion:$IncrementVersion
     }
     'both' {
+        # Run linters for common (shared dependency) first
+        if (-not (Invoke-Linters -Component 'common')) {
+            Write-BuildLog "Linter checks failed for common" "ERROR"
+            exit 1
+        }
+        # Run tests for common
+        if (-not (Invoke-Tests -Component 'common')) {
+            Write-BuildLog "Tests failed for common" "ERROR"
+            exit 1
+        }
         # Run linters for both components
         if (-not (Invoke-Linters -Component 'agent')) {
             Write-BuildLog "Linter checks failed for agent" "ERROR"
