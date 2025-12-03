@@ -128,7 +128,7 @@ func (cw *Conn) SetPongHandler(h func(string) error) {
 
 // RemoteAddr returns the remote address if available.
 func (cw *Conn) RemoteAddr() string {
-	if cw.c == nil || cw.c.RemoteAddr() == nil {
+	if cw == nil || cw.c == nil || cw.c.RemoteAddr() == nil {
 		return ""
 	}
 	return cw.c.RemoteAddr().String()
