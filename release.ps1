@@ -201,31 +201,21 @@ function Save-CommitAndTag {
         $agentVer = (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
         $serverVer = (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
 
-        # Commit agent VERSION separately
-        git add agent/VERSION 2>&1 | Out-Null
+        # Stage both VERSION files together
+        git add agent/VERSION server/VERSION 2>&1 | Out-Null
+        
+        # Create a single commit with both versions in the message
         if ($Message) {
-            $agentCommitMsg = "$Message - agent v$agentVer"
+            $commitMsg = "$Message - agent v$agentVer, server v$serverVer"
         } else {
-            $agentCommitMsg = "chore: Release agent v$agentVer"
+            $commitMsg = "chore: Release agent v$agentVer, server v$serverVer"
         }
-        git commit -m $agentCommitMsg 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "Git commit failed for agent VERSION" }
-        # Capture the commit SHA so we can tag this specific commit later
-        $agentCommitSHA = (git rev-parse --verify HEAD).Trim()
-        Write-Status "Committed: $agentCommitMsg (sha: $agentCommitSHA)" "INFO"
-
-        # Commit server VERSION separately
-        git add server/VERSION 2>&1 | Out-Null
-        if ($Message) {
-            $serverCommitMsg = "$Message - server v$serverVer"
-        } else {
-            $serverCommitMsg = "chore: Release server v$serverVer"
-        }
-    git commit -m $serverCommitMsg 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Git commit failed for server VERSION" }
-    # Capture the commit SHA so we can tag this specific commit
-    $serverCommitSHA = (git rev-parse --verify HEAD).Trim()
-    Write-Status "Committed: $serverCommitMsg (sha: $serverCommitSHA)" "INFO"
+        git commit -m $commitMsg 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git commit failed" }
+        
+        # Capture the commit SHA - both tags will point here
+        $commitSHA = (git rev-parse --verify HEAD).Trim()
+        Write-Status "Committed: $commitMsg (sha: $commitSHA)" "INFO"
 
     } elseif ($Component -eq 'server') {
         git add server/VERSION 2>&1 | Out-Null
@@ -255,17 +245,16 @@ function Save-CommitAndTag {
         $agentVer = (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
         $serverVer = (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
         
-    # Tag agent (point tag at the agent commit SHA)
-    $null = git tag -a "agent-v$agentVer" $agentCommitSHA -m "Agent Release v$agentVer" 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Git tag failed for agent" }
-    Write-Status "Tagged as agent-v$agentVer -> $agentCommitSHA" "INFO"
+        # Both tags point to the same commit so CI/CD runs on the same commit
+        $null = git tag -a "agent-v$agentVer" $commitSHA -m "Agent Release v$agentVer" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for agent" }
+        Write-Status "Tagged as agent-v$agentVer -> $commitSHA" "INFO"
 
-    # Tag server (point tag at the server commit SHA)
-    $null = git tag -a "server-v$serverVer" $serverCommitSHA -m "Server Release v$serverVer" 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
-    Write-Status "Tagged as server-v$serverVer -> $serverCommitSHA" "INFO"
+        $null = git tag -a "server-v$serverVer" $commitSHA -m "Server Release v$serverVer" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
+        Write-Status "Tagged as server-v$serverVer -> $commitSHA" "INFO"
         
-        }
+    }
     elseif ($Component -eq 'server') {
         $null = git tag -a "server-v$Version" -m "Server Release v$Version" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
