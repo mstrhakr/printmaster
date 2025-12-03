@@ -31,10 +31,10 @@ func TestSessionCacheSetAndGet(t *testing.T) {
 	t.Parallel()
 
 	cache := NewSessionCache()
-	
+
 	// Create a mock jar (nil is fine for testing the cache logic)
 	cache.Set("serial123", nil)
-	
+
 	// Should be retrievable
 	// Note: nil jar will still return nil, but we can test with non-nil
 	// For this test, we verify the entry exists by checking expiration logic
@@ -55,15 +55,15 @@ func TestSessionCacheClear(t *testing.T) {
 
 	cache := NewSessionCache()
 	cache.Set("serial123", nil)
-	
+
 	// Verify it exists
 	if _, ok := cache.sessions["serial123"]; !ok {
 		t.Fatal("session should exist after Set()")
 	}
-	
+
 	// Clear it
 	cache.Clear("serial123")
-	
+
 	// Verify it's gone
 	if _, ok := cache.sessions["serial123"]; ok {
 		t.Error("session should be removed after Clear()")

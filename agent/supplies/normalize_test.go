@@ -19,7 +19,7 @@ func TestNormalizeDescription(t *testing.T) {
 		{"black toner", "Black Toner", "toner_black"},
 		{"black ink", "Black Ink", "toner_black"},
 		{"bk cartridge", "BK Cartridge", "toner_black"},
-		{"toner k", "Toner K", ""},                      // "k" only matches when lower == "k"
+		{"toner k", "Toner K", ""}, // "k" only matches when lower == "k"
 		{"negro", "Negro", "toner_black"},
 		{"noir", "Noir", "toner_black"},
 		{"schwarz", "Schwarz", "toner_black"},
@@ -50,8 +50,8 @@ func TestNormalizeDescription(t *testing.T) {
 
 		// Drum units
 		{"drum unit", "Drum Unit", "drum_life"},
-		{"imaging unit", "Imaging Unit", "drum_life"},  // fixed: no longer false-positive on "mag" in "imaging"
-		{"image drum", "Image Drum", "drum_life"},      // "image" matches
+		{"imaging unit", "Imaging Unit", "drum_life"}, // fixed: no longer false-positive on "mag" in "imaging"
+		{"image drum", "Image Drum", "drum_life"},     // "image" matches
 		{"opc drum", "OPC Drum", "drum_life"},
 		{"photoconductor", "Photoconductor", "drum_life"},
 		{"black drum", "Black Drum", "drum_life"},

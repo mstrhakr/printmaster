@@ -21,8 +21,8 @@ func TestChooseDriverFromConfigSQLiteVariants(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		cfg    map[string]string
+		name    string
+		cfg     map[string]string
 		wantDSN string
 	}{
 		{

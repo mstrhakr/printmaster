@@ -92,19 +92,19 @@ func TestOIDsAreUnique(t *testing.T) {
 
 	// Collect all OIDs and ensure no duplicates
 	oids := map[string]string{
-		"SysDescr":                     SysDescr,
-		"SysObjectID":                  SysObjectID,
-		"SysUpTime":                    SysUpTime,
-		"SysName":                      SysName,
-		"SysLocation":                  SysLocation,
-		"IfPhysAddress":                IfPhysAddress,
-		"HrSystemUptime":               HrSystemUptime,
-		"HrDeviceDescr":                HrDeviceDescr,
-		"PrtGeneralSerialNumber":       PrtGeneralSerialNumber,
-		"PrtGeneralPrinterName":        PrtGeneralPrinterName,
-		"PrtMarkerLifeCount":           PrtMarkerLifeCount,
-		"PpmPrinterIEEE1284DeviceID":   PpmPrinterIEEE1284DeviceID,
-		"EpsonEnterprise":              EpsonEnterprise,
+		"SysDescr":                   SysDescr,
+		"SysObjectID":                SysObjectID,
+		"SysUpTime":                  SysUpTime,
+		"SysName":                    SysName,
+		"SysLocation":                SysLocation,
+		"IfPhysAddress":              IfPhysAddress,
+		"HrSystemUptime":             HrSystemUptime,
+		"HrDeviceDescr":              HrDeviceDescr,
+		"PrtGeneralSerialNumber":     PrtGeneralSerialNumber,
+		"PrtGeneralPrinterName":      PrtGeneralPrinterName,
+		"PrtMarkerLifeCount":         PrtMarkerLifeCount,
+		"PpmPrinterIEEE1284DeviceID": PpmPrinterIEEE1284DeviceID,
+		"EpsonEnterprise":            EpsonEnterprise,
 	}
 
 	seen := make(map[string]string)
