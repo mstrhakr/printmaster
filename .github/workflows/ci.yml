@@ -12,18 +12,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint:
-    name: Lint Code
+  # ============================================================================
+  # COMMON - Runs first, agent/server depend on it
+  # ============================================================================
+  lint-common:
+    name: Lint Common
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        component: [agent, server]
-    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
     
     - name: Set up Go
       uses: actions/setup-go@v5
@@ -34,19 +31,80 @@ jobs:
     - name: Install staticcheck
       run: go install honnef.co/go/tools/cmd/staticcheck@latest
     
-    - name: Run go vet on ${{ matrix.component }}
-      working-directory: ./${{ matrix.component }}
+    - name: Run go vet
+      working-directory: ./common
       run: go vet ./...
     
-    - name: Run staticcheck on ${{ matrix.component }}
-      working-directory: ./${{ matrix.component }}
+    - name: Run staticcheck
+      working-directory: ./common
+      run: staticcheck ./...
+
+  test-common:
+    name: Test Common
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: false
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-common-${{ hashFiles('common/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-common-
+      continue-on-error: true
+    
+    - name: Run common tests
+      working-directory: ./common
+      run: go test -v -coverprofile=coverage.out ./...
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./common/coverage.out
+        flags: common
+        fail_ci_if_error: false
+
+  # ============================================================================
+  # AGENT - Lint runs in parallel with common, tests wait for common
+  # ============================================================================
+  lint-agent:
+    name: Lint Agent
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: false
+    
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+    
+    - name: Run go vet
+      working-directory: ./agent
+      run: go vet ./...
+    
+    - name: Run staticcheck
+      working-directory: ./agent
       run: staticcheck ./...
 
   test-agent:
     name: Test Agent
     runs-on: ubuntu-latest
-    needs: lint
-    
+    needs: [lint-common, test-common, lint-agent]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -68,11 +126,7 @@ jobs:
           ${{ runner.os }}-go-agent-
       continue-on-error: true
     
-    - name: Download common dependencies
-      working-directory: ./common
-      run: go mod download
-    
-    - name: Download agent dependencies
+    - name: Download dependencies
       working-directory: ./agent
       run: go mod download
     
@@ -87,11 +141,37 @@ jobs:
         flags: agent
         fail_ci_if_error: false
 
+  # ============================================================================
+  # SERVER - Lint runs in parallel with common, tests wait for common
+  # ============================================================================
+  lint-server:
+    name: Lint Server
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: false
+    
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+    
+    - name: Run go vet
+      working-directory: ./server
+      run: go vet ./...
+    
+    - name: Run staticcheck
+      working-directory: ./server
+      run: staticcheck ./...
+
   test-server:
     name: Test Server
     runs-on: ubuntu-latest
-    needs: lint
-    
+    needs: [lint-common, test-common, lint-server]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -113,11 +193,7 @@ jobs:
           ${{ runner.os }}-go-server-
       continue-on-error: true
     
-    - name: Download common dependencies
-      working-directory: ./common
-      run: go mod download
-    
-    - name: Download server dependencies
+    - name: Download dependencies
       working-directory: ./server
       run: go mod download
     
@@ -132,11 +208,13 @@ jobs:
         flags: server
         fail_ci_if_error: false
 
+  # ============================================================================
+  # E2E - Runs after both agent and server pass
+  # ============================================================================
   test-e2e:
-    name: Run E2E Tests
+    name: Test E2E
     runs-on: ubuntu-latest
-    needs: lint
-    
+    needs: [test-agent, test-server]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -158,7 +236,7 @@ jobs:
           ${{ runner.os }}-go-e2e-
       continue-on-error: true
     
-    - name: Download E2E test dependencies
+    - name: Download dependencies
       working-directory: ./tests
       run: go mod download
     
