@@ -487,7 +487,9 @@ func runServer(ctx context.Context, configFlag string) {
 			logWarn("No config.toml found; using defaults")
 		}
 		cfg = DefaultConfig()
-		configSourceTracker = newConfigSourceTracker() // Empty tracker when using defaults
+		configSourceTracker = newConfigSourceTracker()
+		// Apply environment overrides even when no config file is present
+		applyEnvOverrides(cfg, configSourceTracker)
 		loadedConfigPath = "defaults"
 		usingDefaultConfig = true
 	} else {
@@ -2624,15 +2626,19 @@ func setupRoutes(cfg *Config) {
 		}
 		// Build list of locked keys (those set by environment variables)
 		lockedKeys := make([]string, 0)
+		effectiveValues := make(map[string]interface{})
 		if configSourceTracker != nil && configSourceTracker.EnvKeys != nil {
 			lockedKeys = make([]string, 0, len(configSourceTracker.EnvKeys))
 			for key := range configSourceTracker.EnvKeys {
 				lockedKeys = append(lockedKeys, key)
 			}
+			// Include effective runtime values for locked keys
+			effectiveValues = getEffectiveConfigValues(lockedKeys)
 		}
 		resp := map[string]interface{}{
-			"locked_keys": lockedKeys,
-			"lock_reason": "environment_variable",
+			"locked_keys":      lockedKeys,
+			"lock_reason":      "environment_variable",
+			"effective_values": effectiveValues,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -2682,6 +2688,7 @@ func setupRoutes(cfg *Config) {
 
 	// Minimal settings & logs endpoints for the UI (placeholders)
 	http.HandleFunc("/api/logs", requireWebAuth(handleLogs))
+	http.HandleFunc("/api/logs/clear", requireWebAuth(handleLogsClear))
 	http.HandleFunc("/api/audit/logs", requireWebAuth(handleAuditLogs))
 
 	// Provide a lightweight proxy/compat endpoint for web UI credentials so the
@@ -4862,6 +4869,39 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"logs": lines})
 }
 
+// handleLogsClear rotates the server log file and clears the in-memory buffer
+func handleLogsClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionLogsRead, authz.ResourceRef{}) {
+		return
+	}
+
+	// Clear in-memory buffer if using structured logger
+	if serverLogger != nil {
+		serverLogger.ClearBuffer()
+	}
+
+	// Rotate the log file
+	if serverLogDir != "" {
+		logPath := filepath.Join(serverLogDir, "server.log")
+		rotatedPath := filepath.Join(serverLogDir, fmt.Sprintf("server.log.%s", time.Now().Format("20060102-150405")))
+		if err := os.Rename(logPath, rotatedPath); err != nil && !os.IsNotExist(err) {
+			logWarn("Failed to rotate log file", "err", err)
+		}
+		// Create new empty log file
+		if f, err := os.Create(logPath); err == nil {
+			f.Close()
+		}
+	}
+
+	logInfo("Logs cleared by user request")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Logs cleared"})
+}
+
 func collectServerLogLines(limit int) []string {
 	if limit <= 0 {
 		limit = uiLogLineLimit
@@ -5156,6 +5196,92 @@ func isConfigKeyLocked(key string) bool {
 		return false
 	}
 	return configSourceTracker.EnvKeys[key]
+}
+
+// getEffectiveConfigValues returns the runtime config values for the specified keys.
+// Used to show actual values for environment-locked settings in the UI.
+func getEffectiveConfigValues(keys []string) map[string]interface{} {
+	values := make(map[string]interface{})
+	if serverConfig == nil {
+		return values
+	}
+	cfg := serverConfig
+
+	for _, key := range keys {
+		switch key {
+		// Server settings
+		case "server.http_port":
+			values[key] = cfg.Server.HTTPPort
+		case "server.https_port":
+			values[key] = cfg.Server.HTTPSPort
+		case "server.behind_proxy":
+			values[key] = cfg.Server.BehindProxy
+		case "server.proxy_use_https":
+			values[key] = cfg.Server.ProxyUseHTTPS
+		case "server.bind_address":
+			values[key] = cfg.Server.BindAddress
+		case "server.auto_approve_agents":
+			values[key] = cfg.Server.AutoApproveAgents
+		case "server.agent_timeout_minutes":
+			values[key] = cfg.Server.AgentTimeoutMinutes
+		case "server.self_update_enabled":
+			values[key] = cfg.Server.SelfUpdateEnabled
+
+		// Releases settings
+		case "releases.max_releases":
+			values[key] = cfg.Releases.MaxReleases
+		case "releases.poll_interval_minutes":
+			values[key] = cfg.Releases.PollIntervalMinutes
+
+		// Self update settings
+		case "self_update.channel":
+			values[key] = cfg.SelfUpdate.Channel
+		case "self_update.max_artifacts":
+			values[key] = cfg.SelfUpdate.MaxArtifacts
+		case "self_update.check_interval_minutes":
+			values[key] = cfg.SelfUpdate.CheckIntervalMinutes
+
+		// TLS settings
+		case "tls.mode":
+			values[key] = cfg.TLS.Mode
+		case "tls.cert_path":
+			values[key] = cfg.TLS.CertPath
+		case "tls.key_path":
+			values[key] = cfg.TLS.KeyPath
+		case "tls.letsencrypt.domain":
+			values[key] = cfg.TLS.LetsEncrypt.Domain
+		case "tls.letsencrypt.email":
+			values[key] = cfg.TLS.LetsEncrypt.Email
+		case "tls.letsencrypt.accept_tos":
+			values[key] = cfg.TLS.LetsEncrypt.AcceptTOS
+
+		// SMTP settings
+		case "smtp.enabled":
+			values[key] = cfg.SMTP.Enabled
+		case "smtp.host":
+			values[key] = cfg.SMTP.Host
+		case "smtp.port":
+			values[key] = cfg.SMTP.Port
+		case "smtp.user":
+			values[key] = cfg.SMTP.User
+		case "smtp.from":
+			values[key] = cfg.SMTP.From
+		// Note: smtp.pass is intentionally not exposed for security
+
+		// Logging settings
+		case "logging.level":
+			values[key] = cfg.Logging.Level
+
+		// Database settings
+		case "database.path":
+			values[key] = cfg.Database.Path
+
+		// Tenancy settings
+		case "tenancy.enabled":
+			values[key] = cfg.Tenancy.Enabled
+		}
+	}
+	return values
 }
 
 func ensureConfigKeyEditable(key string) error {

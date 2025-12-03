@@ -179,6 +179,16 @@ func LoadConfig(configPath string) (*Config, *ConfigSourceTracker, error) {
 		}
 	}
 
+	// Apply environment variable overrides
+	applyEnvOverrides(cfg, tracker)
+
+	return cfg, tracker, nil
+}
+
+// applyEnvOverrides applies environment variable overrides to the config
+// and tracks which keys were set. This is separated out so it can be called
+// both when loading a config file and when using defaults (no config file).
+func applyEnvOverrides(cfg *Config, tracker *ConfigSourceTracker) {
 	// Override with environment variables and track which keys were set
 	if val := os.Getenv("SERVER_HTTP_PORT"); val != "" {
 		var port int
@@ -318,8 +328,6 @@ func LoadConfig(configPath string) (*Config, *ConfigSourceTracker, error) {
 
 	// Apply common environment variable overrides for database (component-specific prefixed env var supported)
 	config.ApplyDatabaseEnvOverrides(&cfg.Database, "SERVER")
-
-	return cfg, tracker, nil
 }
 
 // ToTLSConfig converts YAML TLS config to TLSConfig
