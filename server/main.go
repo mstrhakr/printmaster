@@ -39,6 +39,7 @@ import (
 	"printmaster/server/storage"
 	tenancy "printmaster/server/tenancy"
 	updatepolicy "printmaster/server/updatepolicy"
+	alertsapi "printmaster/server/alerts"
 	"runtime"
 	"sort"
 	"strconv"
@@ -2705,6 +2706,26 @@ func setupRoutes(cfg *Config) {
 		RegisterTenantAlias: true,
 	})
 	logInfo("Update policy routes registered", "enabled", featureEnabled)
+
+	// Alerts API routes
+	alertsAPI := alertsapi.NewAPI(serverStore, alertsapi.APIOptions{
+		AuthMiddleware: requireWebAuth,
+		Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
+			return authorizeRequest(r, action, resource)
+		},
+		ActorResolver: func(r *http.Request) string {
+			if principal := getPrincipal(r); principal != nil && principal.User != nil {
+				return principal.User.Username
+			}
+			return ""
+		},
+		AuditLogger: logRequestAudit,
+	})
+	alertsAPI.RegisterRoutes(alertsapi.RouteConfig{
+		Mux:            http.DefaultServeMux,
+		FeatureEnabled: true, // Alerts always enabled
+	})
+	logInfo("Alerts routes registered", "enabled", true)
 
 	if releaseManager != nil {
 		releaseAPI := releases.NewAPI(releaseManager, releases.APIOptions{

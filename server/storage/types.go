@@ -637,6 +637,44 @@ type Store interface {
 	UpdateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun) error
 	GetSelfUpdateRun(ctx context.Context, id int64) (*SelfUpdateRun, error)
 	ListSelfUpdateRuns(ctx context.Context, limit int) ([]*SelfUpdateRun, error)
+
+	// Alert management
+	CreateAlert(ctx context.Context, alert *Alert) (int64, error)
+	GetAlert(ctx context.Context, id int64) (*Alert, error)
+	ListActiveAlerts(ctx context.Context, filters AlertFilters) ([]Alert, error)
+	UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus) error
+	AcknowledgeAlert(ctx context.Context, id int64, username string) error
+	ResolveAlert(ctx context.Context, id int64) error
+
+	// Alert rule management
+	CreateAlertRule(ctx context.Context, rule *AlertRule) (int64, error)
+	GetAlertRule(ctx context.Context, id int64) (*AlertRule, error)
+	ListAlertRules(ctx context.Context) ([]AlertRule, error)
+	UpdateAlertRule(ctx context.Context, rule *AlertRule) error
+	DeleteAlertRule(ctx context.Context, id int64) error
+
+	// Notification channel management
+	CreateNotificationChannel(ctx context.Context, channel *NotificationChannel) (int64, error)
+	ListNotificationChannels(ctx context.Context) ([]NotificationChannel, error)
+	DeleteNotificationChannel(ctx context.Context, id int64) error
+
+	// Escalation policy management
+	CreateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) (int64, error)
+	ListEscalationPolicies(ctx context.Context) ([]EscalationPolicy, error)
+	DeleteEscalationPolicy(ctx context.Context, id int64) error
+
+	// Maintenance window management
+	CreateAlertMaintenanceWindow(ctx context.Context, window *AlertMaintenanceWindow) (int64, error)
+	ListAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error)
+	GetActiveAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error)
+	DeleteAlertMaintenanceWindow(ctx context.Context, id int64) error
+
+	// Alert settings
+	GetAlertSettings(ctx context.Context) (*AlertSettings, error)
+	SaveAlertSettings(ctx context.Context, settings *AlertSettings) error
+
+	// Alert summary
+	GetAlertSummary(ctx context.Context) (*AlertSummary, error)
 }
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.

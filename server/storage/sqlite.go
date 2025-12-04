@@ -529,6 +529,137 @@ func (s *SQLiteStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_self_update_runs_requested_at ON self_update_runs(requested_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_self_update_runs_status ON self_update_runs(status);
+
+	-- =============================================
+	-- Alerting System Tables
+	-- =============================================
+
+	-- Active and historical alerts
+	CREATE TABLE IF NOT EXISTS alerts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		rule_id INTEGER,
+		type TEXT NOT NULL,
+		severity TEXT NOT NULL,
+		scope TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active',
+		tenant_id TEXT,
+		site_id TEXT,
+		agent_id TEXT,
+		device_serial TEXT,
+		title TEXT NOT NULL,
+		message TEXT NOT NULL,
+		details TEXT,
+		triggered_at DATETIME NOT NULL,
+		acknowledged_at DATETIME,
+		acknowledged_by TEXT,
+		resolved_at DATETIME,
+		suppressed_until DATETIME,
+		expires_at DATETIME,
+		escalation_level INTEGER NOT NULL DEFAULT 0,
+		last_escalated_at DATETIME,
+		state_change_count INTEGER NOT NULL DEFAULT 0,
+		is_flapping INTEGER NOT NULL DEFAULT 0,
+		parent_alert_id INTEGER,
+		child_count INTEGER NOT NULL DEFAULT 0,
+		notifications_sent INTEGER NOT NULL DEFAULT 0,
+		last_notified_at DATETIME,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(rule_id) REFERENCES alert_rules(id) ON DELETE SET NULL,
+		FOREIGN KEY(parent_alert_id) REFERENCES alerts(id) ON DELETE SET NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status);
+	CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
+	CREATE INDEX IF NOT EXISTS idx_alerts_scope ON alerts(scope);
+	CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(type);
+	CREATE INDEX IF NOT EXISTS idx_alerts_tenant_id ON alerts(tenant_id);
+	CREATE INDEX IF NOT EXISTS idx_alerts_triggered_at ON alerts(triggered_at DESC);
+
+	-- Alert rules configuration
+	CREATE TABLE IF NOT EXISTS alert_rules (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		description TEXT,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		type TEXT NOT NULL,
+		severity TEXT NOT NULL,
+		scope TEXT NOT NULL,
+		tenant_ids TEXT,
+		site_ids TEXT,
+		agent_ids TEXT,
+		condition_json TEXT,
+		threshold REAL,
+		threshold_unit TEXT,
+		duration_minutes INTEGER NOT NULL DEFAULT 0,
+		channel_ids TEXT,
+		escalation_policy_id INTEGER,
+		cooldown_minutes INTEGER NOT NULL DEFAULT 15,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by TEXT,
+		FOREIGN KEY(escalation_policy_id) REFERENCES escalation_policies(id) ON DELETE SET NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_alert_rules_type ON alert_rules(type);
+	CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON alert_rules(enabled);
+
+	-- Notification channels
+	CREATE TABLE IF NOT EXISTS notification_channels (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		type TEXT NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		config_json TEXT,
+		min_severity TEXT NOT NULL DEFAULT 'warning',
+		tenant_ids TEXT,
+		rate_limit_per_hour INTEGER NOT NULL DEFAULT 100,
+		last_sent_at DATETIME,
+		sent_this_hour INTEGER NOT NULL DEFAULT 0,
+		use_quiet_hours INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_notification_channels_type ON notification_channels(type);
+	CREATE INDEX IF NOT EXISTS idx_notification_channels_enabled ON notification_channels(enabled);
+
+	-- Escalation policies
+	CREATE TABLE IF NOT EXISTS escalation_policies (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		description TEXT,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		steps_json TEXT NOT NULL,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
+
+	-- Maintenance windows for alert suppression
+	CREATE TABLE IF NOT EXISTS maintenance_windows (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		description TEXT,
+		scope TEXT NOT NULL,
+		tenant_id TEXT,
+		site_id TEXT,
+		agent_id TEXT,
+		device_serial TEXT,
+		start_time DATETIME NOT NULL,
+		end_time DATETIME NOT NULL,
+		timezone TEXT NOT NULL DEFAULT 'UTC',
+		recurring INTEGER NOT NULL DEFAULT 0,
+		recur_pattern TEXT,
+		recur_days TEXT,
+		alert_types TEXT,
+		allow_critical INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time);
+	CREATE INDEX IF NOT EXISTS idx_maintenance_windows_scope ON maintenance_windows(scope);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
