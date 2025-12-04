@@ -337,92 +337,155 @@
             </div>
         </div>
 
-        <!-- Tenants Tab (rendered dynamically) -->
-        <template id="tab-template-tenants">
-            <div style="margin-top:12px;" data-tab="tenants" class="hidden">
-                <h3>Tenants</h3>
-                <div class="subtab-bar" id="tenants_subtab_bar">
-                    <button class="subtab tenants-subtab active" data-tenantsview="directory">Directory</button>
-                    <button class="subtab tenants-subtab" data-tenantsview="bundles">Installer Bundles</button>
+        <!-- Admin Tab (rendered dynamically) - consolidates Users, Access, Tenants, Fleet, Server, Audit -->
+        <template id="tab-template-admin">
+            <div style="margin-top:12px;" data-tab="admin" class="hidden">
+                <h3>Administration</h3>
+
+                <div class="subtab-bar" id="admin_subtab_bar">
+                    <button class="subtab admin-subtab active" data-adminview="users">Users</button>
+                    <button class="subtab admin-subtab" data-adminview="access">Access</button>
+                    <button class="subtab admin-subtab" data-adminview="tenants">Tenants</button>
+                    <button class="subtab admin-subtab" data-adminview="fleet">Fleet</button>
+                    <button class="subtab admin-subtab" data-adminview="server">Server</button>
+                    <button class="subtab admin-subtab" data-adminview="audit">Audit</button>
                 </div>
 
-                <div class="tenants-view-panel" data-tenantsview-panel="directory">
-                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
-                        <div style="color:var(--muted);">Manage tenants and onboarding tokens</div>
+                <!-- Users Sub-tab -->
+                <div class="admin-view-panel" data-adminview-panel="users">
+                    <div class="users-header">
                         <div>
-                            <button id="new_tenant_btn">New Tenant</button>
+                            <p class="users-subtitle">Manage local users and permissions</p>
+                        </div>
+                        <div class="users-header-actions">
+                            <button id="invite_user_btn" class="btn-outline" title="Invite user via email">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/></svg>
+                                Invite
+                            </button>
+                            <button id="new_user_btn" class="btn-primary">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                New User
+                            </button>
                         </div>
                     </div>
-
-                    <div id="tenants_list">
-                        <div style="color:var(--muted);">Loading tenants...</div>
+                    <div id="users_list">
+                        <div class="users-loading">Loading users...</div>
                     </div>
                 </div>
 
-                <div class="tenants-view-panel hidden" data-tenantsview-panel="bundles">
-                    <div class="panel">
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);">Review generated installer bundles per tenant.</div>
-                            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
-                                <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">
-                                    <span>Tenant</span>
-                                    <select id="tenant_bundles_tenant_select" style="min-width:220px;"></select>
-                                </label>
-                                <button id="tenant_bundles_refresh_btn" class="ghost-btn">Refresh</button>
+                <!-- Access Sub-tab (SSO, Roles, Sessions) -->
+                <div class="admin-view-panel hidden" data-adminview-panel="access">
+                    <div class="access-sections">
+                        <!-- SSO Providers Section -->
+                        <div class="panel">
+                            <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                                <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                                    Connect identity providers for the hosted login page. Providers can be tenant-specific or global.
+                                </div>
+                                <div>
+                                    <button id="sso_add_provider_btn">Add Provider</button>
+                                </div>
+                            </div>
+                            <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
+                                <div class="muted-text">Loading identity providers…</div>
                             </div>
                         </div>
-                        <div id="tenant_bundles_table" class="card" style="padding:12px;overflow:auto;">
-                            <div class="muted-text">Select a tenant to view installer bundles.</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </template>
 
-        <!-- Settings Tab (rendered dynamically) -->
-        <template id="tab-template-settings">
-            <div style="margin-top:12px;" data-tab="settings" class="hidden">
-                <h3>Settings</h3>
-
-                <div class="subtab-bar" id="settings_subtab_bar">
-                    <button class="subtab settings-subtab active" data-settingsview="server">Server Settings</button>
-                    <button class="subtab settings-subtab" data-settingsview="sso">SSO Settings</button>
-                    <button class="subtab settings-subtab" data-settingsview="fleet">Fleet Settings</button>
-                    <button class="subtab settings-subtab" data-settingsview="updates">Updates</button>
-                </div>
-
-                <div class="settings-view-panel" data-settingsview-panel="server">
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Server Settings</h4>
-                        <div style="color:var(--muted);font-size:13px;margin-bottom:12px;max-width:600px;">
-                            Core configuration affecting this PrintMaster server instance. (Placeholder – populate via API.)
-                        </div>
-                        <div id="server_settings_container" class="card" style="padding:12px;display:flex;flex-direction:column;gap:12px;">
-                            <div class="muted-text">Loading server settings…</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="settings-view-panel hidden" data-settingsview-panel="sso">
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Single Sign-On (OIDC)</h4>
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                                Connect identity providers for the hosted login page. Providers can be tenant-specific or global.
+                        <!-- Roles Reference Section -->
+                        <div class="panel" style="margin-top:16px;">
+                            <h4 style="margin-top:0;color:var(--highlight)">Roles & Permissions</h4>
+                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
+                                Reference for built-in role permissions. Custom roles coming soon.
                             </div>
+                            <div id="roles_matrix" class="card" style="padding:12px;overflow:auto;">
+                                <table class="roles-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Permission</th>
+                                            <th>Admin</th>
+                                            <th>Operator</th>
+                                            <th>Viewer</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr><td>View Agents & Devices</td><td>✓</td><td>✓</td><td>✓</td></tr>
+                                        <tr><td>View Metrics & Logs</td><td>✓</td><td>✓</td><td>✓</td></tr>
+                                        <tr><td>Manage Agents (edit, delete)</td><td>✓</td><td>✓</td><td></td></tr>
+                                        <tr><td>Generate Installer Packages</td><td>✓</td><td>✓</td><td></td></tr>
+                                        <tr><td>Access Agent/Device Proxy</td><td>✓</td><td>✓</td><td></td></tr>
+                                        <tr><td>Manage Users & Sessions</td><td>✓</td><td></td><td></td></tr>
+                                        <tr><td>Manage Tenants & Tokens</td><td>✓</td><td></td><td></td></tr>
+                                        <tr><td>Configure SSO Providers</td><td>✓</td><td></td><td></td></tr>
+                                        <tr><td>Modify Server Settings</td><td>✓</td><td></td><td></td></tr>
+                                        <tr><td>View Audit Logs</td><td>✓</td><td></td><td></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Sessions Section -->
+                        <div class="panel" style="margin-top:16px;">
+                            <h4 style="margin-top:0;color:var(--highlight)">Active Sessions</h4>
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                                <div style="color:var(--muted);font-size:13px;">
+                                    View and revoke active user sessions.
+                                </div>
+                                <button id="sessions_refresh_btn" class="ghost-btn">Refresh</button>
+                            </div>
+                            <div id="sessions_list" class="card" style="padding:12px;overflow:auto;">
+                                <div class="muted-text">Loading sessions…</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tenants Sub-tab -->
+                <div class="admin-view-panel hidden" data-adminview-panel="tenants">
+                    <div class="tenants-inner-subtab-bar" id="tenants_inner_subtab_bar">
+                        <button class="subtab tenants-inner-subtab active" data-tenantsview="directory">Directory</button>
+                        <button class="subtab tenants-inner-subtab" data-tenantsview="bundles">Installer Bundles</button>
+                    </div>
+
+                    <div class="tenants-view-panel" data-tenantsview-panel="directory">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+                            <div style="color:var(--muted);">Manage tenants and onboarding tokens</div>
                             <div>
-                                <button id="sso_add_provider_btn">Add Provider</button>
+                                <button id="new_tenant_btn">New Tenant</button>
                             </div>
                         </div>
-                        <div id="sso_providers_list" class="card" style="padding:12px;overflow:auto;">
-                            <div class="muted-text">Loading identity providers…</div>
+                        <div id="tenants_list">
+                            <div style="color:var(--muted);">Loading tenants...</div>
+                        </div>
+                    </div>
+
+                    <div class="tenants-view-panel hidden" data-tenantsview-panel="bundles">
+                        <div class="panel">
+                            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                                <div style="color:var(--muted);">Review generated installer bundles per tenant.</div>
+                                <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+                                    <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">
+                                        <span>Tenant</span>
+                                        <select id="tenant_bundles_tenant_select" style="min-width:220px;"></select>
+                                    </label>
+                                    <button id="tenant_bundles_refresh_btn" class="ghost-btn">Refresh</button>
+                                </div>
+                            </div>
+                            <div id="tenant_bundles_table" class="card" style="padding:12px;overflow:auto;">
+                                <div class="muted-text">Select a tenant to view installer bundles.</div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="settings-view-panel hidden" data-settingsview-panel="fleet">
+                <!-- Fleet Sub-tab -->
+                <div class="admin-view-panel hidden" data-adminview-panel="fleet">
                     <div class="managed-settings-grid">
                         <div class="panel" id="managed_settings_panel">
+                            <h4 style="margin-top:0;color:var(--highlight)">Fleet Settings</h4>
+                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
+                                Configure discovery, SNMP, and agent behavior pushed to all connected agents.
+                            </div>
                             <div class="settings-scope-bar">
                                 <div class="settings-scope-buttons">
                                     <button class="settings-scope-btn active" data-scope="global">Global Defaults</button>
@@ -456,38 +519,15 @@
                             <div id="settings_override_list" class="muted-text">Select a tenant to view overrides.</div>
                         </div>
                     </div>
-                </div>
 
-                <div class="settings-view-panel hidden" data-settingsview-panel="updates">
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Server Updates</h4>
-                        
-                        <!-- Status Card -->
-                        <div id="selfupdate_status_card" class="card" style="padding:12px;margin-bottom:16px;">
-                            <div class="muted-text">Loading status…</div>
-                        </div>
-
-                        <!-- History Section -->
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-                            <div style="font-weight:600;font-size:14px;">Update History</div>
-                            <div style="display:flex;gap:8px;">
-                                <button id="selfupdate_refresh_btn" class="ghost-btn">Refresh</button>
-                            </div>
-                        </div>
-                        <div id="selfupdate_runs_container" class="card" style="padding:12px;overflow:auto;">
-                            <div class="muted-text">Loading update history…</div>
-                        </div>
-                    </div>
-
+                    <!-- Agent Updates Section -->
                     <div class="panel" style="margin-top:16px;">
                         <h4 style="margin-top:0;color:var(--highlight)">Agent Updates</h4>
                         
-                        <!-- Agent Update Policy Section (rendered dynamically) -->
                         <div id="agent_update_policy_root" class="settings-form-root" style="margin-bottom:16px;">
                             <div class="muted-text">Loading agent update policy…</div>
                         </div>
 
-                        <!-- Cached Release Artifacts Sub-card -->
                         <div class="card" style="padding:16px;">
                             <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
                                 <div style="font-weight:600;font-size:14px;color:var(--highlight)">Cached Release Artifacts</div>
@@ -501,44 +541,114 @@
                         </div>
                     </div>
                 </div>
-            </div>
-        </template>
 
-        <!-- Users Tab (rendered dynamically) -->
-        <template id="tab-template-users">
-            <div style="margin-top:12px;" data-tab="users" class="hidden">
-                <div class="users-header">
-                    <div>
-                        <h3>Users</h3>
-                        <p class="users-subtitle">Manage local users, roles, and permissions</p>
+                <!-- Server Sub-tab -->
+                <div class="admin-view-panel hidden" data-adminview-panel="server">
+                    <div class="panel">
+                        <h4 style="margin-top:0;color:var(--highlight)">Server Settings</h4>
+                        <div style="color:var(--muted);font-size:13px;margin-bottom:12px;max-width:600px;">
+                            Core configuration affecting this PrintMaster server instance.
+                        </div>
+                        <div id="server_settings_container" class="card" style="padding:12px;display:flex;flex-direction:column;gap:12px;">
+                            <div class="muted-text">Loading server settings…</div>
+                        </div>
                     </div>
-                    <div class="users-header-actions">
-                        <button id="invite_user_btn" class="btn-outline" title="Invite user via email">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/></svg>
-                            Invite
-                        </button>
-                        <button id="new_user_btn" class="btn-primary">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
-                            New User
-                        </button>
+
+                    <div class="panel" style="margin-top:16px;">
+                        <h4 style="margin-top:0;color:var(--highlight)">Server Updates</h4>
+                        
+                        <div id="selfupdate_status_card" class="card" style="padding:12px;margin-bottom:16px;">
+                            <div class="muted-text">Loading status…</div>
+                        </div>
+
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+                            <div style="font-weight:600;font-size:14px;">Update History</div>
+                            <div style="display:flex;gap:8px;">
+                                <button id="selfupdate_refresh_btn" class="ghost-btn">Refresh</button>
+                            </div>
+                        </div>
+                        <div id="selfupdate_runs_container" class="card" style="padding:12px;overflow:auto;">
+                            <div class="muted-text">Loading update history…</div>
+                        </div>
                     </div>
                 </div>
 
-                <div id="users_list">
-                    <div class="users-loading">Loading users...</div>
+                <!-- Audit Sub-tab -->
+                <div class="admin-view-panel hidden" data-adminview-panel="audit">
+                    <div class="panel log-panel">
+                        <div class="log-controls audit-controls">
+                            <div class="audit-filter-grid">
+                                <label class="log-control column">
+                                    <span>Time Range</span>
+                                    <select id="audit_time_filter">
+                                        <option value="24">Last 24h</option>
+                                        <option value="168">Last 7 days</option>
+                                        <option value="720">Last 30 days</option>
+                                    </select>
+                                </label>
+                                <label class="log-control column">
+                                    <span>Actor ID</span>
+                                    <input type="text" id="audit_actor_filter" placeholder="Optional actor identifier" />
+                                </label>
+                                <label class="log-control column">
+                                    <span>Tenant</span>
+                                    <input type="text" id="audit_tenant_filter" placeholder="Tenant ID or name" />
+                                </label>
+                                <label class="log-control column">
+                                    <span>Action</span>
+                                    <input type="text" id="audit_action_filter" list="audit_action_suggestions" placeholder="Filter by action keyword" />
+                                    <datalist id="audit_action_suggestions"></datalist>
+                                </label>
+                                <label class="log-control column">
+                                    <span>Search</span>
+                                    <input type="text" id="audit_search_filter" placeholder="Search actor, target, IP, metadata..." />
+                                </label>
+                                <div class="audit-severity-group">
+                                    <span>Severity</span>
+                                    <div class="audit-severity-options" id="audit_severity_filter">
+                                        <label class="audit-severity-pill">
+                                            <input type="checkbox" class="audit-severity-option" value="error" checked />
+                                            <span>Error</span>
+                                        </label>
+                                        <label class="audit-severity-pill">
+                                            <input type="checkbox" class="audit-severity-option" value="warn" checked />
+                                            <span>Warning</span>
+                                        </label>
+                                        <label class="audit-severity-pill">
+                                            <input type="checkbox" class="audit-severity-option" value="info" checked />
+                                            <span>Info</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="audit-controls-row">
+                                <label class="log-control">
+                                    <input type="checkbox" id="audit_live_toggle" /> Auto-refresh (15s)
+                                </label>
+                                <div class="audit-controls-actions">
+                                    <button class="ghost-btn" id="audit_clear_filters_btn">Reset Filters</button>
+                                    <button id="refresh_audit_logs_btn">Refresh</button>
+                                </div>
+                            </div>
+                            <div class="audit-summary" id="audit_summary" hidden>
+                                <span id="audit_summary_counts">0 entries</span>
+                                <span id="audit_summary_updated">Updated just now</span>
+                                <span id="audit_live_status" class="audit-live-status">Auto-refresh off</span>
+                            </div>
+                        </div>
+                        <div id="audit_logs_table" class="table-wrapper">
+                            <div class="muted-text">Loading audit entries...</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </template>
 
-        <!-- Logs Tab -->
+        <!-- Logs Tab (System logs only - Audit moved to Admin) -->
         <div class="hidden" style="margin-top:12px;" data-tab="logs">
-            <h3>Logs</h3>
-            <div class="subtab-bar" id="logs_subtab_bar">
-                <button class="subtab log-subtab active" data-logview="system">System Logs</button>
-                <button class="subtab log-subtab" data-logview="audit" data-role="admin" style="display:none">Audit Logs</button>
-            </div>
+            <h3>System Logs</h3>
 
-            <div class="panel log-panel" data-logview-panel="system">
+            <div class="panel log-panel">
                 <div class="log-controls">
                     <div class="log-view-toggle">
                         <button class="log-view-btn active" data-log-view-mode="table" title="Table View">
@@ -580,72 +690,6 @@
                     </table>
                 </div>
                 <pre id="log" class="hidden"></pre>
-            </div>
-
-            <div class="panel log-panel hidden" data-logview-panel="audit" data-role="admin" style="display:none">
-                <div class="log-controls audit-controls">
-                    <div class="audit-filter-grid">
-                        <label class="log-control column">
-                            <span>Time Range</span>
-                            <select id="audit_time_filter">
-                                <option value="24">Last 24h</option>
-                                <option value="168">Last 7 days</option>
-                                <option value="720">Last 30 days</option>
-                            </select>
-                        </label>
-                        <label class="log-control column">
-                            <span>Actor ID</span>
-                            <input type="text" id="audit_actor_filter" placeholder="Optional actor identifier" />
-                        </label>
-                        <label class="log-control column">
-                            <span>Tenant</span>
-                            <input type="text" id="audit_tenant_filter" placeholder="Tenant ID or name" />
-                        </label>
-                        <label class="log-control column">
-                            <span>Action</span>
-                            <input type="text" id="audit_action_filter" list="audit_action_suggestions" placeholder="Filter by action keyword" />
-                            <datalist id="audit_action_suggestions"></datalist>
-                        </label>
-                        <label class="log-control column">
-                            <span>Search</span>
-                            <input type="text" id="audit_search_filter" placeholder="Search actor, target, IP, metadata..." />
-                        </label>
-                        <div class="audit-severity-group">
-                            <span>Severity</span>
-                            <div class="audit-severity-options" id="audit_severity_filter">
-                                <label class="audit-severity-pill">
-                                    <input type="checkbox" class="audit-severity-option" value="error" checked />
-                                    <span>Error</span>
-                                </label>
-                                <label class="audit-severity-pill">
-                                    <input type="checkbox" class="audit-severity-option" value="warn" checked />
-                                    <span>Warning</span>
-                                </label>
-                                <label class="audit-severity-pill">
-                                    <input type="checkbox" class="audit-severity-option" value="info" checked />
-                                    <span>Info</span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="audit-controls-row">
-                        <label class="log-control">
-                            <input type="checkbox" id="audit_live_toggle" /> Auto-refresh (15s)
-                        </label>
-                        <div class="audit-controls-actions">
-                            <button class="ghost-btn" id="audit_clear_filters_btn">Reset Filters</button>
-                            <button id="refresh_audit_logs_btn">Refresh</button>
-                        </div>
-                    </div>
-                    <div class="audit-summary" id="audit_summary" hidden>
-                        <span id="audit_summary_counts">0 entries</span>
-                        <span id="audit_summary_updated">Updated just now</span>
-                        <span id="audit_live_status" class="audit-live-status">Auto-refresh off</span>
-                    </div>
-                </div>
-                <div id="audit_logs_table" class="table-wrapper">
-                    <div class="muted-text">Audit entries load here for admins.</div>
-                </div>
             </div>
         </div>
 

@@ -125,17 +125,23 @@ const adminUser = { username: 'alice', role: 'admin', tenant_ids: [] };
 const operatorUser = { username: 'oliver', role: 'operator', tenant_ids: ['t1'] };
 const viewerUser = { username: 'victor', role: 'viewer', tenant_ids: ['t1'] };
 
-test('admin sees tenants tab and actions', async ({ page }) => {
+test('admin sees tenants in admin tab', async ({ page }) => {
   await loadApp(page, adminUser);
-  const tenantsTab = page.locator('#desktop_tabs [data-target="tenants"]').first();
-  await expect(tenantsTab).toBeVisible();
-  await tenantsTab.click();
+  // Navigate to Admin tab
+  const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
+  await expect(adminTab).toBeVisible();
+  await adminTab.click();
+  // Switch to Tenants sub-view
+  const tenantsSubtab = page.locator('.admin-subtab[data-adminview="tenants"]');
+  await expect(tenantsSubtab).toBeVisible();
+  await tenantsSubtab.click();
+  // New tenant button should be visible
   await expect(page.locator('#new_tenant_btn')).toBeVisible();
 });
 
-test('operator cannot see tenants tab', async ({ page }) => {
+test('operator cannot see admin tab', async ({ page }) => {
   await loadApp(page, operatorUser);
-  await expect(page.locator('[data-target="tenants"]')).toHaveCount(0);
+  await expect(page.locator('[data-target="admin"]')).toHaveCount(0);
 });
 
 test('viewer cannot see add agent button', async ({ page }) => {
@@ -143,16 +149,15 @@ test('viewer cannot see add agent button', async ({ page }) => {
   await expect(page.locator('#join_token_btn')).toBeHidden();
 });
 
-test('admin can view audit log subtab', async ({ page }) => {
+test('admin can view audit subtab in admin tab', async ({ page }) => {
   await loadApp(page, adminUser);
-  await page.locator('#desktop_tabs [data-target="logs"]').click();
-  const auditSubtab = page.locator('.log-subtab[data-logview="audit"]');
+  await page.locator('#desktop_tabs [data-target="admin"]').click();
+  const auditSubtab = page.locator('.admin-subtab[data-adminview="audit"]');
   await expect(auditSubtab).toBeVisible();
 });
 
-test('viewer does not see audit log subtab', async ({ page }) => {
+test('viewer does not see admin tab', async ({ page }) => {
   await loadApp(page, viewerUser);
-  await page.locator('#desktop_tabs [data-target="logs"]').click();
-  const auditSubtab = page.locator('.log-subtab[data-logview="audit"]');
-  await expect(auditSubtab).toBeHidden();
+  const adminTab = page.locator('#desktop_tabs [data-target="admin"]');
+  await expect(adminTab).toBeHidden();
 });

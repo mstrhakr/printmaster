@@ -1177,6 +1177,118 @@ select:focus {
   margin-top: 16px;
 }
 
+/* Admin tab consolidated UI */
+.admin-view-panel {
+  margin-top: 16px;
+}
+
+.admin-view-panel.hidden {
+  display: none;
+}
+
+/* Tenants inner sub-tabs (Directory / Bundles) */
+.tenants-inner-subtab-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.tenants-inner-subtab {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: var(--transition-fast);
+}
+
+.tenants-inner-subtab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tenants-inner-subtab.active {
+  background: var(--panel);
+  color: var(--highlight);
+}
+
+.tenants-inner-view.hidden {
+  display: none;
+}
+
+/* Roles & Permissions reference table */
+.roles-table-container {
+  margin-top: 16px;
+  max-width: 900px;
+}
+
+.roles-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.roles-table th,
+.roles-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.roles-table thead th {
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.roles-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.roles-table td:first-child {
+  font-weight: 500;
+  color: var(--highlight);
+}
+
+/* Sessions list in Access sub-tab */
+.sessions-list-container {
+  margin-top: 16px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.session-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.session-user {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.session-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .log-panel {
   margin-bottom: 16px;
 }

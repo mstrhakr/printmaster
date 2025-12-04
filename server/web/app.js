@@ -7,41 +7,23 @@ const BASE_TAB_LABELS = {
     metrics: 'Metrics',
     logs: 'Logs'
 };
+
+// Admin tab consolidates: Users, Access, Tenants, Fleet, Server, Audit
 const TAB_DEFINITIONS = {
-    tenants: {
-        label: 'Tenants',
-        requiredAction: 'tenants.read',
-        templateId: 'tab-template-tenants',
-        onMount: () => initTenantsUI()
-    },
-    users: {
-        label: 'Users',
-        requiredAction: 'users.read',
-        templateId: 'tab-template-users',
-        onMount: () => initUsersUI()
-    },
-    settings: {
-        label: 'Settings',
-        requiredAction: 'settings.read',
-        templateId: 'tab-template-settings',
-        onMount: () => {
-            initSettingsSubTabs();
-            switchSettingsView(activeSettingsView, true);
-        }
-    },
-    logs: {
-        label: 'Logs',
-        requiredAction: 'logs.read',
-        templateId: 'tab-template-logs',
-        onMount: () => {
-            initLogSubTabs();
-            switchLogView(activeLogView || 'system');
-        }
+    admin: {
+        label: 'Admin',
+        requiredAction: 'settings.read', // Admin-level access required
+        templateId: 'tab-template-admin',
+        onMount: () => initAdminTab()
     }
 };
 
+// Valid admin sub-views
+const VALID_ADMIN_VIEWS = ['users', 'access', 'tenants', 'fleet', 'server', 'audit'];
+
 const SERVER_UI_STATE_KEYS = {
     ACTIVE_TAB: 'pm_server_active_tab',
+    ADMIN_VIEW: 'pm_server_admin_view',
     SETTINGS_VIEW: 'pm_server_settings_view',
     LOG_VIEW: 'pm_server_log_view',
     LOG_VIEW_MODE: 'pm_server_log_view_mode',
@@ -55,7 +37,7 @@ const SERVER_UI_STATE_KEYS = {
 };
 
 const VALID_SETTINGS_VIEWS = ['server', 'sso', 'fleet', 'updates'];
-const VALID_LOG_VIEWS = ['system', 'audit'];
+const VALID_LOG_VIEWS = ['system'];
 const VALID_LOG_VIEW_MODES = ['table', 'raw'];
 const VALID_TENANT_VIEWS = ['directory', 'bundles'];
 
@@ -105,6 +87,8 @@ let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
 let settingsSubtabsInitialized = false;
+let adminSubtabsInitialized = false;
+let activeAdminView = getPersistedUIState(SERVER_UI_STATE_KEYS.ADMIN_VIEW, 'users', VALID_ADMIN_VIEWS);
 let activeSettingsView = getPersistedUIState(SERVER_UI_STATE_KEYS.SETTINGS_VIEW, 'server', VALID_SETTINGS_VIEWS);
 let activeLogView = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, 'system', VALID_LOG_VIEWS);
 let activeLogViewMode = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW_MODE, 'table', VALID_LOG_VIEW_MODES);
@@ -938,26 +922,7 @@ function initLogSubTabs() {
         clearLogBtn.addEventListener('click', clearLogs);
     }
 
-    const refreshBtn = document.getElementById('refresh_audit_logs_btn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => loadAuditLogs());
-    }
-
-    const timeFilter = document.getElementById('audit_time_filter');
-    if (timeFilter) {
-        timeFilter.addEventListener('change', () => loadAuditLogs());
-    }
-
-    const actorFilter = document.getElementById('audit_actor_filter');
-    if (actorFilter) {
-        actorFilter.addEventListener('keyup', (ev) => {
-            if (ev.key === 'Enter') {
-                loadAuditLogs();
-            }
-        });
-    }
-
-    initAuditFilterControls();
+    // Note: Audit logs are now in Admin > Audit tab, initialized separately
 }
 
 function initLogViewModeToggle() {
@@ -1019,18 +984,14 @@ function rerenderCurrentLogs() {
 }
 
 function switchLogView(view) {
-    const canViewAudit = userCan('audit.logs.read');
-    const desired = view === 'audit' && canViewAudit ? 'audit' : 'system';
-    activeLogView = desired;
-    persistUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, desired);
+    // Note: Audit logs moved to Admin > Audit tab
+    // Logs tab now only shows system logs
+    activeLogView = 'system';
+    persistUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, 'system');
 
     document.querySelectorAll('.log-subtab').forEach(btn => {
         const target = btn.dataset.logview || 'system';
-        const isAudit = target === 'audit';
-        if (isAudit) {
-            btn.style.display = canViewAudit ? '' : 'none';
-        }
-        if (target === desired) {
+        if (target === 'system') {
             btn.classList.add('active');
         } else {
             btn.classList.remove('active');
@@ -1039,21 +1000,178 @@ function switchLogView(view) {
 
     document.querySelectorAll('[data-logview-panel]').forEach(panel => {
         const target = panel.dataset.logviewPanel || 'system';
-        if (target === desired) {
+        if (target === 'system') {
             panel.classList.remove('hidden');
         } else {
             panel.classList.add('hidden');
         }
     });
 
-    if (desired === 'audit') {
-        loadAuditLogs();
-    } else {
-        loadLogs();
-    }
-
-    syncAuditLiveTimer();
+    loadLogs();
 }
+
+// ============================================
+// Admin Tab Functions (consolidated admin UI)
+// ============================================
+
+function initAdminTab() {
+    initAdminSubTabs();
+    switchAdminView(activeAdminView, true);
+}
+
+function initAdminSubTabs() {
+    if (adminSubtabsInitialized) {
+        return;
+    }
+    adminSubtabsInitialized = true;
+
+    // Main admin sub-tabs
+    document.querySelectorAll('.admin-subtab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.adminview || 'users';
+            switchAdminView(target);
+        });
+    });
+
+    // Nested tenants inner sub-tabs (Directory / Bundles)
+    document.querySelectorAll('.tenants-inner-subtab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.tenantsview || 'directory';
+            switchTenantsInnerView(target);
+        });
+    });
+}
+
+function switchAdminView(view, force = false) {
+    const normalized = VALID_ADMIN_VIEWS.includes(view) ? view : 'users';
+    const previous = activeAdminView;
+    activeAdminView = normalized;
+    persistUIState(SERVER_UI_STATE_KEYS.ADMIN_VIEW, normalized);
+
+    // Update sub-tab button states
+    document.querySelectorAll('.admin-subtab').forEach(btn => {
+        const target = btn.dataset.adminview || 'users';
+        btn.classList.toggle('active', target === normalized);
+    });
+
+    // Show/hide panels
+    document.querySelectorAll('[data-adminview-panel]').forEach(panel => {
+        const target = panel.dataset.adminviewPanel || 'users';
+        panel.classList.toggle('hidden', target !== normalized);
+    });
+
+    if (force || previous !== normalized) {
+        ensureAdminViewReady(normalized);
+    }
+}
+
+function ensureAdminViewReady(view) {
+    switch (view) {
+        case 'users':
+            initUsersUI();
+            loadUsers();
+            break;
+        case 'access':
+            initSSOAdmin();
+            refreshSSOProviders();
+            loadSessions();
+            break;
+        case 'tenants':
+            initTenantsUI();
+            loadTenants();
+            break;
+        case 'fleet':
+            initSettingsUI();
+            loadAgentUpdatePolicyForUpdatesTab();
+            break;
+        case 'server':
+            loadServerSettings();
+            loadSelfUpdateRuns();
+            break;
+        case 'audit':
+            initAuditFilterControls();
+            loadAuditLogs();
+            break;
+    }
+}
+
+function switchTenantsInnerView(view) {
+    const normalized = VALID_TENANT_VIEWS.includes(view) ? view : 'directory';
+    activeTenantsView = normalized;
+    persistUIState(SERVER_UI_STATE_KEYS.TENANTS_VIEW, normalized);
+
+    document.querySelectorAll('.tenants-inner-subtab').forEach(btn => {
+        const target = btn.dataset.tenantsview || 'directory';
+        btn.classList.toggle('active', target === normalized);
+    });
+
+    document.querySelectorAll('.tenants-view-panel').forEach(panel => {
+        const target = panel.dataset.tenantsviewPanel || 'directory';
+        panel.classList.toggle('hidden', target !== normalized);
+    });
+
+    if (normalized === 'bundles') {
+        initTenantBundlesUI();
+    }
+}
+
+// Sessions management for Access sub-tab
+async function loadSessions() {
+    const container = document.getElementById('sessions_list');
+    if (!container) return;
+    container.innerHTML = '<div class="muted-text">Loading sessions…</div>';
+    try {
+        const sessions = await fetchJSON('/api/v1/sessions');
+        renderSessions(sessions || []);
+    } catch (err) {
+        container.innerHTML = `<div style="color:var(--danger);">Failed to load sessions: ${err.message || err}</div>`;
+    }
+}
+
+function renderSessions(sessions) {
+    const container = document.getElementById('sessions_list');
+    if (!container) return;
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+        container.innerHTML = '<div class="muted-text">No active sessions.</div>';
+        return;
+    }
+    const rows = sessions.map(s => {
+        const created = s.created_at ? new Date(s.created_at).toLocaleString() : 'N/A';
+        const expires = s.expires_at ? new Date(s.expires_at).toLocaleString() : 'N/A';
+        const username = escapeHtml(s.username || `User #${s.user_id}`);
+        return `<tr>
+            <td>${username}</td>
+            <td>${created}</td>
+            <td>${expires}</td>
+            <td><button class="ghost-btn danger-btn" data-session-hash="${escapeHtml(s.token_hash || '')}" onclick="revokeSession(this)">Revoke</button></td>
+        </tr>`;
+    }).join('');
+    container.innerHTML = `<table class="data-table">
+        <thead><tr><th>User</th><th>Created</th><th>Expires</th><th>Action</th></tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function revokeSession(btn) {
+    const hash = btn.dataset.sessionHash;
+    if (!hash) return;
+    if (!confirm('Revoke this session? The user will be logged out.')) return;
+    try {
+        await fetch(`/api/v1/sessions/${encodeURIComponent(hash)}`, { method: 'DELETE' });
+        window.__pm_shared.showToast('Session revoked', 'success');
+        loadSessions();
+    } catch (err) {
+        window.__pm_shared.showToast('Failed to revoke session', 'error');
+    }
+}
+
+// Wire up sessions refresh button
+document.addEventListener('DOMContentLoaded', () => {
+    const refreshBtn = document.getElementById('sessions_refresh_btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadSessions);
+    }
+});
 
 function initSettingsSubTabs() {
     if (settingsSubtabsInitialized) {
@@ -1702,10 +1820,8 @@ function switchTab(targetTab) {
     } else if (targetTab === 'logs') {
         initLogSubTabs();
         switchLogView(activeLogView || 'system');
-    } else if (targetTab === 'tenants') {
-        loadTenants();
-    } else if (targetTab === 'users') {
-        loadUsers();
+    } else if (targetTab === 'admin') {
+        initAdminTab();
     }
 
     if (targetTab && isTabSelectable(targetTab)) {
