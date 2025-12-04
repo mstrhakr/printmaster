@@ -51,6 +51,7 @@ type Options struct {
 	Channel          string
 	BinaryPath       string
 	ServiceName      string
+	IsService        bool // True if running as a Windows service (determines update restart method)
 	MinDiskSpaceMB   int64
 	MaxRetries       int
 	Clock            func() time.Time
@@ -91,6 +92,7 @@ type Manager struct {
 	channel          string
 	binaryPath       string
 	serviceName      string
+	isService        bool
 	minDiskSpace     int64
 	maxRetries       int
 	clock            func() time.Time
@@ -198,6 +200,7 @@ func NewManager(opts Options) (*Manager, error) {
 		channel:          channel,
 		binaryPath:       binaryPath,
 		serviceName:      opts.ServiceName,
+		isService:        opts.IsService,
 		minDiskSpace:     minDiskSpace,
 		maxRetries:       maxRetries,
 		clock:            clock,
@@ -704,31 +707,51 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 
 func (m *Manager) applyUpdateWindows(stagingPath string) error {
 	// On Windows, we write a helper batch file that:
-	// 1. Waits for the current process to exit
-	// 2. Copies the new binary over the old one
-	// 3. Restarts the service (or starts the binary directly)
+	// 1. Stops the service (if running as service) to prevent auto-restart race
+	// 2. Waits for the current process to exit
+	// 3. Copies the new binary over the old one
+	// 4. Restarts the service (or starts the binary directly)
 	//
 	// The batch file is launched detached so it continues running after we exit.
 
-	// Determine if we're running as a service
-	isService := os.Getenv("SERVICE_NAME") != "" || isWindowsService()
+	// Use the isService flag passed from main (which uses kardianos/service.Interactive())
+	// This is more reliable than trying to detect service mode from within the update package
+	isService := m.isService
 
 	var helperScript string
 	if isService {
-		// Running as a Windows service - use SC to restart
+		// Running as a Windows service - use SC to stop, copy, and start
+		// IMPORTANT: We must stop the service first to prevent the service manager
+		// from auto-restarting the old binary while we're trying to update.
 		helperScript = fmt.Sprintf(`@echo off
 echo PrintMaster Agent Update Helper
-echo Waiting for agent to stop...
-timeout /t 3 /nobreak >nul
+echo ============================================
+echo Stopping service to prevent auto-restart...
+sc stop PrintMasterAgent
+if %%errorlevel%% neq 0 (
+    echo WARNING: SC stop returned %%errorlevel%% - service may already be stopping
+)
+
+echo Waiting for service to fully stop...
+:waitloop
+sc query PrintMasterAgent | find "STOPPED" >nul
+if %%errorlevel%% neq 0 (
+    timeout /t 1 /nobreak >nul
+    goto waitloop
+)
+echo Service stopped.
 
 echo Copying new binary...
 copy /y "%s" "%s"
 if %%errorlevel%% neq 0 (
     echo ERROR: Failed to copy new binary
+    echo Attempting to restart service with old binary...
+    sc start PrintMasterAgent
     exit /b %%errorlevel%%
 )
+echo Binary copied successfully.
 
-echo Starting service...
+echo Starting service with new binary...
 sc start PrintMasterAgent
 if %%errorlevel%% neq 0 (
     echo WARNING: SC start returned %%errorlevel%% - service may already be starting
@@ -796,23 +819,6 @@ del "%%~f0"
 
 	m.logInfo("Update helper launched", "helper_path", helperPath, "is_service", isService)
 	return nil
-}
-
-// isWindowsService checks if we're running as a Windows service
-func isWindowsService() bool {
-	// Check common indicators of running as a service
-	// 1. Parent process is services.exe
-	// 2. SESSION_NAME environment variable is set to "Services"
-	if sessionName := os.Getenv("SESSIONNAME"); sessionName == "Services" {
-		return true
-	}
-	// Also check if stdin is not a terminal (common for services)
-	if fi, err := os.Stdin.Stat(); err == nil {
-		if (fi.Mode() & os.ModeCharDevice) == 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *Manager) rollback(backupPath string) error {

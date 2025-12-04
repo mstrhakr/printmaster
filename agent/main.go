@@ -1696,7 +1696,7 @@ func performServerJoin(
 	if existingWorker != nil && existingWorker.client != nil {
 		existingWorker.client.SetToken(agentToken)
 		existingWorker.client.BaseURL = serverURL
-		maybeStartAutoUpdateWorker(appCtx, agentCfg, dataDir, logger)
+		maybeStartAutoUpdateWorker(appCtx, agentCfg, dataDir, isSvc, logger)
 	} else {
 		go func() {
 			worker, err := startServerUploadWorker(appCtx, agentCfg, dataDir, deviceStore, settings, logger)
@@ -1709,7 +1709,7 @@ func performServerJoin(
 			uploadWorkerMu.Lock()
 			uploadWorker = worker
 			uploadWorkerMu.Unlock()
-			maybeStartAutoUpdateWorker(appCtx, agentCfg, dataDir, logger)
+			maybeStartAutoUpdateWorker(appCtx, agentCfg, dataDir, isSvc, logger)
 		}()
 	}
 	broadcastServerStatus(agentCfg, dataDir, "joined", true)
@@ -1721,14 +1721,14 @@ func performServerJoin(
 	}, nil
 }
 
-func maybeStartAutoUpdateWorker(appCtx context.Context, agentCfg *AgentConfig, dataDir string, log *logger.Logger) {
+func maybeStartAutoUpdateWorker(appCtx context.Context, agentCfg *AgentConfig, dataDir string, isService bool, log *logger.Logger) {
 	autoUpdateManagerMu.RLock()
 	alreadyRunning := autoUpdateManager != nil
 	autoUpdateManagerMu.RUnlock()
 	if alreadyRunning {
 		return
 	}
-	go initAutoUpdateWorker(appCtx, agentCfg, dataDir, log)
+	go initAutoUpdateWorker(appCtx, agentCfg, dataDir, isService, log)
 }
 
 // tryLearnOIDForValue performs an SNMP walk to find an OID that returns the specified value
@@ -3627,7 +3627,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 			uploadWorkerMu.Unlock()
 
 			// Start auto-update worker after upload worker is ready
-			go initAutoUpdateWorker(ctx, agentConfig, dataDir, appLogger)
+			go initAutoUpdateWorker(ctx, agentConfig, dataDir, isService, appLogger)
 		}()
 	}
 

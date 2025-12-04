@@ -124,6 +124,7 @@ func startAutoUpdateManager(
 	fleetProvider *fleetPolicyProvider,
 	dataDir string,
 	currentVersion string,
+	isService bool,
 	log *logger.Logger,
 ) (*autoupdate.Manager, error) {
 	if serverClient == nil {
@@ -141,6 +142,7 @@ func startAutoUpdateManager(
 		Arch:             runtime.GOARCH,
 		Channel:          "stable", // TODO: make configurable
 		DataDir:          dataDir,
+		IsService:        isService,
 		ServerClient:     clientAdapter,
 		PolicyProvider:   policyAdapter,
 		TelemetrySink:    telemetryAdapter,
@@ -171,6 +173,7 @@ func initAutoUpdateWorker(
 	ctx context.Context,
 	agentCfg *AgentConfig,
 	dataDir string,
+	isService bool,
 	log *logger.Logger,
 ) {
 	// Wait a bit for upload worker to be fully ready
@@ -205,6 +208,7 @@ func initAutoUpdateWorker(
 		fleetProvider,
 		dataDir,
 		Version,
+		isService,
 		log,
 	)
 	if err != nil {
