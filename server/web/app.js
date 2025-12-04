@@ -1268,34 +1268,63 @@ function ensureAlertsViewReady(view) {
 }
 
 async function loadAlertSummary() {
-    // Fleet health counts
-    const healthyCounts = { healthy: 0, warning: 0, critical: 0, offline: 0 };
-    
-    // Update summary cards (placeholder - will use real API data)
-    document.getElementById('summary_healthy_count').textContent = healthyCounts.healthy;
-    document.getElementById('summary_warning_count').textContent = healthyCounts.warning;
-    document.getElementById('summary_critical_count').textContent = healthyCounts.critical;
-    document.getElementById('summary_offline_count').textContent = healthyCounts.offline;
-    
-    // Update scope bars (placeholder)
-    updateScopeBar('devices', 100, 0, 0, '0 / 0');
-    updateScopeBar('agents', 100, 0, 0, '0 / 0');
-    updateScopeBar('sites', 100, 0, 0, '0 / 0');
-    updateScopeBar('tenants', 100, 0, 0, '0 / 0');
-    
-    // Update breakdown counts
-    document.getElementById('breakdown_supply').textContent = '0';
-    document.getElementById('breakdown_device_offline').textContent = '0';
-    document.getElementById('breakdown_agent_offline').textContent = '0';
-    document.getElementById('breakdown_site_outage').textContent = '0';
-    document.getElementById('breakdown_usage').textContent = '0';
-    document.getElementById('breakdown_errors').textContent = '0';
-    
-    // Update status indicators
-    document.getElementById('status_active_rules').textContent = '0';
-    document.getElementById('status_channels').textContent = '0';
-    
-    // Wire up "View All" link
+    try {
+        // Fetch summary from API
+        const resp = await fetch('/api/v1/alerts/summary');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const summary = await resp.json();
+
+        // Update summary health cards with counts by severity
+        const criticalCount = summary.active_by_severity?.critical || 0;
+        const warningCount = summary.active_by_severity?.warning || 0;
+        const infoCount = summary.active_by_severity?.info || 0;
+        const totalActive = summary.total_active || 0;
+        const totalResolved = summary.total_resolved || 0;
+        const healthyCount = Math.max(0, 100 - totalActive); // Placeholder for "healthy" percentage
+        
+        const el = (id) => document.getElementById(id);
+        if (el('summary_healthy_count')) el('summary_healthy_count').textContent = healthyCount > 0 ? '✓' : 0;
+        if (el('summary_warning_count')) el('summary_warning_count').textContent = warningCount;
+        if (el('summary_critical_count')) el('summary_critical_count').textContent = criticalCount;
+        if (el('summary_offline_count')) el('summary_offline_count').textContent = infoCount;
+
+        // Update scope bars with data from summary
+        const deviceAlerts = summary.active_by_scope?.device || 0;
+        const agentAlerts = summary.active_by_scope?.agent || 0;
+        const siteAlerts = summary.active_by_scope?.site || 0;
+        const tenantAlerts = summary.active_by_scope?.tenant || 0;
+        
+        updateScopeBar('devices', deviceAlerts === 0 ? 100 : 0, deviceAlerts > 0 && deviceAlerts < 5 ? 100 : 0, deviceAlerts >= 5 ? 100 : 0, `${deviceAlerts} alerts`);
+        updateScopeBar('agents', agentAlerts === 0 ? 100 : 0, agentAlerts > 0 && agentAlerts < 3 ? 100 : 0, agentAlerts >= 3 ? 100 : 0, `${agentAlerts} alerts`);
+        updateScopeBar('sites', siteAlerts === 0 ? 100 : 0, siteAlerts > 0 && siteAlerts < 2 ? 100 : 0, siteAlerts >= 2 ? 100 : 0, `${siteAlerts} alerts`);
+        updateScopeBar('tenants', tenantAlerts === 0 ? 100 : 0, tenantAlerts > 0 ? 100 : 0, 0, `${tenantAlerts} alerts`);
+
+        // Update breakdown by type (aggregate from active_by_type)
+        const byType = summary.active_by_type || {};
+        if (el('breakdown_supply')) el('breakdown_supply').textContent = (byType['device.supply.low'] || 0) + (byType['device.supply.critical'] || 0);
+        if (el('breakdown_device_offline')) el('breakdown_device_offline').textContent = byType['device.offline'] || 0;
+        if (el('breakdown_agent_offline')) el('breakdown_agent_offline').textContent = byType['agent.offline'] || 0;
+        if (el('breakdown_site_outage')) el('breakdown_site_outage').textContent = (byType['site.outage'] || 0) + (byType['site.partial_outage'] || 0);
+        if (el('breakdown_usage')) el('breakdown_usage').textContent = (byType['device.usage.high'] || 0) + (byType['device.usage.spike'] || 0);
+        if (el('breakdown_errors')) el('breakdown_errors').textContent = byType['device.error'] || 0;
+
+        // Update status indicators
+        if (el('status_active_rules')) el('status_active_rules').textContent = summary.enabled_rules_count || 0;
+        if (el('status_channels')) el('status_channels').textContent = summary.enabled_channels_count || 0;
+        
+        // Show maintenance mode / quiet hours status
+        if (summary.in_maintenance_window && el('maintenance_indicator')) {
+            el('maintenance_indicator').style.display = '';
+        }
+        if (summary.in_quiet_hours && el('quiet_hours_indicator')) {
+            el('quiet_hours_indicator').style.display = '';
+        }
+    } catch (err) {
+        console.error('Failed to load alert summary:', err);
+        // Keep showing zeros as fallback
+    }
+
+    // Wire up "View All" link (always needed)
     const viewAllLink = document.getElementById('view_all_alerts_link');
     if (viewAllLink && !viewAllLink.dataset.bound) {
         viewAllLink.dataset.bound = 'true';
@@ -1305,10 +1334,36 @@ async function loadAlertSummary() {
         });
     }
     
-    // Load recent alerts
+    // Load recent alerts preview
+    await loadRecentAlertsPreview();
+}
+
+async function loadRecentAlertsPreview() {
     const recentContainer = document.getElementById('recent_alerts_summary');
-    if (recentContainer) {
-        recentContainer.innerHTML = '<div class="muted-text">No recent alerts</div>';
+    if (!recentContainer) return;
+    
+    try {
+        const resp = await fetch('/api/v1/alerts?limit=5');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const alerts = data.alerts || [];
+        
+        if (alerts.length === 0) {
+            recentContainer.innerHTML = '<div class="muted-text">No recent alerts</div>';
+            return;
+        }
+        
+        // Render recent alerts as compact list
+        recentContainer.innerHTML = alerts.map(alert => `
+            <div class="recent-alert-item ${alert.severity}" data-alert-id="${alert.id}">
+                <span class="alert-severity-dot ${alert.severity}"></span>
+                <span class="alert-title">${escapeHtml(alert.title || 'Untitled')}</span>
+                <span class="alert-time">${formatRelativeTime(alert.triggered_at)}</span>
+            </div>
+        `).join('');
+    } catch (err) {
+        console.error('Failed to load recent alerts:', err);
+        recentContainer.innerHTML = '<div class="muted-text">Failed to load recent alerts</div>';
     }
 }
 
@@ -1329,35 +1384,164 @@ async function loadActiveAlerts() {
     const container = document.getElementById('active_alerts_list');
     if (!container) return;
     
-    // Update counts (placeholder - will be replaced with real API)
-    const criticalEl = document.getElementById('alerts_critical_count');
-    const warningEl = document.getElementById('alerts_warning_count');
-    const infoEl = document.getElementById('alerts_info_count');
-    const ackedEl = document.getElementById('alerts_acknowledged_count');
-    const suppressedEl = document.getElementById('alerts_suppressed_count');
+    const el = (id) => document.getElementById(id);
     
-    if (criticalEl) criticalEl.textContent = '0';
-    if (warningEl) warningEl.textContent = '0';
-    if (infoEl) infoEl.textContent = '0';
-    if (ackedEl) ackedEl.textContent = '0';
-    if (suppressedEl) suppressedEl.textContent = '0';
+    try {
+        const resp = await fetch('/api/v1/alerts?status=active');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const alerts = data.alerts || [];
+        
+        // Count by severity and status
+        let critical = 0, warning = 0, info = 0, acknowledged = 0, suppressed = 0;
+        alerts.forEach(a => {
+            if (a.status === 'acknowledged') acknowledged++;
+            else if (a.status === 'suppressed') suppressed++;
+            else if (a.severity === 'critical') critical++;
+            else if (a.severity === 'warning') warning++;
+            else info++;
+        });
+        
+        if (el('alerts_critical_count')) el('alerts_critical_count').textContent = critical;
+        if (el('alerts_warning_count')) el('alerts_warning_count').textContent = warning;
+        if (el('alerts_info_count')) el('alerts_info_count').textContent = info;
+        if (el('alerts_acknowledged_count')) el('alerts_acknowledged_count').textContent = acknowledged;
+        if (el('alerts_suppressed_count')) el('alerts_suppressed_count').textContent = suppressed;
+        
+        if (alerts.length === 0) {
+            container.innerHTML = `
+                <div class="alerts-empty-state">
+                    <svg width="48" height="48" viewBox="0 0 16 16" fill="var(--success)">
+                        <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+                    </svg>
+                    <div class="alerts-empty-title">All Clear</div>
+                    <div class="alerts-empty-text">No active alerts at this time. Configure alert rules in Admin → Alerts.</div>
+                </div>
+            `;
+            return;
+        }
+        
+        // Render alert cards
+        container.innerHTML = alerts.map(alert => renderAlertCard(alert)).join('');
+        
+        // Bind action buttons
+        container.querySelectorAll('.alert-action-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => handleAlertAction(e.target.dataset.action, e.target.dataset.alertId));
+        });
+        
+    } catch (err) {
+        console.error('Failed to load active alerts:', err);
+        container.innerHTML = '<div class="error-text">Failed to load alerts. Please try again.</div>';
+    }
+}
+
+function renderAlertCard(alert) {
+    const severityClass = alert.severity || 'info';
+    const statusBadge = alert.status === 'acknowledged' ? '<span class="badge badge-warning">Acknowledged</span>' : 
+                        alert.status === 'suppressed' ? '<span class="badge badge-muted">Suppressed</span>' : '';
+    const timeAgo = formatRelativeTime(alert.triggered_at);
+    const scope = alert.scope || 'device';
     
-    // Show empty state for now
-    container.innerHTML = `
-        <div class="alerts-empty-state">
-            <svg width="48" height="48" viewBox="0 0 16 16" fill="var(--success)">
-                <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
-            </svg>
-            <div class="alerts-empty-title">All Clear</div>
-            <div class="alerts-empty-text">No active alerts at this time. Configure alert rules in Admin → Alerts.</div>
+    let scopeIcon = '';
+    switch (scope) {
+        case 'device': scopeIcon = '🖨️'; break;
+        case 'agent': scopeIcon = '📡'; break;
+        case 'site': scopeIcon = '🏢'; break;
+        case 'tenant': scopeIcon = '🏛️'; break;
+        case 'fleet': scopeIcon = '🌐'; break;
+    }
+    
+    const details = [];
+    if (alert.device_serial) details.push(`Device: ${alert.device_serial}`);
+    if (alert.agent_id) details.push(`Agent: ${alert.agent_id.substring(0, 8)}...`);
+    if (alert.site_id) details.push(`Site: ${alert.site_id}`);
+    
+    return `
+        <div class="alert-card alert-${severityClass}" data-alert-id="${alert.id}">
+            <div class="alert-card-header">
+                <span class="alert-severity-indicator ${severityClass}"></span>
+                <span class="alert-scope-icon">${scopeIcon}</span>
+                <span class="alert-title">${escapeHtml(alert.title || 'Alert')}</span>
+                ${statusBadge}
+                <span class="alert-time">${timeAgo}</span>
+            </div>
+            <div class="alert-card-body">
+                <p class="alert-message">${escapeHtml(alert.message || '')}</p>
+                ${details.length > 0 ? `<p class="alert-details muted-text">${details.join(' • ')}</p>` : ''}
+            </div>
+            <div class="alert-card-actions">
+                ${alert.status !== 'acknowledged' ? `<button class="btn btn-sm alert-action-btn" data-action="acknowledge" data-alert-id="${alert.id}">Acknowledge</button>` : ''}
+                <button class="btn btn-sm btn-success alert-action-btn" data-action="resolve" data-alert-id="${alert.id}">Resolve</button>
+            </div>
         </div>
     `;
+}
+
+async function handleAlertAction(action, alertId) {
+    try {
+        const resp = await fetch(`/api/v1/alerts/${alertId}/${action}`, { method: 'POST' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.__pm_shared.showToast(`Alert ${action}d successfully`, 'success');
+        loadActiveAlerts(); // Refresh the list
+    } catch (err) {
+        console.error(`Failed to ${action} alert:`, err);
+        window.__pm_shared.showToast(`Failed to ${action} alert`, 'error');
+    }
 }
 
 async function loadAlertHistory() {
     const container = document.getElementById('alerts_history_table');
     if (!container) return;
-    container.innerHTML = '<div class="muted-text">No alert history available. Alerts will appear here once triggered.</div>';
+    
+    try {
+        const resp = await fetch('/api/v1/alerts?status=resolved');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const alerts = data.alerts || [];
+        
+        if (alerts.length === 0) {
+            container.innerHTML = '<div class="muted-text">No alert history available. Alerts will appear here once resolved.</div>';
+            return;
+        }
+        
+        // Render as a simple table
+        container.innerHTML = `
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Severity</th>
+                        <th>Title</th>
+                        <th>Scope</th>
+                        <th>Triggered</th>
+                        <th>Resolved</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${alerts.map(a => `
+                        <tr>
+                            <td><span class="badge badge-${a.severity}">${a.severity}</span></td>
+                            <td>${escapeHtml(a.title || 'Untitled')}</td>
+                            <td>${a.scope || 'device'}</td>
+                            <td>${formatRelativeTime(a.triggered_at)}</td>
+                            <td>${a.resolved_at ? formatRelativeTime(a.resolved_at) : '-'}</td>
+                            <td>${a.resolved_at && a.triggered_at ? formatDuration(new Date(a.resolved_at) - new Date(a.triggered_at)) : '-'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (err) {
+        console.error('Failed to load alert history:', err);
+        container.innerHTML = '<div class="error-text">Failed to load alert history.</div>';
+    }
+}
+
+function formatDuration(ms) {
+    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
+    if (ms < 3600000) return `${Math.round(ms / 60000)}m`;
+    if (ms < 86400000) return `${Math.round(ms / 3600000)}h`;
+    return `${Math.round(ms / 86400000)}d`;
 }
 
 async function loadRecentReports() {
@@ -1434,22 +1618,213 @@ async function loadAlertRules() {
     const escalationContainer = document.getElementById('escalation_policies_list');
     const maintenanceContainer = document.getElementById('maintenance_windows_list');
 
+    // Load alert rules
     if (rulesContainer) {
-        rulesContainer.innerHTML = '<div class="muted-text">No alert rules configured. Create a rule to start monitoring.</div>';
+        try {
+            const resp = await fetch('/api/v1/alert-rules');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const rules = data.rules || [];
+            
+            if (rules.length === 0) {
+                rulesContainer.innerHTML = '<div class="muted-text">No alert rules configured. Create a rule to start monitoring.</div>';
+            } else {
+                rulesContainer.innerHTML = rules.map(rule => `
+                    <div class="config-item" data-rule-id="${rule.id}">
+                        <div class="config-item-header">
+                            <span class="config-item-name">${escapeHtml(rule.name)}</span>
+                            <span class="badge badge-${rule.severity}">${rule.severity}</span>
+                            <span class="config-item-status ${rule.enabled ? 'enabled' : 'disabled'}">${rule.enabled ? 'Enabled' : 'Disabled'}</span>
+                        </div>
+                        <div class="config-item-details muted-text">
+                            Type: ${rule.type} • Scope: ${rule.scope}
+                            ${rule.description ? ` • ${escapeHtml(rule.description)}` : ''}
+                        </div>
+                        <div class="config-item-actions">
+                            <button class="btn btn-sm" onclick="editAlertRule(${rule.id})">Edit</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteAlertRule(${rule.id})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (err) {
+            console.error('Failed to load alert rules:', err);
+            rulesContainer.innerHTML = '<div class="error-text">Failed to load alert rules.</div>';
+        }
     }
+    
+    // Load notification channels
     if (channelsContainer) {
-        channelsContainer.innerHTML = '<div class="muted-text">No notification channels configured.</div>';
+        try {
+            const resp = await fetch('/api/v1/notification-channels');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const channels = data.channels || [];
+            
+            if (channels.length === 0) {
+                channelsContainer.innerHTML = '<div class="muted-text">No notification channels configured.</div>';
+            } else {
+                channelsContainer.innerHTML = channels.map(ch => `
+                    <div class="config-item" data-channel-id="${ch.id}">
+                        <div class="config-item-header">
+                            <span class="config-item-icon">${getChannelIcon(ch.type)}</span>
+                            <span class="config-item-name">${escapeHtml(ch.name)}</span>
+                            <span class="badge">${ch.type}</span>
+                            <span class="config-item-status ${ch.enabled ? 'enabled' : 'disabled'}">${ch.enabled ? 'Enabled' : 'Disabled'}</span>
+                        </div>
+                        <div class="config-item-actions">
+                            <button class="btn btn-sm btn-danger" onclick="deleteNotificationChannel(${ch.id})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (err) {
+            console.error('Failed to load notification channels:', err);
+            channelsContainer.innerHTML = '<div class="error-text">Failed to load notification channels.</div>';
+        }
     }
-    if (schedulesContainer) {
-        schedulesContainer.innerHTML = '<div class="muted-text">No scheduled reports configured.</div>';
-    }
+    
+    // Load escalation policies
     if (escalationContainer) {
-        escalationContainer.innerHTML = '<div class="muted-text">No escalation policies configured.</div>';
+        try {
+            const resp = await fetch('/api/v1/escalation-policies');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const policies = data.policies || [];
+            
+            if (policies.length === 0) {
+                escalationContainer.innerHTML = '<div class="muted-text">No escalation policies configured.</div>';
+            } else {
+                escalationContainer.innerHTML = policies.map(p => `
+                    <div class="config-item" data-policy-id="${p.id}">
+                        <div class="config-item-header">
+                            <span class="config-item-name">${escapeHtml(p.name)}</span>
+                            <span class="config-item-status ${p.enabled ? 'enabled' : 'disabled'}">${p.enabled ? 'Enabled' : 'Disabled'}</span>
+                        </div>
+                        ${p.description ? `<div class="config-item-details muted-text">${escapeHtml(p.description)}</div>` : ''}
+                        <div class="config-item-actions">
+                            <button class="btn btn-sm btn-danger" onclick="deleteEscalationPolicy(${p.id})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        } catch (err) {
+            console.error('Failed to load escalation policies:', err);
+            escalationContainer.innerHTML = '<div class="error-text">Failed to load escalation policies.</div>';
+        }
     }
+    
+    // Load maintenance windows  
     if (maintenanceContainer) {
-        maintenanceContainer.innerHTML = '<div class="muted-text">No maintenance windows scheduled.</div>';
+        try {
+            const resp = await fetch('/api/v1/maintenance-windows');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const windows = data.windows || [];
+            
+            if (windows.length === 0) {
+                maintenanceContainer.innerHTML = '<div class="muted-text">No maintenance windows scheduled.</div>';
+            } else {
+                maintenanceContainer.innerHTML = windows.map(w => {
+                    const startDate = new Date(w.start_time).toLocaleString();
+                    const endDate = new Date(w.end_time).toLocaleString();
+                    const isActive = new Date() >= new Date(w.start_time) && new Date() <= new Date(w.end_time);
+                    return `
+                        <div class="config-item ${isActive ? 'active-window' : ''}" data-window-id="${w.id}">
+                            <div class="config-item-header">
+                                <span class="config-item-name">${escapeHtml(w.name)}</span>
+                                ${isActive ? '<span class="badge badge-warning">Active</span>' : ''}
+                                ${w.recurring ? '<span class="badge">Recurring</span>' : ''}
+                            </div>
+                            <div class="config-item-details muted-text">
+                                ${startDate} → ${endDate}
+                                ${w.scope ? ` • Scope: ${w.scope}` : ''}
+                            </div>
+                            <div class="config-item-actions">
+                                <button class="btn btn-sm btn-danger" onclick="deleteMaintenanceWindow(${w.id})">Delete</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        } catch (err) {
+            console.error('Failed to load maintenance windows:', err);
+            maintenanceContainer.innerHTML = '<div class="error-text">Failed to load maintenance windows.</div>';
+        }
     }
-    // TODO: Implement API calls to load alert configuration
+
+    // Keep scheduled reports as placeholder for now
+    if (schedulesContainer) {
+        schedulesContainer.innerHTML = '<div class="muted-text">Report scheduling coming soon.</div>';
+    }
+}
+
+function getChannelIcon(type) {
+    switch (type) {
+        case 'email': return '📧';
+        case 'webhook': return '🔗';
+        case 'slack': return '💬';
+        case 'teams': return '👥';
+        case 'pagerduty': return '🚨';
+        default: return '📢';
+    }
+}
+
+async function deleteAlertRule(id) {
+    if (!await window.__pm_shared.showConfirm('Delete this alert rule?')) return;
+    try {
+        const resp = await fetch(`/api/v1/alert-rules/${id}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.__pm_shared.showToast('Alert rule deleted', 'success');
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to delete alert rule:', err);
+        window.__pm_shared.showToast('Failed to delete alert rule', 'error');
+    }
+}
+
+async function deleteNotificationChannel(id) {
+    if (!await window.__pm_shared.showConfirm('Delete this notification channel?')) return;
+    try {
+        const resp = await fetch(`/api/v1/notification-channels/${id}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.__pm_shared.showToast('Notification channel deleted', 'success');
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to delete notification channel:', err);
+        window.__pm_shared.showToast('Failed to delete notification channel', 'error');
+    }
+}
+
+async function deleteEscalationPolicy(id) {
+    if (!await window.__pm_shared.showConfirm('Delete this escalation policy?')) return;
+    try {
+        const resp = await fetch(`/api/v1/escalation-policies/${id}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.__pm_shared.showToast('Escalation policy deleted', 'success');
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to delete escalation policy:', err);
+        window.__pm_shared.showToast('Failed to delete escalation policy', 'error');
+    }
+}
+
+async function deleteMaintenanceWindow(id) {
+    if (!await window.__pm_shared.showConfirm('Delete this maintenance window?')) return;
+    try {
+        const resp = await fetch(`/api/v1/maintenance-windows/${id}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.__pm_shared.showToast('Maintenance window deleted', 'success');
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to delete maintenance window:', err);
+        window.__pm_shared.showToast('Failed to delete maintenance window', 'error');
+    }
+}
+
+function editAlertRule(id) {
+    window.__pm_shared.showToast('Rule editing coming soon', 'info');
+    // TODO: Open modal pre-filled with rule data
 }
 
 function showAlertRuleModal() {

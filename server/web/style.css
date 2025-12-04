@@ -1435,6 +1435,215 @@ select:focus {
   gap: 8px;
 }
 
+/* Alert Cards (Active Alerts View) */
+.alert-card {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border-left: 4px solid var(--border);
+  transition: var(--transition-fast);
+}
+
+.alert-card:hover {
+  border-color: var(--highlight);
+}
+
+.alert-card.alert-critical {
+  border-left-color: var(--danger);
+}
+
+.alert-card.alert-warning {
+  border-left-color: var(--warning);
+}
+
+.alert-card.alert-info {
+  border-left-color: var(--highlight);
+}
+
+.alert-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.alert-severity-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.alert-severity-indicator.critical {
+  background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+}
+
+.alert-severity-indicator.warning {
+  background: var(--warning);
+  box-shadow: 0 0 6px var(--warning);
+}
+
+.alert-severity-indicator.info {
+  background: var(--highlight);
+}
+
+.alert-scope-icon {
+  font-size: 16px;
+}
+
+.alert-card-header .alert-title {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.alert-card-header .alert-time {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.alert-card-body {
+  margin: 10px 0;
+  padding-left: 18px;
+}
+
+.alert-card-body .alert-message {
+  margin: 0 0 6px 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.alert-card-body .alert-details {
+  margin: 0;
+  font-size: 12px;
+}
+
+.alert-card-actions {
+  display: flex;
+  gap: 8px;
+  padding-left: 18px;
+}
+
+.alert-action-btn {
+  font-size: 12px;
+  padding: 4px 12px;
+}
+
+/* Recent alert items (summary view) */
+.recent-alert-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.recent-alert-item:last-child {
+  border-bottom: none;
+}
+
+.recent-alert-item:hover {
+  background: var(--highlight-bg);
+}
+
+.recent-alert-item .alert-severity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.recent-alert-item .alert-severity-dot.critical {
+  background: var(--danger);
+}
+
+.recent-alert-item .alert-severity-dot.warning {
+  background: var(--warning);
+}
+
+.recent-alert-item .alert-severity-dot.info {
+  background: var(--highlight);
+}
+
+.recent-alert-item .alert-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-alert-item .alert-time {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+/* Config item cards (admin alerts view) */
+.config-item {
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.config-item.active-window {
+  border-left: 3px solid var(--warning);
+}
+
+.config-item-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.config-item-icon {
+  font-size: 16px;
+}
+
+.config-item-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.config-item-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.config-item-status.enabled {
+  background: rgba(34, 197, 94, 0.2);
+  color: var(--success);
+}
+
+.config-item-status.disabled {
+  background: rgba(107, 114, 128, 0.2);
+  color: var(--muted);
+}
+
+.config-item-details {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.config-item-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+
 /* Reports Grid */
 .reports-grid {
   display: grid;
