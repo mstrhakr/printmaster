@@ -2304,6 +2304,119 @@ func handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
+// handleUserInvite sends an invitation email to a new user
+func handleUserInvite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionUsersWrite, authz.ResourceRef{}) {
+		return
+	}
+
+	var req struct {
+		Email    string `json:"email"`
+		Username string `json:"username,omitempty"`
+		Role     string `json:"role"`
+		TenantID string `json:"tenant_id,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Email == "" {
+		http.Error(w, "email required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Check if email already has an account
+	if existing, _ := serverStore.GetUserByEmail(ctx, req.Email); existing != nil {
+		http.Error(w, "a user with this email already exists", http.StatusConflict)
+		return
+	}
+
+	// Get actor info for audit
+	actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
+
+	// Create invitation (48 hour expiry)
+	inv := &storage.UserInvitation{
+		Email:     req.Email,
+		Username:  req.Username,
+		Role:      storage.NormalizeRole(req.Role),
+		TenantID:  req.TenantID,
+		CreatedBy: actorName,
+	}
+	token, err := serverStore.CreateUserInvitation(ctx, inv, 48*60) // 48 hours
+	if err != nil {
+		http.Error(w, "failed to create invitation", http.StatusInternalServerError)
+		return
+	}
+
+	// Build invitation URL
+	scheme := "https"
+	if r.TLS == nil {
+		scheme = "http"
+	}
+	host := r.Host
+	inviteURL := fmt.Sprintf("%s://%s/accept-invite?token=%s", scheme, host, token)
+
+	// Send email
+	subject := "You've been invited to PrintMaster"
+	body := fmt.Sprintf(`Hello,
+
+You have been invited to join PrintMaster as a %s.
+
+Click the link below to set up your account:
+%s
+
+This invitation expires in 48 hours.
+
+If you did not expect this invitation, you can safely ignore this email.
+`, req.Role, inviteURL)
+
+	if err := sendEmail(req.Email, subject, body); err != nil {
+		// Log failure but still return success (invitation is created, just email failed)
+		logAuditEntry(ctx, &storage.AuditEntry{
+			ActorType:  actorType,
+			ActorID:    actorID,
+			ActorName:  actorName,
+			TenantID:   actorTenant,
+			Action:     "user.invite.email_failed",
+			TargetType: "user",
+			TargetID:   req.Email,
+			Severity:   storage.AuditSeverityWarn,
+			Details:    fmt.Sprintf("Invitation created but email failed: %v", err),
+			IPAddress:  extractClientIP(r),
+		})
+		http.Error(w, fmt.Sprintf("invitation created but email failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType:  actorType,
+		ActorID:    actorID,
+		ActorName:  actorName,
+		TenantID:   actorTenant,
+		Action:     "user.invite",
+		TargetType: "user",
+		TargetID:   req.Email,
+		Details:    fmt.Sprintf("Sent invitation to %s with role %s", req.Email, req.Role),
+		Metadata: map[string]interface{}{
+			"role":      req.Role,
+			"tenant_id": req.TenantID,
+		},
+		IPAddress: extractClientIP(r),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Invitation sent",
+	})
+}
+
 // logAuditEntry persists an audit event using the shared storage helper. Default values are applied here
 // so callers can focus on describing the action, actor, and optional context.
 func logAuditEntry(ctx context.Context, entry *storage.AuditEntry) {
@@ -2494,6 +2607,7 @@ func setupRoutes(cfg *Config) {
 
 	// User management: list/create/update/delete users
 	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
+	http.HandleFunc("/api/v1/users/invite", requireWebAuth(handleUserInvite)) // Must be before /users/ catch-all
 	http.HandleFunc("/api/v1/users/", requireWebAuth(handleUser))
 	http.HandleFunc("/api/v1/users/password-policy", handlePasswordPolicy)
 	// Sessions management: list and revoke sessions

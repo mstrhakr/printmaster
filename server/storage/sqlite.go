@@ -302,6 +302,22 @@ func (s *SQLiteStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_password_resets_user_id ON password_resets(user_id);
 
+	-- User invitations (email-based signup)
+	CREATE TABLE IF NOT EXISTS user_invitations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		email TEXT NOT NULL,
+		username TEXT,
+		role TEXT NOT NULL DEFAULT 'viewer',
+		tenant_id TEXT,
+		token_hash TEXT NOT NULL,
+		expires_at DATETIME NOT NULL,
+		used INTEGER DEFAULT 0,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		created_by TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_user_invitations_email ON user_invitations(email);
+
 	-- OIDC providers for SSO
 	CREATE TABLE IF NOT EXISTS oidc_providers (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2083,6 +2099,103 @@ func (s *SQLiteStore) UpdateUserPassword(ctx context.Context, userID int64, rawP
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `UPDATE users SET password_hash = ? WHERE id = ?`, h, userID)
+	return err
+}
+
+// CreateUserInvitation creates an invitation and returns the raw token
+func (s *SQLiteStore) CreateUserInvitation(ctx context.Context, inv *UserInvitation, ttlMinutes int) (string, error) {
+	if inv == nil || inv.Email == "" {
+		return "", fmt.Errorf("email required")
+	}
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(b)
+	h, err := generateArgonHash(token)
+	if err != nil {
+		return "", err
+	}
+	expires := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
+	now := time.Now().UTC()
+	role := NormalizeRole(string(inv.Role))
+
+	res, err := s.db.ExecContext(ctx, `INSERT INTO user_invitations (email, username, role, tenant_id, token_hash, expires_at, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		inv.Email, inv.Username, string(role), inv.TenantID, h, expires, now, inv.CreatedBy)
+	if err != nil {
+		return "", err
+	}
+	id, _ := res.LastInsertId()
+	inv.ID = id
+	inv.TokenHash = h
+	inv.ExpiresAt = expires
+	inv.CreatedAt = now
+	inv.Role = role
+	return token, nil
+}
+
+// GetUserInvitation validates token and returns the invitation if valid and unused
+func (s *SQLiteStore) GetUserInvitation(ctx context.Context, token string) (*UserInvitation, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, email, username, role, tenant_id, token_hash, expires_at, used, created_at, created_by FROM user_invitations WHERE used = 0 AND expires_at > ?`, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var inv UserInvitation
+		var role string
+		var username, tenantID, createdBy sql.NullString
+		if err := rows.Scan(&inv.ID, &inv.Email, &username, &role, &tenantID, &inv.TokenHash, &inv.ExpiresAt, &inv.Used, &inv.CreatedAt, &createdBy); err != nil {
+			return nil, err
+		}
+		ok, verr := verifyArgonHash(token, inv.TokenHash)
+		if verr != nil {
+			return nil, verr
+		}
+		if ok {
+			inv.Role = Role(role)
+			inv.Username = username.String
+			inv.TenantID = tenantID.String
+			inv.CreatedBy = createdBy.String
+			return &inv, nil
+		}
+	}
+	return nil, fmt.Errorf("invalid or expired invitation")
+}
+
+// MarkInvitationUsed marks an invitation as used
+func (s *SQLiteStore) MarkInvitationUsed(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE user_invitations SET used = 1 WHERE id = ?`, id)
+	return err
+}
+
+// ListUserInvitations returns all invitations (for admin UI)
+func (s *SQLiteStore) ListUserInvitations(ctx context.Context) ([]*UserInvitation, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, email, username, role, tenant_id, expires_at, used, created_at, created_by FROM user_invitations ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var invs []*UserInvitation
+	for rows.Next() {
+		var inv UserInvitation
+		var role string
+		var username, tenantID, createdBy sql.NullString
+		if err := rows.Scan(&inv.ID, &inv.Email, &username, &role, &tenantID, &inv.ExpiresAt, &inv.Used, &inv.CreatedAt, &createdBy); err != nil {
+			return nil, err
+		}
+		inv.Role = Role(role)
+		inv.Username = username.String
+		inv.TenantID = tenantID.String
+		inv.CreatedBy = createdBy.String
+		invs = append(invs, &inv)
+	}
+	return invs, nil
+}
+
+// DeleteUserInvitation deletes an invitation by ID
+func (s *SQLiteStore) DeleteUserInvitation(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM user_invitations WHERE id = ?`, id)
 	return err
 }
 

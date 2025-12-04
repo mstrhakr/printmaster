@@ -385,6 +385,20 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// UserInvitation represents a pending user invitation sent by email
+type UserInvitation struct {
+	ID        int64     `json:"id"`
+	Email     string    `json:"email"`
+	Username  string    `json:"username,omitempty"` // Optional pre-set username
+	Role      Role      `json:"role"`
+	TenantID  string    `json:"tenant_id,omitempty"`
+	TokenHash string    `json:"-"` // Hashed invite token
+	ExpiresAt time.Time `json:"expires_at"`
+	Used      bool      `json:"used"`
+	CreatedAt time.Time `json:"created_at"`
+	CreatedBy string    `json:"created_by,omitempty"` // Username of inviter
+}
+
 // Session represents a short lived session/token for UI auth
 type Session struct {
 	Token     string    `json:"token"`
@@ -559,6 +573,13 @@ type Store interface {
 	ValidatePasswordResetToken(ctx context.Context, token string) (int64, error)
 	DeletePasswordResetToken(ctx context.Context, token string) error
 	UpdateUserPassword(ctx context.Context, userID int64, rawPassword string) error
+
+	// User invitations (email-based signup)
+	CreateUserInvitation(ctx context.Context, inv *UserInvitation, ttlMinutes int) (string, error)
+	GetUserInvitation(ctx context.Context, token string) (*UserInvitation, error)
+	MarkInvitationUsed(ctx context.Context, id int64) error
+	ListUserInvitations(ctx context.Context) ([]*UserInvitation, error)
+	DeleteUserInvitation(ctx context.Context, id int64) error
 
 	// OIDC / SSO
 	CreateOIDCProvider(ctx context.Context, provider *OIDCProvider) error
