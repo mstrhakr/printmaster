@@ -1723,6 +1723,7 @@ select:focus {
   margin: 0;
   width: 16px;
   height: 16px;
+  min-width: 16px;
   cursor: pointer;
 }
 
