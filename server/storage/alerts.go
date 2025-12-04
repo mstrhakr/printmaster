@@ -571,6 +571,17 @@ func (s *SQLiteStore) SuppressAlert(ctx context.Context, id int64, until time.Ti
 	return err
 }
 
+// UpdateAlertNotificationStatus updates the notification tracking fields on an alert.
+func (s *SQLiteStore) UpdateAlertNotificationStatus(ctx context.Context, id int64, sent int, lastNotified time.Time) error {
+	now := time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE alerts 
+		SET notifications_sent = ?, last_notified_at = ?, updated_at = ?
+		WHERE id = ?
+	`, sent, lastNotified, now, id)
+	return err
+}
+
 // ListAlertHistory returns resolved/expired alerts within a time range.
 func (s *SQLiteStore) ListAlertHistory(ctx context.Context, filters AlertFilters) ([]Alert, error) {
 	query := `
@@ -949,6 +960,46 @@ func (s *SQLiteStore) CreateNotificationChannel(ctx context.Context, ch *Notific
 	ch.UpdatedAt = now
 
 	return id, nil
+}
+
+// GetNotificationChannel returns a notification channel by ID.
+func (s *SQLiteStore) GetNotificationChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
+	var ch NotificationChannel
+	var configJSON, tenantIDsJSON sql.NullString
+	var lastSentAt sql.NullTime
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT 
+			id, name, type, enabled, config_json,
+			min_severity, tenant_ids,
+			rate_limit_per_hour, last_sent_at, sent_this_hour,
+			use_quiet_hours, created_at, updated_at
+		FROM notification_channels
+		WHERE id = ?
+	`, id).Scan(
+		&ch.ID, &ch.Name, &ch.Type, &ch.Enabled, &configJSON,
+		&ch.MinSeverity, &tenantIDsJSON,
+		&ch.RateLimitPerHour, &lastSentAt, &ch.SentThisHour,
+		&ch.UseQuietHours, &ch.CreatedAt, &ch.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("notification channel not found: %d", id)
+		}
+		return nil, fmt.Errorf("get notification channel: %w", err)
+	}
+
+	if configJSON.Valid {
+		ch.ConfigJSON = configJSON.String
+	}
+	if lastSentAt.Valid {
+		ch.LastSentAt = &lastSentAt.Time
+	}
+	if tenantIDsJSON.Valid && tenantIDsJSON.String != "" {
+		json.Unmarshal([]byte(tenantIDsJSON.String), &ch.TenantIDs)
+	}
+
+	return &ch, nil
 }
 
 // ListNotificationChannels returns all notification channels.

@@ -645,6 +645,7 @@ type Store interface {
 	UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus) error
 	AcknowledgeAlert(ctx context.Context, id int64, username string) error
 	ResolveAlert(ctx context.Context, id int64) error
+	UpdateAlertNotificationStatus(ctx context.Context, id int64, sent int, lastNotified time.Time) error
 
 	// Alert rule management
 	CreateAlertRule(ctx context.Context, rule *AlertRule) (int64, error)
@@ -655,6 +656,7 @@ type Store interface {
 
 	// Notification channel management
 	CreateNotificationChannel(ctx context.Context, channel *NotificationChannel) (int64, error)
+	GetNotificationChannel(ctx context.Context, id int64) (*NotificationChannel, error)
 	ListNotificationChannels(ctx context.Context) ([]NotificationChannel, error)
 	DeleteNotificationChannel(ctx context.Context, id int64) error
 
