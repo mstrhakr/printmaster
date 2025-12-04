@@ -316,6 +316,7 @@ var (
 	releaseManager      *releases.Manager
 	intakeWorker        *releases.IntakeWorker // Release intake worker for syncing GitHub releases
 	selfUpdateManager   *selfupdate.Manager    // Self-update manager for server binary updates
+	alertEvaluator      *alertsapi.Evaluator   // Alert evaluation background worker
 )
 
 var processStart = time.Now()
@@ -748,6 +749,15 @@ func runServer(ctx context.Context, configFlag string) {
 
 	// Setup HTTP routes
 	setupRoutes(cfg)
+
+	// Start alert evaluator background worker
+	alertEvaluator = alertsapi.NewEvaluator(serverStore, alertsapi.EvaluatorConfig{
+		Interval: 60 * time.Second,
+		Logger:   nil, // Uses slog.Default()
+	})
+	alertEvaluator.Start()
+	defer alertEvaluator.Stop()
+	logInfo("Alert evaluator started", "interval", "60s")
 
 	// Get TLS configuration
 	tlsConfig := cfg.ToTLSConfig()
