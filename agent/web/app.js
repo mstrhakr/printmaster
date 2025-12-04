@@ -3042,6 +3042,17 @@ document.addEventListener('DOMContentLoaded', async function () {
         });
     }
 
+    // Manual IP ranges toggle - show/hide the ranges textarea
+    const manualRangesCheckbox = document.getElementById('manual_ranges_enabled');
+    if (manualRangesCheckbox) {
+        manualRangesCheckbox.addEventListener('change', function () {
+            const container = document.getElementById('manual_ranges_container');
+            if (container) {
+                container.style.display = this.checked ? 'block' : 'none';
+            }
+        });
+    }
+
     const showDiscoverAnywayToggle = document.getElementById('show_discover_button_anyway');
     if (showDiscoverAnywayToggle) {
         showDiscoverAnywayToggle.addEventListener('change', function () {
@@ -3610,6 +3621,13 @@ function loadSettings() {
         const passiveMethodsContainer = document.getElementById('passive_discovery_methods_container');
         if (passiveMethodsContainer) {
             passiveMethodsContainer.style.display = passiveEnabled ? 'block' : 'none';
+        }
+
+        // Update manual ranges container visibility
+        const manualRangesContainer = document.getElementById('manual_ranges_container');
+        const manualRangesEnabled = document.getElementById('manual_ranges_enabled');
+        if (manualRangesContainer && manualRangesEnabled) {
+            manualRangesContainer.style.display = manualRangesEnabled.checked ? 'block' : 'none';
         }
 
         // Populate credentials setting from features
