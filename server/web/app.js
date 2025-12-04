@@ -8,8 +8,14 @@ const BASE_TAB_LABELS = {
     logs: 'Logs'
 };
 
-// Admin tab consolidates: Users, Access, Tenants, Fleet, Server, Audit
+// Admin tab consolidates: Users, Access, Tenants, Fleet, Server, Alerts Config, Audit
 const TAB_DEFINITIONS = {
+    alerts: {
+        label: 'Alerts',
+        minRole: 'operator', // Operators can view alerts (not just admins)
+        templateId: 'tab-template-alerts',
+        onMount: () => initAlertsTab()
+    },
     admin: {
         label: 'Admin',
         requiredAction: 'settings.read', // Admin-level access required
@@ -19,11 +25,15 @@ const TAB_DEFINITIONS = {
 };
 
 // Valid admin sub-views
-const VALID_ADMIN_VIEWS = ['users', 'access', 'tenants', 'fleet', 'server', 'audit'];
+const VALID_ADMIN_VIEWS = ['users', 'access', 'tenants', 'fleet', 'server', 'alertsconfig', 'audit'];
+
+// Valid alerts sub-views
+const VALID_ALERTS_VIEWS = ['summary', 'active', 'history', 'reports'];
 
 const SERVER_UI_STATE_KEYS = {
     ACTIVE_TAB: 'pm_server_active_tab',
     ADMIN_VIEW: 'pm_server_admin_view',
+    ALERTS_VIEW: 'pm_server_alerts_view',
     SETTINGS_VIEW: 'pm_server_settings_view',
     LOG_VIEW: 'pm_server_log_view',
     LOG_VIEW_MODE: 'pm_server_log_view_mode',
@@ -88,7 +98,9 @@ let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
 let settingsSubtabsInitialized = false;
 let adminSubtabsInitialized = false;
+let alertsSubtabsInitialized = false;
 let activeAdminView = getPersistedUIState(SERVER_UI_STATE_KEYS.ADMIN_VIEW, 'users', VALID_ADMIN_VIEWS);
+let activeAlertsView = getPersistedUIState(SERVER_UI_STATE_KEYS.ALERTS_VIEW, 'summary', VALID_ALERTS_VIEWS);
 let activeSettingsView = getPersistedUIState(SERVER_UI_STATE_KEYS.SETTINGS_VIEW, 'server', VALID_SETTINGS_VIEWS);
 let activeLogView = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, 'system', VALID_LOG_VIEWS);
 let activeLogViewMode = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW_MODE, 'table', VALID_LOG_VIEW_MODES);
@@ -1088,6 +1100,10 @@ function ensureAdminViewReady(view) {
             loadServerSettings();
             loadSelfUpdateRuns();
             break;
+        case 'alertsconfig':
+            initAlertRulesUI();
+            loadAlertRules();
+            break;
         case 'audit':
             initAuditFilterControls();
             loadAuditLogs();
@@ -1172,6 +1188,294 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshBtn.addEventListener('click', loadSessions);
     }
 });
+
+// ============================================
+// Alerts Tab Functions (operator-visible)
+// ============================================
+
+function initAlertsTab() {
+    initAlertsSubTabs();
+    switchAlertsView(activeAlertsView, true);
+}
+
+function initAlertsSubTabs() {
+    if (alertsSubtabsInitialized) {
+        return;
+    }
+    alertsSubtabsInitialized = true;
+
+    // Alerts sub-tabs
+    document.querySelectorAll('.alerts-subtab').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const target = btn.dataset.alertsview || 'active';
+            switchAlertsView(target);
+        });
+    });
+
+    // Active alerts refresh
+    const refreshBtn = document.getElementById('refresh_alerts_btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadActiveAlerts);
+    }
+
+    // Report generation buttons
+    ['fleet', 'usage', 'supply'].forEach(type => {
+        const btn = document.getElementById(`generate_${type}_report_btn`);
+        if (btn) {
+            btn.addEventListener('click', () => generateReport(type));
+        }
+    });
+}
+
+function switchAlertsView(view, force = false) {
+    const normalized = VALID_ALERTS_VIEWS.includes(view) ? view : 'active';
+    const previous = activeAlertsView;
+    activeAlertsView = normalized;
+    persistUIState(SERVER_UI_STATE_KEYS.ALERTS_VIEW, normalized);
+
+    // Update sub-tab button states
+    document.querySelectorAll('.alerts-subtab').forEach(btn => {
+        const target = btn.dataset.alertsview || 'active';
+        btn.classList.toggle('active', target === normalized);
+    });
+
+    // Show/hide panels
+    document.querySelectorAll('[data-alertsview-panel]').forEach(panel => {
+        const target = panel.dataset.alertsviewPanel || 'active';
+        panel.classList.toggle('hidden', target !== normalized);
+    });
+
+    if (force || previous !== normalized) {
+        ensureAlertsViewReady(normalized);
+    }
+}
+
+function ensureAlertsViewReady(view) {
+    switch (view) {
+        case 'summary':
+            loadAlertSummary();
+            break;
+        case 'active':
+            loadActiveAlerts();
+            break;
+        case 'history':
+            loadAlertHistory();
+            break;
+        case 'reports':
+            loadRecentReports();
+            break;
+    }
+}
+
+async function loadAlertSummary() {
+    // Fleet health counts
+    const healthyCounts = { healthy: 0, warning: 0, critical: 0, offline: 0 };
+    
+    // Update summary cards (placeholder - will use real API data)
+    document.getElementById('summary_healthy_count').textContent = healthyCounts.healthy;
+    document.getElementById('summary_warning_count').textContent = healthyCounts.warning;
+    document.getElementById('summary_critical_count').textContent = healthyCounts.critical;
+    document.getElementById('summary_offline_count').textContent = healthyCounts.offline;
+    
+    // Update scope bars (placeholder)
+    updateScopeBar('devices', 100, 0, 0, '0 / 0');
+    updateScopeBar('agents', 100, 0, 0, '0 / 0');
+    updateScopeBar('sites', 100, 0, 0, '0 / 0');
+    updateScopeBar('tenants', 100, 0, 0, '0 / 0');
+    
+    // Update breakdown counts
+    document.getElementById('breakdown_supply').textContent = '0';
+    document.getElementById('breakdown_device_offline').textContent = '0';
+    document.getElementById('breakdown_agent_offline').textContent = '0';
+    document.getElementById('breakdown_site_outage').textContent = '0';
+    document.getElementById('breakdown_usage').textContent = '0';
+    document.getElementById('breakdown_errors').textContent = '0';
+    
+    // Update status indicators
+    document.getElementById('status_active_rules').textContent = '0';
+    document.getElementById('status_channels').textContent = '0';
+    
+    // Wire up "View All" link
+    const viewAllLink = document.getElementById('view_all_alerts_link');
+    if (viewAllLink && !viewAllLink.dataset.bound) {
+        viewAllLink.dataset.bound = 'true';
+        viewAllLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            switchAlertsView('active');
+        });
+    }
+    
+    // Load recent alerts
+    const recentContainer = document.getElementById('recent_alerts_summary');
+    if (recentContainer) {
+        recentContainer.innerHTML = '<div class="muted-text">No recent alerts</div>';
+    }
+}
+
+function updateScopeBar(scope, healthy, warning, critical, countText) {
+    const bar = document.getElementById(`scope_bar_${scope}`);
+    const count = document.getElementById(`scope_count_${scope}`);
+    if (bar) {
+        bar.style.setProperty('--healthy', `${healthy}%`);
+        bar.style.setProperty('--warning', `${warning}%`);
+        bar.style.setProperty('--critical', `${critical}%`);
+    }
+    if (count) {
+        count.textContent = countText;
+    }
+}
+
+async function loadActiveAlerts() {
+    const container = document.getElementById('active_alerts_list');
+    if (!container) return;
+    
+    // Update counts (placeholder - will be replaced with real API)
+    const criticalEl = document.getElementById('alerts_critical_count');
+    const warningEl = document.getElementById('alerts_warning_count');
+    const infoEl = document.getElementById('alerts_info_count');
+    const ackedEl = document.getElementById('alerts_acknowledged_count');
+    const suppressedEl = document.getElementById('alerts_suppressed_count');
+    
+    if (criticalEl) criticalEl.textContent = '0';
+    if (warningEl) warningEl.textContent = '0';
+    if (infoEl) infoEl.textContent = '0';
+    if (ackedEl) ackedEl.textContent = '0';
+    if (suppressedEl) suppressedEl.textContent = '0';
+    
+    // Show empty state for now
+    container.innerHTML = `
+        <div class="alerts-empty-state">
+            <svg width="48" height="48" viewBox="0 0 16 16" fill="var(--success)">
+                <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+            </svg>
+            <div class="alerts-empty-title">All Clear</div>
+            <div class="alerts-empty-text">No active alerts at this time. Configure alert rules in Admin → Alerts.</div>
+        </div>
+    `;
+}
+
+async function loadAlertHistory() {
+    const container = document.getElementById('alerts_history_table');
+    if (!container) return;
+    container.innerHTML = '<div class="muted-text">No alert history available. Alerts will appear here once triggered.</div>';
+}
+
+async function loadRecentReports() {
+    const container = document.getElementById('recent_reports_list');
+    if (!container) return;
+    container.innerHTML = '<div class="muted-text">No reports generated yet. Use the buttons above to generate a report.</div>';
+}
+
+async function generateReport(type) {
+    window.__pm_shared.showToast(`Generating ${type} report... (coming soon)`, 'info');
+    // TODO: Implement report generation API
+}
+
+// ============================================
+// Alert Rules Config Functions (admin-only)
+// ============================================
+
+let alertRulesUIInitialized = false;
+
+function initAlertRulesUI() {
+    if (alertRulesUIInitialized) return;
+    alertRulesUIInitialized = true;
+
+    // Rule management buttons
+    const newRuleBtn = document.getElementById('new_alert_rule_btn');
+    if (newRuleBtn) {
+        newRuleBtn.addEventListener('click', () => showAlertRuleModal());
+    }
+
+    const newChannelBtn = document.getElementById('new_notification_channel_btn');
+    if (newChannelBtn) {
+        newChannelBtn.addEventListener('click', () => showNotificationChannelModal());
+    }
+
+    const newScheduleBtn = document.getElementById('new_scheduled_report_btn');
+    if (newScheduleBtn) {
+        newScheduleBtn.addEventListener('click', () => showScheduledReportModal());
+    }
+
+    // Escalation policy button
+    const newEscalationBtn = document.getElementById('new_escalation_policy_btn');
+    if (newEscalationBtn) {
+        newEscalationBtn.addEventListener('click', () => showEscalationPolicyModal());
+    }
+
+    // Maintenance window button
+    const newMaintenanceBtn = document.getElementById('new_maintenance_window_btn');
+    if (newMaintenanceBtn) {
+        newMaintenanceBtn.addEventListener('click', () => showMaintenanceWindowModal());
+    }
+
+    // Quiet hours toggle
+    const quietHoursToggle = document.getElementById('quiet_hours_enabled');
+    const quietHoursConfig = document.getElementById('quiet_hours_times');
+    if (quietHoursToggle && quietHoursConfig) {
+        quietHoursToggle.addEventListener('change', () => {
+            quietHoursConfig.style.display = quietHoursToggle.checked ? 'block' : 'none';
+        });
+    }
+
+    // Report generation buttons
+    ['fleet', 'usage', 'supply', 'alert'].forEach(type => {
+        const btn = document.getElementById(`generate_${type}_report_btn`);
+        if (btn) {
+            btn.addEventListener('click', () => generateReport(type));
+        }
+    });
+}
+
+async function loadAlertRules() {
+    const rulesContainer = document.getElementById('alert_rules_list');
+    const channelsContainer = document.getElementById('notification_channels_list');
+    const schedulesContainer = document.getElementById('scheduled_reports_list');
+    const escalationContainer = document.getElementById('escalation_policies_list');
+    const maintenanceContainer = document.getElementById('maintenance_windows_list');
+
+    if (rulesContainer) {
+        rulesContainer.innerHTML = '<div class="muted-text">No alert rules configured. Create a rule to start monitoring.</div>';
+    }
+    if (channelsContainer) {
+        channelsContainer.innerHTML = '<div class="muted-text">No notification channels configured.</div>';
+    }
+    if (schedulesContainer) {
+        schedulesContainer.innerHTML = '<div class="muted-text">No scheduled reports configured.</div>';
+    }
+    if (escalationContainer) {
+        escalationContainer.innerHTML = '<div class="muted-text">No escalation policies configured.</div>';
+    }
+    if (maintenanceContainer) {
+        maintenanceContainer.innerHTML = '<div class="muted-text">No maintenance windows scheduled.</div>';
+    }
+    // TODO: Implement API calls to load alert configuration
+}
+
+function showAlertRuleModal() {
+    window.__pm_shared.showToast('Alert rule configuration coming soon', 'info');
+    // TODO: Implement alert rule modal
+}
+
+function showNotificationChannelModal() {
+    window.__pm_shared.showToast('Notification channel configuration coming soon', 'info');
+    // TODO: Implement notification channel modal
+}
+
+function showScheduledReportModal() {
+    window.__pm_shared.showToast('Report scheduling configuration coming soon', 'info');
+    // TODO: Implement scheduled report modal
+}
+
+function showEscalationPolicyModal() {
+    window.__pm_shared.showToast('Escalation policy configuration coming soon', 'info');
+    // TODO: Implement escalation policy modal
+}
+
+function showMaintenanceWindowModal() {
+    window.__pm_shared.showToast('Maintenance window configuration coming soon', 'info');
+    // TODO: Implement maintenance window modal
+}
 
 function initSettingsSubTabs() {
     if (settingsSubtabsInitialized) {
@@ -1820,6 +2124,8 @@ function switchTab(targetTab) {
     } else if (targetTab === 'logs') {
         initLogSubTabs();
         switchLogView(activeLogView || 'system');
+    } else if (targetTab === 'alerts') {
+        initAlertsTab();
     } else if (targetTab === 'admin') {
         initAdminTab();
     }

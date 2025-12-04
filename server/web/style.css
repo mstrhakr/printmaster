@@ -1289,6 +1289,510 @@ select:focus {
   color: var(--muted);
 }
 
+/* Alerts Tab Styles */
+.alerts-view-panel {
+  margin-top: 16px;
+}
+
+.alerts-view-panel.hidden {
+  display: none;
+}
+
+.alerts-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.alert-metric-card.critical .metric-value {
+  color: var(--danger);
+}
+
+.alert-metric-card.warning .metric-value {
+  color: var(--warning);
+}
+
+.alert-metric-card.info .metric-value {
+  color: var(--highlight);
+}
+
+.alerts-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.alerts-toolbar-left {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.alerts-toolbar-right {
+  display: flex;
+  gap: 8px;
+}
+
+.alerts-list {
+  min-height: 120px;
+}
+
+.alerts-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.alerts-empty-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin-top: 12px;
+}
+
+.alerts-empty-text {
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  transition: var(--transition-fast);
+}
+
+.alert-item:hover {
+  border-color: var(--highlight);
+}
+
+.alert-item.critical {
+  border-left: 4px solid var(--danger);
+}
+
+.alert-item.warning {
+  border-left: 4px solid var(--warning);
+}
+
+.alert-item.info {
+  border-left: 4px solid var(--highlight);
+}
+
+.alert-severity-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.alert-severity-badge.critical {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--danger);
+}
+
+.alert-severity-badge.warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--warning);
+}
+
+.alert-severity-badge.info {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--highlight);
+}
+
+.alert-content {
+  flex: 1;
+}
+
+.alert-title {
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.alert-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.alert-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* Reports Grid */
+.reports-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.report-card {
+  padding: 20px;
+}
+
+.report-card h4 {
+  display: flex;
+  align-items: center;
+}
+
+.report-card p {
+  margin: 8px 0 16px;
+}
+
+/* Alert Summary Dashboard */
+.alert-summary-section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.alert-summary-title {
+  margin: 0 0 12px 0;
+  color: var(--highlight);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.alert-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .alert-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.alert-summary-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: var(--transition-fast);
+}
+
+.alert-summary-card:hover {
+  border-color: var(--highlight);
+}
+
+.alert-summary-card.healthy {
+  border-left: 4px solid var(--success);
+}
+
+.alert-summary-card.warning {
+  border-left: 4px solid var(--warning);
+}
+
+.alert-summary-card.critical {
+  border-left: 4px solid var(--danger);
+}
+
+.alert-summary-card.offline {
+  border-left: 4px solid var(--muted);
+}
+
+.summary-card-icon {
+  color: var(--muted);
+}
+
+.alert-summary-card.healthy .summary-card-icon {
+  color: var(--success);
+}
+
+.alert-summary-card.warning .summary-card-icon {
+  color: var(--warning);
+}
+
+.alert-summary-card.critical .summary-card-icon {
+  color: var(--danger);
+}
+
+.summary-card-content {
+  flex: 1;
+}
+
+.summary-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.summary-card-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+/* Summary Row Layout */
+.alert-summary-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.alert-summary-row .flex-1 {
+  flex: 1;
+}
+
+.alert-summary-row .flex-2 {
+  flex: 2;
+}
+
+@media (max-width: 900px) {
+  .alert-summary-row {
+    flex-direction: column;
+  }
+}
+
+/* Scope Status Bars */
+.scope-status-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scope-status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.scope-label {
+  width: 70px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.scope-bar-container {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.scope-bar {
+  height: 100%;
+  display: flex;
+  background: linear-gradient(
+    to right,
+    var(--success) 0%,
+    var(--success) var(--healthy),
+    var(--warning) var(--healthy),
+    var(--warning) calc(var(--healthy) + var(--warning)),
+    var(--danger) calc(var(--healthy) + var(--warning)),
+    var(--danger) 100%
+  );
+  border-radius: 4px;
+}
+
+.scope-count {
+  width: 60px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Alert Type Breakdown */
+.alert-type-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.breakdown-item:last-child {
+  border-bottom: none;
+}
+
+.breakdown-label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.breakdown-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--highlight);
+}
+
+/* Recent Alerts in Summary */
+.summary-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.summary-link {
+  font-size: 12px;
+  color: var(--highlight);
+  text-decoration: none;
+}
+
+.summary-link:hover {
+  text-decoration: underline;
+}
+
+.recent-alerts-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.recent-alert-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.recent-alert-item.critical {
+  border-left: 3px solid var(--danger);
+}
+
+.recent-alert-item.warning {
+  border-left: 3px solid var(--warning);
+}
+
+.recent-alert-item.info {
+  border-left: 3px solid var(--highlight);
+}
+
+.recent-alert-time {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Status Indicators */
+.alert-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-info-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.status-dot.active {
+  background: var(--success);
+}
+
+.status-dot.warning {
+  background: var(--warning);
+}
+
+.status-value {
+  margin-left: auto;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* Dependency Rules List */
+.dependency-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dependency-rule-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.dependency-icon {
+  color: var(--muted);
+  font-weight: bold;
+}
+
+.dependency-status {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--border);
+  color: var(--muted);
+}
+
+.dependency-status.enabled {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+}
+
+/* Inline checkbox fields */
+.field.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field.inline-check input[type="checkbox"] {
+  margin: 0;
+}
+
+.field.inline-check span {
+  font-size: 13px;
+}
+
+/* Small button variant */
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 .log-panel {
   margin-bottom: 16px;
 }

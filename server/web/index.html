@@ -348,6 +348,7 @@
                     <button class="subtab admin-subtab" data-adminview="tenants">Tenants</button>
                     <button class="subtab admin-subtab" data-adminview="fleet">Fleet</button>
                     <button class="subtab admin-subtab" data-adminview="server">Server</button>
+                    <button class="subtab admin-subtab" data-adminview="alertsconfig">Alerts</button>
                     <button class="subtab admin-subtab" data-adminview="audit">Audit</button>
                 </div>
 
@@ -638,6 +639,605 @@
                         </div>
                         <div id="audit_logs_table" class="table-wrapper">
                             <div class="muted-text">Loading audit entries...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alerts Config Sub-tab (admin-only alert rule management) -->
+                <div class="admin-view-panel hidden" data-adminview-panel="alertsconfig">
+                    <!-- Alert Rules Section -->
+                    <div class="panel">
+                        <h4 style="margin-top:0;color:var(--highlight)">Alert Rules</h4>
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                                Configure alert thresholds by scope (device, agent, site, tenant, fleet). Rules trigger notifications when conditions are met.
+                            </div>
+                            <button id="new_alert_rule_btn" class="btn-primary">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                New Rule
+                            </button>
+                        </div>
+                        <div id="alert_rules_list" class="card" style="padding:12px;">
+                            <div class="muted-text">No alert rules configured. Create a rule to start monitoring.</div>
+                        </div>
+                    </div>
+
+                    <!-- Notification Channels Section -->
+                    <div class="panel" style="margin-top:16px;">
+                        <h4 style="margin-top:0;color:var(--highlight)">Notification Channels</h4>
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                                Configure where alert notifications are sent (email, webhook, Slack, Teams, etc.).
+                            </div>
+                            <button id="new_notification_channel_btn" class="btn-outline">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                Add Channel
+                            </button>
+                        </div>
+                        <div id="notification_channels_list" class="card" style="padding:12px;">
+                            <div class="muted-text">No notification channels configured.</div>
+                        </div>
+                    </div>
+
+                    <!-- Escalation Policies Section -->
+                    <div class="panel" style="margin-top:16px;">
+                        <h4 style="margin-top:0;color:var(--highlight)">Escalation Policies</h4>
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                                Escalate unacknowledged alerts after a time threshold. Increase severity or notify additional channels.
+                            </div>
+                            <button id="new_escalation_policy_btn" class="btn-outline">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                New Policy
+                            </button>
+                        </div>
+                        <div id="escalation_policies_list" class="card" style="padding:12px;">
+                            <div class="muted-text">No escalation policies configured.</div>
+                        </div>
+                    </div>
+
+                    <!-- Alert Behavior Settings -->
+                    <div class="alert-config-row" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;margin-top:16px;">
+                        <!-- Suppression / Maintenance Windows -->
+                        <div class="panel">
+                            <h4 style="margin-top:0;color:var(--highlight)">Maintenance Windows</h4>
+                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
+                                Suppress alerts during scheduled maintenance periods.
+                            </div>
+                            <div id="maintenance_windows_list" class="card" style="padding:12px;margin-bottom:12px;">
+                                <div class="muted-text">No maintenance windows scheduled.</div>
+                            </div>
+                            <button id="new_maintenance_window_btn" class="btn-outline btn-sm">
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                Schedule Maintenance
+                            </button>
+                        </div>
+
+                        <!-- Quiet Hours -->
+                        <div class="panel">
+                            <h4 style="margin-top:0;color:var(--highlight)">Quiet Hours</h4>
+                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
+                                Suppress notifications during specified hours. Alerts are still logged but not sent.
+                            </div>
+                            <div class="quiet-hours-config">
+                                <label class="field inline-check" style="margin-bottom:12px;">
+                                    <input type="checkbox" id="quiet_hours_enabled" />
+                                    <span>Enable Quiet Hours</span>
+                                </label>
+                                <div class="quiet-hours-times" id="quiet_hours_times" style="display:none;">
+                                    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                                        <label class="field">
+                                            <span>Start</span>
+                                            <input type="time" id="quiet_hours_start" value="22:00" />
+                                        </label>
+                                        <label class="field">
+                                            <span>End</span>
+                                            <input type="time" id="quiet_hours_end" value="07:00" />
+                                        </label>
+                                        <label class="field">
+                                            <span>Timezone</span>
+                                            <select id="quiet_hours_timezone">
+                                                <option value="local">Local Time</option>
+                                                <option value="UTC">UTC</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                    <div style="margin-top:8px;">
+                                        <label class="field inline-check">
+                                            <input type="checkbox" id="quiet_hours_critical_override" checked />
+                                            <span>Allow critical alerts during quiet hours</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Flapping Detection & Alert Grouping -->
+                    <div class="alert-config-row" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;margin-top:16px;">
+                        <!-- Flapping Detection -->
+                        <div class="panel">
+                            <h4 style="margin-top:0;color:var(--highlight)">Flapping Detection</h4>
+                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
+                                Suppress alerts for resources that rapidly change state (online/offline cycling).
+                            </div>
+                            <label class="field inline-check" style="margin-bottom:12px;">
+                                <input type="checkbox" id="flapping_detection_enabled" checked />
+                                <span>Enable Flapping Detection</span>
+                            </label>
+                            <div class="flapping-config" id="flapping_config">
+                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                                    <label class="field">
+                                        <span>State changes</span>
+                                        <input type="number" id="flapping_threshold" value="5" min="2" max="20" style="width:80px;" />
+                                    </label>
+                                    <label class="field">
+                                        <span>Within (minutes)</span>
+                                        <input type="number" id="flapping_window" value="10" min="1" max="60" style="width:80px;" />
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Alert Grouping -->
+                        <div class="panel">
+                            <h4 style="margin-top:0;color:var(--highlight)">Alert Grouping</h4>
+                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
+                                Collapse related alerts into parent alerts (e.g., 10 device alerts → 1 site alert).
+                            </div>
+                            <label class="field inline-check" style="margin-bottom:12px;">
+                                <input type="checkbox" id="alert_grouping_enabled" checked />
+                                <span>Enable Alert Grouping</span>
+                            </label>
+                            <div class="grouping-config" id="grouping_config">
+                                <label class="field">
+                                    <span>Group threshold (% of scope)</span>
+                                    <input type="number" id="grouping_threshold" value="50" min="10" max="100" style="width:80px;" />
+                                </label>
+                                <div style="color:var(--muted);font-size:12px;margin-top:4px;">
+                                    When >50% of devices at a site alert, show as "Site Degraded" instead of individual alerts.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alert Dependencies -->
+                    <div class="panel" style="margin-top:16px;">
+                        <h4 style="margin-top:0;color:var(--highlight)">Alert Dependencies</h4>
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                                Suppress downstream alerts when parent resources are down. For example, if an agent is offline, suppress device alerts for that agent's devices.
+                            </div>
+                            <label class="field inline-check">
+                                <input type="checkbox" id="alert_dependencies_enabled" checked />
+                                <span>Enable Dependencies</span>
+                            </label>
+                        </div>
+                        <div class="dependency-rules" style="margin-top:12px;">
+                            <div class="dependency-rule-item">
+                                <span class="dependency-icon">→</span>
+                                <span>Agent offline → suppress device alerts</span>
+                                <span class="dependency-status enabled">Active</span>
+                            </div>
+                            <div class="dependency-rule-item">
+                                <span class="dependency-icon">→</span>
+                                <span>Site outage → suppress agent &amp; device alerts</span>
+                                <span class="dependency-status enabled">Active</span>
+                            </div>
+                            <div class="dependency-rule-item">
+                                <span class="dependency-icon">→</span>
+                                <span>Tenant outage → suppress site, agent &amp; device alerts</span>
+                                <span class="dependency-status enabled">Active</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Report Scheduling Section -->
+                    <div class="panel" style="margin-top:16px;">
+                        <h4 style="margin-top:0;color:var(--highlight)">Report Scheduling</h4>
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
+                                Schedule automated reports for fleet status, usage summaries, and supply levels.
+                            </div>
+                            <button id="new_scheduled_report_btn" class="btn-outline">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                New Schedule
+                            </button>
+                        </div>
+                        <div id="scheduled_reports_list" class="card" style="padding:12px;">
+                            <div class="muted-text">No scheduled reports configured.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- Alerts Tab (viewable by operators - summary, active alerts, history, reports) -->
+        <template id="tab-template-alerts">
+            <div style="margin-top:12px;" data-tab="alerts" class="hidden">
+                <h3>Alerts & Reports</h3>
+
+                <div class="subtab-bar" id="alerts_subtab_bar">
+                    <button class="subtab alerts-subtab active" data-alertsview="summary">Summary</button>
+                    <button class="subtab alerts-subtab" data-alertsview="active">Active Alerts</button>
+                    <button class="subtab alerts-subtab" data-alertsview="history">History</button>
+                    <button class="subtab alerts-subtab" data-alertsview="reports">Reports</button>
+                </div>
+
+                <!-- Alert Summary Sub-tab (dashboard view) -->
+                <div class="alerts-view-panel" data-alertsview-panel="summary">
+                    <!-- Fleet Health Overview -->
+                    <div class="alert-summary-section">
+                        <h4 class="alert-summary-title">Fleet Health</h4>
+                        <div class="alert-summary-grid">
+                            <div class="alert-summary-card healthy" id="summary_healthy_card">
+                                <div class="summary-card-icon">
+                                    <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
+                                        <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+                                    </svg>
+                                </div>
+                                <div class="summary-card-content">
+                                    <div class="summary-card-value" id="summary_healthy_count">0</div>
+                                    <div class="summary-card-label">Healthy</div>
+                                </div>
+                            </div>
+                            <div class="alert-summary-card warning" id="summary_warning_card">
+                                <div class="summary-card-icon">
+                                    <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
+                                        <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+                                    </svg>
+                                </div>
+                                <div class="summary-card-content">
+                                    <div class="summary-card-value" id="summary_warning_count">0</div>
+                                    <div class="summary-card-label">Warnings</div>
+                                </div>
+                            </div>
+                            <div class="alert-summary-card critical" id="summary_critical_card">
+                                <div class="summary-card-icon">
+                                    <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
+                                        <path d="M11.46.146A.5.5 0 0 0 11.107 0H4.893a.5.5 0 0 0-.353.146L.146 4.54A.5.5 0 0 0 0 4.893v6.214a.5.5 0 0 0 .146.353l4.394 4.394a.5.5 0 0 0 .353.146h6.214a.5.5 0 0 0 .353-.146l4.394-4.394a.5.5 0 0 0 .146-.353V4.893a.5.5 0 0 0-.146-.353L11.46.146zM8 4c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 4.995A.905.905 0 0 1 8 4zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/>
+                                    </svg>
+                                </div>
+                                <div class="summary-card-content">
+                                    <div class="summary-card-value" id="summary_critical_count">0</div>
+                                    <div class="summary-card-label">Critical</div>
+                                </div>
+                            </div>
+                            <div class="alert-summary-card offline" id="summary_offline_card">
+                                <div class="summary-card-icon">
+                                    <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
+                                        <path d="M10.706 3.294A12.545 12.545 0 0 0 8 3C5.259 3 2.723 3.882.663 5.379a.485.485 0 0 0-.048.736.518.518 0 0 0 .668.05A11.448 11.448 0 0 1 8 4c.63 0 1.249.05 1.852.148l.854-.854zM8 6c-1.905 0-3.68.56-5.166 1.526a.48.48 0 0 0-.063.745.525.525 0 0 0 .652.065 8.448 8.448 0 0 1 3.51-1.27L8 6zm2.596 1.404.785-.785c.63.24 1.227.545 1.785.907a.482.482 0 0 1 .063.745.525.525 0 0 1-.652.065 8.462 8.462 0 0 0-1.98-.932zM8 10l.933-.933a6.455 6.455 0 0 1 2.013.637c.285.145.326.524.1.75l-.015.015a.532.532 0 0 1-.611.09A5.478 5.478 0 0 0 8 10zm4.905-4.905.747-.747c.59.3 1.153.645 1.685 1.03a.485.485 0 0 1 .047.737.518.518 0 0 1-.668.05 11.493 11.493 0 0 0-1.811-1.07zM9.02 11.78c.238.14.236.464.04.66l-.707.706a.5.5 0 0 1-.707 0l-.707-.707c-.195-.195-.197-.518.04-.66A1.99 1.99 0 0 1 8 11.5c.374 0 .723.102 1.021.28zm4.355-9.905a.53.53 0 0 1 .75.75l-10.75 10.75a.53.53 0 0 1-.75-.75l10.75-10.75z"/>
+                                    </svg>
+                                </div>
+                                <div class="summary-card-content">
+                                    <div class="summary-card-value" id="summary_offline_count">0</div>
+                                    <div class="summary-card-label">Offline</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scope-level Status -->
+                    <div class="alert-summary-row">
+                        <div class="alert-summary-section flex-1">
+                            <h4 class="alert-summary-title">By Scope</h4>
+                            <div class="scope-status-grid">
+                                <div class="scope-status-item">
+                                    <span class="scope-label">Devices</span>
+                                    <div class="scope-bar-container">
+                                        <div class="scope-bar" id="scope_bar_devices" style="--healthy:100%;--warning:0%;--critical:0%;"></div>
+                                    </div>
+                                    <span class="scope-count" id="scope_count_devices">0 / 0</span>
+                                </div>
+                                <div class="scope-status-item">
+                                    <span class="scope-label">Agents</span>
+                                    <div class="scope-bar-container">
+                                        <div class="scope-bar" id="scope_bar_agents" style="--healthy:100%;--warning:0%;--critical:0%;"></div>
+                                    </div>
+                                    <span class="scope-count" id="scope_count_agents">0 / 0</span>
+                                </div>
+                                <div class="scope-status-item">
+                                    <span class="scope-label">Sites</span>
+                                    <div class="scope-bar-container">
+                                        <div class="scope-bar" id="scope_bar_sites" style="--healthy:100%;--warning:0%;--critical:0%;"></div>
+                                    </div>
+                                    <span class="scope-count" id="scope_count_sites">0 / 0</span>
+                                </div>
+                                <div class="scope-status-item">
+                                    <span class="scope-label">Tenants</span>
+                                    <div class="scope-bar-container">
+                                        <div class="scope-bar" id="scope_bar_tenants" style="--healthy:100%;--warning:0%;--critical:0%;"></div>
+                                    </div>
+                                    <span class="scope-count" id="scope_count_tenants">0 / 0</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert-summary-section flex-1">
+                            <h4 class="alert-summary-title">Alert Breakdown</h4>
+                            <div class="alert-type-breakdown" id="alert_type_breakdown">
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">Supply Low</span>
+                                    <span class="breakdown-value" id="breakdown_supply">0</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">Device Offline</span>
+                                    <span class="breakdown-value" id="breakdown_device_offline">0</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">Agent Offline</span>
+                                    <span class="breakdown-value" id="breakdown_agent_offline">0</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">Site Outage</span>
+                                    <span class="breakdown-value" id="breakdown_site_outage">0</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">Usage Threshold</span>
+                                    <span class="breakdown-value" id="breakdown_usage">0</span>
+                                </div>
+                                <div class="breakdown-item">
+                                    <span class="breakdown-label">Errors</span>
+                                    <span class="breakdown-value" id="breakdown_errors">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Alerts & Suppression Status -->
+                    <div class="alert-summary-row">
+                        <div class="alert-summary-section flex-2">
+                            <div class="summary-section-header">
+                                <h4 class="alert-summary-title">Recent Alerts</h4>
+                                <a href="#" class="summary-link" id="view_all_alerts_link">View All →</a>
+                            </div>
+                            <div id="recent_alerts_summary" class="recent-alerts-list">
+                                <div class="muted-text">No recent alerts</div>
+                            </div>
+                        </div>
+
+                        <div class="alert-summary-section flex-1">
+                            <h4 class="alert-summary-title">Status</h4>
+                            <div class="alert-status-info">
+                                <div class="status-info-item">
+                                    <span class="status-dot" id="status_dot_suppression"></span>
+                                    <span>Alert Suppression</span>
+                                    <span class="status-value" id="status_suppression">Inactive</span>
+                                </div>
+                                <div class="status-info-item">
+                                    <span class="status-dot active" id="status_dot_monitoring"></span>
+                                    <span>Monitoring</span>
+                                    <span class="status-value" id="status_monitoring">Active</span>
+                                </div>
+                                <div class="status-info-item">
+                                    <span class="status-dot" id="status_dot_quiet"></span>
+                                    <span>Quiet Hours</span>
+                                    <span class="status-value" id="status_quiet_hours">Off</span>
+                                </div>
+                                <div class="status-info-item">
+                                    <span>Active Rules</span>
+                                    <span class="status-value" id="status_active_rules">0</span>
+                                </div>
+                                <div class="status-info-item">
+                                    <span>Notification Channels</span>
+                                    <span class="status-value" id="status_channels">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Alerts Sub-tab -->
+                <div class="alerts-view-panel hidden" data-alertsview-panel="active">
+                    <div class="alerts-overview-grid" id="alerts_overview_metrics">
+                        <div class="metric-card alert-metric-card critical">
+                            <div class="metric-value" id="alerts_critical_count">0</div>
+                            <div class="metric-label">Critical</div>
+                        </div>
+                        <div class="metric-card alert-metric-card warning">
+                            <div class="metric-value" id="alerts_warning_count">0</div>
+                            <div class="metric-label">Warning</div>
+                        </div>
+                        <div class="metric-card alert-metric-card info">
+                            <div class="metric-value" id="alerts_info_count">0</div>
+                            <div class="metric-label">Info</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="alerts_acknowledged_count">0</div>
+                            <div class="metric-label">Acknowledged</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" id="alerts_suppressed_count">0</div>
+                            <div class="metric-label">Suppressed</div>
+                        </div>
+                    </div>
+
+                    <div class="panel" style="margin-top:16px;">
+                        <div class="alerts-toolbar">
+                            <div class="alerts-toolbar-left">
+                                <label class="field">
+                                    <span>Severity</span>
+                                    <select id="alerts_severity_filter">
+                                        <option value="">All</option>
+                                        <option value="critical">Critical</option>
+                                        <option value="warning">Warning</option>
+                                        <option value="info">Info</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Scope</span>
+                                    <select id="alerts_scope_filter">
+                                        <option value="">All Scopes</option>
+                                        <option value="device">Device</option>
+                                        <option value="agent">Agent</option>
+                                        <option value="site">Site</option>
+                                        <option value="tenant">Tenant</option>
+                                        <option value="fleet">Fleet</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Type</span>
+                                    <select id="alerts_type_filter">
+                                        <option value="">All Types</option>
+                                        <optgroup label="Device Alerts">
+                                            <option value="device.supply.low">Supply Low</option>
+                                            <option value="device.supply.critical">Supply Critical</option>
+                                            <option value="device.offline">Device Offline</option>
+                                            <option value="device.error">Device Error</option>
+                                            <option value="device.usage.high">High Usage</option>
+                                            <option value="device.usage.spike">Usage Spike</option>
+                                        </optgroup>
+                                        <optgroup label="Agent Alerts">
+                                            <option value="agent.offline">Agent Offline</option>
+                                            <option value="agent.unhealthy">Agent Unhealthy</option>
+                                            <option value="agent.update.failed">Update Failed</option>
+                                            <option value="agent.version.outdated">Version Outdated</option>
+                                            <option value="agent.storage.full">Storage Full</option>
+                                        </optgroup>
+                                        <optgroup label="Site Alerts">
+                                            <option value="site.outage">Site Outage</option>
+                                            <option value="site.partial_outage">Partial Outage</option>
+                                            <option value="site.degraded">Site Degraded</option>
+                                        </optgroup>
+                                        <optgroup label="Tenant Alerts">
+                                            <option value="tenant.outage">Tenant Outage</option>
+                                            <option value="tenant.partial_outage">Partial Outage</option>
+                                            <option value="tenant.no_data">No Data</option>
+                                        </optgroup>
+                                        <optgroup label="Fleet Alerts">
+                                            <option value="fleet.mass_outage">Mass Outage</option>
+                                            <option value="fleet.update.stalled">Update Stalled</option>
+                                        </optgroup>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Tenant</span>
+                                    <select id="alerts_tenant_filter">
+                                        <option value="">All Tenants</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="alerts-toolbar-right">
+                                <button id="acknowledge_selected_btn" class="btn-outline" disabled>Acknowledge Selected</button>
+                                <button id="suppress_selected_btn" class="btn-outline" disabled>Suppress</button>
+                                <button id="refresh_alerts_btn" class="ghost-btn">Refresh</button>
+                            </div>
+                        </div>
+                        <div id="active_alerts_list" class="alerts-list">
+                            <div class="alerts-empty-state">
+                                <svg width="48" height="48" viewBox="0 0 16 16" fill="var(--success)">
+                                    <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+                                </svg>
+                                <div class="alerts-empty-title">All Clear</div>
+                                <div class="alerts-empty-text">No active alerts at this time. Configure alert rules in Admin → Alerts.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Alert History Sub-tab -->
+                <div class="alerts-view-panel hidden" data-alertsview-panel="history">
+                    <div class="panel">
+                        <div class="alerts-toolbar">
+                            <div class="alerts-toolbar-left">
+                                <label class="field">
+                                    <span>Time Range</span>
+                                    <select id="alerts_history_time_filter">
+                                        <option value="24">Last 24 hours</option>
+                                        <option value="168">Last 7 days</option>
+                                        <option value="720">Last 30 days</option>
+                                        <option value="2160">Last 90 days</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Status</span>
+                                    <select id="alerts_history_status_filter">
+                                        <option value="">All</option>
+                                        <option value="resolved">Resolved</option>
+                                        <option value="acknowledged">Acknowledged</option>
+                                        <option value="suppressed">Suppressed</option>
+                                        <option value="escalated">Escalated</option>
+                                        <option value="expired">Expired</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Scope</span>
+                                    <select id="alerts_history_scope_filter">
+                                        <option value="">All Scopes</option>
+                                        <option value="device">Device</option>
+                                        <option value="agent">Agent</option>
+                                        <option value="site">Site</option>
+                                        <option value="tenant">Tenant</option>
+                                        <option value="fleet">Fleet</option>
+                                    </select>
+                                </label>
+                                <label class="field">
+                                    <span>Search</span>
+                                    <input type="text" id="alerts_history_search" placeholder="Search alerts..." />
+                                </label>
+                            </div>
+                            <div class="alerts-toolbar-right">
+                                <button id="export_history_btn" class="btn-outline">Export CSV</button>
+                            </div>
+                        </div>
+                        <div id="alerts_history_table" class="table-wrapper">
+                            <div class="muted-text">Loading alert history...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reports Sub-tab -->
+                <div class="alerts-view-panel hidden" data-alertsview-panel="reports">
+                    <div class="reports-grid">
+                        <div class="panel report-card">
+                            <h4 style="margin-top:0;color:var(--highlight)">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle;margin-right:8px;">
+                                    <path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0v-1zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0V7zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0V9z"/>
+                                    <path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/>
+                                    <path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/>
+                                </svg>
+                                Fleet Status
+                            </h4>
+                            <p class="muted-text">Overview of all agents and devices with current status.</p>
+                            <button class="btn-outline" id="generate_fleet_report_btn">Generate Report</button>
+                        </div>
+                        <div class="panel report-card">
+                            <h4 style="margin-top:0;color:var(--highlight)">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle;margin-right:8px;">
+                                    <path d="M1 11a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-3zm5-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7zm5-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V2z"/>
+                                </svg>
+                                Usage Summary
+                            </h4>
+                            <p class="muted-text">Page counts, print volumes, and usage trends by device.</p>
+                            <button class="btn-outline" id="generate_usage_report_btn">Generate Report</button>
+                        </div>
+                        <div class="panel report-card">
+                            <h4 style="margin-top:0;color:var(--highlight)">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle;margin-right:8px;">
+                                    <path d="M2 1a1 1 0 0 0-1 1v4.586a1 1 0 0 0 .293.707l7 7a1 1 0 0 0 1.414 0l4.586-4.586a1 1 0 0 0 0-1.414l-7-7A1 1 0 0 0 6.586 1H2zm4 3.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/>
+                                </svg>
+                                Supply Levels
+                            </h4>
+                            <p class="muted-text">Toner, ink, and consumable levels across the fleet.</p>
+                            <button class="btn-outline" id="generate_supply_report_btn">Generate Report</button>
+                        </div>
+                        <div class="panel report-card">
+                            <h4 style="margin-top:0;color:var(--highlight)">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle;margin-right:8px;">
+                                    <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+                                    <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                                </svg>
+                                Alert History
+                            </h4>
+                            <p class="muted-text">Historical alert data with trends and resolution times.</p>
+                            <button class="btn-outline" id="generate_alert_report_btn">Generate Report</button>
+                        </div>
+                    </div>
+
+                    <div class="panel" style="margin-top:16px;">
+                        <h4 style="margin-top:0;color:var(--highlight)">Recent Reports</h4>
+                        <div id="recent_reports_list" class="table-wrapper">
+                            <div class="muted-text">No reports generated yet.</div>
                         </div>
                     </div>
                 </div>
