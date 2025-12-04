@@ -2114,7 +2114,9 @@ select:focus {
    ============================================ */
 
 .user-modal-content {
-  max-width: 640px;
+  /* Increase modal width to reduce field overlap on larger screens */
+  max-width: 900px;
+  min-width: 520px;
   width: 100%;
 }
 
@@ -2206,11 +2208,20 @@ select:focus {
   gap: 8px;
   font-size: 13px;
   cursor: pointer;
+  /* Prevent the checkbox label from stretching in flex containers */
+  flex: 0 0 auto;
+}
+
+.user-form-checkbox span {
+  white-space: nowrap;
 }
 
 .user-form-checkbox input[type="checkbox"] {
+  margin: 0;
   width: 16px;
   height: 16px;
+  min-width: 16px;
+  vertical-align: middle;
   accent-color: var(--highlight);
 }
 
