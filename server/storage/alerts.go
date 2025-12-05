@@ -1312,7 +1312,7 @@ func (s *SQLiteStore) DeleteAlertMaintenanceWindow(ctx context.Context, id int64
 func (s *SQLiteStore) GetAlertSettings(ctx context.Context) (*AlertSettings, error) {
 	var settingsJSON sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT value FROM settings_global WHERE key = 'alert_settings'
+		SELECT value FROM alert_settings WHERE key = 'alert_settings'
 	`).Scan(&settingsJSON)
 
 	if err == sql.ErrNoRows || !settingsJSON.Valid {
@@ -1353,8 +1353,8 @@ func (s *SQLiteStore) SaveAlertSettings(ctx context.Context, settings *AlertSett
 	}
 
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO settings_global (key, value) VALUES ('alert_settings', ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value
+		INSERT INTO alert_settings (key, value, updated_at) VALUES ('alert_settings', ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
 	`, string(data))
 
 	return err

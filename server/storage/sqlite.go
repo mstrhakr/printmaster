@@ -660,6 +660,13 @@ func (s *SQLiteStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_maintenance_windows_time ON maintenance_windows(start_time, end_time);
 	CREATE INDEX IF NOT EXISTS idx_maintenance_windows_scope ON maintenance_windows(scope);
+
+	-- Alert settings (key-value for JSON storage)
+	CREATE TABLE IF NOT EXISTS alert_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {

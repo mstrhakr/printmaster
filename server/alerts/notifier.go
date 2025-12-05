@@ -446,7 +446,13 @@ func (n *Notifier) sendPagerDuty(ctx context.Context, config map[string]interfac
 		},
 	}
 
-	return n.postJSON(ctx, "https://events.pagerduty.com/v2/enqueue", nil, payload)
+	// Allow custom API URL for testing
+	apiURL := "https://events.pagerduty.com/v2/enqueue"
+	if customURL, ok := config["api_url"].(string); ok && customURL != "" {
+		apiURL = customURL
+	}
+
+	return n.postJSON(ctx, apiURL, nil, payload)
 }
 
 // postJSON posts a JSON payload to the given URL with retry logic.
