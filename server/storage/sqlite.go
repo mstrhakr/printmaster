@@ -1078,10 +1078,12 @@ func (s *SQLiteStore) GetTenant(ctx context.Context, id string) (*Tenant, error)
 	s.ensureTenantLoginDomainColumn()
 	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, login_domain, created_at FROM tenants WHERE id = ?`, id)
 	var t Tenant
-	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.LoginDomain, &t.CreatedAt)
+	var loginDomain sql.NullString
+	err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &loginDomain, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
+	t.LoginDomain = loginDomain.String
 	return &t, nil
 }
 
@@ -1095,9 +1097,11 @@ func (s *SQLiteStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
 	var res []*Tenant
 	for rows.Next() {
 		var t Tenant
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.LoginDomain, &t.CreatedAt); err != nil {
+		var loginDomain sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &loginDomain, &t.CreatedAt); err != nil {
 			return nil, err
 		}
+		t.LoginDomain = loginDomain.String
 		res = append(res, &t)
 	}
 	return res, nil
@@ -1112,9 +1116,11 @@ func (s *SQLiteStore) FindTenantByDomain(ctx context.Context, domain string) (*T
 	}
 	row := s.db.QueryRowContext(ctx, `SELECT id, name, description, contact_name, contact_email, contact_phone, business_unit, billing_code, address, login_domain, created_at FROM tenants WHERE login_domain = ?`, norm)
 	var t Tenant
-	if err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &t.LoginDomain, &t.CreatedAt); err != nil {
+	var loginDomain sql.NullString
+	if err := row.Scan(&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail, &t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address, &loginDomain, &t.CreatedAt); err != nil {
 		return nil, err
 	}
+	t.LoginDomain = loginDomain.String
 	return &t, nil
 }
 

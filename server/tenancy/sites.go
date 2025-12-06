@@ -67,6 +67,11 @@ func handleSitesCollection(w http.ResponseWriter, r *http.Request, tenantID stri
 			return
 		}
 
+		// Ensure we return an empty array instead of null
+		if sites == nil {
+			sites = []*storage.Site{}
+		}
+
 		// Enrich with agent counts
 		for _, site := range sites {
 			agentIDs, _ := dbStore.GetSiteAgentIDs(r.Context(), site.ID)

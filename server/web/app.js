@@ -5004,7 +5004,7 @@ async function fetchSitesForTenant(tenantId) {
     const r = await fetch(`/api/v1/tenants/${encodeURIComponent(tenantId)}/sites`);
     if (!r.ok) throw new Error(await r.text());
     const data = await r.json();
-    return data.sites || [];
+    return data || [];
 }
 
 async function fetchAgentsForTenant(tenantId) {
