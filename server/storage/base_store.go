@@ -1359,7 +1359,7 @@ func (s *BaseStore) SaveAuditEntry(ctx context.Context, entry *AuditEntry) error
 func (s *BaseStore) GetAuditLog(ctx context.Context, actorID string, since time.Time) ([]*AuditEntry, error) {
 	var query string
 	var args []interface{}
-	
+
 	if actorID == "" {
 		query = `
 			SELECT id, timestamp, actor_type, actor_id, actor_name, action, target_type, target_id,
