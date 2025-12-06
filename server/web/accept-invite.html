@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>PrintMaster — Accept Invitation</title>
+    <link rel="stylesheet" href="/static/shared.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/shared.js"></script>
+    <style>
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .password-requirements { font-size: 12px; color: var(--muted); margin-top: 4px; }
+        .password-requirements ul { margin: 4px 0 0 16px; padding: 0; }
+        .password-requirements li { margin: 2px 0; }
+        .password-requirements li.met { color: var(--success); }
+        .password-requirements li.unmet { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <div style="display:flex;min-height:100vh;align-items:center;justify-content:center;background:var(--bg);padding:16px;">
+        <div style="width:420px;max-width:100%;padding:28px;border-radius:8px;box-shadow:var(--shadow);background:var(--panel);">
+            <h2 style="margin:0 0 8px 0;">Welcome to PrintMaster</h2>
+            
+            <div id="loading_state" style="display:flex;gap:8px;align-items:center;margin:16px 0;">
+                <div class="spinner" style="width:16px;height:16px;border:2px solid var(--muted);border-top-color:transparent;border-radius:50%;animation:spin 0.9s linear infinite;"></div>
+                <span style="font-size:14px;color:var(--muted);">Validating invitation…</span>
+            </div>
+
+            <div id="error_state" style="display:none;">
+                <div style="color:var(--danger);margin-bottom:12px;" id="error_message">Invalid or expired invitation.</div>
+                <a href="/login" style="color:var(--accent);">Go to login</a>
+            </div>
+
+            <div id="form_state" style="display:none;">
+                <p style="margin:0 0 16px 0;color:var(--muted);font-size:14px;">
+                    You've been invited to join as <strong id="invite_role"></strong>.
+                    <span id="invite_tenant_info"></span>
+                    Create your account below.
+                </p>
+
+                <div id="form_error" style="display:none;color:var(--danger);margin-bottom:12px;padding:8px;border-radius:4px;background:rgba(244,67,54,0.1);"></div>
+
+                <label style="display:flex;flex-direction:column;margin-bottom:8px;">
+                    <span style="font-size:13px;color:var(--muted);">Email</span>
+                    <input id="invite_email" type="email" readonly style="padding:8px;margin-top:6px;background:var(--bg);cursor:not-allowed;" />
+                </label>
+
+                <label style="display:flex;flex-direction:column;margin-bottom:8px;">
+                    <span style="font-size:13px;color:var(--muted);">Username</span>
+                    <input id="invite_username" type="text" placeholder="Choose a username" style="padding:8px;margin-top:6px;" autocomplete="username" />
+                </label>
+
+                <label style="display:flex;flex-direction:column;margin-bottom:8px;">
+                    <span style="font-size:13px;color:var(--muted);">Password</span>
+                    <input id="invite_password" type="password" placeholder="Create a password" style="padding:8px;margin-top:6px;" autocomplete="new-password" />
+                    <div class="password-requirements" id="password_requirements">
+                        <ul>
+                            <li id="req_length" class="unmet">At least 8 characters</li>
+                            <li id="req_upper" class="unmet">At least one uppercase letter</li>
+                            <li id="req_lower" class="unmet">At least one lowercase letter</li>
+                            <li id="req_number" class="unmet">At least one number</li>
+                        </ul>
+                    </div>
+                </label>
+
+                <label style="display:flex;flex-direction:column;margin-bottom:12px;">
+                    <span style="font-size:13px;color:var(--muted);">Confirm Password</span>
+                    <input id="invite_password_confirm" type="password" placeholder="Confirm your password" style="padding:8px;margin-top:6px;" autocomplete="new-password" />
+                </label>
+
+                <div style="display:flex;gap:8px;justify-content:flex-end;">
+                    <button id="submit_btn" class="modal-button modal-button-primary">Create Account</button>
+                </div>
+            </div>
+
+            <div id="success_state" style="display:none;">
+                <div style="color:var(--success);margin-bottom:12px;">
+                    <strong>Account created successfully!</strong>
+                </div>
+                <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">You can now sign in with your new credentials.</p>
+                <a href="/login" class="modal-button modal-button-primary" style="display:inline-block;text-decoration:none;text-align:center;">Sign in</a>
+            </div>
+
+            <div style="margin-top:16px;font-size:13px;color:var(--muted);">
+                <a href="/">Back to home</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+
+        const loadingState = document.getElementById('loading_state');
+        const errorState = document.getElementById('error_state');
+        const formState = document.getElementById('form_state');
+        const successState = document.getElementById('success_state');
+        const errorMessage = document.getElementById('error_message');
+        const formError = document.getElementById('form_error');
+
+        const emailInput = document.getElementById('invite_email');
+        const usernameInput = document.getElementById('invite_username');
+        const passwordInput = document.getElementById('invite_password');
+        const confirmInput = document.getElementById('invite_password_confirm');
+        const roleSpan = document.getElementById('invite_role');
+        const tenantInfo = document.getElementById('invite_tenant_info');
+        const submitBtn = document.getElementById('submit_btn');
+
+        let inviteData = null;
+
+        function showError(msg) {
+            loadingState.style.display = 'none';
+            formState.style.display = 'none';
+            successState.style.display = 'none';
+            errorState.style.display = 'block';
+            errorMessage.textContent = msg;
+        }
+
+        function showForm() {
+            loadingState.style.display = 'none';
+            errorState.style.display = 'none';
+            successState.style.display = 'none';
+            formState.style.display = 'block';
+        }
+
+        function showSuccess() {
+            loadingState.style.display = 'none';
+            errorState.style.display = 'none';
+            formState.style.display = 'none';
+            successState.style.display = 'block';
+        }
+
+        function updatePasswordRequirements() {
+            const pw = passwordInput.value;
+            const reqs = [
+                { id: 'req_length', met: pw.length >= 8 },
+                { id: 'req_upper', met: /[A-Z]/.test(pw) },
+                { id: 'req_lower', met: /[a-z]/.test(pw) },
+                { id: 'req_number', met: /[0-9]/.test(pw) }
+            ];
+            reqs.forEach(r => {
+                const el = document.getElementById(r.id);
+                el.className = r.met ? 'met' : 'unmet';
+            });
+            return reqs.every(r => r.met);
+        }
+
+        async function validateToken() {
+            if (!token) {
+                showError('No invitation token provided.');
+                return;
+            }
+
+            try {
+                const r = await fetch('/api/v1/users/invite/validate?token=' + encodeURIComponent(token));
+                if (!r.ok) {
+                    const txt = await r.text();
+                    showError(txt || 'Invalid or expired invitation.');
+                    return;
+                }
+                inviteData = await r.json();
+                emailInput.value = inviteData.email || '';
+                usernameInput.value = inviteData.username || '';
+                roleSpan.textContent = inviteData.role || 'user';
+                if (inviteData.tenant_name) {
+                    tenantInfo.textContent = 'for ' + inviteData.tenant_name + '.';
+                }
+                showForm();
+            } catch (err) {
+                showError('Failed to validate invitation: ' + (err.message || err));
+            }
+        }
+
+        async function submitForm() {
+            formError.style.display = 'none';
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+            const confirm = confirmInput.value;
+
+            if (!username) {
+                formError.textContent = 'Username is required.';
+                formError.style.display = 'block';
+                return;
+            }
+            if (username.length < 3) {
+                formError.textContent = 'Username must be at least 3 characters.';
+                formError.style.display = 'block';
+                return;
+            }
+            if (!updatePasswordRequirements()) {
+                formError.textContent = 'Password does not meet requirements.';
+                formError.style.display = 'block';
+                return;
+            }
+            if (password !== confirm) {
+                formError.textContent = 'Passwords do not match.';
+                formError.style.display = 'block';
+                return;
+            }
+
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+
+            try {
+                const r = await fetch('/api/v1/users/invite/accept', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        token: token,
+                        username: username,
+                        password: password
+                    })
+                });
+                if (!r.ok) {
+                    const txt = await r.text();
+                    throw new Error(txt || 'Failed to create account');
+                }
+                showSuccess();
+            } catch (err) {
+                formError.textContent = err.message || 'Failed to create account.';
+                formError.style.display = 'block';
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
+            }
+        }
+
+        passwordInput.addEventListener('input', updatePasswordRequirements);
+        submitBtn.addEventListener('click', submitForm);
+
+        // Allow enter key to submit
+        [usernameInput, passwordInput, confirmInput].forEach(el => {
+            el.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') submitForm();
+            });
+        });
+
+        validateToken();
+    })();
+    </script>
+</body>
+</html>

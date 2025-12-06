@@ -2428,6 +2428,140 @@ If you did not expect this invitation, you can safely ignore this email.
 	})
 }
 
+// handleInviteValidate validates an invitation token and returns invite details (public endpoint)
+// GET /api/v1/users/invite/validate?token=...
+func handleInviteValidate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Error(w, "token required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+	inv, err := serverStore.GetUserInvitation(ctx, token)
+	if err != nil {
+		logWarn("Invalid invitation token", "error", err)
+		http.Error(w, "Invalid or expired invitation", http.StatusNotFound)
+		return
+	}
+
+	// Get tenant name if applicable
+	var tenantName string
+	if inv.TenantID != "" {
+		if t, err := serverStore.GetTenant(ctx, inv.TenantID); err == nil && t != nil {
+			tenantName = t.Name
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"email":       inv.Email,
+		"username":    inv.Username,
+		"role":        inv.Role,
+		"tenant_id":   inv.TenantID,
+		"tenant_name": tenantName,
+	})
+}
+
+// handleInviteAccept accepts an invitation and creates the user account (public endpoint)
+// POST /api/v1/users/invite/accept
+func handleInviteAccept(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Token    string `json:"token"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Token == "" || req.Username == "" || req.Password == "" {
+		http.Error(w, "token, username, and password are required", http.StatusBadRequest)
+		return
+	}
+
+	// Validate username
+	req.Username = strings.TrimSpace(req.Username)
+	if len(req.Username) < 3 {
+		http.Error(w, "username must be at least 3 characters", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Validate the invitation token
+	inv, err := serverStore.GetUserInvitation(ctx, req.Token)
+	if err != nil {
+		logWarn("Invalid invitation token on accept", "error", err)
+		http.Error(w, "Invalid or expired invitation", http.StatusNotFound)
+		return
+	}
+
+	// Check if username already exists
+	existingUsers, _ := serverStore.ListUsers(ctx)
+	for _, u := range existingUsers {
+		if strings.EqualFold(u.Username, req.Username) {
+			http.Error(w, "Username already taken", http.StatusConflict)
+			return
+		}
+	}
+
+	// Create the user (CreateUser handles password hashing internally)
+	user := &storage.User{
+		Username:  req.Username,
+		Email:     inv.Email,
+		Role:      inv.Role,
+		TenantID:  inv.TenantID,
+		CreatedAt: time.Now(),
+	}
+
+	if err := serverStore.CreateUser(ctx, user, req.Password); err != nil {
+		logError("Failed to create user from invitation", "error", err, "email", inv.Email)
+		http.Error(w, "Failed to create user", http.StatusInternalServerError)
+		return
+	}
+
+	// Mark invitation as used
+	if err := serverStore.MarkInvitationUsed(ctx, inv.ID); err != nil {
+		logWarn("Failed to mark invitation as used", "error", err, "id", inv.ID)
+	}
+
+	// Audit log
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType:  storage.AuditActorSystem,
+		ActorID:    "invitation",
+		ActorName:  "Invitation System",
+		TenantID:   inv.TenantID,
+		Action:     "user.created_from_invite",
+		TargetType: "user",
+		TargetID:   req.Username,
+		Details:    fmt.Sprintf("User %s created from invitation (invited by %s)", req.Username, inv.CreatedBy),
+		Metadata: map[string]interface{}{
+			"email":      inv.Email,
+			"role":       inv.Role,
+			"invited_by": inv.CreatedBy,
+		},
+		IPAddress: extractClientIP(r),
+	})
+
+	logInfo("User created from invitation", "username", req.Username, "email", inv.Email, "role", inv.Role)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Account created successfully",
+	})
+}
+
 // logAuditEntry persists an audit event using the shared storage helper. Default values are applied here
 // so callers can focus on describing the action, actor, and optional context.
 func logAuditEntry(ctx context.Context, entry *storage.AuditEntry) {
@@ -2619,6 +2753,8 @@ func setupRoutes(cfg *Config) {
 	// User management: list/create/update/delete users
 	http.HandleFunc("/api/v1/users", requireWebAuth(handleUsers))
 	http.HandleFunc("/api/v1/users/invite", requireWebAuth(handleUserInvite)) // Must be before /users/ catch-all
+	http.HandleFunc("/api/v1/users/invite/validate", handleInviteValidate)    // Public - validate invitation token
+	http.HandleFunc("/api/v1/users/invite/accept", handleInviteAccept)        // Public - accept invitation and create account
 	http.HandleFunc("/api/v1/users/", requireWebAuth(handleUser))
 	http.HandleFunc("/api/v1/users/password-policy", handlePasswordPolicy)
 	// Sessions management: list and revoke sessions
@@ -2821,6 +2957,17 @@ func setupRoutes(cfg *Config) {
 		content, err := webFS.ReadFile("web/login.html")
 		if err != nil {
 			logWarn("Login page not found", "err", err)
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(content)
+	})
+	http.HandleFunc("/accept-invite", func(w http.ResponseWriter, r *http.Request) {
+		// Serve the invitation acceptance page from embedded web assets
+		content, err := webFS.ReadFile("web/accept-invite.html")
+		if err != nil {
+			logWarn("Accept invite page not found", "err", err)
 			http.NotFound(w, r)
 			return
 		}
