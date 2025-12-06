@@ -2952,19 +2952,20 @@ select:focus {
 .user-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 32px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 800px) {
   .user-form-grid {
     grid-template-columns: 1fr;
+    gap: 24px;
   }
 }
 
 .user-form-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .user-form-section-header {
@@ -3043,11 +3044,12 @@ select:focus {
 
 .user-form-checkbox input[type="checkbox"] {
   margin: 0;
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
   vertical-align: middle;
   accent-color: var(--highlight);
+  cursor: pointer;
 }
 
 .user-form-error {
@@ -3204,30 +3206,31 @@ select:focus {
 
 /* ====== Tenant Modal ====== */
 .tenant-modal-content {
-  max-width: 720px;
+  max-width: 800px;
   width: 100%;
 }
 
 .tenant-modal-body {
-  padding: 20px 24px;
+  padding: 24px 28px;
 }
 
 .tenant-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 32px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 800px) {
   .tenant-form-grid {
     grid-template-columns: 1fr;
+    gap: 24px;
   }
 }
 
 .tenant-form-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .tenant-notes-section {
@@ -3333,30 +3336,31 @@ select:focus {
 }
 
 .site-modal-content {
-  max-width: 720px;
+  max-width: 800px;
   width: 100%;
 }
 
 .site-modal-body {
-  padding: 20px 24px;
+  padding: 24px 28px;
 }
 
 .site-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 32px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 800px) {
   .site-form-grid {
     grid-template-columns: 1fr;
+    gap: 24px;
   }
 }
 
 .site-form-section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .site-rules-section {
@@ -3467,9 +3471,11 @@ select:focus {
 }
 
 .site-agent-item input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
   accent-color: var(--highlight);
+  cursor: pointer;
 }
 
 .site-agent-item .agent-name {
@@ -4855,32 +4861,36 @@ input[type="checkbox"]:indeterminate::before {
 
 .toggle-slider {
   display: block;
-  width: 40px;
-  height: 22px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 11px;
+  width: 48px;
+  height: 26px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 13px;
   position: relative;
-  transition: background 0.2s;
+  transition: background 0.2s, border-color 0.2s;
+  cursor: pointer;
 }
 
 .toggle-slider::after {
   content: '';
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   left: 2px;
   top: 2px;
   background: var(--text);
   border-radius: 50%;
   transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .toggle-switch input:checked + .toggle-slider {
   background: var(--highlight);
+  border-color: var(--highlight);
 }
 
 .toggle-switch input:checked + .toggle-slider::after {
-  transform: translateX(18px);
+  transform: translateX(22px);
 }
 
 .toggle-switch input:disabled + .toggle-slider {
@@ -6089,7 +6099,7 @@ input[type="checkbox"]:indeterminate::before {
   border-radius: 8px;
   box-shadow: var(--shadow-xl);
   width: 100%;
-  max-width: 500px;
+  max-width: 600px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
