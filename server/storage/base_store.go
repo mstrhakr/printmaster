@@ -112,14 +112,23 @@ func (s *BaseStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 			last_heartbeat = excluded.last_heartbeat
 	`
 
-	_, err := s.execContext(ctx, query,
+	result, err := s.execContext(ctx, query,
 		agent.AgentID, agent.Name, agent.Hostname, agent.IP, agent.Platform,
 		agent.Version, agent.ProtocolVersion, agent.Token, agent.TenantID, agent.RegisteredAt,
 		agent.LastSeen, agent.Status,
 		agent.OSVersion, agent.GoVersion, agent.Architecture, agent.NumCPU,
 		agent.TotalMemoryMB, agent.BuildType, agent.GitCommit, agent.LastHeartbeat)
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Set the auto-increment ID
+	id, _ := result.LastInsertId()
+	if id > 0 {
+		agent.ID = id
+	}
+
+	return nil
 }
 
 // GetAgent retrieves an agent by ID
@@ -151,7 +160,7 @@ func (s *BaseStore) GetAgent(ctx context.Context, agentID string) (*Agent, error
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent not found: %s", agentID)
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -216,7 +225,7 @@ func (s *BaseStore) GetAgentByToken(ctx context.Context, token string) (*Agent, 
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent not found")
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -779,7 +788,7 @@ func (s *BaseStore) ListTenants(ctx context.Context) ([]*Tenant, error) {
 func (s *BaseStore) FindTenantByDomain(ctx context.Context, domain string) (*Tenant, error) {
 	norm := NormalizeTenantDomain(domain)
 	if norm == "" {
-		return nil, sql.ErrNoRows
+		return nil, nil
 	}
 
 	query := `
@@ -794,6 +803,9 @@ func (s *BaseStore) FindTenantByDomain(ctx context.Context, domain string) (*Ten
 		&t.ID, &t.Name, &t.Description, &t.ContactName, &t.ContactEmail,
 		&t.ContactPhone, &t.BusinessUnit, &t.BillingCode, &t.Address,
 		&loginDomain, &t.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -878,6 +890,9 @@ func (s *BaseStore) GetSite(ctx context.Context, id string) (*Site, error) {
 	var site Site
 	var rulesJSON sql.NullString
 	err := row.Scan(&site.ID, &site.TenantID, &site.Name, &site.Description, &site.Address, &rulesJSON, &site.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1051,6 +1066,9 @@ func (s *BaseStore) GetUserByUsername(ctx context.Context, username string) (*Us
 	var u User
 	var tenantID, email sql.NullString
 	err := s.queryRowContext(ctx, query, username).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenantID, &email, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1071,6 +1089,9 @@ func (s *BaseStore) GetUserByID(ctx context.Context, id int64) (*User, error) {
 	var u User
 	var tenantID, email sql.NullString
 	err := s.queryRowContext(ctx, query, id).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenantID, &email, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1089,6 +1110,9 @@ func (s *BaseStore) GetUserByEmail(ctx context.Context, email string) (*User, er
 	var u User
 	var tenantID, emailVal sql.NullString
 	err := s.queryRowContext(ctx, query, email).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenantID, &emailVal, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1164,9 +1188,13 @@ func (s *BaseStore) UpdateUserPassword(ctx context.Context, userID int64, rawPas
 }
 
 // AuthenticateUser verifies username/password and returns the user if valid
+// Returns an error if credentials are invalid (user not found or wrong password)
 func (s *BaseStore) AuthenticateUser(ctx context.Context, username, rawPassword string) (*User, error) {
 	u, err := s.GetUserByUsername(ctx, username)
 	if err != nil {
+		return nil, err
+	}
+	if u == nil {
 		return nil, fmt.Errorf("invalid credentials")
 	}
 	ok, verr := verifyArgonHash(rawPassword, u.PasswordHash)
@@ -1327,16 +1355,32 @@ func (s *BaseStore) SaveAuditEntry(ctx context.Context, entry *AuditEntry) error
 }
 
 // GetAuditLog retrieves audit entries for an actor since a given time
+// If actorID is empty, retrieves all entries since the given time
 func (s *BaseStore) GetAuditLog(ctx context.Context, actorID string, since time.Time) ([]*AuditEntry, error) {
-	query := `
-		SELECT id, timestamp, actor_type, actor_id, actor_name, action, target_type, target_id,
-		       tenant_id, severity, details, metadata, ip_address, user_agent, request_id
-		FROM audit_log
-		WHERE actor_id = ? AND timestamp >= ?
-		ORDER BY timestamp DESC
-	`
+	var query string
+	var args []interface{}
+	
+	if actorID == "" {
+		query = `
+			SELECT id, timestamp, actor_type, actor_id, actor_name, action, target_type, target_id,
+			       tenant_id, severity, details, metadata, ip_address, user_agent, request_id
+			FROM audit_log
+			WHERE timestamp >= ?
+			ORDER BY timestamp DESC
+		`
+		args = []interface{}{since}
+	} else {
+		query = `
+			SELECT id, timestamp, actor_type, actor_id, actor_name, action, target_type, target_id,
+			       tenant_id, severity, details, metadata, ip_address, user_agent, request_id
+			FROM audit_log
+			WHERE actor_id = ? AND timestamp >= ?
+			ORDER BY timestamp DESC
+		`
+		args = []interface{}{actorID, since}
+	}
 
-	rows, err := s.queryContext(ctx, query, actorID, since)
+	rows, err := s.queryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1522,11 +1566,17 @@ func (s *BaseStore) CreatePasswordResetToken(ctx context.Context, userID int64, 
 
 // ValidatePasswordResetToken verifies the token and marks it used; returns userID
 func (s *BaseStore) ValidatePasswordResetToken(ctx context.Context, token string) (int64, error) {
-	rows, err := s.queryContext(ctx, `SELECT id, token_hash, user_id, expires_at, used FROM password_resets WHERE used = 0 AND expires_at > ?`, time.Now().UTC())
+	rows, err := s.db.QueryContext(ctx, "SELECT id, token_hash, user_id, expires_at, used FROM password_resets WHERE used = 0 AND expires_at > ?", time.Now().UTC())
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+
+	// Collect matching tokens first, then close rows before updating
+	type match struct {
+		id     int64
+		userID int64
+	}
+	var foundMatch *match
 
 	for rows.Next() {
 		var id, userID int64
@@ -1534,23 +1584,27 @@ func (s *BaseStore) ValidatePasswordResetToken(ctx context.Context, token string
 		var expiresAt time.Time
 		var usedInt int
 		if err := rows.Scan(&id, &hash, &userID, &expiresAt, &usedInt); err != nil {
+			rows.Close()
 			return 0, err
 		}
 
 		ok, verr := verifyArgonHash(token, hash)
-		if verr != nil {
-			continue
-		}
-		if ok {
-			// Mark as used
-			if _, err := s.execContext(ctx, `UPDATE password_resets SET used = 1 WHERE id = ?`, id); err != nil {
-				return 0, err
-			}
-			return userID, nil
+		if verr == nil && ok {
+			foundMatch = &match{id: id, userID: userID}
+			break // Found a match
 		}
 	}
+	rows.Close() // Close BEFORE doing the UPDATE
 
-	return 0, fmt.Errorf("invalid or expired token")
+	if foundMatch == nil {
+		return 0, fmt.Errorf("invalid or expired token")
+	}
+
+	// Now safe to UPDATE since rows are closed
+	if _, err := s.execContext(ctx, `UPDATE password_resets SET used = 1 WHERE id = ?`, foundMatch.id); err != nil {
+		return 0, err
+	}
+	return foundMatch.userID, nil
 }
 
 // DeletePasswordResetToken deletes a matching reset token (if present)
@@ -1559,22 +1613,27 @@ func (s *BaseStore) DeletePasswordResetToken(ctx context.Context, token string) 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
 
+	// Find matching token first, then close rows before deleting
+	var matchID int64 = -1
 	for rows.Next() {
 		var id int64
 		var hash string
 		if err := rows.Scan(&id, &hash); err != nil {
+			rows.Close()
 			return err
 		}
 		ok, verr := verifyArgonHash(token, hash)
-		if verr != nil {
-			continue
+		if verr == nil && ok {
+			matchID = id
+			break
 		}
-		if ok {
-			_, err := s.execContext(ctx, `DELETE FROM password_resets WHERE id = ?`, id)
-			return err
-		}
+	}
+	rows.Close() // Close BEFORE doing the DELETE
+
+	if matchID >= 0 {
+		_, err := s.execContext(ctx, `DELETE FROM password_resets WHERE id = ?`, matchID)
+		return err
 	}
 	return nil
 }
@@ -1720,7 +1779,7 @@ func (s *BaseStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProvid
 
 	scopes := strings.Join(provider.Scopes, " ")
 
-	_, err := s.execContext(ctx, `
+	result, err := s.execContext(ctx, `
 		INSERT INTO oidc_providers (
 			slug, display_name, issuer, client_id, client_secret, scopes, icon,
 			button_text, button_style, auto_login, tenant_id, default_role, created_at, updated_at
@@ -1730,7 +1789,15 @@ func (s *BaseStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProvid
 		provider.ClientSecret, scopes, provider.Icon, provider.ButtonText,
 		provider.ButtonStyle, boolToInt(provider.AutoLogin), nullString(provider.TenantID),
 		string(provider.DefaultRole), provider.CreatedAt, provider.UpdatedAt)
-	return err
+	if err != nil {
+		return err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	provider.ID = id
+	return nil
 }
 
 // UpdateOIDCProvider updates an existing OIDC provider
@@ -1783,6 +1850,9 @@ func (s *BaseStore) GetOIDCProvider(ctx context.Context, slug string) (*OIDCProv
 	if err := row.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID,
 		&p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle,
 		&autoLogin, &tenantID, &defaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 
@@ -1869,6 +1939,9 @@ func (s *BaseStore) GetOIDCSession(ctx context.Context, id string) (*OIDCSession
 	var sess OIDCSession
 	var tenantID sql.NullString
 	if err := row.Scan(&sess.ID, &sess.ProviderSlug, &tenantID, &sess.Nonce, &sess.State, &sess.RedirectURL, &sess.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	sess.TenantID = tenantID.String
@@ -1887,11 +1960,19 @@ func (s *BaseStore) CreateOIDCLink(ctx context.Context, link *OIDCLink) error {
 		return fmt.Errorf("link required")
 	}
 
-	_, err := s.execContext(ctx, `
+	result, err := s.execContext(ctx, `
 		INSERT INTO oidc_links (provider_slug, subject, email, user_id, created_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, link.ProviderSlug, link.Subject, link.Email, link.UserID, time.Now().UTC())
-	return err
+	if err != nil {
+		return err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	link.ID = id
+	return nil
 }
 
 // GetOIDCLink retrieves an OIDC link by provider and subject
@@ -1903,6 +1984,9 @@ func (s *BaseStore) GetOIDCLink(ctx context.Context, providerSlug, subject strin
 
 	var link OIDCLink
 	if err := row.Scan(&link.ID, &link.ProviderSlug, &link.Subject, &link.Email, &link.UserID, &link.CreatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return &link, nil

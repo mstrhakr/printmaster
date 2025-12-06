@@ -576,9 +576,9 @@ func (s *BaseStore) ListReportRuns(ctx context.Context, filter ReportRunFilter) 
 		query += " AND status = ?"
 		args = append(args, filter.Status)
 	}
-	if !filter.Since.IsZero() {
+	if filter.Since != nil && !filter.Since.IsZero() {
 		query += " AND started_at >= ?"
-		args = append(args, filter.Since)
+		args = append(args, *filter.Since)
 	}
 
 	query += " ORDER BY started_at DESC"
@@ -756,9 +756,10 @@ func (s *BaseStore) GetReportSummary(ctx context.Context) (*ReportSummary, error
 
 // CleanupOldReportRuns deletes runs older than the retention period.
 func (s *BaseStore) CleanupOldReportRuns(ctx context.Context, olderThan time.Time) (int64, error) {
+	// Use UTC formatted string for consistent comparison with SQLite CURRENT_TIMESTAMP
 	result, err := s.execContext(ctx, `
 		DELETE FROM report_runs WHERE created_at < ?
-	`, olderThan)
+	`, olderThan.UTC().Format("2006-01-02 15:04:05"))
 	if err != nil {
 		return 0, fmt.Errorf("cleanup runs: %w", err)
 	}

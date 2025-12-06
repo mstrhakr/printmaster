@@ -1,0 +1,799 @@
+package storage
+
+import (
+	"context"
+	"testing"
+	"time"
+)
+
+func TestAgentLifecycle(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Register an agent
+	agent := &Agent{
+		AgentID:         "agent-uuid-123",
+		Name:            "Test Agent",
+		Hostname:        "test-host",
+		IP:              "192.168.1.100",
+		Platform:        "linux",
+		Version:         "1.0.0",
+		ProtocolVersion: "1",
+		Status:          "active",
+		Token:           "test-token-abc123",
+	}
+
+	err = s.RegisterAgent(ctx, agent)
+	if err != nil {
+		t.Fatalf("RegisterAgent: %v", err)
+	}
+	if agent.ID == 0 {
+		t.Fatal("expected non-zero agent ID")
+	}
+
+	// Get agent by ID
+	got, err := s.GetAgent(ctx, "agent-uuid-123")
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected agent, got nil")
+	}
+	if got.Name != "Test Agent" {
+		t.Errorf("name mismatch: got=%q", got.Name)
+	}
+	if got.Platform != "linux" {
+		t.Errorf("platform mismatch: got=%q", got.Platform)
+	}
+
+	// Get agent by token
+	gotByToken, err := s.GetAgentByToken(ctx, "test-token-abc123")
+	if err != nil {
+		t.Fatalf("GetAgentByToken: %v", err)
+	}
+	if gotByToken == nil {
+		t.Fatal("expected agent by token, got nil")
+	}
+	if gotByToken.AgentID != "agent-uuid-123" {
+		t.Errorf("agent_id mismatch: got=%q", gotByToken.AgentID)
+	}
+
+	// List agents
+	agents, err := s.ListAgents(ctx)
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(agents))
+	}
+
+	// Update heartbeat
+	err = s.UpdateAgentHeartbeat(ctx, "agent-uuid-123", "active")
+	if err != nil {
+		t.Fatalf("UpdateAgentHeartbeat: %v", err)
+	}
+
+	// Update agent info
+	agent.Version = "1.1.0"
+	agent.OSVersion = "Ubuntu 22.04"
+	agent.Architecture = "amd64"
+	agent.NumCPU = 4
+	agent.TotalMemoryMB = 8192
+	err = s.UpdateAgentInfo(ctx, agent)
+	if err != nil {
+		t.Fatalf("UpdateAgentInfo: %v", err)
+	}
+
+	got, _ = s.GetAgent(ctx, "agent-uuid-123")
+	if got.Version != "1.1.0" {
+		t.Errorf("version not updated: got=%q", got.Version)
+	}
+	if got.OSVersion != "Ubuntu 22.04" {
+		t.Errorf("os_version not updated: got=%q", got.OSVersion)
+	}
+
+	// Update agent name
+	err = s.UpdateAgentName(ctx, "agent-uuid-123", "Renamed Agent")
+	if err != nil {
+		t.Fatalf("UpdateAgentName: %v", err)
+	}
+
+	got, _ = s.GetAgent(ctx, "agent-uuid-123")
+	if got.Name != "Renamed Agent" {
+		t.Errorf("name not updated: got=%q", got.Name)
+	}
+
+	// Delete agent
+	err = s.DeleteAgent(ctx, "agent-uuid-123")
+	if err != nil {
+		t.Fatalf("DeleteAgent: %v", err)
+	}
+
+	got, err = s.GetAgent(ctx, "agent-uuid-123")
+	if err != nil {
+		t.Fatalf("GetAgent after delete: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil after delete")
+	}
+}
+
+func TestAgentNotFound(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Get non-existent agent
+	got, err := s.GetAgent(ctx, "non-existent")
+	if err != nil {
+		t.Fatalf("GetAgent: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil for non-existent agent")
+	}
+
+	// Get by non-existent token
+	got, err = s.GetAgentByToken(ctx, "bad-token")
+	if err != nil {
+		t.Fatalf("GetAgentByToken: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil for non-existent token")
+	}
+}
+
+func TestDeviceLifecycle(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Upsert a device
+	device := &Device{
+		AgentID: "agent-1",
+	}
+	device.Serial = "SN12345"
+	device.IP = "192.168.1.50"
+	device.Manufacturer = "HP"
+	device.Model = "LaserJet Pro"
+	device.Hostname = "printer01"
+
+	err = s.UpsertDevice(ctx, device)
+	if err != nil {
+		t.Fatalf("UpsertDevice: %v", err)
+	}
+
+	// Get device
+	got, err := s.GetDevice(ctx, "SN12345")
+	if err != nil {
+		t.Fatalf("GetDevice: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected device, got nil")
+	}
+	if got.Manufacturer != "HP" {
+		t.Errorf("manufacturer mismatch: got=%q", got.Manufacturer)
+	}
+	if got.AgentID != "agent-1" {
+		t.Errorf("agent_id mismatch: got=%q", got.AgentID)
+	}
+
+	// Update device
+	device.Hostname = "printer01-updated"
+	device.Model = "LaserJet Pro MFP"
+	err = s.UpsertDevice(ctx, device)
+	if err != nil {
+		t.Fatalf("UpsertDevice (update): %v", err)
+	}
+
+	got, _ = s.GetDevice(ctx, "SN12345")
+	if got.Hostname != "printer01-updated" {
+		t.Errorf("hostname not updated: got=%q", got.Hostname)
+	}
+	if got.Model != "LaserJet Pro MFP" {
+		t.Errorf("model not updated: got=%q", got.Model)
+	}
+
+	// List devices by agent
+	devices, err := s.ListDevices(ctx, "agent-1")
+	if err != nil {
+		t.Fatalf("ListDevices: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("expected 1 device, got %d", len(devices))
+	}
+
+	// List all devices
+	allDevices, err := s.ListAllDevices(ctx)
+	if err != nil {
+		t.Fatalf("ListAllDevices: %v", err)
+	}
+	if len(allDevices) != 1 {
+		t.Fatalf("expected 1 device in all, got %d", len(allDevices))
+	}
+}
+
+func TestDeviceWithRawData(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	device := &Device{
+		AgentID: "agent-1",
+	}
+	device.Serial = "SN-RAWDATA"
+	device.IP = "192.168.1.51"
+	device.Manufacturer = "Canon"
+	device.RawData = map[string]interface{}{
+		"toner_black":   75,
+		"toner_cyan":    50,
+		"toner_magenta": 25,
+		"toner_yellow":  90,
+	}
+
+	err = s.UpsertDevice(ctx, device)
+	if err != nil {
+		t.Fatalf("UpsertDevice: %v", err)
+	}
+
+	got, err := s.GetDevice(ctx, "SN-RAWDATA")
+	if err != nil {
+		t.Fatalf("GetDevice: %v", err)
+	}
+	if got.RawData == nil {
+		t.Fatal("expected raw_data, got nil")
+	}
+	if len(got.RawData) != 4 {
+		t.Errorf("expected 4 raw_data entries, got %d", len(got.RawData))
+	}
+}
+
+func TestMultipleDevicesByAgent(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create devices for agent-1
+	for i := 0; i < 3; i++ {
+		device := &Device{
+			AgentID: "agent-1",
+		}
+		device.Serial = "SN-A1-" + string(rune('A'+i))
+		device.IP = "192.168.1.5" + string(rune('0'+i))
+		err := s.UpsertDevice(ctx, device)
+		if err != nil {
+			t.Fatalf("UpsertDevice: %v", err)
+		}
+	}
+
+	// Create devices for agent-2
+	for i := 0; i < 2; i++ {
+		device := &Device{
+			AgentID: "agent-2",
+		}
+		device.Serial = "SN-A2-" + string(rune('A'+i))
+		device.IP = "192.168.2.5" + string(rune('0'+i))
+		err := s.UpsertDevice(ctx, device)
+		if err != nil {
+			t.Fatalf("UpsertDevice: %v", err)
+		}
+	}
+
+	// List by agent-1
+	devices, err := s.ListDevices(ctx, "agent-1")
+	if err != nil {
+		t.Fatalf("ListDevices agent-1: %v", err)
+	}
+	if len(devices) != 3 {
+		t.Errorf("expected 3 devices for agent-1, got %d", len(devices))
+	}
+
+	// List by agent-2
+	devices, err = s.ListDevices(ctx, "agent-2")
+	if err != nil {
+		t.Fatalf("ListDevices agent-2: %v", err)
+	}
+	if len(devices) != 2 {
+		t.Errorf("expected 2 devices for agent-2, got %d", len(devices))
+	}
+
+	// List all
+	allDevices, err := s.ListAllDevices(ctx)
+	if err != nil {
+		t.Fatalf("ListAllDevices: %v", err)
+	}
+	if len(allDevices) != 5 {
+		t.Errorf("expected 5 devices total, got %d", len(allDevices))
+	}
+}
+
+func TestMetricsLifecycle(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// First create a device (metrics are linked to devices by serial)
+	device := &Device{
+		AgentID: "agent-1",
+	}
+	device.Serial = "SN-METRICS"
+	device.IP = "192.168.1.100"
+	err = s.UpsertDevice(ctx, device)
+	if err != nil {
+		t.Fatalf("UpsertDevice: %v", err)
+	}
+
+	// Save metrics
+	metrics := &MetricsSnapshot{
+		Serial:     "SN-METRICS",
+		AgentID:    "agent-1",
+		Timestamp:  time.Now(),
+		PageCount:  1000,
+		ColorPages: 300,
+		MonoPages:  700,
+		ScanCount:  50,
+		TonerLevels: map[string]interface{}{
+			"black": 80,
+			"cyan":  60,
+		},
+	}
+
+	err = s.SaveMetrics(ctx, metrics)
+	if err != nil {
+		t.Fatalf("SaveMetrics: %v", err)
+	}
+
+	// Get latest metrics
+	latest, err := s.GetLatestMetrics(ctx, "SN-METRICS")
+	if err != nil {
+		t.Fatalf("GetLatestMetrics: %v", err)
+	}
+	if latest == nil {
+		t.Fatal("expected metrics, got nil")
+	}
+	if latest.PageCount != 1000 {
+		t.Errorf("page_count mismatch: got=%d", latest.PageCount)
+	}
+	if latest.ColorPages != 300 {
+		t.Errorf("color_pages mismatch: got=%d", latest.ColorPages)
+	}
+
+	// Save another snapshot
+	time.Sleep(10 * time.Millisecond) // ensure different timestamp
+	metrics2 := &MetricsSnapshot{
+		Serial:    "SN-METRICS",
+		AgentID:   "agent-1",
+		Timestamp: time.Now(),
+		PageCount: 1050,
+	}
+	err = s.SaveMetrics(ctx, metrics2)
+	if err != nil {
+		t.Fatalf("SaveMetrics (2): %v", err)
+	}
+
+	// Get history
+	history, err := s.GetMetricsHistory(ctx, "SN-METRICS", time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("GetMetricsHistory: %v", err)
+	}
+	if len(history) != 2 {
+		t.Errorf("expected 2 history entries, got %d", len(history))
+	}
+}
+
+func TestTenantLifecycle(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create tenant
+	tenant := &Tenant{
+		ID:           "tenant-123",
+		Name:         "Acme Corp",
+		LoginDomain:  "acme.com",
+		ContactName:  "John Doe",
+		ContactEmail: "john@acme.com",
+		ContactPhone: "555-1234",
+	}
+
+	err = s.CreateTenant(ctx, tenant)
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+
+	// Get tenant
+	got, err := s.GetTenant(ctx, "tenant-123")
+	if err != nil {
+		t.Fatalf("GetTenant: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected tenant, got nil")
+	}
+	if got.Name != "Acme Corp" {
+		t.Errorf("name mismatch: got=%q", got.Name)
+	}
+	if got.LoginDomain != "acme.com" {
+		t.Errorf("login_domain mismatch: got=%q", got.LoginDomain)
+	}
+
+	// Update tenant
+	tenant.Name = "Acme Corporation"
+	tenant.Description = "Updated description"
+	err = s.UpdateTenant(ctx, tenant)
+	if err != nil {
+		t.Fatalf("UpdateTenant: %v", err)
+	}
+
+	got, _ = s.GetTenant(ctx, "tenant-123")
+	if got.Name != "Acme Corporation" {
+		t.Errorf("name not updated: got=%q", got.Name)
+	}
+	if got.Description != "Updated description" {
+		t.Errorf("description not updated: got=%q", got.Description)
+	}
+
+	// List tenants
+	tenants, err := s.ListTenants(ctx)
+	if err != nil {
+		t.Fatalf("ListTenants: %v", err)
+	}
+	if len(tenants) != 1 {
+		t.Errorf("expected 1 tenant, got %d", len(tenants))
+	}
+
+	// Find by domain
+	found, err := s.FindTenantByDomain(ctx, "acme.com")
+	if err != nil {
+		t.Fatalf("FindTenantByDomain: %v", err)
+	}
+	if found == nil {
+		t.Fatal("expected tenant by domain, got nil")
+	}
+	if found.ID != "tenant-123" {
+		t.Errorf("wrong tenant found: got=%q", found.ID)
+	}
+}
+
+func TestTenantDomainNotFound(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	found, err := s.FindTenantByDomain(ctx, "nonexistent.com")
+	if err != nil {
+		t.Fatalf("FindTenantByDomain: %v", err)
+	}
+	if found != nil {
+		t.Error("expected nil for non-existent domain")
+	}
+}
+
+func TestSiteLifecycle(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create tenant first
+	tenant := &Tenant{
+		ID:   "tenant-sites",
+		Name: "Sites Test Tenant",
+	}
+	err = s.CreateTenant(ctx, tenant)
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+
+	// Create site
+	site := &Site{
+		ID:          "site-001",
+		TenantID:    "tenant-sites",
+		Name:        "Headquarters",
+		Address:     "123 Main St",
+		Description: "Main office location",
+	}
+
+	err = s.CreateSite(ctx, site)
+	if err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	// Get site
+	got, err := s.GetSite(ctx, "site-001")
+	if err != nil {
+		t.Fatalf("GetSite: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected site, got nil")
+	}
+	if got.Name != "Headquarters" {
+		t.Errorf("name mismatch: got=%q", got.Name)
+	}
+	if got.TenantID != "tenant-sites" {
+		t.Errorf("tenant_id mismatch: got=%q", got.TenantID)
+	}
+
+	// Update site
+	site.Name = "Main Office"
+	site.Description = "Updated description"
+	err = s.UpdateSite(ctx, site)
+	if err != nil {
+		t.Fatalf("UpdateSite: %v", err)
+	}
+
+	got, _ = s.GetSite(ctx, "site-001")
+	if got.Name != "Main Office" {
+		t.Errorf("name not updated: got=%q", got.Name)
+	}
+
+	// List sites by tenant
+	sites, err := s.ListSitesByTenant(ctx, "tenant-sites")
+	if err != nil {
+		t.Fatalf("ListSitesByTenant: %v", err)
+	}
+	if len(sites) != 1 {
+		t.Errorf("expected 1 site, got %d", len(sites))
+	}
+
+	// Delete site
+	err = s.DeleteSite(ctx, "site-001")
+	if err != nil {
+		t.Fatalf("DeleteSite: %v", err)
+	}
+
+	got, err = s.GetSite(ctx, "site-001")
+	if err != nil {
+		t.Fatalf("GetSite after delete: %v", err)
+	}
+	if got != nil {
+		t.Error("expected nil after delete")
+	}
+}
+
+func TestAgentSiteAssignment(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create tenant and sites
+	tenant := &Tenant{ID: "tenant-assign", Name: "Assignment Test"}
+	err = s.CreateTenant(ctx, tenant)
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+
+	site1 := &Site{ID: "site-a", TenantID: "tenant-assign", Name: "Site A"}
+	site2 := &Site{ID: "site-b", TenantID: "tenant-assign", Name: "Site B"}
+	err = s.CreateSite(ctx, site1)
+	if err != nil {
+		t.Fatalf("CreateSite A: %v", err)
+	}
+	err = s.CreateSite(ctx, site2)
+	if err != nil {
+		t.Fatalf("CreateSite B: %v", err)
+	}
+
+	// Create agent
+	agent := &Agent{
+		AgentID:  "agent-sites-test",
+		Name:     "Sites Test Agent",
+		Hostname: "test-host",
+		Token:    "token-sites",
+		Status:   "active",
+	}
+	err = s.RegisterAgent(ctx, agent)
+	if err != nil {
+		t.Fatalf("RegisterAgent: %v", err)
+	}
+
+	// Assign agent to site A
+	err = s.AssignAgentToSite(ctx, "agent-sites-test", "site-a")
+	if err != nil {
+		t.Fatalf("AssignAgentToSite: %v", err)
+	}
+
+	// Get agent's sites
+	siteIDs, err := s.GetAgentSiteIDs(ctx, "agent-sites-test")
+	if err != nil {
+		t.Fatalf("GetAgentSiteIDs: %v", err)
+	}
+	if len(siteIDs) != 1 || siteIDs[0] != "site-a" {
+		t.Errorf("unexpected site IDs: %v", siteIDs)
+	}
+
+	// Assign to site B as well
+	err = s.AssignAgentToSite(ctx, "agent-sites-test", "site-b")
+	if err != nil {
+		t.Fatalf("AssignAgentToSite (B): %v", err)
+	}
+
+	siteIDs, _ = s.GetAgentSiteIDs(ctx, "agent-sites-test")
+	if len(siteIDs) != 2 {
+		t.Errorf("expected 2 sites, got %d", len(siteIDs))
+	}
+
+	// Get agents for site A
+	agentIDs, err := s.GetSiteAgentIDs(ctx, "site-a")
+	if err != nil {
+		t.Fatalf("GetSiteAgentIDs: %v", err)
+	}
+	if len(agentIDs) != 1 || agentIDs[0] != "agent-sites-test" {
+		t.Errorf("unexpected agent IDs: %v", agentIDs)
+	}
+
+	// Unassign from site A
+	err = s.UnassignAgentFromSite(ctx, "agent-sites-test", "site-a")
+	if err != nil {
+		t.Fatalf("UnassignAgentFromSite: %v", err)
+	}
+
+	siteIDs, _ = s.GetAgentSiteIDs(ctx, "agent-sites-test")
+	if len(siteIDs) != 1 || siteIDs[0] != "site-b" {
+		t.Errorf("after unassign, expected only site-b: got %v", siteIDs)
+	}
+
+	// Set sites (replace all)
+	err = s.SetAgentSites(ctx, "agent-sites-test", []string{"site-a", "site-b"})
+	if err != nil {
+		t.Fatalf("SetAgentSites: %v", err)
+	}
+
+	siteIDs, _ = s.GetAgentSiteIDs(ctx, "agent-sites-test")
+	if len(siteIDs) != 2 {
+		t.Errorf("after SetAgentSites, expected 2 sites: got %v", siteIDs)
+	}
+}
+
+func TestAuditLog(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Save audit entries
+	entry1 := &AuditEntry{
+		ActorID:    "user-1",
+		Action:     "device.create",
+		TargetType: "device",
+		TargetID:   "SN123",
+		Details:    "Created device",
+	}
+	err = s.SaveAuditEntry(ctx, entry1)
+	if err != nil {
+		t.Fatalf("SaveAuditEntry: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	entry2 := &AuditEntry{
+		ActorID:    "user-1",
+		Action:     "device.update",
+		TargetType: "device",
+		TargetID:   "SN123",
+		Details:    "Updated device status",
+	}
+	err = s.SaveAuditEntry(ctx, entry2)
+	if err != nil {
+		t.Fatalf("SaveAuditEntry (2): %v", err)
+	}
+
+	entry3 := &AuditEntry{
+		ActorID:    "user-2",
+		Action:     "user.login",
+		TargetType: "session",
+		Details:    "User logged in",
+	}
+	err = s.SaveAuditEntry(ctx, entry3)
+	if err != nil {
+		t.Fatalf("SaveAuditEntry (3): %v", err)
+	}
+
+	// Get audit log for user-1
+	logs, err := s.GetAuditLog(ctx, "user-1", time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("GetAuditLog: %v", err)
+	}
+	if len(logs) != 2 {
+		t.Errorf("expected 2 entries for user-1, got %d", len(logs))
+	}
+
+	// Get all audit logs (empty actor)
+	allLogs, err := s.GetAuditLog(ctx, "", time.Now().Add(-1*time.Hour))
+	if err != nil {
+		t.Fatalf("GetAuditLog (all): %v", err)
+	}
+	if len(allLogs) != 3 {
+		t.Errorf("expected 3 total entries, got %d", len(allLogs))
+	}
+}
+
+func TestDatabaseStats(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Add some data
+	agent := &Agent{AgentID: "stats-agent", Name: "Stats Agent", Token: "stats-token", Status: "active"}
+	err = s.RegisterAgent(ctx, agent)
+	if err != nil {
+		t.Fatalf("RegisterAgent: %v", err)
+	}
+
+	device := &Device{AgentID: "stats-agent"}
+	device.Serial = "STATS-SN"
+	err = s.UpsertDevice(ctx, device)
+	if err != nil {
+		t.Fatalf("UpsertDevice: %v", err)
+	}
+
+	// Get stats
+	stats, err := s.GetDatabaseStats(ctx)
+	if err != nil {
+		t.Fatalf("GetDatabaseStats: %v", err)
+	}
+
+	if stats.Agents < 1 {
+		t.Errorf("expected at least 1 agent, got %d", stats.Agents)
+	}
+	if stats.Devices < 1 {
+		t.Errorf("expected at least 1 device, got %d", stats.Devices)
+	}
+}
