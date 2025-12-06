@@ -2940,13 +2940,13 @@ select:focus {
 
 .user-modal-content {
   /* Increase modal width to reduce field overlap on larger screens */
-  max-width: 900px;
-  min-width: 520px;
-  width: 100%;
+  max-width: 860px;
+  width: calc(100% - 32px);
+  box-sizing: border-box;
 }
 
 .user-modal-body {
-  padding: 20px 24px;
+  padding: 24px 28px;
 }
 
 .user-form-grid {
@@ -3008,6 +3008,7 @@ select:focus {
   background: rgba(0, 0, 0, 0.2);
   color: var(--fg);
   font-size: 14px;
+  box-sizing: border-box;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -3031,7 +3032,7 @@ select:focus {
 .user-form-checkbox {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 13px;
   cursor: pointer;
   /* Prevent the checkbox label from stretching in flex containers */
@@ -3040,16 +3041,45 @@ select:focus {
 
 .user-form-checkbox span {
   white-space: nowrap;
+  user-select: none;
 }
 
+/* Convert checkbox to toggle switch style */
 .user-form-checkbox input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
   margin: 0;
-  width: 20px;
-  height: 20px;
-  min-width: 20px;
-  vertical-align: middle;
-  accent-color: var(--highlight);
+  width: 44px;
+  height: 24px;
+  min-width: 44px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  position: relative;
   cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.user-form-checkbox input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 2px;
+  top: 2px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.user-form-checkbox input[type="checkbox"]:checked {
+  background: var(--highlight);
+  border-color: var(--highlight);
+}
+
+.user-form-checkbox input[type="checkbox"]:checked::after {
+  transform: translateX(20px);
 }
 
 .user-form-error {
@@ -3206,8 +3236,9 @@ select:focus {
 
 /* ====== Tenant Modal ====== */
 .tenant-modal-content {
-  max-width: 800px;
-  width: 100%;
+  max-width: 780px;
+  width: calc(100% - 32px);
+  box-sizing: border-box;
 }
 
 .tenant-modal-body {
@@ -3274,6 +3305,7 @@ select:focus {
   font-size: 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   resize: vertical;
+  box-sizing: border-box;
 }
 
 .tenant-form-input:focus {
@@ -3316,8 +3348,9 @@ select:focus {
 
 /* ====== Sites Modal ====== */
 .sites-modal-content {
-  max-width: 800px;
-  width: 100%;
+  max-width: 780px;
+  width: calc(100% - 32px);
+  box-sizing: border-box;
 }
 
 .sites-modal-body {
@@ -3336,8 +3369,9 @@ select:focus {
 }
 
 .site-modal-content {
-  max-width: 800px;
-  width: 100%;
+  max-width: 780px;
+  width: calc(100% - 32px);
+  box-sizing: border-box;
 }
 
 .site-modal-body {
@@ -3411,6 +3445,7 @@ select:focus {
   font-size: 14px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   resize: vertical;
+  box-sizing: border-box;
 }
 
 .site-form-input:focus {
@@ -6098,11 +6133,13 @@ input[type="checkbox"]:indeterminate::before {
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow-xl);
-  width: 100%;
+  width: calc(100% - 32px);
   max-width: 600px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  margin: 16px;
 }
 
 .modal-header {
