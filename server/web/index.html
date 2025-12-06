@@ -1779,6 +1779,310 @@
         </div>
     </div>
 
+    <!-- Alert Rule Modal -->
+    <div class="modal" id="alert_rule_modal" style="display:none;">
+        <div class="modal-content" style="max-width:600px;">
+            <div class="modal-header">
+                <span class="modal-title" id="alert_rule_modal_title">New Alert Rule</span>
+                <button class="modal-close-x" id="alert_rule_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height:500px;overflow-y:auto;">
+                <label class="field">
+                    <span>Rule Name <span class="required">*</span></span>
+                    <input id="alert_rule_name" type="text" placeholder="Low Toner Warning" />
+                </label>
+                <label class="field">
+                    <span>Description</span>
+                    <textarea id="alert_rule_description" rows="2" placeholder="Optional description..."></textarea>
+                </label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <label class="field">
+                        <span>Alert Type <span class="required">*</span></span>
+                        <select id="alert_rule_type">
+                            <option value="toner_low">Toner Low</option>
+                            <option value="toner_critical">Toner Critical</option>
+                            <option value="device_offline">Device Offline</option>
+                            <option value="device_error">Device Error</option>
+                            <option value="agent_offline">Agent Offline</option>
+                            <option value="page_count">Page Count Threshold</option>
+                            <option value="supply_empty">Supply Empty</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Severity <span class="required">*</span></span>
+                        <select id="alert_rule_severity">
+                            <option value="info">Info</option>
+                            <option value="warning" selected>Warning</option>
+                            <option value="critical">Critical</option>
+                        </select>
+                    </label>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <label class="field">
+                        <span>Scope</span>
+                        <select id="alert_rule_scope">
+                            <option value="fleet">Fleet (All Devices)</option>
+                            <option value="tenant">Tenant</option>
+                            <option value="site">Site</option>
+                            <option value="agent">Agent</option>
+                            <option value="device">Device</option>
+                        </select>
+                    </label>
+                    <label class="field" id="alert_rule_scope_id_field" style="display:none;">
+                        <span>Scope Target</span>
+                        <input id="alert_rule_scope_id" type="text" placeholder="ID or serial" />
+                    </label>
+                </div>
+                <label class="field">
+                    <span>Threshold</span>
+                    <input id="alert_rule_threshold" type="number" placeholder="e.g., 10 for 10%" />
+                </label>
+                <label class="field">
+                    <span>Notification Channels</span>
+                    <div id="alert_rule_channels" style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px;">
+                        <div class="muted-text">Loading channels...</div>
+                    </div>
+                </label>
+                <label class="field inline-check" style="margin-top:8px;">
+                    <input type="checkbox" id="alert_rule_enabled" checked />
+                    <span>Enable this rule</span>
+                </label>
+                <div id="alert_rule_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="alert_rule_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="alert_rule_save">Save Rule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Channel Modal -->
+    <div class="modal" id="notification_channel_modal" style="display:none;">
+        <div class="modal-content" style="max-width:500px;">
+            <div class="modal-header">
+                <span class="modal-title" id="notification_channel_modal_title">New Notification Channel</span>
+                <button class="modal-close-x" id="notification_channel_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="field">
+                    <span>Channel Name <span class="required">*</span></span>
+                    <input id="channel_name" type="text" placeholder="Ops Team Email" />
+                </label>
+                <label class="field">
+                    <span>Channel Type <span class="required">*</span></span>
+                    <select id="channel_type">
+                        <option value="email">Email</option>
+                        <option value="webhook">Webhook</option>
+                        <option value="slack">Slack</option>
+                        <option value="teams">Microsoft Teams</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Configuration (JSON)</span>
+                    <textarea id="channel_config" rows="6" style="font-family:monospace;font-size:12px;" placeholder='{"to": ["admin@example.com"]}'></textarea>
+                </label>
+                <label class="field inline-check" style="margin-top:12px;">
+                    <input type="checkbox" id="channel_enabled" checked />
+                    <span>Enable this channel</span>
+                </label>
+                <div id="channel_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="channel_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="channel_save">Save Channel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Escalation Policy Modal -->
+    <div class="modal" id="escalation_policy_modal" style="display:none;">
+        <div class="modal-content" style="max-width:550px;">
+            <div class="modal-header">
+                <span class="modal-title" id="escalation_policy_modal_title">New Escalation Policy</span>
+                <button class="modal-close-x" id="escalation_policy_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="field">
+                    <span>Policy Name <span class="required">*</span></span>
+                    <input id="escalation_name" type="text" placeholder="Critical Alert Escalation" />
+                </label>
+                <label class="field">
+                    <span>Description</span>
+                    <textarea id="escalation_description" rows="2" placeholder="Optional description..."></textarea>
+                </label>
+                <label class="field">
+                    <span>Escalate After (minutes) <span class="required">*</span></span>
+                    <input id="escalation_delay" type="number" value="30" min="1" />
+                </label>
+                <label class="field">
+                    <span>Escalation Steps (JSON)</span>
+                    <textarea id="escalation_steps" rows="5" style="font-family:monospace;font-size:12px;" placeholder='[{"delay_minutes": 15, "channel_id": 1}]'></textarea>
+                </label>
+                <label class="field inline-check" style="margin-top:12px;">
+                    <input type="checkbox" id="escalation_enabled" checked />
+                    <span>Enable this policy</span>
+                </label>
+                <div id="escalation_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="escalation_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="escalation_save">Save Policy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Maintenance Window Modal -->
+    <div class="modal" id="maintenance_window_modal" style="display:none;">
+        <div class="modal-content" style="max-width:550px;">
+            <div class="modal-header">
+                <span class="modal-title" id="maintenance_window_modal_title">Schedule Maintenance Window</span>
+                <button class="modal-close-x" id="maintenance_window_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="field">
+                    <span>Window Name <span class="required">*</span></span>
+                    <input id="maintenance_name" type="text" placeholder="Weekly Maintenance" />
+                </label>
+                <label class="field">
+                    <span>Description</span>
+                    <textarea id="maintenance_description" rows="2" placeholder="Optional notes..."></textarea>
+                </label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <label class="field">
+                        <span>Start Time <span class="required">*</span></span>
+                        <input id="maintenance_start" type="datetime-local" />
+                    </label>
+                    <label class="field">
+                        <span>End Time <span class="required">*</span></span>
+                        <input id="maintenance_end" type="datetime-local" />
+                    </label>
+                </div>
+                <label class="field">
+                    <span>Scope</span>
+                    <select id="maintenance_scope">
+                        <option value="fleet">Fleet (All)</option>
+                        <option value="tenant">Tenant</option>
+                        <option value="site">Site</option>
+                        <option value="agent">Agent</option>
+                        <option value="device">Device</option>
+                    </select>
+                </label>
+                <label class="field" id="maintenance_scope_id_field" style="display:none;">
+                    <span>Scope Target ID</span>
+                    <input id="maintenance_scope_id" type="text" placeholder="ID or serial" />
+                </label>
+                <label class="field inline-check" style="margin-top:12px;">
+                    <input type="checkbox" id="maintenance_recurring" />
+                    <span>Recurring window</span>
+                </label>
+                <div id="maintenance_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="maintenance_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="maintenance_save">Schedule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled Report Modal -->
+    <div class="modal" id="scheduled_report_modal" style="display:none;">
+        <div class="modal-content" style="max-width:550px;">
+            <div class="modal-header">
+                <span class="modal-title" id="scheduled_report_modal_title">Schedule Report</span>
+                <button class="modal-close-x" id="scheduled_report_modal_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label class="field">
+                    <span>Schedule Name <span class="required">*</span></span>
+                    <input id="schedule_name" type="text" placeholder="Weekly Fleet Report" />
+                </label>
+                <label class="field">
+                    <span>Report Type <span class="required">*</span></span>
+                    <select id="schedule_report_type">
+                        <option value="inventory.devices">Device Inventory</option>
+                        <option value="inventory.agents">Agent Inventory</option>
+                        <option value="usage.summary">Usage Summary</option>
+                        <option value="usage.by_device">Usage By Device</option>
+                        <option value="supplies.status">Supplies Status</option>
+                        <option value="alerts.summary">Alert Summary</option>
+                        <option value="alerts.history">Alert History</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Frequency <span class="required">*</span></span>
+                    <select id="schedule_frequency">
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                    </select>
+                </label>
+                <div id="schedule_day_field" style="display:none;">
+                    <label class="field">
+                        <span>Day</span>
+                        <select id="schedule_day">
+                            <option value="0">Sunday</option>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                            <option value="6">Saturday</option>
+                        </select>
+                    </label>
+                </div>
+                <div id="schedule_day_of_month_field" style="display:none;">
+                    <label class="field">
+                        <span>Day of Month</span>
+                        <input id="schedule_day_of_month" type="number" min="1" max="28" value="1" />
+                    </label>
+                </div>
+                <label class="field">
+                    <span>Time</span>
+                    <input id="schedule_time" type="time" value="08:00" />
+                </label>
+                <label class="field">
+                    <span>Format</span>
+                    <select id="schedule_format">
+                        <option value="csv">CSV</option>
+                        <option value="json">JSON</option>
+                    </select>
+                </label>
+                <label class="field inline-check" style="margin-top:12px;">
+                    <input type="checkbox" id="schedule_enabled" checked />
+                    <span>Enable this schedule</span>
+                </label>
+                <div id="schedule_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="schedule_cancel">Cancel</button>
+                <button class="modal-button modal-button-primary" id="schedule_save">Save Schedule</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Download Modal -->
+    <div class="modal" id="report_download_modal" style="display:none;">
+        <div class="modal-content" style="max-width:500px;">
+            <div class="modal-header">
+                <span class="modal-title">Report Ready</span>
+                <button class="modal-close-x" id="report_download_close_x" title="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="report_download_info" style="margin-bottom:16px;">
+                    <p style="margin:0;color:var(--text);">Your report has been generated.</p>
+                </div>
+                <div style="display:flex;gap:12px;justify-content:center;">
+                    <button class="btn-primary" id="report_download_csv">Download CSV</button>
+                    <button class="btn-outline" id="report_download_json">Download JSON</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-button modal-button-secondary" id="report_download_close">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/sso-admin.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
     <script src="/static/rbac.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
     <script src="/static/app.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>

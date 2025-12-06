@@ -677,6 +677,34 @@ type Store interface {
 
 	// Alert summary
 	GetAlertSummary(ctx context.Context) (*AlertSummary, error)
+
+	// Alert filters (for reports) - uses AlertFilters from alerts.go
+	ListAlerts(ctx context.Context, filter AlertFilters) ([]*Alert, error)
+
+	// Report management
+	CreateReport(ctx context.Context, report *ReportDefinition) error
+	UpdateReport(ctx context.Context, report *ReportDefinition) error
+	GetReport(ctx context.Context, id int64) (*ReportDefinition, error)
+	DeleteReport(ctx context.Context, id int64) error
+	ListReports(ctx context.Context, filter ReportFilter) ([]*ReportDefinition, error)
+
+	// Report schedules
+	CreateReportSchedule(ctx context.Context, schedule *ReportSchedule) error
+	UpdateReportSchedule(ctx context.Context, schedule *ReportSchedule) error
+	GetReportSchedule(ctx context.Context, id int64) (*ReportSchedule, error)
+	DeleteReportSchedule(ctx context.Context, id int64) error
+	ListReportSchedules(ctx context.Context, reportID int64) ([]*ReportSchedule, error)
+	GetDueSchedules(ctx context.Context, before time.Time) ([]*ReportSchedule, error)
+	UpdateScheduleAfterRun(ctx context.Context, scheduleID int64, runID int64, nextRun time.Time, failed bool) error
+
+	// Report runs
+	CreateReportRun(ctx context.Context, run *ReportRun) error
+	UpdateReportRun(ctx context.Context, run *ReportRun) error
+	GetReportRun(ctx context.Context, id int64) (*ReportRun, error)
+	DeleteReportRun(ctx context.Context, id int64) error
+	ListReportRuns(ctx context.Context, filter ReportRunFilter) ([]*ReportRun, error)
+	GetReportSummary(ctx context.Context) (*ReportSummary, error)
+	CleanupOldReportRuns(ctx context.Context, olderThan time.Time) (int64, error)
 }
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.

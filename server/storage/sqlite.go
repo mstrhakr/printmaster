@@ -673,6 +673,11 @@ func (s *SQLiteStore) initSchema() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	// Initialize reports schema
+	if err := s.initReportsSchema(); err != nil {
+		return fmt.Errorf("failed to init reports schema: %w", err)
+	}
+
 	if err := s.ensureGlobalSettingsSeed(); err != nil {
 		return err
 	}

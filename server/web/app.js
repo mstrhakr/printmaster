@@ -1547,12 +1547,193 @@ function formatDuration(ms) {
 async function loadRecentReports() {
     const container = document.getElementById('recent_reports_list');
     if (!container) return;
-    container.innerHTML = '<div class="muted-text">No reports generated yet. Use the buttons above to generate a report.</div>';
+    
+    try {
+        const resp = await fetch('/api/v1/report-runs?limit=10');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const runs = data.runs || [];
+        
+        if (runs.length === 0) {
+            container.innerHTML = '<div class="muted-text">No reports generated yet. Use the buttons above to generate a report.</div>';
+        } else {
+            container.innerHTML = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Report</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Generated</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${runs.map(run => `
+                            <tr>
+                                <td>${escapeHtml(run.report_name || 'Report #' + run.report_id)}</td>
+                                <td><span class="badge">${run.report_type || 'unknown'}</span></td>
+                                <td><span class="badge badge-${run.status === 'completed' ? 'success' : run.status === 'failed' ? 'danger' : 'warning'}">${run.status}</span></td>
+                                <td>${new Date(run.started_at).toLocaleString()}</td>
+                                <td>
+                                    ${run.status === 'completed' ? `
+                                        <button class="btn btn-sm" onclick="downloadReportRun(${run.id}, 'csv')">CSV</button>
+                                        <button class="btn btn-sm" onclick="downloadReportRun(${run.id}, 'json')">JSON</button>
+                                    ` : ''}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+    } catch (err) {
+        console.error('Failed to load recent reports:', err);
+        container.innerHTML = '<div class="error-text">Failed to load recent reports.</div>';
+    }
+}
+
+async function downloadReportRun(runId, format) {
+    try {
+        const resp = await fetch(`/api/v1/report-runs/${runId}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const run = await resp.json();
+        
+        if (!run.result) {
+            window.__pm_shared.showToast('Report data not available', 'error');
+            return;
+        }
+        
+        let content, filename, mimeType;
+        if (format === 'csv') {
+            // Convert result to CSV
+            const result = typeof run.result === 'string' ? JSON.parse(run.result) : run.result;
+            if (result.rows && result.columns) {
+                const header = result.columns.join(',');
+                const rows = result.rows.map(row => result.columns.map(col => {
+                    const val = row[col];
+                    if (val === null || val === undefined) return '';
+                    const str = String(val);
+                    return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
+                }).join(',')).join('\n');
+                content = header + '\n' + rows;
+            } else {
+                content = JSON.stringify(result, null, 2);
+            }
+            filename = `report-${runId}.csv`;
+            mimeType = 'text/csv';
+        } else {
+            content = typeof run.result === 'string' ? run.result : JSON.stringify(run.result, null, 2);
+            filename = `report-${runId}.json`;
+            mimeType = 'application/json';
+        }
+        
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        window.__pm_shared.showToast(`Downloaded ${filename}`, 'success');
+    } catch (err) {
+        console.error('Failed to download report:', err);
+        window.__pm_shared.showToast('Failed to download report', 'error');
+    }
 }
 
 async function generateReport(type) {
-    window.__pm_shared.showToast(`Generating ${type} report... (coming soon)`, 'info');
-    // TODO: Implement report generation API
+    // Map UI type to API report type
+    const typeMap = {
+        'fleet': 'inventory.devices',
+        'usage': 'usage.summary',
+        'supply': 'supplies.status',
+        'alert': 'alerts.summary'
+    };
+    const reportType = typeMap[type] || type;
+    
+    window.__pm_shared.showToast(`Generating ${type} report...`, 'info');
+    
+    try {
+        // First create a report definition
+        const createResp = await fetch('/api/v1/reports', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: `${type.charAt(0).toUpperCase() + type.slice(1)} Report - ${new Date().toLocaleDateString()}`,
+                type: reportType,
+                format: 'json'
+            })
+        });
+        
+        if (!createResp.ok) throw new Error(`Failed to create report: HTTP ${createResp.status}`);
+        const report = await createResp.json();
+        
+        // Then run it immediately
+        const runResp = await fetch(`/api/v1/reports/${report.id}/run`, {
+            method: 'POST'
+        });
+        
+        if (!runResp.ok) throw new Error(`Failed to run report: HTTP ${runResp.status}`);
+        const run = await runResp.json();
+        
+        window.__pm_shared.showToast('Report generated successfully!', 'success');
+        
+        // Show download modal
+        showReportDownloadModal(run);
+        
+        // Refresh the recent reports list
+        loadRecentReports();
+    } catch (err) {
+        console.error('Failed to generate report:', err);
+        window.__pm_shared.showToast('Failed to generate report: ' + err.message, 'error');
+    }
+}
+
+function showReportDownloadModal(run) {
+    const modal = document.getElementById('report_download_modal');
+    if (!modal) return;
+    
+    const info = document.getElementById('report_download_info');
+    if (info) {
+        info.innerHTML = `
+            <p style="margin:0 0 8px;color:var(--text);">Your report has been generated.</p>
+            <p style="margin:0;color:var(--muted);font-size:13px;">
+                Type: ${run.report_type || 'Report'} • 
+                Rows: ${run.row_count || 0} • 
+                Generated: ${new Date(run.completed_at || run.started_at).toLocaleString()}
+            </p>
+        `;
+    }
+    
+    // Wire download buttons
+    const csvBtn = document.getElementById('report_download_csv');
+    const jsonBtn = document.getElementById('report_download_json');
+    
+    if (csvBtn) {
+        csvBtn.onclick = () => {
+            downloadReportRun(run.id, 'csv');
+            modal.style.display = 'none';
+        };
+    }
+    if (jsonBtn) {
+        jsonBtn.onclick = () => {
+            downloadReportRun(run.id, 'json');
+            modal.style.display = 'none';
+        };
+    }
+    
+    // Wire close buttons
+    const closeBtn = document.getElementById('report_download_close');
+    const closeX = document.getElementById('report_download_close_x');
+    const closeModal = () => modal.style.display = 'none';
+    if (closeBtn) closeBtn.onclick = closeModal;
+    if (closeX) closeX.onclick = closeModal;
+    
+    modal.style.display = 'flex';
 }
 
 // ============================================
@@ -1560,6 +1741,7 @@ async function generateReport(type) {
 // ============================================
 
 let alertRulesUIInitialized = false;
+let cachedNotificationChannels = [];
 
 function initAlertRulesUI() {
     if (alertRulesUIInitialized) return;
@@ -1609,6 +1791,13 @@ function initAlertRulesUI() {
             btn.addEventListener('click', () => generateReport(type));
         }
     });
+    
+    // Initialize all modal event handlers
+    initAlertRuleModal();
+    initNotificationChannelModal();
+    initEscalationPolicyModal();
+    initMaintenanceWindowModal();
+    initScheduledReportModal();
 }
 
 async function loadAlertRules() {
@@ -1753,9 +1942,42 @@ async function loadAlertRules() {
         }
     }
 
-    // Keep scheduled reports as placeholder for now
+    // Load scheduled reports
     if (schedulesContainer) {
-        schedulesContainer.innerHTML = '<div class="muted-text">Report scheduling coming soon.</div>';
+        try {
+            const resp = await fetch('/api/v1/report-schedules');
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const schedules = data.schedules || [];
+            
+            if (schedules.length === 0) {
+                schedulesContainer.innerHTML = '<div class="muted-text">No scheduled reports configured.</div>';
+            } else {
+                schedulesContainer.innerHTML = schedules.map(s => {
+                    const nextRun = s.next_run ? new Date(s.next_run).toLocaleString() : 'Not scheduled';
+                    return `
+                        <div class="config-item" data-schedule-id="${s.id}">
+                            <div class="config-item-header">
+                                <span class="config-item-name">${escapeHtml(s.name)}</span>
+                                <span class="badge">${s.frequency}</span>
+                                <span class="badge">${s.report_type}</span>
+                                <span class="config-item-status ${s.enabled ? 'enabled' : 'disabled'}">${s.enabled ? 'Enabled' : 'Disabled'}</span>
+                            </div>
+                            <div class="config-item-details muted-text">
+                                Next run: ${nextRun} • Format: ${s.output_format || 'csv'}
+                            </div>
+                            <div class="config-item-actions">
+                                <button class="btn btn-sm" onclick="runScheduleNow(${s.id})">Run Now</button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteReportSchedule(${s.id})">Delete</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        } catch (err) {
+            console.error('Failed to load scheduled reports:', err);
+            schedulesContainer.innerHTML = '<div class="error-text">Failed to load scheduled reports.</div>';
+        }
     }
 }
 
@@ -1822,34 +2044,435 @@ async function deleteMaintenanceWindow(id) {
     }
 }
 
+async function deleteReportSchedule(id) {
+    if (!await window.__pm_shared.showConfirm('Delete this scheduled report?')) return;
+    try {
+        const resp = await fetch(`/api/v1/report-schedules/${id}`, { method: 'DELETE' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.__pm_shared.showToast('Scheduled report deleted', 'success');
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to delete scheduled report:', err);
+        window.__pm_shared.showToast('Failed to delete scheduled report', 'error');
+    }
+}
+
+async function runScheduleNow(scheduleId) {
+    try {
+        const resp = await fetch(`/api/v1/report-schedules/${scheduleId}/run`, { method: 'POST' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        window.__pm_shared.showToast('Report generation started', 'success');
+        loadRecentReports();
+    } catch (err) {
+        console.error('Failed to run scheduled report:', err);
+        window.__pm_shared.showToast('Failed to run scheduled report', 'error');
+    }
+}
+
 function editAlertRule(id) {
-    window.__pm_shared.showToast('Rule editing coming soon', 'info');
-    // TODO: Open modal pre-filled with rule data
+    // Fetch the rule and populate modal
+    fetch(`/api/v1/alert-rules/${id}`)
+        .then(resp => {
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            return resp.json();
+        })
+        .then(rule => {
+            showAlertRuleModal(rule);
+        })
+        .catch(err => {
+            console.error('Failed to load alert rule:', err);
+            window.__pm_shared.showToast('Failed to load alert rule', 'error');
+        });
 }
 
-function showAlertRuleModal() {
-    window.__pm_shared.showToast('Alert rule configuration coming soon', 'info');
-    // TODO: Implement alert rule modal
+function showAlertRuleModal(existingRule = null) {
+    const modal = document.getElementById('alert_rule_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const isEdit = existingRule && existingRule.id;
+    
+    // Reset/populate form fields
+    const nameInput = form.querySelector('#alert_rule_name');
+    const typeSelect = form.querySelector('#alert_rule_type');
+    const metricSelect = form.querySelector('#alert_rule_metric');
+    const conditionSelect = form.querySelector('#alert_rule_condition');
+    const thresholdInput = form.querySelector('#alert_rule_threshold');
+    const durationInput = form.querySelector('#alert_rule_duration');
+    const severitySelect = form.querySelector('#alert_rule_severity');
+    const enabledCheck = form.querySelector('#alert_rule_enabled');
+    
+    if (nameInput) nameInput.value = existingRule?.name || '';
+    if (typeSelect) typeSelect.value = existingRule?.type || 'threshold';
+    if (metricSelect) metricSelect.value = existingRule?.metric || 'toner_level';
+    if (conditionSelect) conditionSelect.value = existingRule?.condition || 'less_than';
+    if (thresholdInput) thresholdInput.value = existingRule?.threshold ?? '';
+    if (durationInput) durationInput.value = existingRule?.duration_minutes || 5;
+    if (severitySelect) severitySelect.value = existingRule?.severity || 'warning';
+    if (enabledCheck) enabledCheck.checked = existingRule?.enabled !== false;
+    
+    // Store ID for save
+    modal.dataset.editId = isEdit ? existingRule.id : '';
+    
+    // Update modal title
+    const title = modal.querySelector('.modal-title');
+    if (title) title.textContent = isEdit ? 'Edit Alert Rule' : 'New Alert Rule';
+    
+    modal.style.display = 'flex';
 }
 
-function showNotificationChannelModal() {
-    window.__pm_shared.showToast('Notification channel configuration coming soon', 'info');
-    // TODO: Implement notification channel modal
+async function saveAlertRule() {
+    const modal = document.getElementById('alert_rule_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const editId = modal.dataset.editId;
+    
+    const payload = {
+        name: form.querySelector('#alert_rule_name')?.value || '',
+        type: form.querySelector('#alert_rule_type')?.value || 'threshold',
+        metric: form.querySelector('#alert_rule_metric')?.value || '',
+        condition: form.querySelector('#alert_rule_condition')?.value || '',
+        threshold: parseFloat(form.querySelector('#alert_rule_threshold')?.value) || 0,
+        duration_minutes: parseInt(form.querySelector('#alert_rule_duration')?.value) || 5,
+        severity: form.querySelector('#alert_rule_severity')?.value || 'warning',
+        enabled: form.querySelector('#alert_rule_enabled')?.checked !== false
+    };
+    
+    if (!payload.name) {
+        window.__pm_shared.showToast('Name is required', 'error');
+        return;
+    }
+    
+    try {
+        const url = editId ? `/api/v1/alert-rules/${editId}` : '/api/v1/alert-rules';
+        const method = editId ? 'PUT' : 'POST';
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        window.__pm_shared.showToast(editId ? 'Alert rule updated' : 'Alert rule created', 'success');
+        modal.style.display = 'none';
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to save alert rule:', err);
+        window.__pm_shared.showToast('Failed to save alert rule', 'error');
+    }
 }
 
-function showScheduledReportModal() {
-    window.__pm_shared.showToast('Report scheduling configuration coming soon', 'info');
-    // TODO: Implement scheduled report modal
+function showNotificationChannelModal(existingChannel = null) {
+    const modal = document.getElementById('notification_channel_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const isEdit = existingChannel && existingChannel.id;
+    
+    const nameInput = form.querySelector('#channel_name');
+    const typeSelect = form.querySelector('#channel_type');
+    const configInput = form.querySelector('#channel_config');
+    const enabledCheck = form.querySelector('#channel_enabled');
+    
+    if (nameInput) nameInput.value = existingChannel?.name || '';
+    if (typeSelect) typeSelect.value = existingChannel?.type || 'email';
+    if (configInput) configInput.value = existingChannel?.config ? JSON.stringify(existingChannel.config, null, 2) : '{}';
+    if (enabledCheck) enabledCheck.checked = existingChannel?.enabled !== false;
+    
+    modal.dataset.editId = isEdit ? existingChannel.id : '';
+    
+    const title = modal.querySelector('.modal-title');
+    if (title) title.textContent = isEdit ? 'Edit Notification Channel' : 'New Notification Channel';
+    
+    // Update config placeholder based on type
+    updateChannelConfigPlaceholder();
+    
+    modal.style.display = 'flex';
 }
 
-function showEscalationPolicyModal() {
-    window.__pm_shared.showToast('Escalation policy configuration coming soon', 'info');
-    // TODO: Implement escalation policy modal
+function updateChannelConfigPlaceholder() {
+    const typeSelect = document.querySelector('#channel_type');
+    const configInput = document.querySelector('#channel_config');
+    if (!typeSelect || !configInput) return;
+    
+    const examples = {
+        email: '{\n  "to": ["admin@example.com"],\n  "subject_prefix": "[PrintMaster Alert]"\n}',
+        webhook: '{\n  "url": "https://example.com/webhook",\n  "method": "POST"\n}',
+        slack: '{\n  "webhook_url": "https://hooks.slack.com/...",\n  "channel": "#alerts"\n}',
+        teams: '{\n  "webhook_url": "https://outlook.office.com/webhook/..."\n}',
+        pagerduty: '{\n  "routing_key": "your-integration-key",\n  "severity": "critical"\n}'
+    };
+    
+    configInput.placeholder = examples[typeSelect.value] || '{}';
 }
 
-function showMaintenanceWindowModal() {
-    window.__pm_shared.showToast('Maintenance window configuration coming soon', 'info');
-    // TODO: Implement maintenance window modal
+async function saveNotificationChannel() {
+    const modal = document.getElementById('notification_channel_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const editId = modal.dataset.editId;
+    
+    let config = {};
+    try {
+        const configStr = form.querySelector('#channel_config')?.value || '{}';
+        config = JSON.parse(configStr);
+    } catch (e) {
+        window.__pm_shared.showToast('Invalid JSON in configuration', 'error');
+        return;
+    }
+    
+    const payload = {
+        name: form.querySelector('#channel_name')?.value || '',
+        type: form.querySelector('#channel_type')?.value || 'email',
+        config: config,
+        enabled: form.querySelector('#channel_enabled')?.checked !== false
+    };
+    
+    if (!payload.name) {
+        window.__pm_shared.showToast('Name is required', 'error');
+        return;
+    }
+    
+    try {
+        const url = editId ? `/api/v1/notification-channels/${editId}` : '/api/v1/notification-channels';
+        const method = editId ? 'PUT' : 'POST';
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        window.__pm_shared.showToast(editId ? 'Channel updated' : 'Channel created', 'success');
+        modal.style.display = 'none';
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to save notification channel:', err);
+        window.__pm_shared.showToast('Failed to save notification channel', 'error');
+    }
+}
+
+function showEscalationPolicyModal(existingPolicy = null) {
+    const modal = document.getElementById('escalation_policy_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const isEdit = existingPolicy && existingPolicy.id;
+    
+    const nameInput = form.querySelector('#escalation_name');
+    const descInput = form.querySelector('#escalation_description');
+    const stepsInput = form.querySelector('#escalation_steps');
+    const enabledCheck = form.querySelector('#escalation_enabled');
+    
+    if (nameInput) nameInput.value = existingPolicy?.name || '';
+    if (descInput) descInput.value = existingPolicy?.description || '';
+    if (stepsInput) stepsInput.value = existingPolicy?.steps ? JSON.stringify(existingPolicy.steps, null, 2) : '[]';
+    if (enabledCheck) enabledCheck.checked = existingPolicy?.enabled !== false;
+    
+    modal.dataset.editId = isEdit ? existingPolicy.id : '';
+    
+    const title = modal.querySelector('.modal-title');
+    if (title) title.textContent = isEdit ? 'Edit Escalation Policy' : 'New Escalation Policy';
+    
+    modal.style.display = 'flex';
+}
+
+async function saveEscalationPolicy() {
+    const modal = document.getElementById('escalation_policy_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const editId = modal.dataset.editId;
+    
+    let steps = [];
+    try {
+        const stepsStr = form.querySelector('#escalation_steps')?.value || '[]';
+        steps = JSON.parse(stepsStr);
+    } catch (e) {
+        window.__pm_shared.showToast('Invalid JSON in escalation steps', 'error');
+        return;
+    }
+    
+    const payload = {
+        name: form.querySelector('#escalation_name')?.value || '',
+        description: form.querySelector('#escalation_description')?.value || '',
+        steps: steps,
+        enabled: form.querySelector('#escalation_enabled')?.checked !== false
+    };
+    
+    if (!payload.name) {
+        window.__pm_shared.showToast('Name is required', 'error');
+        return;
+    }
+    
+    try {
+        const url = editId ? `/api/v1/escalation-policies/${editId}` : '/api/v1/escalation-policies';
+        const method = editId ? 'PUT' : 'POST';
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        window.__pm_shared.showToast(editId ? 'Policy updated' : 'Policy created', 'success');
+        modal.style.display = 'none';
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to save escalation policy:', err);
+        window.__pm_shared.showToast('Failed to save escalation policy', 'error');
+    }
+}
+
+function showMaintenanceWindowModal(existingWindow = null) {
+    const modal = document.getElementById('maintenance_window_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const isEdit = existingWindow && existingWindow.id;
+    
+    const nameInput = form.querySelector('#maintenance_name');
+    const startInput = form.querySelector('#maintenance_start');
+    const endInput = form.querySelector('#maintenance_end');
+    const scopeInput = form.querySelector('#maintenance_scope');
+    const recurringCheck = form.querySelector('#maintenance_recurring');
+    const patternInput = form.querySelector('#maintenance_pattern');
+    
+    if (nameInput) nameInput.value = existingWindow?.name || '';
+    if (startInput) startInput.value = existingWindow?.start_time ? formatDatetimeLocal(existingWindow.start_time) : '';
+    if (endInput) endInput.value = existingWindow?.end_time ? formatDatetimeLocal(existingWindow.end_time) : '';
+    if (scopeInput) scopeInput.value = existingWindow?.scope || 'all';
+    if (recurringCheck) recurringCheck.checked = existingWindow?.recurring === true;
+    if (patternInput) patternInput.value = existingWindow?.recurrence_pattern || '';
+    
+    modal.dataset.editId = isEdit ? existingWindow.id : '';
+    
+    const title = modal.querySelector('.modal-title');
+    if (title) title.textContent = isEdit ? 'Edit Maintenance Window' : 'New Maintenance Window';
+    
+    modal.style.display = 'flex';
+}
+
+function formatDatetimeLocal(isoString) {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    const pad = n => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function saveMaintenanceWindow() {
+    const modal = document.getElementById('maintenance_window_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const editId = modal.dataset.editId;
+    
+    const payload = {
+        name: form.querySelector('#maintenance_name')?.value || '',
+        start_time: form.querySelector('#maintenance_start')?.value || '',
+        end_time: form.querySelector('#maintenance_end')?.value || '',
+        scope: form.querySelector('#maintenance_scope')?.value || 'all',
+        recurring: form.querySelector('#maintenance_recurring')?.checked === true,
+        recurrence_pattern: form.querySelector('#maintenance_pattern')?.value || ''
+    };
+    
+    if (!payload.name) {
+        window.__pm_shared.showToast('Name is required', 'error');
+        return;
+    }
+    if (!payload.start_time || !payload.end_time) {
+        window.__pm_shared.showToast('Start and end times are required', 'error');
+        return;
+    }
+    
+    try {
+        const url = editId ? `/api/v1/maintenance-windows/${editId}` : '/api/v1/maintenance-windows';
+        const method = editId ? 'PUT' : 'POST';
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        window.__pm_shared.showToast(editId ? 'Window updated' : 'Window created', 'success');
+        modal.style.display = 'none';
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to save maintenance window:', err);
+        window.__pm_shared.showToast('Failed to save maintenance window', 'error');
+    }
+}
+
+function showScheduledReportModal(existingSchedule = null) {
+    const modal = document.getElementById('scheduled_report_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const isEdit = existingSchedule && existingSchedule.id;
+    
+    const nameInput = form.querySelector('#schedule_name');
+    const typeSelect = form.querySelector('#schedule_report_type');
+    const formatSelect = form.querySelector('#schedule_format');
+    const frequencySelect = form.querySelector('#schedule_frequency');
+    const emailInput = form.querySelector('#schedule_email');
+    const enabledCheck = form.querySelector('#schedule_enabled');
+    
+    if (nameInput) nameInput.value = existingSchedule?.name || '';
+    if (typeSelect) typeSelect.value = existingSchedule?.report_type || 'inventory.devices';
+    if (formatSelect) formatSelect.value = existingSchedule?.output_format || 'csv';
+    if (frequencySelect) frequencySelect.value = existingSchedule?.frequency || 'weekly';
+    if (emailInput) emailInput.value = existingSchedule?.delivery_email || '';
+    if (enabledCheck) enabledCheck.checked = existingSchedule?.enabled !== false;
+    
+    modal.dataset.editId = isEdit ? existingSchedule.id : '';
+    
+    const title = modal.querySelector('.modal-title');
+    if (title) title.textContent = isEdit ? 'Edit Scheduled Report' : 'New Scheduled Report';
+    
+    modal.style.display = 'flex';
+}
+
+async function saveScheduledReport() {
+    const modal = document.getElementById('scheduled_report_modal');
+    if (!modal) return;
+    
+    const form = modal.querySelector('form') || modal;
+    const editId = modal.dataset.editId;
+    
+    const payload = {
+        name: form.querySelector('#schedule_name')?.value || '',
+        report_type: form.querySelector('#schedule_report_type')?.value || 'inventory.devices',
+        output_format: form.querySelector('#schedule_format')?.value || 'csv',
+        frequency: form.querySelector('#schedule_frequency')?.value || 'weekly',
+        delivery_email: form.querySelector('#schedule_email')?.value || '',
+        enabled: form.querySelector('#schedule_enabled')?.checked !== false
+    };
+    
+    if (!payload.name) {
+        window.__pm_shared.showToast('Name is required', 'error');
+        return;
+    }
+    
+    try {
+        const url = editId ? `/api/v1/report-schedules/${editId}` : '/api/v1/report-schedules';
+        const method = editId ? 'PUT' : 'POST';
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        window.__pm_shared.showToast(editId ? 'Schedule updated' : 'Schedule created', 'success');
+        modal.style.display = 'none';
+        loadAlertRules();
+    } catch (err) {
+        console.error('Failed to save scheduled report:', err);
+        window.__pm_shared.showToast('Failed to save scheduled report', 'error');
+    }
 }
 
 function initSettingsSubTabs() {
@@ -11812,5 +12435,71 @@ function updateTimeFilter(index) {
             if (e.target === detailsOverlay) closePrinterDetailsModal();
         });
     }
+})();
+
+// Wire up alerting and reports modals
+(function wireAlertingModals() {
+    // Helper to close modal
+    function closeModal(modal) {
+        if (modal) modal.style.display = 'none';
+    }
+    
+    // Helper to wire a modal's close buttons
+    function wireModalClose(modalId, closeXId, cancelId) {
+        const modal = document.getElementById(modalId);
+        const closeX = document.getElementById(closeXId);
+        const cancel = document.getElementById(cancelId);
+        
+        if (closeX) closeX.addEventListener('click', () => closeModal(modal));
+        if (cancel) cancel.addEventListener('click', () => closeModal(modal));
+        if (modal) {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeModal(modal);
+            });
+        }
+    }
+    
+    // Alert Rule Modal
+    wireModalClose('alert_rule_modal', 'alert_rule_modal_close_x', 'alert_rule_cancel');
+    const alertRuleSaveBtn = document.getElementById('alert_rule_save');
+    if (alertRuleSaveBtn) alertRuleSaveBtn.addEventListener('click', saveAlertRule);
+    
+    // Notification Channel Modal
+    wireModalClose('notification_channel_modal', 'notification_channel_modal_close_x', 'channel_cancel');
+    const channelSaveBtn = document.getElementById('channel_save');
+    if (channelSaveBtn) channelSaveBtn.addEventListener('click', saveNotificationChannel);
+    const channelTypeSelect = document.getElementById('channel_type');
+    if (channelTypeSelect) channelTypeSelect.addEventListener('change', updateChannelConfigPlaceholder);
+    
+    // Escalation Policy Modal
+    wireModalClose('escalation_policy_modal', 'escalation_policy_modal_close_x', 'escalation_cancel');
+    const escalationSaveBtn = document.getElementById('escalation_save');
+    if (escalationSaveBtn) escalationSaveBtn.addEventListener('click', saveEscalationPolicy);
+    
+    // Maintenance Window Modal
+    wireModalClose('maintenance_window_modal', 'maintenance_window_modal_close_x', 'maintenance_cancel');
+    const maintenanceSaveBtn = document.getElementById('maintenance_save');
+    if (maintenanceSaveBtn) maintenanceSaveBtn.addEventListener('click', saveMaintenanceWindow);
+    
+    // Scheduled Report Modal
+    wireModalClose('scheduled_report_modal', 'scheduled_report_modal_close_x', 'schedule_cancel');
+    const scheduleSaveBtn = document.getElementById('schedule_save');
+    if (scheduleSaveBtn) scheduleSaveBtn.addEventListener('click', saveScheduledReport);
+    
+    // Schedule frequency change handler - show/hide day fields
+    const frequencySelect = document.getElementById('schedule_frequency');
+    if (frequencySelect) {
+        frequencySelect.addEventListener('change', () => {
+            const freq = frequencySelect.value;
+            const dayField = document.getElementById('schedule_day_field');
+            const dayOfMonthField = document.getElementById('schedule_day_of_month_field');
+            
+            if (dayField) dayField.style.display = freq === 'weekly' ? 'block' : 'none';
+            if (dayOfMonthField) dayOfMonthField.style.display = freq === 'monthly' ? 'block' : 'none';
+        });
+    }
+    
+    // Report Download Modal
+    wireModalClose('report_download_modal', 'report_download_close_x', 'report_download_close');
 })();
 

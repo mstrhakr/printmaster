@@ -527,6 +527,83 @@ type AlertFilters struct {
 	Limit     int
 }
 
+// AlertFilter is an alias for AlertFilters used by the reports module.
+type AlertFilter = AlertFilters
+
+// ListAlerts returns alerts matching the filter (all statuses).
+func (s *SQLiteStore) ListAlerts(ctx context.Context, filter AlertFilters) ([]*Alert, error) {
+	query := `
+		SELECT 
+			id, rule_id, type, severity, scope, status,
+			tenant_id, site_id, agent_id, device_serial,
+			title, message, details,
+			triggered_at, acknowledged_at, acknowledged_by, resolved_at,
+			suppressed_until, expires_at,
+			escalation_level, last_escalated_at,
+			state_change_count, is_flapping,
+			parent_alert_id, child_count,
+			notifications_sent, last_notified_at,
+			created_at, updated_at
+		FROM alerts
+		WHERE 1=1
+	`
+	args := []interface{}{}
+
+	if filter.Severity != "" {
+		query += " AND severity = ?"
+		args = append(args, filter.Severity)
+	}
+	if filter.Scope != "" {
+		query += " AND scope = ?"
+		args = append(args, filter.Scope)
+	}
+	if filter.Type != "" {
+		query += " AND type = ?"
+		args = append(args, filter.Type)
+	}
+	if filter.Status != "" {
+		query += " AND status = ?"
+		args = append(args, filter.Status)
+	}
+	if filter.TenantID != "" {
+		query += " AND tenant_id = ?"
+		args = append(args, filter.TenantID)
+	}
+	if filter.StartTime != nil {
+		query += " AND triggered_at >= ?"
+		args = append(args, *filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		query += " AND triggered_at <= ?"
+		args = append(args, *filter.EndTime)
+	}
+
+	query += " ORDER BY triggered_at DESC"
+
+	if filter.Limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, filter.Limit)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list alerts: %w", err)
+	}
+	defer rows.Close()
+
+	alerts, err := scanAlerts(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert to pointer slice
+	result := make([]*Alert, len(alerts))
+	for i := range alerts {
+		result[i] = &alerts[i]
+	}
+	return result, nil
+}
+
 // UpdateAlertStatus changes an alert's status.
 func (s *SQLiteStore) UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus) error {
 	now := time.Now().UTC()

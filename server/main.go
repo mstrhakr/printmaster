@@ -2737,6 +2737,17 @@ func setupRoutes(cfg *Config) {
 	})
 	logInfo("Alerts routes registered", "enabled", true)
 
+	// Reports API routes
+	http.HandleFunc("/api/v1/reports", requireWebAuth(handleReports))
+	http.HandleFunc("/api/v1/reports/summary", requireWebAuth(handleReportSummary))
+	http.HandleFunc("/api/v1/reports/types", requireWebAuth(handleReportTypes))
+	http.HandleFunc("/api/v1/reports/", requireWebAuth(handleReport))
+	http.HandleFunc("/api/v1/report-schedules", requireWebAuth(handleReportSchedulesCollection))
+	http.HandleFunc("/api/v1/report-schedules/", requireWebAuth(handleSchedule))
+	http.HandleFunc("/api/v1/report-runs", requireWebAuth(handleReportRunsCollection))
+	http.HandleFunc("/api/v1/report-runs/", requireWebAuth(handleReportRunResult))
+	logInfo("Reports routes registered", "enabled", true)
+
 	if releaseManager != nil {
 		releaseAPI := releases.NewAPI(releaseManager, releases.APIOptions{
 			AuthMiddleware: requireWebAuth,
