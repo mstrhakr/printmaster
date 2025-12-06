@@ -452,15 +452,15 @@ func TestHelpers_IsCriticalAlertType(t *testing.T) {
 		storage.AlertTypeUsageHigh,
 	}
 
-	for _, t := range criticalTypes {
-		if !isCriticalAlertType(t) {
-			// Note: using a different variable name to avoid shadowing
+	for _, at := range criticalTypes {
+		if !isCriticalAlertType(at) {
+			t.Errorf("expected %s to be critical", at)
 		}
 	}
 
-	for _, alertType := range nonCriticalTypes {
-		if isCriticalAlertType(alertType) {
-			// These should not be critical
+	for _, at := range nonCriticalTypes {
+		if isCriticalAlertType(at) {
+			t.Errorf("expected %s to NOT be critical", at)
 		}
 	}
 }
