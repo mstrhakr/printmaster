@@ -5,324 +5,54 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
-// AlertSeverity defines alert severity levels.
-type AlertSeverity string
-
-const (
-	AlertSeverityCritical AlertSeverity = "critical"
-	AlertSeverityWarning  AlertSeverity = "warning"
-	AlertSeverityInfo     AlertSeverity = "info"
-)
-
-// AlertScope defines the scope level of an alert.
-type AlertScope string
-
-const (
-	AlertScopeDevice AlertScope = "device"
-	AlertScopeAgent  AlertScope = "agent"
-	AlertScopeSite   AlertScope = "site"
-	AlertScopeTenant AlertScope = "tenant"
-	AlertScopeFleet  AlertScope = "fleet"
-)
-
-// AlertStatus defines alert lifecycle states.
-type AlertStatus string
-
-const (
-	AlertStatusActive       AlertStatus = "active"
-	AlertStatusAcknowledged AlertStatus = "acknowledged"
-	AlertStatusResolved     AlertStatus = "resolved"
-	AlertStatusSuppressed   AlertStatus = "suppressed"
-	AlertStatusExpired      AlertStatus = "expired"
-)
-
-// AlertType defines the type of alert condition.
-type AlertType string
-
-const (
-	// Device alerts
-	AlertTypeSupplyLow      AlertType = "device.supply.low"
-	AlertTypeSupplyCritical AlertType = "device.supply.critical"
-	AlertTypeDeviceOffline  AlertType = "device.offline"
-	AlertTypeDeviceError    AlertType = "device.error"
-	AlertTypeUsageHigh      AlertType = "device.usage.high"
-	AlertTypeUsageSpike     AlertType = "device.usage.spike"
-
-	// Agent alerts
-	AlertTypeAgentOffline      AlertType = "agent.offline"
-	AlertTypeAgentUnhealthy    AlertType = "agent.unhealthy"
-	AlertTypeAgentUpdateFailed AlertType = "agent.update.failed"
-	AlertTypeAgentOutdated     AlertType = "agent.version.outdated"
-	AlertTypeAgentStorageFull  AlertType = "agent.storage.full"
-
-	// Site alerts
-	AlertTypeSiteOutage        AlertType = "site.outage"
-	AlertTypeSitePartialOutage AlertType = "site.partial_outage"
-	AlertTypeSiteDegraded      AlertType = "site.degraded"
-
-	// Tenant alerts
-	AlertTypeTenantOutage        AlertType = "tenant.outage"
-	AlertTypeTenantPartialOutage AlertType = "tenant.partial_outage"
-	AlertTypeTenantNoData        AlertType = "tenant.no_data"
-
-	// Fleet alerts
-	AlertTypeFleetMassOutage  AlertType = "fleet.mass_outage"
-	AlertTypeFleetUpdateStall AlertType = "fleet.update.stalled"
-)
-
-// Alert represents an active or historical alert instance.
-type Alert struct {
-	ID       int64         `json:"id"`
-	RuleID   int64         `json:"rule_id,omitempty"`
-	Type     AlertType     `json:"type"`
-	Severity AlertSeverity `json:"severity"`
-	Scope    AlertScope    `json:"scope"`
-	Status   AlertStatus   `json:"status"`
-
-	// Scope identifiers (one will be set based on scope)
-	TenantID     string `json:"tenant_id,omitempty"`
-	SiteID       string `json:"site_id,omitempty"`
-	AgentID      string `json:"agent_id,omitempty"`
-	DeviceSerial string `json:"device_serial,omitempty"`
-
-	Title   string `json:"title"`
-	Message string `json:"message"`
-	Details string `json:"details,omitempty"` // JSON blob with type-specific details
-
-	// Timestamps
-	TriggeredAt     time.Time  `json:"triggered_at"`
-	AcknowledgedAt  *time.Time `json:"acknowledged_at,omitempty"`
-	AcknowledgedBy  string     `json:"acknowledged_by,omitempty"`
-	ResolvedAt      *time.Time `json:"resolved_at,omitempty"`
-	SuppressedUntil *time.Time `json:"suppressed_until,omitempty"`
-	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-
-	// Escalation tracking
-	EscalationLevel int        `json:"escalation_level"`
-	LastEscalatedAt *time.Time `json:"last_escalated_at,omitempty"`
-
-	// Flapping detection
-	StateChangeCount int  `json:"state_change_count"`
-	IsFlapping       bool `json:"is_flapping"`
-
-	// Parent alert (for grouped alerts)
-	ParentAlertID *int64 `json:"parent_alert_id,omitempty"`
-	ChildCount    int    `json:"child_count,omitempty"`
-
-	// Notification tracking
-	NotificationsSent int        `json:"notifications_sent"`
-	LastNotifiedAt    *time.Time `json:"last_notified_at,omitempty"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// AlertRule defines conditions that trigger alerts.
-type AlertRule struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled"`
-
-	Type     AlertType     `json:"type"`
-	Severity AlertSeverity `json:"severity"`
-	Scope    AlertScope    `json:"scope"`
-
-	// Scope filter (empty = all)
-	TenantIDs []string `json:"tenant_ids,omitempty"`
-	SiteIDs   []string `json:"site_ids,omitempty"`
-	AgentIDs  []string `json:"agent_ids,omitempty"`
-
-	// Condition configuration (type-specific)
-	ConditionJSON string `json:"condition_json,omitempty"`
-
-	// Thresholds
-	Threshold       float64 `json:"threshold,omitempty"`
-	ThresholdUnit   string  `json:"threshold_unit,omitempty"`
-	DurationMinutes int     `json:"duration_minutes,omitempty"`
-
-	// Associated notification channels
-	ChannelIDs []int64 `json:"channel_ids,omitempty"`
-
-	// Escalation policy
-	EscalationPolicyID *int64 `json:"escalation_policy_id,omitempty"`
-
-	// Rate limiting
-	CooldownMinutes int `json:"cooldown_minutes"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	CreatedBy string    `json:"created_by,omitempty"`
-}
-
-// NotificationChannelType defines the channel delivery method.
-type NotificationChannelType string
-
-const (
-	ChannelTypeEmail     NotificationChannelType = "email"
-	ChannelTypeWebhook   NotificationChannelType = "webhook"
-	ChannelTypeSlack     NotificationChannelType = "slack"
-	ChannelTypeTeams     NotificationChannelType = "teams"
-	ChannelTypePagerDuty NotificationChannelType = "pagerduty"
-)
-
-// NotificationChannel configures where alerts are sent.
-type NotificationChannel struct {
-	ID      int64                   `json:"id"`
-	Name    string                  `json:"name"`
-	Type    NotificationChannelType `json:"type"`
-	Enabled bool                    `json:"enabled"`
-
-	// Configuration (type-specific, stored as JSON)
-	ConfigJSON string `json:"config_json,omitempty"`
-
-	// Filters
-	MinSeverity AlertSeverity `json:"min_severity"`
-	TenantIDs   []string      `json:"tenant_ids,omitempty"` // Empty = all tenants
-
-	// Rate limiting
-	RateLimitPerHour int        `json:"rate_limit_per_hour"`
-	LastSentAt       *time.Time `json:"last_sent_at,omitempty"`
-	SentThisHour     int        `json:"sent_this_hour"`
-
-	// Quiet hours
-	UseQuietHours bool `json:"use_quiet_hours"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// EscalationPolicy defines how alerts escalate over time.
-type EscalationPolicy struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled"`
-
-	// Escalation steps (JSON array of steps)
-	StepsJSON string `json:"steps_json"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// EscalationStep defines a single escalation step.
-type EscalationStep struct {
-	DelayMinutes     int            `json:"delay_minutes"`
-	ChannelIDs       []int64        `json:"channel_ids"`
-	EscalateSeverity *AlertSeverity `json:"escalate_severity,omitempty"`
-	NotifyAgain      bool           `json:"notify_again"`
-}
-
-// AlertMaintenanceWindow defines a period of alert suppression.
-type AlertMaintenanceWindow struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-
-	// Scope
-	Scope        AlertScope `json:"scope"`
-	TenantID     string     `json:"tenant_id,omitempty"`
-	SiteID       string     `json:"site_id,omitempty"`
-	AgentID      string     `json:"agent_id,omitempty"`
-	DeviceSerial string     `json:"device_serial,omitempty"`
-
-	// Time window
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
-	Timezone  string    `json:"timezone"`
-
-	// Recurring options
-	Recurring    bool   `json:"recurring"`
-	RecurPattern string `json:"recur_pattern,omitempty"` // weekly, monthly
-	RecurDays    []int  `json:"recur_days,omitempty"`    // 0=Sun, 1=Mon, etc.
-
-	// Alert types to suppress (empty = all)
-	AlertTypes []AlertType `json:"alert_types,omitempty"`
-
-	// Allow critical alerts through
-	AllowCritical bool `json:"allow_critical"`
-
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	CreatedBy string    `json:"created_by,omitempty"`
-}
-
-// QuietHoursConfig defines global quiet hours settings.
-type QuietHoursConfig struct {
-	Enabled       bool   `json:"enabled"`
-	StartTime     string `json:"start_time"` // HH:MM format
-	EndTime       string `json:"end_time"`   // HH:MM format
-	Timezone      string `json:"timezone"`
-	AllowCritical bool   `json:"allow_critical"`
-}
-
-// AlertSettings holds global alerting configuration.
-type AlertSettings struct {
-	// Quiet hours
-	QuietHours QuietHoursConfig `json:"quiet_hours"`
-
-	// Flapping detection
-	FlappingEnabled    bool `json:"flapping_enabled"`
-	FlappingThreshold  int  `json:"flapping_threshold"` // State changes
-	FlappingWindowMins int  `json:"flapping_window_mins"`
-
-	// Alert grouping
-	GroupingEnabled   bool `json:"grouping_enabled"`
-	GroupingThreshold int  `json:"grouping_threshold"` // Percentage
-
-	// Dependencies
-	DependenciesEnabled bool `json:"dependencies_enabled"`
-}
-
-// AlertSummary provides dashboard statistics.
-type AlertSummary struct {
-	HealthyCounts struct {
-		Devices int `json:"devices"`
-		Agents  int `json:"agents"`
-		Sites   int `json:"sites"`
-		Tenants int `json:"tenants"`
-	} `json:"healthy_counts"`
-
-	WarningCounts struct {
-		Devices int `json:"devices"`
-		Agents  int `json:"agents"`
-		Sites   int `json:"sites"`
-		Tenants int `json:"tenants"`
-	} `json:"warning_counts"`
-
-	CriticalCounts struct {
-		Devices int `json:"devices"`
-		Agents  int `json:"agents"`
-		Sites   int `json:"sites"`
-		Tenants int `json:"tenants"`
-	} `json:"critical_counts"`
-
-	OfflineCounts struct {
-		Devices int `json:"devices"`
-		Agents  int `json:"agents"`
-	} `json:"offline_counts"`
-
-	AlertsByType map[string]int `json:"alerts_by_type"`
-
-	ActiveRules       int `json:"active_rules"`
-	ActiveChannels    int `json:"active_channels"`
-	SuppressedCount   int `json:"suppressed_count"`
-	AcknowledgedCount int `json:"acknowledged_count"`
-
-	IsQuietHours   bool `json:"is_quiet_hours"`
-	HasMaintenance bool `json:"has_maintenance"`
-}
-
 // ============================================================
-// Alert Storage Methods
+// Alert Storage Methods (BaseStore)
 // ============================================================
+
+// isInQuietHours checks if the current time falls within quiet hours.
+func isInQuietHours(qh QuietHours) bool {
+	if !qh.Enabled {
+		return false
+	}
+
+	now := time.Now()
+	if qh.Timezone != "" && qh.Timezone != "local" {
+		if loc, err := time.LoadLocation(qh.Timezone); err == nil {
+			now = now.In(loc)
+		}
+	}
+
+	// Parse start and end times (HH:MM format)
+	startParts := strings.Split(qh.StartTime, ":")
+	endParts := strings.Split(qh.EndTime, ":")
+	if len(startParts) != 2 || len(endParts) != 2 {
+		return false
+	}
+
+	startHour, _ := strconv.Atoi(startParts[0])
+	startMin, _ := strconv.Atoi(startParts[1])
+	endHour, _ := strconv.Atoi(endParts[0])
+	endMin, _ := strconv.Atoi(endParts[1])
+
+	currentMins := now.Hour()*60 + now.Minute()
+	startMins := startHour*60 + startMin
+	endMins := endHour*60 + endMin
+
+	// Handle overnight quiet hours (e.g., 22:00 - 07:00)
+	if startMins > endMins {
+		return currentMins >= startMins || currentMins < endMins
+	}
+
+	return currentMins >= startMins && currentMins < endMins
+}
 
 // CreateAlert inserts a new alert.
-func (s *SQLiteStore) CreateAlert(ctx context.Context, alert *Alert) (int64, error) {
+func (s *BaseStore) CreateAlert(ctx context.Context, alert *Alert) (int64, error) {
 	query := `
 		INSERT INTO alerts (
 			rule_id, type, severity, scope, status,
@@ -336,7 +66,7 @@ func (s *SQLiteStore) CreateAlert(ctx context.Context, alert *Alert) (int64, err
 	`
 
 	now := time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, query,
+	result, err := s.execContext(ctx, query,
 		nullInt64(alert.RuleID),
 		alert.Type,
 		alert.Severity,
@@ -375,7 +105,7 @@ func (s *SQLiteStore) CreateAlert(ctx context.Context, alert *Alert) (int64, err
 }
 
 // GetAlert retrieves an alert by ID.
-func (s *SQLiteStore) GetAlert(ctx context.Context, id int64) (*Alert, error) {
+func (s *BaseStore) GetAlert(ctx context.Context, id int64) (*Alert, error) {
 	query := `
 		SELECT 
 			id, rule_id, type, severity, scope, status,
@@ -396,7 +126,7 @@ func (s *SQLiteStore) GetAlert(ctx context.Context, id int64) (*Alert, error) {
 	var tenantID, siteID, agentID, deviceSerial, details, acknowledgedBy sql.NullString
 	var acknowledgedAt, resolvedAt, suppressedUntil, expiresAt, lastEscalatedAt, lastNotifiedAt sql.NullTime
 
-	err := s.db.QueryRowContext(ctx, query, id).Scan(
+	err := s.queryRowContext(ctx, query, id).Scan(
 		&a.ID, &ruleID, &a.Type, &a.Severity, &a.Scope, &a.Status,
 		&tenantID, &siteID, &agentID, &deviceSerial,
 		&a.Title, &a.Message, &details,
@@ -462,7 +192,7 @@ func (s *SQLiteStore) GetAlert(ctx context.Context, id int64) (*Alert, error) {
 }
 
 // ListActiveAlerts returns all active alerts, optionally filtered.
-func (s *SQLiteStore) ListActiveAlerts(ctx context.Context, filters AlertFilters) ([]Alert, error) {
+func (s *BaseStore) ListActiveAlerts(ctx context.Context, filters AlertFilters) ([]Alert, error) {
 	query := `
 		SELECT 
 			id, rule_id, type, severity, scope, status,
@@ -504,34 +234,17 @@ func (s *SQLiteStore) ListActiveAlerts(ctx context.Context, filters AlertFilters
 		args = append(args, filters.Limit)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.queryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list active alerts: %w", err)
 	}
 	defer rows.Close()
 
-	return scanAlerts(rows)
+	return s.scanAlerts(rows)
 }
-
-// AlertFilters defines query filters for alerts.
-type AlertFilters struct {
-	Severity  AlertSeverity
-	Scope     AlertScope
-	Type      AlertType
-	Status    AlertStatus
-	TenantID  string
-	SiteID    string
-	AgentID   string
-	StartTime *time.Time
-	EndTime   *time.Time
-	Limit     int
-}
-
-// AlertFilter is an alias for AlertFilters used by the reports module.
-type AlertFilter = AlertFilters
 
 // ListAlerts returns alerts matching the filter (all statuses).
-func (s *SQLiteStore) ListAlerts(ctx context.Context, filter AlertFilters) ([]*Alert, error) {
+func (s *BaseStore) ListAlerts(ctx context.Context, filter AlertFilters) ([]*Alert, error) {
 	query := `
 		SELECT 
 			id, rule_id, type, severity, scope, status,
@@ -585,13 +298,13 @@ func (s *SQLiteStore) ListAlerts(ctx context.Context, filter AlertFilters) ([]*A
 		args = append(args, filter.Limit)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.queryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list alerts: %w", err)
 	}
 	defer rows.Close()
 
-	alerts, err := scanAlerts(rows)
+	alerts, err := s.scanAlerts(rows)
 	if err != nil {
 		return nil, err
 	}
@@ -605,9 +318,9 @@ func (s *SQLiteStore) ListAlerts(ctx context.Context, filter AlertFilters) ([]*A
 }
 
 // UpdateAlertStatus changes an alert's status.
-func (s *SQLiteStore) UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus) error {
+func (s *BaseStore) UpdateAlertStatus(ctx context.Context, id int64, status AlertStatus) error {
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		UPDATE alerts 
 		SET status = ?, updated_at = ?
 		WHERE id = ?
@@ -616,9 +329,9 @@ func (s *SQLiteStore) UpdateAlertStatus(ctx context.Context, id int64, status Al
 }
 
 // AcknowledgeAlert marks an alert as acknowledged.
-func (s *SQLiteStore) AcknowledgeAlert(ctx context.Context, id int64, username string) error {
+func (s *BaseStore) AcknowledgeAlert(ctx context.Context, id int64, username string) error {
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		UPDATE alerts 
 		SET status = 'acknowledged', acknowledged_at = ?, acknowledged_by = ?, updated_at = ?
 		WHERE id = ? AND status = 'active'
@@ -627,9 +340,9 @@ func (s *SQLiteStore) AcknowledgeAlert(ctx context.Context, id int64, username s
 }
 
 // ResolveAlert marks an alert as resolved.
-func (s *SQLiteStore) ResolveAlert(ctx context.Context, id int64) error {
+func (s *BaseStore) ResolveAlert(ctx context.Context, id int64) error {
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		UPDATE alerts 
 		SET status = 'resolved', resolved_at = ?, updated_at = ?
 		WHERE id = ? AND status IN ('active', 'acknowledged')
@@ -638,9 +351,9 @@ func (s *SQLiteStore) ResolveAlert(ctx context.Context, id int64) error {
 }
 
 // SuppressAlert suppresses an alert until a given time.
-func (s *SQLiteStore) SuppressAlert(ctx context.Context, id int64, until time.Time) error {
+func (s *BaseStore) SuppressAlert(ctx context.Context, id int64, until time.Time) error {
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		UPDATE alerts 
 		SET status = 'suppressed', suppressed_until = ?, updated_at = ?
 		WHERE id = ?
@@ -649,9 +362,9 @@ func (s *SQLiteStore) SuppressAlert(ctx context.Context, id int64, until time.Ti
 }
 
 // UpdateAlertNotificationStatus updates the notification tracking fields on an alert.
-func (s *SQLiteStore) UpdateAlertNotificationStatus(ctx context.Context, id int64, sent int, lastNotified time.Time) error {
+func (s *BaseStore) UpdateAlertNotificationStatus(ctx context.Context, id int64, sent int, lastNotified time.Time) error {
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		UPDATE alerts 
 		SET notifications_sent = ?, last_notified_at = ?, updated_at = ?
 		WHERE id = ?
@@ -660,7 +373,7 @@ func (s *SQLiteStore) UpdateAlertNotificationStatus(ctx context.Context, id int6
 }
 
 // ListAlertHistory returns resolved/expired alerts within a time range.
-func (s *SQLiteStore) ListAlertHistory(ctx context.Context, filters AlertFilters) ([]Alert, error) {
+func (s *BaseStore) ListAlertHistory(ctx context.Context, filters AlertFilters) ([]Alert, error) {
 	query := `
 		SELECT 
 			id, rule_id, type, severity, scope, status,
@@ -706,17 +419,17 @@ func (s *SQLiteStore) ListAlertHistory(ctx context.Context, filters AlertFilters
 		args = append(args, filters.Limit)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.queryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list alert history: %w", err)
 	}
 	defer rows.Close()
 
-	return scanAlerts(rows)
+	return s.scanAlerts(rows)
 }
 
 // scanAlerts scans rows into a slice of Alert structs.
-func scanAlerts(rows *sql.Rows) ([]Alert, error) {
+func (s *BaseStore) scanAlerts(rows *sql.Rows) ([]Alert, error) {
 	var alerts []Alert
 	for rows.Next() {
 		var a Alert
@@ -789,18 +502,18 @@ func scanAlerts(rows *sql.Rows) ([]Alert, error) {
 }
 
 // ============================================================
-// Alert Rule Storage Methods
+// Alert Rule Storage Methods (BaseStore)
 // ============================================================
 
 // CreateAlertRule creates a new alert rule.
-func (s *SQLiteStore) CreateAlertRule(ctx context.Context, rule *AlertRule) (int64, error) {
+func (s *BaseStore) CreateAlertRule(ctx context.Context, rule *AlertRule) (int64, error) {
 	channelsJSON, _ := json.Marshal(rule.ChannelIDs)
 	tenantIDsJSON, _ := json.Marshal(rule.TenantIDs)
 	siteIDsJSON, _ := json.Marshal(rule.SiteIDs)
 	agentIDsJSON, _ := json.Marshal(rule.AgentIDs)
 
 	now := time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execContext(ctx, `
 		INSERT INTO alert_rules (
 			name, description, enabled,
 			type, severity, scope,
@@ -830,8 +543,8 @@ func (s *SQLiteStore) CreateAlertRule(ctx context.Context, rule *AlertRule) (int
 }
 
 // ListAlertRules returns all alert rules.
-func (s *SQLiteStore) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (s *BaseStore) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
+	rows, err := s.queryContext(ctx, `
 		SELECT 
 			id, name, description, enabled,
 			type, severity, scope,
@@ -903,13 +616,13 @@ func (s *SQLiteStore) ListAlertRules(ctx context.Context) ([]AlertRule, error) {
 }
 
 // GetAlertRule retrieves a single alert rule by ID.
-func (s *SQLiteStore) GetAlertRule(ctx context.Context, id int64) (*AlertRule, error) {
+func (s *BaseStore) GetAlertRule(ctx context.Context, id int64) (*AlertRule, error) {
 	var r AlertRule
 	var tenantIDsJSON, siteIDsJSON, agentIDsJSON, channelsJSON, conditionJSON, thresholdUnit, createdBy sql.NullString
 	var escalationPolicyID sql.NullInt64
 	var description sql.NullString
 
-	err := s.db.QueryRowContext(ctx, `
+	err := s.queryRowContext(ctx, `
 		SELECT 
 			id, name, description, enabled,
 			type, severity, scope,
@@ -968,14 +681,14 @@ func (s *SQLiteStore) GetAlertRule(ctx context.Context, id int64) (*AlertRule, e
 }
 
 // UpdateAlertRule updates an existing alert rule.
-func (s *SQLiteStore) UpdateAlertRule(ctx context.Context, rule *AlertRule) error {
+func (s *BaseStore) UpdateAlertRule(ctx context.Context, rule *AlertRule) error {
 	channelsJSON, _ := json.Marshal(rule.ChannelIDs)
 	tenantIDsJSON, _ := json.Marshal(rule.TenantIDs)
 	siteIDsJSON, _ := json.Marshal(rule.SiteIDs)
 	agentIDsJSON, _ := json.Marshal(rule.AgentIDs)
 
 	now := time.Now().UTC()
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		UPDATE alert_rules SET
 			name = ?, description = ?, enabled = ?,
 			type = ?, severity = ?, scope = ?,
@@ -1000,21 +713,21 @@ func (s *SQLiteStore) UpdateAlertRule(ctx context.Context, rule *AlertRule) erro
 }
 
 // DeleteAlertRule removes an alert rule by ID.
-func (s *SQLiteStore) DeleteAlertRule(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM alert_rules WHERE id = ?", id)
+func (s *BaseStore) DeleteAlertRule(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, "DELETE FROM alert_rules WHERE id = ?", id)
 	return err
 }
 
 // ============================================================
-// Notification Channel Storage Methods
+// Notification Channel Storage Methods (BaseStore)
 // ============================================================
 
 // CreateNotificationChannel creates a new notification channel.
-func (s *SQLiteStore) CreateNotificationChannel(ctx context.Context, ch *NotificationChannel) (int64, error) {
+func (s *BaseStore) CreateNotificationChannel(ctx context.Context, ch *NotificationChannel) (int64, error) {
 	tenantIDsJSON, _ := json.Marshal(ch.TenantIDs)
 	now := time.Now().UTC()
 
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execContext(ctx, `
 		INSERT INTO notification_channels (
 			name, type, enabled, config_json,
 			min_severity, tenant_ids,
@@ -1040,12 +753,12 @@ func (s *SQLiteStore) CreateNotificationChannel(ctx context.Context, ch *Notific
 }
 
 // GetNotificationChannel returns a notification channel by ID.
-func (s *SQLiteStore) GetNotificationChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
+func (s *BaseStore) GetNotificationChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
 	var ch NotificationChannel
 	var configJSON, tenantIDsJSON sql.NullString
 	var lastSentAt sql.NullTime
 
-	err := s.db.QueryRowContext(ctx, `
+	err := s.queryRowContext(ctx, `
 		SELECT 
 			id, name, type, enabled, config_json,
 			min_severity, tenant_ids,
@@ -1080,8 +793,8 @@ func (s *SQLiteStore) GetNotificationChannel(ctx context.Context, id int64) (*No
 }
 
 // ListNotificationChannels returns all notification channels.
-func (s *SQLiteStore) ListNotificationChannels(ctx context.Context) ([]NotificationChannel, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (s *BaseStore) ListNotificationChannels(ctx context.Context) ([]NotificationChannel, error) {
+	rows, err := s.queryContext(ctx, `
 		SELECT 
 			id, name, type, enabled, config_json,
 			min_severity, tenant_ids,
@@ -1128,19 +841,19 @@ func (s *SQLiteStore) ListNotificationChannels(ctx context.Context) ([]Notificat
 }
 
 // DeleteNotificationChannel removes a notification channel by ID.
-func (s *SQLiteStore) DeleteNotificationChannel(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM notification_channels WHERE id = ?", id)
+func (s *BaseStore) DeleteNotificationChannel(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, "DELETE FROM notification_channels WHERE id = ?", id)
 	return err
 }
 
 // ============================================================
-// Escalation Policy Storage Methods
+// Escalation Policy Storage Methods (BaseStore)
 // ============================================================
 
 // CreateEscalationPolicy creates a new escalation policy.
-func (s *SQLiteStore) CreateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) (int64, error) {
+func (s *BaseStore) CreateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) (int64, error) {
 	now := time.Now().UTC()
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execContext(ctx, `
 		INSERT INTO escalation_policies (name, description, enabled, steps_json, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, policy.Name, policy.Description, policy.Enabled, policy.StepsJSON, now, now)
@@ -1157,8 +870,8 @@ func (s *SQLiteStore) CreateEscalationPolicy(ctx context.Context, policy *Escala
 }
 
 // ListEscalationPolicies returns all escalation policies.
-func (s *SQLiteStore) ListEscalationPolicies(ctx context.Context) ([]EscalationPolicy, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (s *BaseStore) ListEscalationPolicies(ctx context.Context) ([]EscalationPolicy, error) {
+	rows, err := s.queryContext(ctx, `
 		SELECT id, name, description, enabled, steps_json, created_at, updated_at
 		FROM escalation_policies
 		ORDER BY name
@@ -1189,22 +902,22 @@ func (s *SQLiteStore) ListEscalationPolicies(ctx context.Context) ([]EscalationP
 }
 
 // DeleteEscalationPolicy removes an escalation policy by ID.
-func (s *SQLiteStore) DeleteEscalationPolicy(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM escalation_policies WHERE id = ?", id)
+func (s *BaseStore) DeleteEscalationPolicy(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, "DELETE FROM escalation_policies WHERE id = ?", id)
 	return err
 }
 
 // ============================================================
-// Alert Maintenance Window Storage Methods
+// Alert Maintenance Window Storage Methods (BaseStore)
 // ============================================================
 
 // CreateAlertMaintenanceWindow creates a new maintenance window.
-func (s *SQLiteStore) CreateAlertMaintenanceWindow(ctx context.Context, mw *AlertMaintenanceWindow) (int64, error) {
+func (s *BaseStore) CreateAlertMaintenanceWindow(ctx context.Context, mw *AlertMaintenanceWindow) (int64, error) {
 	alertTypesJSON, _ := json.Marshal(mw.AlertTypes)
 	recurDaysJSON, _ := json.Marshal(mw.RecurDays)
 	now := time.Now().UTC()
 
-	result, err := s.db.ExecContext(ctx, `
+	result, err := s.execContext(ctx, `
 		INSERT INTO maintenance_windows (
 			name, description, scope,
 			tenant_id, site_id, agent_id, device_serial,
@@ -1234,8 +947,8 @@ func (s *SQLiteStore) CreateAlertMaintenanceWindow(ctx context.Context, mw *Aler
 }
 
 // ListAlertMaintenanceWindows returns all maintenance windows.
-func (s *SQLiteStore) ListAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (s *BaseStore) ListAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error) {
+	rows, err := s.queryContext(ctx, `
 		SELECT 
 			id, name, description, scope,
 			tenant_id, site_id, agent_id, device_serial,
@@ -1251,62 +964,13 @@ func (s *SQLiteStore) ListAlertMaintenanceWindows(ctx context.Context) ([]AlertM
 	}
 	defer rows.Close()
 
-	var windows []AlertMaintenanceWindow
-	for rows.Next() {
-		var mw AlertMaintenanceWindow
-		var description, tenantID, siteID, agentID, deviceSerial, recurPattern, createdBy sql.NullString
-		var alertTypesJSON, recurDaysJSON sql.NullString
-
-		err := rows.Scan(
-			&mw.ID, &mw.Name, &description, &mw.Scope,
-			&tenantID, &siteID, &agentID, &deviceSerial,
-			&mw.StartTime, &mw.EndTime, &mw.Timezone,
-			&mw.Recurring, &recurPattern, &recurDaysJSON,
-			&alertTypesJSON, &mw.AllowCritical,
-			&mw.CreatedAt, &mw.UpdatedAt, &createdBy,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("scan maintenance window: %w", err)
-		}
-
-		if description.Valid {
-			mw.Description = description.String
-		}
-		if tenantID.Valid {
-			mw.TenantID = tenantID.String
-		}
-		if siteID.Valid {
-			mw.SiteID = siteID.String
-		}
-		if agentID.Valid {
-			mw.AgentID = agentID.String
-		}
-		if deviceSerial.Valid {
-			mw.DeviceSerial = deviceSerial.String
-		}
-		if recurPattern.Valid {
-			mw.RecurPattern = recurPattern.String
-		}
-		if createdBy.Valid {
-			mw.CreatedBy = createdBy.String
-		}
-		if alertTypesJSON.Valid && alertTypesJSON.String != "" {
-			json.Unmarshal([]byte(alertTypesJSON.String), &mw.AlertTypes)
-		}
-		if recurDaysJSON.Valid && recurDaysJSON.String != "" {
-			json.Unmarshal([]byte(recurDaysJSON.String), &mw.RecurDays)
-		}
-
-		windows = append(windows, mw)
-	}
-
-	return windows, rows.Err()
+	return s.scanMaintenanceWindows(rows)
 }
 
 // GetActiveAlertMaintenanceWindows returns currently active maintenance windows.
-func (s *SQLiteStore) GetActiveAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error) {
+func (s *BaseStore) GetActiveAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error) {
 	now := time.Now().UTC()
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.queryContext(ctx, `
 		SELECT 
 			id, name, description, scope,
 			tenant_id, site_id, agent_id, device_serial,
@@ -1323,6 +987,11 @@ func (s *SQLiteStore) GetActiveAlertMaintenanceWindows(ctx context.Context) ([]A
 	}
 	defer rows.Close()
 
+	return s.scanMaintenanceWindows(rows)
+}
+
+// scanMaintenanceWindows scans rows into maintenance window structs.
+func (s *BaseStore) scanMaintenanceWindows(rows *sql.Rows) ([]AlertMaintenanceWindow, error) {
 	var windows []AlertMaintenanceWindow
 	for rows.Next() {
 		var mw AlertMaintenanceWindow
@@ -1376,19 +1045,19 @@ func (s *SQLiteStore) GetActiveAlertMaintenanceWindows(ctx context.Context) ([]A
 }
 
 // DeleteAlertMaintenanceWindow removes a maintenance window by ID.
-func (s *SQLiteStore) DeleteAlertMaintenanceWindow(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM maintenance_windows WHERE id = ?", id)
+func (s *BaseStore) DeleteAlertMaintenanceWindow(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, "DELETE FROM maintenance_windows WHERE id = ?", id)
 	return err
 }
 
 // ============================================================
-// Alert Settings Storage Methods
+// Alert Settings Storage Methods (BaseStore)
 // ============================================================
 
 // GetAlertSettings retrieves the global alert settings.
-func (s *SQLiteStore) GetAlertSettings(ctx context.Context) (*AlertSettings, error) {
+func (s *BaseStore) GetAlertSettings(ctx context.Context) (*AlertSettings, error) {
 	var settingsJSON sql.NullString
-	err := s.db.QueryRowContext(ctx, `
+	err := s.queryRowContext(ctx, `
 		SELECT value FROM alert_settings WHERE key = 'alert_settings'
 	`).Scan(&settingsJSON)
 
@@ -1423,28 +1092,29 @@ func (s *SQLiteStore) GetAlertSettings(ctx context.Context) (*AlertSettings, err
 }
 
 // SaveAlertSettings persists the global alert settings.
-func (s *SQLiteStore) SaveAlertSettings(ctx context.Context, settings *AlertSettings) error {
+func (s *BaseStore) SaveAlertSettings(ctx context.Context, settings *AlertSettings) error {
 	data, err := json.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("marshal alert settings: %w", err)
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	// Use dialect-specific upsert
+	upsertQuery := `
 		INSERT INTO alert_settings (key, value, updated_at) VALUES ('alert_settings', ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-	`, string(data))
+	` + s.dialect.UpsertConflict([]string{"key"}) + ` value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP`
 
+	_, err = s.execContext(ctx, upsertQuery, string(data))
 	return err
 }
 
 // GetAlertSummary computes dashboard statistics.
-func (s *SQLiteStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error) {
+func (s *BaseStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error) {
 	summary := &AlertSummary{
 		AlertsByType: make(map[string]int),
 	}
 
 	// Count active alerts by type
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.queryContext(ctx, `
 		SELECT type, COUNT(*) FROM alerts 
 		WHERE status = 'active' 
 		GROUP BY type
@@ -1464,25 +1134,25 @@ func (s *SQLiteStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error
 	}
 
 	// Count active rules
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM alert_rules WHERE enabled = 1`).Scan(&summary.ActiveRules)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM alert_rules WHERE enabled = 1`).Scan(&summary.ActiveRules)
 	if err != nil {
 		return nil, err
 	}
 
 	// Count active channels
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notification_channels WHERE enabled = 1`).Scan(&summary.ActiveChannels)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM notification_channels WHERE enabled = 1`).Scan(&summary.ActiveChannels)
 	if err != nil {
 		return nil, err
 	}
 
 	// Count suppressed
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'suppressed'`).Scan(&summary.SuppressedCount)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'suppressed'`).Scan(&summary.SuppressedCount)
 	if err != nil {
 		return nil, err
 	}
 
 	// Count acknowledged
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'acknowledged'`).Scan(&summary.AcknowledgedCount)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'acknowledged'`).Scan(&summary.AcknowledgedCount)
 	if err != nil {
 		return nil, err
 	}
@@ -1500,45 +1170,4 @@ func (s *SQLiteStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error
 	}
 
 	return summary, nil
-}
-
-// isInQuietHours checks if the current time is within quiet hours.
-func isInQuietHours(config QuietHoursConfig) bool {
-	if !config.Enabled {
-		return false
-	}
-
-	// Parse start and end times
-	now := time.Now()
-	startParts := []int{22, 0}
-	endParts := []int{7, 0}
-
-	fmt.Sscanf(config.StartTime, "%d:%d", &startParts[0], &startParts[1])
-	fmt.Sscanf(config.EndTime, "%d:%d", &endParts[0], &endParts[1])
-
-	currentMins := now.Hour()*60 + now.Minute()
-	startMins := startParts[0]*60 + startParts[1]
-	endMins := endParts[0]*60 + endParts[1]
-
-	// Handle overnight window (e.g., 22:00 to 07:00)
-	if startMins > endMins {
-		return currentMins >= startMins || currentMins < endMins
-	}
-	return currentMins >= startMins && currentMins < endMins
-}
-
-// nullInt64Ptr is a helper for optional int64 pointers
-func nullInt64Ptr(v *int64) sql.NullInt64 {
-	if v == nil {
-		return sql.NullInt64{}
-	}
-	return sql.NullInt64{Int64: *v, Valid: true}
-}
-
-// nullTimePtr is a helper for optional time pointers
-func nullTimePtr(v *time.Time) sql.NullTime {
-	if v == nil {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: *v, Valid: true}
 }

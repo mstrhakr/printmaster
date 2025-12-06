@@ -7,7 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
+
+	pmsettings "printmaster/common/settings"
 )
 
 // BaseStore provides shared database operations that work across SQLite and PostgreSQL.
@@ -1352,4 +1357,2564 @@ func (s *BaseStore) GetAuditLog(ctx context.Context, actorID string, since time.
 		entries = append(entries, &e)
 	}
 	return entries, rows.Err()
+}
+
+// ============================================================================
+// Join Token Methods
+// ============================================================================
+
+// CreateJoinToken generates a join token for tenant agent onboarding.
+// Returns the JoinToken record, raw token string for sharing, and any error.
+func (s *BaseStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMinutes int, oneTime bool) (*JoinToken, string, error) {
+	if tenantID == "" {
+		return nil, "", fmt.Errorf("tenant_id required")
+	}
+	// Verify tenant exists
+	if _, err := s.GetTenant(ctx, tenantID); err != nil {
+		return nil, "", fmt.Errorf("tenant not found: %s", tenantID)
+	}
+
+	// Generate random token
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return nil, "", err
+	}
+	rawToken := hex.EncodeToString(b)
+
+	// Hash the token using Argon2
+	tokenHash, err := hashArgon(rawToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	now := time.Now().UTC()
+	expiresAt := now.Add(time.Duration(ttlMinutes) * time.Minute)
+	tokenID := generateSecureToken(16)
+
+	query := `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err = s.execContext(ctx, query, tokenID, tokenHash, tenantID, expiresAt, boolToInt(oneTime), now)
+	if err != nil {
+		return nil, "", err
+	}
+
+	jt := &JoinToken{
+		ID:        tokenID,
+		TenantID:  tenantID,
+		ExpiresAt: expiresAt,
+		OneTime:   oneTime,
+		CreatedAt: now,
+	}
+
+	return jt, rawToken, nil
+}
+
+// ValidateJoinToken validates a join token and returns the JoinToken if valid.
+func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*JoinToken, error) {
+	// Fetch all non-revoked, unexpired tokens
+	rows, err := s.queryContext(ctx, `
+		SELECT id, token_hash, tenant_id, expires_at, one_time, created_at
+		FROM join_tokens
+		WHERE revoked = 0 AND expires_at > ?
+	`, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, hash, tenantID string
+		var expiresAt, createdAt time.Time
+		var oneTimeInt int
+		if err := rows.Scan(&id, &hash, &tenantID, &expiresAt, &oneTimeInt, &createdAt); err != nil {
+			return nil, err
+		}
+
+		// Verify the hash
+		ok, verr := verifyArgonHash(rawToken, hash)
+		if verr != nil {
+			continue
+		}
+		if ok {
+			// If one-time token, mark as used (revoked)
+			if oneTimeInt != 0 {
+				s.execContext(ctx, `UPDATE join_tokens SET revoked = 1, used_at = ? WHERE id = ?`, time.Now().UTC(), id)
+			}
+			return &JoinToken{
+				ID:        id,
+				TokenHash: hash,
+				TenantID:  tenantID,
+				ExpiresAt: expiresAt,
+				OneTime:   oneTimeInt != 0,
+				CreatedAt: createdAt,
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("invalid or expired join token")
+}
+
+// ListJoinTokens lists tokens for a tenant (admin view)
+func (s *BaseStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*JoinToken, error) {
+	rows, err := s.queryContext(ctx, `
+		SELECT id, token_hash, tenant_id, expires_at, one_time, created_at, used_at, revoked
+		FROM join_tokens
+		WHERE tenant_id = ?
+		ORDER BY created_at DESC
+	`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []*JoinToken
+	for rows.Next() {
+		var jt JoinToken
+		var oneInt, revokedInt int
+		var usedAt sql.NullTime
+		if err := rows.Scan(&jt.ID, &jt.TokenHash, &jt.TenantID, &jt.ExpiresAt, &oneInt, &jt.CreatedAt, &usedAt, &revokedInt); err != nil {
+			return nil, err
+		}
+		jt.OneTime = oneInt != 0
+		jt.Revoked = revokedInt != 0
+		if usedAt.Valid {
+			jt.UsedAt = usedAt.Time
+		}
+		tokens = append(tokens, &jt)
+	}
+	return tokens, rows.Err()
+}
+
+// RevokeJoinToken marks a join token as revoked
+func (s *BaseStore) RevokeJoinToken(ctx context.Context, id string) error {
+	_, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = 1 WHERE id = ?`, id)
+	return err
+}
+
+// ============================================================================
+// Password Reset Methods
+// ============================================================================
+
+// CreatePasswordResetToken creates a reset token for a user and stores its hash
+func (s *BaseStore) CreatePasswordResetToken(ctx context.Context, userID int64, ttlMinutes int) (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	rawToken := hex.EncodeToString(b)
+
+	// Hash token using Argon2
+	tokenHash, err := hashArgon(rawToken)
+	if err != nil {
+		return "", err
+	}
+
+	expiresAt := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
+	now := time.Now().UTC()
+
+	_, err = s.execContext(ctx, `INSERT INTO password_resets (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`,
+		tokenHash, userID, expiresAt, now)
+	if err != nil {
+		return "", err
+	}
+
+	return rawToken, nil
+}
+
+// ValidatePasswordResetToken verifies the token and marks it used; returns userID
+func (s *BaseStore) ValidatePasswordResetToken(ctx context.Context, token string) (int64, error) {
+	rows, err := s.queryContext(ctx, `SELECT id, token_hash, user_id, expires_at, used FROM password_resets WHERE used = 0 AND expires_at > ?`, time.Now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, userID int64
+		var hash string
+		var expiresAt time.Time
+		var usedInt int
+		if err := rows.Scan(&id, &hash, &userID, &expiresAt, &usedInt); err != nil {
+			return 0, err
+		}
+
+		ok, verr := verifyArgonHash(token, hash)
+		if verr != nil {
+			continue
+		}
+		if ok {
+			// Mark as used
+			if _, err := s.execContext(ctx, `UPDATE password_resets SET used = 1 WHERE id = ?`, id); err != nil {
+				return 0, err
+			}
+			return userID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("invalid or expired token")
+}
+
+// DeletePasswordResetToken deletes a matching reset token (if present)
+func (s *BaseStore) DeletePasswordResetToken(ctx context.Context, token string) error {
+	rows, err := s.queryContext(ctx, `SELECT id, token_hash FROM password_resets`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		var hash string
+		if err := rows.Scan(&id, &hash); err != nil {
+			return err
+		}
+		ok, verr := verifyArgonHash(token, hash)
+		if verr != nil {
+			continue
+		}
+		if ok {
+			_, err := s.execContext(ctx, `DELETE FROM password_resets WHERE id = ?`, id)
+			return err
+		}
+	}
+	return nil
+}
+
+// ============================================================================
+// User Invitation Methods
+// ============================================================================
+
+// CreateUserInvitation creates an invitation and returns the raw token
+func (s *BaseStore) CreateUserInvitation(ctx context.Context, inv *UserInvitation, ttlMinutes int) (string, error) {
+	if inv == nil || inv.Email == "" {
+		return "", fmt.Errorf("email required")
+	}
+
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	rawToken := hex.EncodeToString(b)
+
+	tokenHash, err := hashArgon(rawToken)
+	if err != nil {
+		return "", err
+	}
+
+	expiresAt := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
+	now := time.Now().UTC()
+	role := NormalizeRole(string(inv.Role))
+
+	res, err := s.execContext(ctx, `
+		INSERT INTO user_invitations (email, username, role, tenant_id, token_hash, expires_at, created_at, created_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, inv.Email, nullString(inv.Username), string(role), nullString(inv.TenantID), tokenHash, expiresAt, now, nullString(inv.CreatedBy))
+	if err != nil {
+		return "", err
+	}
+
+	id, _ := res.LastInsertId()
+	inv.ID = id
+	inv.TokenHash = tokenHash
+	inv.ExpiresAt = expiresAt
+	inv.CreatedAt = now
+	inv.Role = role
+
+	return rawToken, nil
+}
+
+// GetUserInvitation validates token and returns the invitation if valid and unused
+func (s *BaseStore) GetUserInvitation(ctx context.Context, token string) (*UserInvitation, error) {
+	rows, err := s.queryContext(ctx, `
+		SELECT id, email, username, role, tenant_id, token_hash, expires_at, used, created_at, created_by
+		FROM user_invitations
+		WHERE used = 0 AND expires_at > ?
+	`, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var inv UserInvitation
+		var role string
+		var username, tenantID, createdBy sql.NullString
+		if err := rows.Scan(&inv.ID, &inv.Email, &username, &role, &tenantID, &inv.TokenHash, &inv.ExpiresAt, &inv.Used, &inv.CreatedAt, &createdBy); err != nil {
+			return nil, err
+		}
+
+		ok, verr := verifyArgonHash(token, inv.TokenHash)
+		if verr != nil {
+			continue
+		}
+		if ok {
+			inv.Role = Role(role)
+			inv.Username = username.String
+			inv.TenantID = tenantID.String
+			inv.CreatedBy = createdBy.String
+			return &inv, nil
+		}
+	}
+
+	return nil, fmt.Errorf("invalid or expired invitation")
+}
+
+// MarkInvitationUsed marks an invitation as used
+func (s *BaseStore) MarkInvitationUsed(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, `UPDATE user_invitations SET used = 1 WHERE id = ?`, id)
+	return err
+}
+
+// ListUserInvitations returns all invitations (for admin UI)
+func (s *BaseStore) ListUserInvitations(ctx context.Context) ([]*UserInvitation, error) {
+	rows, err := s.queryContext(ctx, `
+		SELECT id, email, username, role, tenant_id, expires_at, used, created_at, created_by
+		FROM user_invitations
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var invitations []*UserInvitation
+	for rows.Next() {
+		var inv UserInvitation
+		var role string
+		var username, tenantID, createdBy sql.NullString
+		if err := rows.Scan(&inv.ID, &inv.Email, &username, &role, &tenantID, &inv.ExpiresAt, &inv.Used, &inv.CreatedAt, &createdBy); err != nil {
+			return nil, err
+		}
+		inv.Role = Role(role)
+		inv.Username = username.String
+		inv.TenantID = tenantID.String
+		inv.CreatedBy = createdBy.String
+		invitations = append(invitations, &inv)
+	}
+	return invitations, rows.Err()
+}
+
+// DeleteUserInvitation deletes an invitation by ID
+func (s *BaseStore) DeleteUserInvitation(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, `DELETE FROM user_invitations WHERE id = ?`, id)
+	return err
+}
+
+// ============================================================================
+// OIDC Provider Methods
+// ============================================================================
+
+// CreateOIDCProvider creates a new OIDC provider configuration
+func (s *BaseStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProvider) error {
+	if provider == nil {
+		return fmt.Errorf("provider required")
+	}
+	if provider.Slug == "" || provider.Issuer == "" || provider.ClientID == "" {
+		return fmt.Errorf("slug, issuer, and client_id required")
+	}
+
+	if provider.CreatedAt.IsZero() {
+		provider.CreatedAt = time.Now().UTC()
+	}
+	provider.UpdatedAt = time.Now().UTC()
+	provider.DefaultRole = NormalizeRole(string(provider.DefaultRole))
+
+	scopes := strings.Join(provider.Scopes, " ")
+
+	_, err := s.execContext(ctx, `
+		INSERT INTO oidc_providers (
+			slug, display_name, issuer, client_id, client_secret, scopes, icon,
+			button_text, button_style, auto_login, tenant_id, default_role, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		provider.Slug, provider.DisplayName, provider.Issuer, provider.ClientID,
+		provider.ClientSecret, scopes, provider.Icon, provider.ButtonText,
+		provider.ButtonStyle, boolToInt(provider.AutoLogin), nullString(provider.TenantID),
+		string(provider.DefaultRole), provider.CreatedAt, provider.UpdatedAt)
+	return err
+}
+
+// UpdateOIDCProvider updates an existing OIDC provider
+func (s *BaseStore) UpdateOIDCProvider(ctx context.Context, provider *OIDCProvider) error {
+	if provider == nil {
+		return fmt.Errorf("provider required")
+	}
+	if provider.Slug == "" {
+		return fmt.Errorf("slug required")
+	}
+
+	provider.UpdatedAt = time.Now().UTC()
+	provider.DefaultRole = NormalizeRole(string(provider.DefaultRole))
+	scopes := strings.Join(provider.Scopes, " ")
+
+	_, err := s.execContext(ctx, `
+		UPDATE oidc_providers SET
+			display_name = ?, issuer = ?, client_id = ?, client_secret = ?, scopes = ?,
+			icon = ?, button_text = ?, button_style = ?, auto_login = ?,
+			tenant_id = ?, default_role = ?, updated_at = ?
+		WHERE slug = ?
+	`,
+		provider.DisplayName, provider.Issuer, provider.ClientID, provider.ClientSecret,
+		scopes, provider.Icon, provider.ButtonText, provider.ButtonStyle,
+		boolToInt(provider.AutoLogin), nullString(provider.TenantID),
+		string(provider.DefaultRole), provider.UpdatedAt, provider.Slug)
+	return err
+}
+
+// DeleteOIDCProvider removes an OIDC provider
+func (s *BaseStore) DeleteOIDCProvider(ctx context.Context, slug string) error {
+	_, err := s.execContext(ctx, `DELETE FROM oidc_providers WHERE slug = ?`, slug)
+	return err
+}
+
+// GetOIDCProvider retrieves an OIDC provider by slug
+func (s *BaseStore) GetOIDCProvider(ctx context.Context, slug string) (*OIDCProvider, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, slug, display_name, issuer, client_id, client_secret, scopes, icon,
+		       button_text, button_style, auto_login, tenant_id, default_role, created_at, updated_at
+		FROM oidc_providers WHERE slug = ?
+	`, slug)
+
+	var p OIDCProvider
+	var scopes string
+	var autoLogin int
+	var tenantID sql.NullString
+	var defaultRole string
+
+	if err := row.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID,
+		&p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle,
+		&autoLogin, &tenantID, &defaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		return nil, err
+	}
+
+	p.AutoLogin = intToBool(autoLogin)
+	p.TenantID = tenantID.String
+	if scopes == "" {
+		scopes = "openid profile email"
+	}
+	p.Scopes = strings.Fields(scopes)
+	p.DefaultRole = NormalizeRole(defaultRole)
+
+	return &p, nil
+}
+
+// ListOIDCProviders returns all OIDC providers, optionally filtered by tenant
+func (s *BaseStore) ListOIDCProviders(ctx context.Context, tenantID string) ([]*OIDCProvider, error) {
+	query := `
+		SELECT id, slug, display_name, issuer, client_id, client_secret, scopes, icon,
+		       button_text, button_style, auto_login, tenant_id, default_role, created_at, updated_at
+		FROM oidc_providers
+	`
+	args := []interface{}{}
+	if tenantID != "" {
+		query += " WHERE tenant_id IS NULL OR tenant_id = ?"
+		args = append(args, tenantID)
+	}
+	query += " ORDER BY tenant_id IS NULL DESC, display_name"
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var providers []*OIDCProvider
+	for rows.Next() {
+		var p OIDCProvider
+		var scopes string
+		var autoLogin int
+		var tid sql.NullString
+		var defaultRole string
+
+		if err := rows.Scan(&p.ID, &p.Slug, &p.DisplayName, &p.Issuer, &p.ClientID,
+			&p.ClientSecret, &scopes, &p.Icon, &p.ButtonText, &p.ButtonStyle,
+			&autoLogin, &tid, &defaultRole, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+
+		p.AutoLogin = intToBool(autoLogin)
+		p.TenantID = tid.String
+		p.Scopes = strings.Fields(scopes)
+		p.DefaultRole = NormalizeRole(defaultRole)
+		providers = append(providers, &p)
+	}
+	return providers, rows.Err()
+}
+
+// CreateOIDCSession creates a pending OIDC login session
+func (s *BaseStore) CreateOIDCSession(ctx context.Context, sess *OIDCSession) error {
+	if sess == nil {
+		return fmt.Errorf("session required")
+	}
+	if sess.ID == "" {
+		return fmt.Errorf("session id required")
+	}
+	if sess.CreatedAt.IsZero() {
+		sess.CreatedAt = time.Now().UTC()
+	}
+
+	_, err := s.execContext(ctx, `
+		INSERT INTO oidc_sessions (id, provider_slug, tenant_id, nonce, state, redirect_url, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, sess.ID, sess.ProviderSlug, nullString(sess.TenantID), sess.Nonce, sess.State, sess.RedirectURL, sess.CreatedAt)
+	return err
+}
+
+// GetOIDCSession retrieves an OIDC session by ID
+func (s *BaseStore) GetOIDCSession(ctx context.Context, id string) (*OIDCSession, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, provider_slug, tenant_id, nonce, state, redirect_url, created_at
+		FROM oidc_sessions WHERE id = ?
+	`, id)
+
+	var sess OIDCSession
+	var tenantID sql.NullString
+	if err := row.Scan(&sess.ID, &sess.ProviderSlug, &tenantID, &sess.Nonce, &sess.State, &sess.RedirectURL, &sess.CreatedAt); err != nil {
+		return nil, err
+	}
+	sess.TenantID = tenantID.String
+	return &sess, nil
+}
+
+// DeleteOIDCSession removes an OIDC session
+func (s *BaseStore) DeleteOIDCSession(ctx context.Context, id string) error {
+	_, err := s.execContext(ctx, `DELETE FROM oidc_sessions WHERE id = ?`, id)
+	return err
+}
+
+// CreateOIDCLink creates a link between an OIDC subject and a local user
+func (s *BaseStore) CreateOIDCLink(ctx context.Context, link *OIDCLink) error {
+	if link == nil {
+		return fmt.Errorf("link required")
+	}
+
+	_, err := s.execContext(ctx, `
+		INSERT INTO oidc_links (provider_slug, subject, email, user_id, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, link.ProviderSlug, link.Subject, link.Email, link.UserID, time.Now().UTC())
+	return err
+}
+
+// GetOIDCLink retrieves an OIDC link by provider and subject
+func (s *BaseStore) GetOIDCLink(ctx context.Context, providerSlug, subject string) (*OIDCLink, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, provider_slug, subject, email, user_id, created_at
+		FROM oidc_links WHERE provider_slug = ? AND subject = ?
+	`, providerSlug, subject)
+
+	var link OIDCLink
+	if err := row.Scan(&link.ID, &link.ProviderSlug, &link.Subject, &link.Email, &link.UserID, &link.CreatedAt); err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+// ListOIDCLinksForUser returns all OIDC links for a user
+func (s *BaseStore) ListOIDCLinksForUser(ctx context.Context, userID int64) ([]*OIDCLink, error) {
+	rows, err := s.queryContext(ctx, `
+		SELECT id, provider_slug, subject, email, user_id, created_at
+		FROM oidc_links WHERE user_id = ?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var links []*OIDCLink
+	for rows.Next() {
+		var link OIDCLink
+		if err := rows.Scan(&link.ID, &link.ProviderSlug, &link.Subject, &link.Email, &link.UserID, &link.CreatedAt); err != nil {
+			return nil, err
+		}
+		links = append(links, &link)
+	}
+	return links, rows.Err()
+}
+
+// DeleteOIDCLink removes an OIDC link
+func (s *BaseStore) DeleteOIDCLink(ctx context.Context, providerSlug, subject string) error {
+	_, err := s.execContext(ctx, `DELETE FROM oidc_links WHERE provider_slug = ? AND subject = ?`, providerSlug, subject)
+	return err
+}
+
+// ============================================================================
+// Settings Methods
+// ============================================================================
+
+// GetGlobalSettings returns the persisted global settings snapshot
+func (s *BaseStore) GetGlobalSettings(ctx context.Context) (*SettingsRecord, error) {
+	query := `SELECT schema_version, payload, updated_at, COALESCE(updated_by, '') FROM settings_global WHERE id = 1`
+
+	var schemaVersion string
+	var payload sql.NullString
+	var updatedAt sql.NullTime
+	var updatedBy string
+
+	err := s.queryRowContext(ctx, query).Scan(&schemaVersion, &payload, &updatedAt, &updatedBy)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	settingsPayload := pmsettings.DefaultSettings()
+	if payload.Valid && payload.String != "" {
+		if err := json.Unmarshal([]byte(payload.String), &settingsPayload); err != nil {
+			return nil, fmt.Errorf("failed to decode global settings: %w", err)
+		}
+	}
+	pmsettings.Sanitize(&settingsPayload)
+
+	rec := &SettingsRecord{
+		SchemaVersion: schemaVersion,
+		Settings:      settingsPayload,
+		UpdatedBy:     updatedBy,
+	}
+	if updatedAt.Valid {
+		rec.UpdatedAt = updatedAt.Time
+	}
+	return rec, nil
+}
+
+// UpsertGlobalSettings replaces the canonical global settings row
+func (s *BaseStore) UpsertGlobalSettings(ctx context.Context, rec *SettingsRecord) error {
+	if rec == nil {
+		return fmt.Errorf("settings record required")
+	}
+	pmsettings.Sanitize(&rec.Settings)
+	payload, err := json.Marshal(rec.Settings)
+	if err != nil {
+		return fmt.Errorf("failed to encode settings: %w", err)
+	}
+	if rec.SchemaVersion == "" {
+		rec.SchemaVersion = pmsettings.SchemaVersion
+	}
+	if rec.UpdatedBy == "" {
+		rec.UpdatedBy = "system"
+	}
+
+	query := `
+		INSERT INTO settings_global (id, schema_version, payload, updated_at, updated_by)
+		VALUES (1, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			schema_version = excluded.schema_version,
+			payload = excluded.payload,
+			updated_at = excluded.updated_at,
+			updated_by = excluded.updated_by
+	`
+	_, err = s.execContext(ctx, query, rec.SchemaVersion, string(payload), time.Now().UTC(), rec.UpdatedBy)
+	return err
+}
+
+// GetTenantSettings returns tenant-specific overrides (if any)
+func (s *BaseStore) GetTenantSettings(ctx context.Context, tenantID string) (*TenantSettingsRecord, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, fmt.Errorf("tenant id required")
+	}
+
+	query := `SELECT tenant_id, schema_version, payload, updated_at, COALESCE(updated_by, '') FROM settings_tenant WHERE tenant_id = ?`
+
+	var id, schemaVersion string
+	var payload sql.NullString
+	var updatedAt sql.NullTime
+	var updatedBy string
+
+	err := s.queryRowContext(ctx, query, tenantID).Scan(&id, &schemaVersion, &payload, &updatedAt, &updatedBy)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	overrides := map[string]interface{}{}
+	if payload.Valid && payload.String != "" {
+		if err := json.Unmarshal([]byte(payload.String), &overrides); err != nil {
+			return nil, fmt.Errorf("failed to decode tenant settings: %w", err)
+		}
+	}
+
+	rec := &TenantSettingsRecord{
+		TenantID:      id,
+		SchemaVersion: schemaVersion,
+		Overrides:     overrides,
+		UpdatedBy:     updatedBy,
+	}
+	if updatedAt.Valid {
+		rec.UpdatedAt = updatedAt.Time
+	}
+	return rec, nil
+}
+
+// UpsertTenantSettings stores tenant override patches
+func (s *BaseStore) UpsertTenantSettings(ctx context.Context, rec *TenantSettingsRecord) error {
+	if rec == nil {
+		return fmt.Errorf("tenant settings record required")
+	}
+	if strings.TrimSpace(rec.TenantID) == "" {
+		return fmt.Errorf("tenant id required")
+	}
+	if rec.Overrides == nil {
+		rec.Overrides = map[string]interface{}{}
+	}
+
+	payload, err := json.Marshal(rec.Overrides)
+	if err != nil {
+		return fmt.Errorf("failed to encode overrides: %w", err)
+	}
+	if rec.SchemaVersion == "" {
+		rec.SchemaVersion = pmsettings.SchemaVersion
+	}
+	if rec.UpdatedBy == "" {
+		rec.UpdatedBy = "system"
+	}
+
+	query := `
+		INSERT INTO settings_tenant (tenant_id, schema_version, payload, updated_at, updated_by)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(tenant_id) DO UPDATE SET
+			schema_version = excluded.schema_version,
+			payload = excluded.payload,
+			updated_at = excluded.updated_at,
+			updated_by = excluded.updated_by
+	`
+	_, err = s.execContext(ctx, query, rec.TenantID, rec.SchemaVersion, string(payload), time.Now().UTC(), rec.UpdatedBy)
+	return err
+}
+
+// DeleteTenantSettings removes overrides for a tenant
+func (s *BaseStore) DeleteTenantSettings(ctx context.Context, tenantID string) error {
+	if strings.TrimSpace(tenantID) == "" {
+		return fmt.Errorf("tenant id required")
+	}
+	_, err := s.execContext(ctx, `DELETE FROM settings_tenant WHERE tenant_id = ?`, tenantID)
+	return err
+}
+
+// ListTenantSettings returns all tenants with overrides
+func (s *BaseStore) ListTenantSettings(ctx context.Context) ([]*TenantSettingsRecord, error) {
+	rows, err := s.queryContext(ctx, `SELECT tenant_id, schema_version, payload, updated_at, COALESCE(updated_by, '') FROM settings_tenant ORDER BY tenant_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var records []*TenantSettingsRecord
+	for rows.Next() {
+		var tenantID, schemaVersion string
+		var payload sql.NullString
+		var updatedAt sql.NullTime
+		var updatedBy string
+
+		if err := rows.Scan(&tenantID, &schemaVersion, &payload, &updatedAt, &updatedBy); err != nil {
+			return nil, err
+		}
+
+		overrides := map[string]interface{}{}
+		if payload.Valid && payload.String != "" {
+			if err := json.Unmarshal([]byte(payload.String), &overrides); err != nil {
+				return nil, fmt.Errorf("failed to decode tenant settings: %w", err)
+			}
+		}
+
+		rec := &TenantSettingsRecord{
+			TenantID:      tenantID,
+			SchemaVersion: schemaVersion,
+			Overrides:     overrides,
+			UpdatedBy:     updatedBy,
+		}
+		if updatedAt.Valid {
+			rec.UpdatedAt = updatedAt.Time
+		}
+		records = append(records, rec)
+	}
+	return records, rows.Err()
+}
+
+// ============================================================================
+// Fleet Update Policy Methods
+// ============================================================================
+
+// GetFleetUpdatePolicy retrieves the update policy for a tenant
+func (s *BaseStore) GetFleetUpdatePolicy(ctx context.Context, tenantID string) (*FleetUpdatePolicy, error) {
+	if tenantID == GlobalFleetPolicyTenantID {
+		return s.getGlobalFleetUpdatePolicy(ctx)
+	}
+
+	row := s.queryRowContext(ctx, `
+		SELECT tenant_id, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+		       maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+		       maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+		       maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+		       rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+		       collect_telemetry, updated_at
+		FROM fleet_update_policies
+		WHERE tenant_id = ?
+	`, tenantID)
+
+	return s.scanFleetUpdatePolicy(row, false)
+}
+
+func (s *BaseStore) getGlobalFleetUpdatePolicy(ctx context.Context) (*FleetUpdatePolicy, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+		       maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+		       maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+		       maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+		       rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+		       collect_telemetry, updated_at
+		FROM fleet_update_policy_global
+		WHERE singleton = 1
+	`)
+
+	return s.scanFleetUpdatePolicy(row, true)
+}
+
+func (s *BaseStore) scanFleetUpdatePolicy(row *sql.Row, isGlobal bool) (*FleetUpdatePolicy, error) {
+	var (
+		tid                   string
+		updateCheckDays       int
+		pinStrategy           string
+		allowMajor            int
+		targetVersion         sql.NullString
+		mwEnabled             int
+		mwStartHour           int
+		mwStartMin            int
+		mwEndHour             int
+		mwEndMin              int
+		mwTimezone            string
+		mwDaysJSON            sql.NullString
+		rolloutStaggered      int
+		rolloutMaxConcurrent  int
+		rolloutBatchSize      int
+		rolloutDelayWaves     int
+		rolloutJitterSec      int
+		rolloutEmergencyAbort int
+		collectTelemetry      int
+		updatedAt             time.Time
+	)
+
+	var err error
+	if isGlobal {
+		tid = GlobalFleetPolicyTenantID
+		err = row.Scan(&updateCheckDays, &pinStrategy, &allowMajor, &targetVersion,
+			&mwEnabled, &mwStartHour, &mwStartMin, &mwEndHour, &mwEndMin, &mwTimezone, &mwDaysJSON,
+			&rolloutStaggered, &rolloutMaxConcurrent, &rolloutBatchSize, &rolloutDelayWaves,
+			&rolloutJitterSec, &rolloutEmergencyAbort, &collectTelemetry, &updatedAt)
+	} else {
+		err = row.Scan(&tid, &updateCheckDays, &pinStrategy, &allowMajor, &targetVersion,
+			&mwEnabled, &mwStartHour, &mwStartMin, &mwEndHour, &mwEndMin, &mwTimezone, &mwDaysJSON,
+			&rolloutStaggered, &rolloutMaxConcurrent, &rolloutBatchSize, &rolloutDelayWaves,
+			&rolloutJitterSec, &rolloutEmergencyAbort, &collectTelemetry, &updatedAt)
+	}
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var daysOfWeek []int
+	if mwDaysJSON.Valid && mwDaysJSON.String != "" {
+		if err := json.Unmarshal([]byte(mwDaysJSON.String), &daysOfWeek); err != nil {
+			return nil, fmt.Errorf("failed to decode days_of_week: %w", err)
+		}
+	}
+
+	return &FleetUpdatePolicy{
+		TenantID:  tid,
+		UpdatedAt: updatedAt,
+		PolicySpec: PolicySpec{
+			UpdateCheckDays:    updateCheckDays,
+			VersionPinStrategy: VersionPinStrategy(pinStrategy),
+			AllowMajorUpgrade:  allowMajor != 0,
+			TargetVersion:      targetVersion.String,
+			CollectTelemetry:   collectTelemetry != 0,
+			MaintenanceWindow: MaintenanceWindow{
+				Enabled:    mwEnabled != 0,
+				StartHour:  mwStartHour,
+				StartMin:   mwStartMin,
+				EndHour:    mwEndHour,
+				EndMin:     mwEndMin,
+				Timezone:   mwTimezone,
+				DaysOfWeek: daysOfWeek,
+			},
+			RolloutControl: RolloutControl{
+				Staggered:         rolloutStaggered != 0,
+				MaxConcurrent:     rolloutMaxConcurrent,
+				BatchSize:         rolloutBatchSize,
+				DelayBetweenWaves: rolloutDelayWaves,
+				JitterSeconds:     rolloutJitterSec,
+				EmergencyAbort:    rolloutEmergencyAbort != 0,
+			},
+		},
+	}, nil
+}
+
+// UpsertFleetUpdatePolicy creates or updates a tenant's update policy
+func (s *BaseStore) UpsertFleetUpdatePolicy(ctx context.Context, policy *FleetUpdatePolicy) error {
+	if policy == nil {
+		return fmt.Errorf("policy cannot be nil")
+	}
+
+	if policy.TenantID == GlobalFleetPolicyTenantID {
+		return s.upsertGlobalFleetUpdatePolicy(ctx, policy)
+	}
+
+	daysJSON, err := json.Marshal(policy.MaintenanceWindow.DaysOfWeek)
+	if err != nil {
+		return fmt.Errorf("failed to encode days_of_week: %w", err)
+	}
+
+	policy.UpdatedAt = time.Now().UTC()
+
+	_, err = s.execContext(ctx, `
+		INSERT INTO fleet_update_policies (
+			tenant_id, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+			maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+			maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+			maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+			rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+			collect_telemetry, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(tenant_id) DO UPDATE SET
+			update_check_days = excluded.update_check_days,
+			version_pin_strategy = excluded.version_pin_strategy,
+			allow_major_upgrade = excluded.allow_major_upgrade,
+			target_version = excluded.target_version,
+			maintenance_window_enabled = excluded.maintenance_window_enabled,
+			maintenance_window_start_hour = excluded.maintenance_window_start_hour,
+			maintenance_window_start_min = excluded.maintenance_window_start_min,
+			maintenance_window_end_hour = excluded.maintenance_window_end_hour,
+			maintenance_window_end_min = excluded.maintenance_window_end_min,
+			maintenance_window_timezone = excluded.maintenance_window_timezone,
+			maintenance_window_days = excluded.maintenance_window_days,
+			rollout_staggered = excluded.rollout_staggered,
+			rollout_max_concurrent = excluded.rollout_max_concurrent,
+			rollout_batch_size = excluded.rollout_batch_size,
+			rollout_delay_between_waves = excluded.rollout_delay_between_waves,
+			rollout_jitter_seconds = excluded.rollout_jitter_seconds,
+			rollout_emergency_abort = excluded.rollout_emergency_abort,
+			collect_telemetry = excluded.collect_telemetry,
+			updated_at = excluded.updated_at
+	`,
+		policy.TenantID,
+		policy.UpdateCheckDays,
+		string(policy.VersionPinStrategy),
+		boolToInt(policy.AllowMajorUpgrade),
+		nullString(policy.TargetVersion),
+		boolToInt(policy.MaintenanceWindow.Enabled),
+		policy.MaintenanceWindow.StartHour,
+		policy.MaintenanceWindow.StartMin,
+		policy.MaintenanceWindow.EndHour,
+		policy.MaintenanceWindow.EndMin,
+		policy.MaintenanceWindow.Timezone,
+		string(daysJSON),
+		boolToInt(policy.RolloutControl.Staggered),
+		policy.RolloutControl.MaxConcurrent,
+		policy.RolloutControl.BatchSize,
+		policy.RolloutControl.DelayBetweenWaves,
+		policy.RolloutControl.JitterSeconds,
+		boolToInt(policy.RolloutControl.EmergencyAbort),
+		boolToInt(policy.CollectTelemetry),
+		policy.UpdatedAt,
+	)
+	return err
+}
+
+func (s *BaseStore) upsertGlobalFleetUpdatePolicy(ctx context.Context, policy *FleetUpdatePolicy) error {
+	if policy == nil {
+		return fmt.Errorf("policy cannot be nil")
+	}
+
+	daysJSON, err := json.Marshal(policy.MaintenanceWindow.DaysOfWeek)
+	if err != nil {
+		return fmt.Errorf("failed to encode days_of_week: %w", err)
+	}
+
+	policy.UpdatedAt = time.Now().UTC()
+
+	_, err = s.execContext(ctx, `
+		INSERT INTO fleet_update_policy_global (
+			singleton, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+			maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+			maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+			maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+			rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+			collect_telemetry, updated_at
+		) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(singleton) DO UPDATE SET
+			update_check_days = excluded.update_check_days,
+			version_pin_strategy = excluded.version_pin_strategy,
+			allow_major_upgrade = excluded.allow_major_upgrade,
+			target_version = excluded.target_version,
+			maintenance_window_enabled = excluded.maintenance_window_enabled,
+			maintenance_window_start_hour = excluded.maintenance_window_start_hour,
+			maintenance_window_start_min = excluded.maintenance_window_start_min,
+			maintenance_window_end_hour = excluded.maintenance_window_end_hour,
+			maintenance_window_end_min = excluded.maintenance_window_end_min,
+			maintenance_window_timezone = excluded.maintenance_window_timezone,
+			maintenance_window_days = excluded.maintenance_window_days,
+			rollout_staggered = excluded.rollout_staggered,
+			rollout_max_concurrent = excluded.rollout_max_concurrent,
+			rollout_batch_size = excluded.rollout_batch_size,
+			rollout_delay_between_waves = excluded.rollout_delay_between_waves,
+			rollout_jitter_seconds = excluded.rollout_jitter_seconds,
+			rollout_emergency_abort = excluded.rollout_emergency_abort,
+			collect_telemetry = excluded.collect_telemetry,
+			updated_at = excluded.updated_at
+	`,
+		policy.UpdateCheckDays,
+		string(policy.VersionPinStrategy),
+		boolToInt(policy.AllowMajorUpgrade),
+		nullString(policy.TargetVersion),
+		boolToInt(policy.MaintenanceWindow.Enabled),
+		policy.MaintenanceWindow.StartHour,
+		policy.MaintenanceWindow.StartMin,
+		policy.MaintenanceWindow.EndHour,
+		policy.MaintenanceWindow.EndMin,
+		policy.MaintenanceWindow.Timezone,
+		string(daysJSON),
+		boolToInt(policy.RolloutControl.Staggered),
+		policy.RolloutControl.MaxConcurrent,
+		policy.RolloutControl.BatchSize,
+		policy.RolloutControl.DelayBetweenWaves,
+		policy.RolloutControl.JitterSeconds,
+		boolToInt(policy.RolloutControl.EmergencyAbort),
+		boolToInt(policy.CollectTelemetry),
+		policy.UpdatedAt,
+	)
+	return err
+}
+
+// DeleteFleetUpdatePolicy removes a tenant's update policy
+func (s *BaseStore) DeleteFleetUpdatePolicy(ctx context.Context, tenantID string) error {
+	if tenantID == GlobalFleetPolicyTenantID {
+		_, err := s.execContext(ctx, `DELETE FROM fleet_update_policy_global WHERE singleton = 1`)
+		return err
+	}
+	_, err := s.execContext(ctx, `DELETE FROM fleet_update_policies WHERE tenant_id = ?`, tenantID)
+	return err
+}
+
+// ListFleetUpdatePolicies returns all configured update policies
+func (s *BaseStore) ListFleetUpdatePolicies(ctx context.Context) ([]*FleetUpdatePolicy, error) {
+	var policies []*FleetUpdatePolicy
+
+	// Get global policy first
+	if globalPolicy, err := s.getGlobalFleetUpdatePolicy(ctx); err != nil {
+		return nil, err
+	} else if globalPolicy != nil {
+		policies = append(policies, globalPolicy)
+	}
+
+	// Get tenant policies
+	rows, err := s.queryContext(ctx, `
+		SELECT tenant_id, update_check_days, version_pin_strategy, allow_major_upgrade, target_version,
+		       maintenance_window_enabled, maintenance_window_start_hour, maintenance_window_start_min,
+		       maintenance_window_end_hour, maintenance_window_end_min, maintenance_window_timezone,
+		       maintenance_window_days, rollout_staggered, rollout_max_concurrent, rollout_batch_size,
+		       rollout_delay_between_waves, rollout_jitter_seconds, rollout_emergency_abort,
+		       collect_telemetry, updated_at
+		FROM fleet_update_policies
+		ORDER BY tenant_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			tid                   string
+			updateCheckDays       int
+			pinStrategy           string
+			allowMajor            int
+			targetVersion         sql.NullString
+			mwEnabled             int
+			mwStartHour           int
+			mwStartMin            int
+			mwEndHour             int
+			mwEndMin              int
+			mwTimezone            string
+			mwDaysJSON            sql.NullString
+			rolloutStaggered      int
+			rolloutMaxConcurrent  int
+			rolloutBatchSize      int
+			rolloutDelayWaves     int
+			rolloutJitterSec      int
+			rolloutEmergencyAbort int
+			collectTelemetry      int
+			updatedAt             time.Time
+		)
+
+		if err := rows.Scan(&tid, &updateCheckDays, &pinStrategy, &allowMajor, &targetVersion,
+			&mwEnabled, &mwStartHour, &mwStartMin, &mwEndHour, &mwEndMin, &mwTimezone, &mwDaysJSON,
+			&rolloutStaggered, &rolloutMaxConcurrent, &rolloutBatchSize, &rolloutDelayWaves,
+			&rolloutJitterSec, &rolloutEmergencyAbort, &collectTelemetry, &updatedAt); err != nil {
+			return nil, err
+		}
+
+		var daysOfWeek []int
+		if mwDaysJSON.Valid && mwDaysJSON.String != "" {
+			if err := json.Unmarshal([]byte(mwDaysJSON.String), &daysOfWeek); err != nil {
+				return nil, fmt.Errorf("failed to decode days_of_week: %w", err)
+			}
+		}
+
+		policy := &FleetUpdatePolicy{
+			TenantID:  tid,
+			UpdatedAt: updatedAt,
+			PolicySpec: PolicySpec{
+				UpdateCheckDays:    updateCheckDays,
+				VersionPinStrategy: VersionPinStrategy(pinStrategy),
+				AllowMajorUpgrade:  allowMajor != 0,
+				TargetVersion:      targetVersion.String,
+				CollectTelemetry:   collectTelemetry != 0,
+				MaintenanceWindow: MaintenanceWindow{
+					Enabled:    mwEnabled != 0,
+					StartHour:  mwStartHour,
+					StartMin:   mwStartMin,
+					EndHour:    mwEndHour,
+					EndMin:     mwEndMin,
+					Timezone:   mwTimezone,
+					DaysOfWeek: daysOfWeek,
+				},
+				RolloutControl: RolloutControl{
+					Staggered:         rolloutStaggered != 0,
+					MaxConcurrent:     rolloutMaxConcurrent,
+					BatchSize:         rolloutBatchSize,
+					DelayBetweenWaves: rolloutDelayWaves,
+					JitterSeconds:     rolloutJitterSec,
+					EmergencyAbort:    rolloutEmergencyAbort != 0,
+				},
+			},
+		}
+		policies = append(policies, policy)
+	}
+
+	return policies, rows.Err()
+}
+
+// ============================================================================
+// Release Artifact Methods
+// ============================================================================
+
+// UpsertReleaseArtifact stores or updates metadata for a cached release artifact
+func (s *BaseStore) UpsertReleaseArtifact(ctx context.Context, artifact *ReleaseArtifact) error {
+	if artifact == nil {
+		return fmt.Errorf("artifact cannot be nil")
+	}
+	if artifact.Component == "" || artifact.Version == "" || artifact.Platform == "" || artifact.Arch == "" {
+		return fmt.Errorf("artifact missing required identity fields")
+	}
+	if artifact.Channel == "" {
+		artifact.Channel = "stable"
+	}
+	if artifact.SourceURL == "" {
+		return fmt.Errorf("artifact source url required")
+	}
+
+	artifact.UpdatedAt = time.Now().UTC()
+	if artifact.CreatedAt.IsZero() {
+		artifact.CreatedAt = artifact.UpdatedAt
+	}
+
+	_, err := s.execContext(ctx, `
+		INSERT INTO release_artifacts (
+			component, version, platform, arch, channel, source_url,
+			cache_path, sha256, size_bytes, release_notes, published_at,
+			downloaded_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(component, version, platform, arch) DO UPDATE SET
+			channel = excluded.channel,
+			source_url = excluded.source_url,
+			cache_path = excluded.cache_path,
+			sha256 = excluded.sha256,
+			size_bytes = excluded.size_bytes,
+			release_notes = excluded.release_notes,
+			published_at = excluded.published_at,
+			downloaded_at = excluded.downloaded_at,
+			updated_at = excluded.updated_at
+	`,
+		artifact.Component, artifact.Version, artifact.Platform, artifact.Arch, artifact.Channel, artifact.SourceURL,
+		nullString(artifact.CachePath), nullString(artifact.SHA256), artifact.SizeBytes, nullString(artifact.ReleaseNotes),
+		nullTime(artifact.PublishedAt), nullTime(artifact.DownloadedAt), artifact.CreatedAt, artifact.UpdatedAt)
+	return err
+}
+
+// GetReleaseArtifact returns the cached artifact metadata for the requested tuple
+func (s *BaseStore) GetReleaseArtifact(ctx context.Context, component, version, platform, arch string) (*ReleaseArtifact, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, component, version, platform, arch, channel, source_url,
+		       cache_path, sha256, size_bytes, release_notes, published_at,
+		       downloaded_at, created_at, updated_at
+		FROM release_artifacts
+		WHERE component = ? AND version = ? AND platform = ? AND arch = ?
+	`, component, version, platform, arch)
+	return s.scanReleaseArtifact(row)
+}
+
+// ListReleaseArtifacts lists cached artifacts for a component ordered by publish date
+func (s *BaseStore) ListReleaseArtifacts(ctx context.Context, component string, limit int) ([]*ReleaseArtifact, error) {
+	query := `
+		SELECT id, component, version, platform, arch, channel, source_url,
+		       cache_path, sha256, size_bytes, release_notes, published_at,
+		       downloaded_at, created_at, updated_at
+		FROM release_artifacts
+		WHERE (? = '' OR component = ?)
+		ORDER BY published_at DESC, created_at DESC
+	`
+	args := []interface{}{component, component}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var artifacts []*ReleaseArtifact
+	for rows.Next() {
+		artifact, serr := s.scanReleaseArtifactRow(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	return artifacts, rows.Err()
+}
+
+func (s *BaseStore) scanReleaseArtifact(row *sql.Row) (*ReleaseArtifact, error) {
+	var (
+		id                   int64
+		component            string
+		version              string
+		platform             string
+		arch                 string
+		channel              string
+		sourceURL            string
+		cachePath            sql.NullString
+		sha                  sql.NullString
+		sizeBytes            int64
+		releaseNotes         sql.NullString
+		publishedAt          sql.NullTime
+		downloadedAt         sql.NullTime
+		createdAt, updatedAt time.Time
+	)
+
+	if err := row.Scan(&id, &component, &version, &platform, &arch, &channel, &sourceURL,
+		&cachePath, &sha, &sizeBytes, &releaseNotes, &publishedAt, &downloadedAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+
+	artifact := &ReleaseArtifact{
+		ID:        id,
+		Component: component,
+		Version:   version,
+		Platform:  platform,
+		Arch:      arch,
+		Channel:   channel,
+		SourceURL: sourceURL,
+		SizeBytes: sizeBytes,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	}
+	if cachePath.Valid {
+		artifact.CachePath = cachePath.String
+	}
+	if sha.Valid {
+		artifact.SHA256 = sha.String
+	}
+	if releaseNotes.Valid {
+		artifact.ReleaseNotes = releaseNotes.String
+	}
+	if publishedAt.Valid {
+		artifact.PublishedAt = publishedAt.Time
+	}
+	if downloadedAt.Valid {
+		artifact.DownloadedAt = downloadedAt.Time
+	}
+	return artifact, nil
+}
+
+func (s *BaseStore) scanReleaseArtifactRow(rows *sql.Rows) (*ReleaseArtifact, error) {
+	var (
+		id                   int64
+		component            string
+		version              string
+		platform             string
+		arch                 string
+		channel              string
+		sourceURL            string
+		cachePath            sql.NullString
+		sha                  sql.NullString
+		sizeBytes            int64
+		releaseNotes         sql.NullString
+		publishedAt          sql.NullTime
+		downloadedAt         sql.NullTime
+		createdAt, updatedAt time.Time
+	)
+
+	if err := rows.Scan(&id, &component, &version, &platform, &arch, &channel, &sourceURL,
+		&cachePath, &sha, &sizeBytes, &releaseNotes, &publishedAt, &downloadedAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+
+	artifact := &ReleaseArtifact{
+		ID:        id,
+		Component: component,
+		Version:   version,
+		Platform:  platform,
+		Arch:      arch,
+		Channel:   channel,
+		SourceURL: sourceURL,
+		SizeBytes: sizeBytes,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	}
+	if cachePath.Valid {
+		artifact.CachePath = cachePath.String
+	}
+	if sha.Valid {
+		artifact.SHA256 = sha.String
+	}
+	if releaseNotes.Valid {
+		artifact.ReleaseNotes = releaseNotes.String
+	}
+	if publishedAt.Valid {
+		artifact.PublishedAt = publishedAt.Time
+	}
+	if downloadedAt.Valid {
+		artifact.DownloadedAt = downloadedAt.Time
+	}
+	return artifact, nil
+}
+
+// ============================================================================
+// Signing Key Methods
+// ============================================================================
+
+// CreateSigningKey persists a new signing key record
+func (s *BaseStore) CreateSigningKey(ctx context.Context, key *SigningKey) error {
+	if key == nil {
+		return fmt.Errorf("signing key cannot be nil")
+	}
+	if key.ID == "" || key.Algorithm == "" {
+		return fmt.Errorf("signing key id and algorithm required")
+	}
+	if key.PublicKey == "" || key.PrivateKey == "" {
+		return fmt.Errorf("signing key material incomplete")
+	}
+	if key.CreatedAt.IsZero() {
+		key.CreatedAt = time.Now().UTC()
+	}
+
+	_, err := s.execContext(ctx, `
+		INSERT INTO signing_keys (id, algorithm, public_key, private_key, notes, active, created_at, rotated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, key.ID, key.Algorithm, key.PublicKey, key.PrivateKey, nullString(key.Notes), boolToInt(key.Active), key.CreatedAt, nullTime(key.RotatedAt))
+	return err
+}
+
+// GetSigningKey loads key metadata (including private material) by id
+func (s *BaseStore) GetSigningKey(ctx context.Context, id string) (*SigningKey, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at
+		FROM signing_keys WHERE id = ?
+	`, id)
+	return s.scanSigningKey(row)
+}
+
+// GetActiveSigningKey retrieves the currently active signing key
+func (s *BaseStore) GetActiveSigningKey(ctx context.Context) (*SigningKey, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at
+		FROM signing_keys WHERE active = 1 LIMIT 1
+	`)
+	return s.scanSigningKey(row)
+}
+
+// ListSigningKeys returns signing key metadata ordered by creation recency
+func (s *BaseStore) ListSigningKeys(ctx context.Context, limit int) ([]*SigningKey, error) {
+	query := `
+		SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at
+		FROM signing_keys
+		ORDER BY created_at DESC
+	`
+	args := []interface{}{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []*SigningKey
+	for rows.Next() {
+		key, serr := s.scanSigningKeyRow(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+// SetSigningKeyActive marks the provided key as active and deactivates others
+func (s *BaseStore) SetSigningKeyActive(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("signing key id required")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Deactivate other keys
+	deactivateQuery := s.query(`
+		UPDATE signing_keys
+		SET active = 0, rotated_at = CASE WHEN rotated_at IS NULL THEN ? ELSE rotated_at END
+		WHERE active = 1 AND id != ?
+	`)
+	if _, err = tx.ExecContext(ctx, deactivateQuery, time.Now().UTC(), id); err != nil {
+		return err
+	}
+
+	// Activate target key
+	activateQuery := s.query(`UPDATE signing_keys SET active = 1, rotated_at = NULL WHERE id = ?`)
+	result, err := tx.ExecContext(ctx, activateQuery, id)
+	if err != nil {
+		return err
+	}
+	affected, aerr := result.RowsAffected()
+	if aerr != nil {
+		return aerr
+	}
+	if affected == 0 {
+		return fmt.Errorf("signing key %s not found", id)
+	}
+	return tx.Commit()
+}
+
+func (s *BaseStore) scanSigningKey(row *sql.Row) (*SigningKey, error) {
+	var (
+		id         string
+		algorithm  string
+		publicKey  string
+		privateKey string
+		notes      sql.NullString
+		active     int
+		createdAt  time.Time
+		rotatedAt  sql.NullTime
+	)
+	if err := row.Scan(&id, &algorithm, &publicKey, &privateKey, &notes, &active, &createdAt, &rotatedAt); err != nil {
+		return nil, err
+	}
+	key := &SigningKey{
+		ID:         id,
+		Algorithm:  algorithm,
+		PublicKey:  publicKey,
+		PrivateKey: privateKey,
+		Active:     active == 1,
+		CreatedAt:  createdAt,
+	}
+	if notes.Valid {
+		key.Notes = notes.String
+	}
+	if rotatedAt.Valid {
+		key.RotatedAt = rotatedAt.Time
+	}
+	return key, nil
+}
+
+func (s *BaseStore) scanSigningKeyRow(rows *sql.Rows) (*SigningKey, error) {
+	var (
+		id         string
+		algorithm  string
+		publicKey  string
+		privateKey string
+		notes      sql.NullString
+		active     int
+		createdAt  time.Time
+		rotatedAt  sql.NullTime
+	)
+	if err := rows.Scan(&id, &algorithm, &publicKey, &privateKey, &notes, &active, &createdAt, &rotatedAt); err != nil {
+		return nil, err
+	}
+	key := &SigningKey{
+		ID:         id,
+		Algorithm:  algorithm,
+		PublicKey:  publicKey,
+		PrivateKey: privateKey,
+		Active:     active == 1,
+		CreatedAt:  createdAt,
+	}
+	if notes.Valid {
+		key.Notes = notes.String
+	}
+	if rotatedAt.Valid {
+		key.RotatedAt = rotatedAt.Time
+	}
+	return key, nil
+}
+
+// ============================================================================
+// Release Manifest Methods
+// ============================================================================
+
+// UpsertReleaseManifest stores the signed manifest for an artifact tuple
+func (s *BaseStore) UpsertReleaseManifest(ctx context.Context, manifest *ReleaseManifest) error {
+	if manifest == nil {
+		return fmt.Errorf("manifest cannot be nil")
+	}
+	if manifest.Component == "" || manifest.Version == "" || manifest.Platform == "" || manifest.Arch == "" {
+		return fmt.Errorf("manifest identity incomplete")
+	}
+	if manifest.Channel == "" {
+		manifest.Channel = "stable"
+	}
+	if manifest.ManifestVersion == "" || manifest.ManifestJSON == "" || manifest.Signature == "" {
+		return fmt.Errorf("manifest payload incomplete")
+	}
+	if manifest.SigningKeyID == "" {
+		return fmt.Errorf("manifest missing signing key reference")
+	}
+
+	manifest.UpdatedAt = time.Now().UTC()
+	if manifest.CreatedAt.IsZero() {
+		manifest.CreatedAt = manifest.UpdatedAt
+	}
+	if manifest.GeneratedAt.IsZero() {
+		manifest.GeneratedAt = manifest.UpdatedAt
+	}
+
+	_, err := s.execContext(ctx, `
+		INSERT INTO release_manifests (
+			component, version, platform, arch, channel,
+			manifest_version, manifest_json, signature, signing_key_id,
+			generated_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(component, version, platform, arch) DO UPDATE SET
+			channel = excluded.channel,
+			manifest_version = excluded.manifest_version,
+			manifest_json = excluded.manifest_json,
+			signature = excluded.signature,
+			signing_key_id = excluded.signing_key_id,
+			generated_at = excluded.generated_at,
+			updated_at = excluded.updated_at
+	`,
+		manifest.Component, manifest.Version, manifest.Platform, manifest.Arch, manifest.Channel,
+		manifest.ManifestVersion, manifest.ManifestJSON, manifest.Signature, manifest.SigningKeyID,
+		manifest.GeneratedAt, manifest.CreatedAt, manifest.UpdatedAt)
+	return err
+}
+
+// GetReleaseManifest fetches the manifest envelope for the given artifact tuple
+func (s *BaseStore) GetReleaseManifest(ctx context.Context, component, version, platform, arch string) (*ReleaseManifest, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, component, version, platform, arch, channel,
+		       manifest_version, manifest_json, signature, signing_key_id,
+		       generated_at, created_at, updated_at
+		FROM release_manifests
+		WHERE component = ? AND version = ? AND platform = ? AND arch = ?
+	`, component, version, platform, arch)
+	return s.scanReleaseManifest(row)
+}
+
+// ListReleaseManifests enumerates manifests optionally filtered by component
+func (s *BaseStore) ListReleaseManifests(ctx context.Context, component string, limit int) ([]*ReleaseManifest, error) {
+	query := `
+		SELECT id, component, version, platform, arch, channel,
+		       manifest_version, manifest_json, signature, signing_key_id,
+		       generated_at, created_at, updated_at
+		FROM release_manifests
+		WHERE (? = '' OR component = ?)
+		ORDER BY generated_at DESC, version DESC
+	`
+	args := []interface{}{component, component}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var manifests []*ReleaseManifest
+	for rows.Next() {
+		manifest, serr := s.scanReleaseManifestRow(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		manifests = append(manifests, manifest)
+	}
+	return manifests, rows.Err()
+}
+
+func (s *BaseStore) scanReleaseManifest(row *sql.Row) (*ReleaseManifest, error) {
+	var (
+		id              int64
+		component       string
+		version         string
+		platform        string
+		arch            string
+		channel         string
+		manifestVersion string
+		manifestJSON    string
+		signature       string
+		signingKeyID    string
+		generatedAt     time.Time
+		createdAt       time.Time
+		updatedAt       time.Time
+	)
+	if err := row.Scan(&id, &component, &version, &platform, &arch, &channel,
+		&manifestVersion, &manifestJSON, &signature, &signingKeyID,
+		&generatedAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	return &ReleaseManifest{
+		ID:              id,
+		Component:       component,
+		Version:         version,
+		Platform:        platform,
+		Arch:            arch,
+		Channel:         channel,
+		ManifestVersion: manifestVersion,
+		ManifestJSON:    manifestJSON,
+		Signature:       signature,
+		SigningKeyID:    signingKeyID,
+		GeneratedAt:     generatedAt,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
+	}, nil
+}
+
+func (s *BaseStore) scanReleaseManifestRow(rows *sql.Rows) (*ReleaseManifest, error) {
+	var (
+		id              int64
+		component       string
+		version         string
+		platform        string
+		arch            string
+		channel         string
+		manifestVersion string
+		manifestJSON    string
+		signature       string
+		signingKeyID    string
+		generatedAt     time.Time
+		createdAt       time.Time
+		updatedAt       time.Time
+	)
+	if err := rows.Scan(&id, &component, &version, &platform, &arch, &channel,
+		&manifestVersion, &manifestJSON, &signature, &signingKeyID,
+		&generatedAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	return &ReleaseManifest{
+		ID:              id,
+		Component:       component,
+		Version:         version,
+		Platform:        platform,
+		Arch:            arch,
+		Channel:         channel,
+		ManifestVersion: manifestVersion,
+		ManifestJSON:    manifestJSON,
+		Signature:       signature,
+		SigningKeyID:    signingKeyID,
+		GeneratedAt:     generatedAt,
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
+	}, nil
+}
+
+// ============================================================================
+// Installer Bundle Methods
+// ============================================================================
+
+// CreateInstallerBundle stores or updates a tenant-scoped installer record
+func (s *BaseStore) CreateInstallerBundle(ctx context.Context, bundle *InstallerBundle) error {
+	if bundle == nil {
+		return fmt.Errorf("installer bundle cannot be nil")
+	}
+	if bundle.TenantID == "" || bundle.Component == "" || bundle.Version == "" || bundle.Platform == "" || bundle.Arch == "" || bundle.Format == "" {
+		return fmt.Errorf("installer bundle missing required identity fields")
+	}
+	if bundle.ConfigHash == "" || bundle.BundlePath == "" {
+		return fmt.Errorf("installer bundle requires config hash and path")
+	}
+
+	bundle.UpdatedAt = time.Now().UTC()
+	if bundle.CreatedAt.IsZero() {
+		bundle.CreatedAt = bundle.UpdatedAt
+	}
+
+	_, err := s.execContext(ctx, `
+		INSERT INTO installer_bundles (
+			tenant_id, component, version, platform, arch, format,
+			source_artifact_id, config_hash, bundle_path, size_bytes,
+			encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(tenant_id, component, version, platform, arch, format, config_hash) DO UPDATE SET
+			source_artifact_id = excluded.source_artifact_id,
+			bundle_path = excluded.bundle_path,
+			size_bytes = excluded.size_bytes,
+			encrypted = excluded.encrypted,
+			encryption_key_id = excluded.encryption_key_id,
+			metadata_json = excluded.metadata_json,
+			expires_at = excluded.expires_at,
+			updated_at = excluded.updated_at
+	`,
+		bundle.TenantID, bundle.Component, bundle.Version, bundle.Platform, bundle.Arch, bundle.Format,
+		nullInt64(bundle.SourceArtifactID), bundle.ConfigHash, bundle.BundlePath, bundle.SizeBytes,
+		boolToInt(bundle.Encrypted), nullString(bundle.EncryptionKeyID), nullString(bundle.MetadataJSON),
+		nullTime(bundle.ExpiresAt), bundle.CreatedAt, bundle.UpdatedAt)
+	return err
+}
+
+// GetInstallerBundle loads a bundle by numeric id
+func (s *BaseStore) GetInstallerBundle(ctx context.Context, id int64) (*InstallerBundle, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, tenant_id, component, version, platform, arch, format,
+		       source_artifact_id, config_hash, bundle_path, size_bytes,
+		       encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		FROM installer_bundles WHERE id = ?
+	`, id)
+	return s.scanInstallerBundle(row)
+}
+
+// FindInstallerBundle fetches a bundle by its unique identity tuple
+func (s *BaseStore) FindInstallerBundle(ctx context.Context, tenantID, component, version, platform, arch, format, configHash string) (*InstallerBundle, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, tenant_id, component, version, platform, arch, format,
+		       source_artifact_id, config_hash, bundle_path, size_bytes,
+		       encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		FROM installer_bundles
+		WHERE tenant_id = ? AND component = ? AND version = ? AND platform = ? AND arch = ? AND format = ? AND config_hash = ?
+	`, tenantID, component, version, platform, arch, format, configHash)
+	return s.scanInstallerBundle(row)
+}
+
+// ListInstallerBundles returns bundles for a tenant ordered by recency
+func (s *BaseStore) ListInstallerBundles(ctx context.Context, tenantID string, limit int) ([]*InstallerBundle, error) {
+	query := `
+		SELECT id, tenant_id, component, version, platform, arch, format,
+		       source_artifact_id, config_hash, bundle_path, size_bytes,
+		       encrypted, encryption_key_id, metadata_json, expires_at, created_at, updated_at
+		FROM installer_bundles
+		WHERE (? = '' OR tenant_id = ?)
+		ORDER BY created_at DESC
+	`
+	args := []interface{}{tenantID, tenantID}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bundles []*InstallerBundle
+	for rows.Next() {
+		bundle, serr := s.scanInstallerBundleRow(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		bundles = append(bundles, bundle)
+	}
+	return bundles, rows.Err()
+}
+
+// DeleteInstallerBundle removes a bundle by id
+func (s *BaseStore) DeleteInstallerBundle(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, `DELETE FROM installer_bundles WHERE id = ?`, id)
+	return err
+}
+
+// DeleteExpiredInstallerBundles removes bundles with expires_at before cutoff
+func (s *BaseStore) DeleteExpiredInstallerBundles(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := s.execContext(ctx, `DELETE FROM installer_bundles WHERE expires_at IS NOT NULL AND expires_at <= ?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+func (s *BaseStore) scanInstallerBundle(row *sql.Row) (*InstallerBundle, error) {
+	var (
+		id               int64
+		tenantID         string
+		component        string
+		version          string
+		platform         string
+		arch             string
+		format           string
+		sourceArtifactID sql.NullInt64
+		configHash       string
+		bundlePath       string
+		sizeBytes        int64
+		encryptedInt     int
+		encryptionKeyID  sql.NullString
+		metadataJSON     sql.NullString
+		expiresAt        sql.NullTime
+		createdAt        time.Time
+		updatedAt        time.Time
+	)
+	if err := row.Scan(&id, &tenantID, &component, &version, &platform, &arch, &format,
+		&sourceArtifactID, &configHash, &bundlePath, &sizeBytes, &encryptedInt, &encryptionKeyID,
+		&metadataJSON, &expiresAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	bundle := &InstallerBundle{
+		ID:         id,
+		TenantID:   tenantID,
+		Component:  component,
+		Version:    version,
+		Platform:   platform,
+		Arch:       arch,
+		Format:     format,
+		ConfigHash: configHash,
+		BundlePath: bundlePath,
+		SizeBytes:  sizeBytes,
+		Encrypted:  encryptedInt == 1,
+		CreatedAt:  createdAt,
+		UpdatedAt:  updatedAt,
+	}
+	if sourceArtifactID.Valid {
+		bundle.SourceArtifactID = sourceArtifactID.Int64
+	}
+	if encryptionKeyID.Valid {
+		bundle.EncryptionKeyID = encryptionKeyID.String
+	}
+	if metadataJSON.Valid {
+		bundle.MetadataJSON = metadataJSON.String
+	}
+	if expiresAt.Valid {
+		bundle.ExpiresAt = expiresAt.Time
+	}
+	return bundle, nil
+}
+
+func (s *BaseStore) scanInstallerBundleRow(rows *sql.Rows) (*InstallerBundle, error) {
+	var (
+		id               int64
+		tenantID         string
+		component        string
+		version          string
+		platform         string
+		arch             string
+		format           string
+		sourceArtifactID sql.NullInt64
+		configHash       string
+		bundlePath       string
+		sizeBytes        int64
+		encryptedInt     int
+		encryptionKeyID  sql.NullString
+		metadataJSON     sql.NullString
+		expiresAt        sql.NullTime
+		createdAt        time.Time
+		updatedAt        time.Time
+	)
+	if err := rows.Scan(&id, &tenantID, &component, &version, &platform, &arch, &format,
+		&sourceArtifactID, &configHash, &bundlePath, &sizeBytes, &encryptedInt, &encryptionKeyID,
+		&metadataJSON, &expiresAt, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	bundle := &InstallerBundle{
+		ID:         id,
+		TenantID:   tenantID,
+		Component:  component,
+		Version:    version,
+		Platform:   platform,
+		Arch:       arch,
+		Format:     format,
+		ConfigHash: configHash,
+		BundlePath: bundlePath,
+		SizeBytes:  sizeBytes,
+		Encrypted:  encryptedInt == 1,
+		CreatedAt:  createdAt,
+		UpdatedAt:  updatedAt,
+	}
+	if sourceArtifactID.Valid {
+		bundle.SourceArtifactID = sourceArtifactID.Int64
+	}
+	if encryptionKeyID.Valid {
+		bundle.EncryptionKeyID = encryptionKeyID.String
+	}
+	if metadataJSON.Valid {
+		bundle.MetadataJSON = metadataJSON.String
+	}
+	if expiresAt.Valid {
+		bundle.ExpiresAt = expiresAt.Time
+	}
+	return bundle, nil
+}
+
+// ============================================================================
+// Self-Update Run Methods
+// ============================================================================
+
+// CreateSelfUpdateRun persists a new self-update run record
+func (s *BaseStore) CreateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun) error {
+	if run == nil {
+		return fmt.Errorf("self-update run cannot be nil")
+	}
+	if run.Status == "" {
+		run.Status = SelfUpdateStatusPending
+	}
+	if run.Channel == "" {
+		run.Channel = "stable"
+	}
+	if run.RequestedAt.IsZero() {
+		run.RequestedAt = time.Now().UTC()
+	}
+
+	metaJSON, err := encodeMetadata(run.Metadata)
+	if err != nil {
+		return err
+	}
+
+	result, err := s.execContext(ctx, `
+		INSERT INTO self_update_runs (
+			status, requested_at, started_at, completed_at,
+			current_version, target_version, channel, platform, arch,
+			release_artifact_id, error_code, error_message, metadata_json, requested_by
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`,
+		string(run.Status), run.RequestedAt, nullTime(run.StartedAt), nullTime(run.CompletedAt),
+		run.CurrentVersion, run.TargetVersion, run.Channel, run.Platform, run.Arch,
+		nullInt64(run.ReleaseArtifactID), nullString(run.ErrorCode), nullString(run.ErrorMessage),
+		metaJSON, nullString(run.RequestedBy))
+	if err != nil {
+		return err
+	}
+	if id, err := result.LastInsertId(); err == nil {
+		run.ID = id
+	}
+	return nil
+}
+
+// UpdateSelfUpdateRun updates an existing run record
+func (s *BaseStore) UpdateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun) error {
+	if run == nil {
+		return fmt.Errorf("self-update run cannot be nil")
+	}
+	if run.ID == 0 {
+		return fmt.Errorf("self-update run id required")
+	}
+	if run.Channel == "" {
+		run.Channel = "stable"
+	}
+
+	metaJSON, err := encodeMetadata(run.Metadata)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.execContext(ctx, `
+		UPDATE self_update_runs SET
+			status = ?,
+			started_at = ?,
+			completed_at = ?,
+			current_version = ?,
+			target_version = ?,
+			channel = ?,
+			platform = ?,
+			arch = ?,
+			release_artifact_id = ?,
+			error_code = ?,
+			error_message = ?,
+			metadata_json = ?,
+			requested_by = ?
+		WHERE id = ?
+	`,
+		string(run.Status), nullTime(run.StartedAt), nullTime(run.CompletedAt),
+		run.CurrentVersion, run.TargetVersion, run.Channel, run.Platform, run.Arch,
+		nullInt64(run.ReleaseArtifactID), nullString(run.ErrorCode), nullString(run.ErrorMessage),
+		metaJSON, nullString(run.RequestedBy), run.ID)
+	return err
+}
+
+// GetSelfUpdateRun returns a single self-update run by id
+func (s *BaseStore) GetSelfUpdateRun(ctx context.Context, id int64) (*SelfUpdateRun, error) {
+	if id == 0 {
+		return nil, fmt.Errorf("self-update run id required")
+	}
+	row := s.queryRowContext(ctx, `
+		SELECT id, status, requested_at, started_at, completed_at,
+		       current_version, target_version, channel, platform, arch,
+		       release_artifact_id, error_code, error_message, metadata_json, requested_by
+		FROM self_update_runs
+		WHERE id = ?
+	`, id)
+	return s.scanSelfUpdateRun(row)
+}
+
+// ListSelfUpdateRuns returns the most recent self-update runs
+func (s *BaseStore) ListSelfUpdateRuns(ctx context.Context, limit int) ([]*SelfUpdateRun, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	rows, err := s.queryContext(ctx, `
+		SELECT id, status, requested_at, started_at, completed_at,
+		       current_version, target_version, channel, platform, arch,
+		       release_artifact_id, error_code, error_message, metadata_json, requested_by
+		FROM self_update_runs
+		ORDER BY requested_at DESC
+		LIMIT ?
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var runs []*SelfUpdateRun
+	for rows.Next() {
+		run, serr := s.scanSelfUpdateRunRow(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
+func (s *BaseStore) scanSelfUpdateRun(row *sql.Row) (*SelfUpdateRun, error) {
+	var (
+		id                int64
+		status            string
+		requestedAt       time.Time
+		startedAt         sql.NullTime
+		completedAt       sql.NullTime
+		currentVersion    sql.NullString
+		targetVersion     sql.NullString
+		channel           sql.NullString
+		platform          sql.NullString
+		arch              sql.NullString
+		releaseArtifactID sql.NullInt64
+		errorCode         sql.NullString
+		errorMessage      sql.NullString
+		metadataJSON      sql.NullString
+		requestedBy       sql.NullString
+	)
+	if err := row.Scan(&id, &status, &requestedAt, &startedAt, &completedAt,
+		&currentVersion, &targetVersion, &channel, &platform, &arch,
+		&releaseArtifactID, &errorCode, &errorMessage, &metadataJSON, &requestedBy); err != nil {
+		return nil, err
+	}
+	run := &SelfUpdateRun{
+		ID:             id,
+		Status:         SelfUpdateStatus(status),
+		RequestedAt:    requestedAt,
+		CurrentVersion: currentVersion.String,
+		TargetVersion:  targetVersion.String,
+		Channel:        channel.String,
+		Platform:       platform.String,
+		Arch:           arch.String,
+		Metadata:       decodeMetadata(metadataJSON),
+		RequestedBy:    requestedBy.String,
+	}
+	if startedAt.Valid {
+		run.StartedAt = startedAt.Time
+	}
+	if completedAt.Valid {
+		run.CompletedAt = completedAt.Time
+	}
+	if releaseArtifactID.Valid {
+		run.ReleaseArtifactID = releaseArtifactID.Int64
+	}
+	if errorCode.Valid {
+		run.ErrorCode = errorCode.String
+	}
+	if errorMessage.Valid {
+		run.ErrorMessage = errorMessage.String
+	}
+	return run, nil
+}
+
+func (s *BaseStore) scanSelfUpdateRunRow(rows *sql.Rows) (*SelfUpdateRun, error) {
+	var (
+		id                int64
+		status            string
+		requestedAt       time.Time
+		startedAt         sql.NullTime
+		completedAt       sql.NullTime
+		currentVersion    sql.NullString
+		targetVersion     sql.NullString
+		channel           sql.NullString
+		platform          sql.NullString
+		arch              sql.NullString
+		releaseArtifactID sql.NullInt64
+		errorCode         sql.NullString
+		errorMessage      sql.NullString
+		metadataJSON      sql.NullString
+		requestedBy       sql.NullString
+	)
+	if err := rows.Scan(&id, &status, &requestedAt, &startedAt, &completedAt,
+		&currentVersion, &targetVersion, &channel, &platform, &arch,
+		&releaseArtifactID, &errorCode, &errorMessage, &metadataJSON, &requestedBy); err != nil {
+		return nil, err
+	}
+	run := &SelfUpdateRun{
+		ID:             id,
+		Status:         SelfUpdateStatus(status),
+		RequestedAt:    requestedAt,
+		CurrentVersion: currentVersion.String,
+		TargetVersion:  targetVersion.String,
+		Channel:        channel.String,
+		Platform:       platform.String,
+		Arch:           arch.String,
+		Metadata:       decodeMetadata(metadataJSON),
+		RequestedBy:    requestedBy.String,
+	}
+	if startedAt.Valid {
+		run.StartedAt = startedAt.Time
+	}
+	if completedAt.Valid {
+		run.CompletedAt = completedAt.Time
+	}
+	if releaseArtifactID.Valid {
+		run.ReleaseArtifactID = releaseArtifactID.Int64
+	}
+	if errorCode.Valid {
+		run.ErrorCode = errorCode.String
+	}
+	if errorMessage.Valid {
+		run.ErrorMessage = errorMessage.String
+	}
+	return run, nil
+}
+
+// =============================
+// Aggregated Metrics Methods
+// =============================
+
+type fleetMetricBucket struct {
+	total int64
+	mono  int64
+	color int64
+	scan  int64
+}
+
+type consumableBand int
+
+const (
+	consumableUnknown consumableBand = iota
+	consumableHigh
+	consumableMedium
+	consumableLow
+	consumableCritical
+)
+
+// GetAggregatedMetrics calculates fleet-wide aggregated metrics for dashboards
+func (s *BaseStore) GetAggregatedMetrics(ctx context.Context, since time.Time, tenantIDs []string) (*AggregatedMetrics, error) {
+	now := time.Now().UTC()
+	agg := &AggregatedMetrics{
+		GeneratedAt: now,
+		RangeStart:  since.UTC(),
+		RangeEnd:    now,
+	}
+
+	allowedTenants := make(map[string]struct{}, len(tenantIDs))
+	for _, id := range tenantIDs {
+		allowedTenants[id] = struct{}{}
+	}
+
+	agents, err := s.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filteredAgents := make([]*Agent, 0, len(agents))
+	agentTenantMap := make(map[string]string, len(agents))
+	for _, a := range agents {
+		if a == nil {
+			continue
+		}
+		if len(tenantIDs) > 0 {
+			if _, ok := allowedTenants[a.TenantID]; !ok {
+				continue
+			}
+		}
+		filteredAgents = append(filteredAgents, a)
+		agentTenantMap[a.AgentID] = a.TenantID
+	}
+	agg.Fleet.Totals.Agents = len(filteredAgents)
+
+	devices, err := s.ListAllDevices(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	filteredDevices := make([]*Device, 0, len(devices))
+	serialMap := make(map[string]struct{}, len(devices))
+	deviceBySerial := make(map[string]*Device, len(devices))
+	for _, d := range devices {
+		if d == nil {
+			continue
+		}
+		if len(tenantIDs) > 0 {
+			if _, ok := agentTenantMap[d.AgentID]; !ok {
+				continue
+			}
+		}
+		filteredDevices = append(filteredDevices, d)
+		serialMap[d.Serial] = struct{}{}
+		deviceBySerial[d.Serial] = d
+
+		hasError, hasWarning, hasJam := classifyStatusMessages(d.StatusMessages)
+		if hasJam {
+			agg.Fleet.Statuses.Jam++
+			agg.Fleet.Statuses.Error++
+		} else if hasError {
+			agg.Fleet.Statuses.Error++
+		} else if hasWarning {
+			agg.Fleet.Statuses.Warning++
+		}
+	}
+	agg.Fleet.Totals.Devices = len(filteredDevices)
+
+	if len(filteredDevices) == 0 {
+		return agg, nil
+	}
+
+	buckets := make(map[time.Time]*fleetMetricBucket)
+	lastValues := make(map[string]*MetricsSnapshot)
+
+	// Build dynamic query with placeholder conversion
+	query := `
+		SELECT m.timestamp, m.serial, m.agent_id, m.page_count, m.color_pages, m.mono_pages, m.scan_count, m.toner_levels
+		FROM metrics_history m
+		JOIN agents a ON m.agent_id = a.agent_id
+		WHERE m.timestamp >= ?
+	`
+	args := []interface{}{since.UTC().Format(time.RFC3339Nano)}
+	if len(tenantIDs) > 0 {
+		query += ` AND a.tenant_id IN (` + s.buildPlaceholderListFrom(len(tenantIDs), 2) + `)`
+		for _, id := range tenantIDs {
+			args = append(args, id)
+		}
+	}
+	query += ` ORDER BY m.timestamp ASC`
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			tsStr    string
+			serial   string
+			agentID  string
+			pc, cp   int64
+			mp, sc   int64
+			tonerRaw sql.NullString
+		)
+		if err := rows.Scan(&tsStr, &serial, &agentID, &pc, &cp, &mp, &sc, &tonerRaw); err != nil {
+			return nil, err
+		}
+		if _, ok := serialMap[serial]; !ok {
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339Nano, tsStr)
+		if err != nil {
+			continue
+		}
+		bucketTime := ts.Truncate(time.Hour)
+		if _, ok := buckets[bucketTime]; !ok {
+			buckets[bucketTime] = &fleetMetricBucket{}
+		}
+		point := buckets[bucketTime]
+
+		if last, ok := lastValues[serial]; ok {
+			if pc >= int64(last.PageCount) {
+				point.total += pc - int64(last.PageCount)
+			}
+			if cp >= int64(last.ColorPages) {
+				point.color += cp - int64(last.ColorPages)
+			}
+			if mp >= int64(last.MonoPages) {
+				point.mono += mp - int64(last.MonoPages)
+			}
+			if sc >= int64(last.ScanCount) {
+				point.scan += sc - int64(last.ScanCount)
+			}
+		}
+
+		var toner map[string]interface{}
+		if tonerRaw.Valid && strings.TrimSpace(tonerRaw.String) != "" {
+			var tmp map[string]interface{}
+			if err := json.Unmarshal([]byte(tonerRaw.String), &tmp); err == nil {
+				toner = tmp
+			}
+		}
+
+		lastValues[serial] = &MetricsSnapshot{
+			Serial:      serial,
+			AgentID:     agentID,
+			Timestamp:   ts,
+			PageCount:   int(pc),
+			ColorPages:  int(cp),
+			MonoPages:   int(mp),
+			ScanCount:   int(sc),
+			TonerLevels: toner,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, d := range filteredDevices {
+		if _, ok := lastValues[d.Serial]; ok {
+			continue
+		}
+		snapshot, err := s.GetLatestMetrics(ctx, d.Serial)
+		if err != nil || snapshot == nil {
+			continue
+		}
+		lastValues[d.Serial] = snapshot
+	}
+
+	if len(buckets) > 0 {
+		ordered := make([]time.Time, 0, len(buckets))
+		for ts := range buckets {
+			ordered = append(ordered, ts)
+		}
+		sort.Slice(ordered, func(i, j int) bool {
+			return ordered[i].Before(ordered[j])
+		})
+		for _, ts := range ordered {
+			bucket := buckets[ts]
+			agg.Fleet.History.TotalImpressions = append(agg.Fleet.History.TotalImpressions, MetricSeriesPoint{Timestamp: ts, Value: bucket.total})
+			agg.Fleet.History.MonoImpressions = append(agg.Fleet.History.MonoImpressions, MetricSeriesPoint{Timestamp: ts, Value: bucket.mono})
+			agg.Fleet.History.ColorImpressions = append(agg.Fleet.History.ColorImpressions, MetricSeriesPoint{Timestamp: ts, Value: bucket.color})
+			agg.Fleet.History.ScanVolume = append(agg.Fleet.History.ScanVolume, MetricSeriesPoint{Timestamp: ts, Value: bucket.scan})
+		}
+	}
+
+	bandCounts := make(map[consumableBand]int)
+	for _, d := range filteredDevices {
+		snapshot := lastValues[d.Serial]
+		if snapshot != nil {
+			agg.Fleet.Totals.PageCount += int64(snapshot.PageCount)
+			agg.Fleet.Totals.ColorPages += int64(snapshot.ColorPages)
+			agg.Fleet.Totals.MonoPages += int64(snapshot.MonoPages)
+			agg.Fleet.Totals.ScanCount += int64(snapshot.ScanCount)
+		}
+		band := classifyConsumableBand(snapshot, deviceBySerial[d.Serial])
+		bandCounts[band]++
+	}
+
+	agg.Fleet.Consumables.Critical = bandCounts[consumableCritical]
+	agg.Fleet.Consumables.Low = bandCounts[consumableLow]
+	agg.Fleet.Consumables.Medium = bandCounts[consumableMedium]
+	agg.Fleet.Consumables.High = bandCounts[consumableHigh]
+	agg.Fleet.Consumables.Unknown = bandCounts[consumableUnknown]
+
+	return agg, nil
+}
+
+// buildPlaceholderListFrom builds a comma-separated list of placeholders starting from startIdx
+func (s *BaseStore) buildPlaceholderListFrom(count, startIdx int) string {
+	if count <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s.dialect.Placeholder(startIdx + i))
+	}
+	return b.String()
+}
+
+// GetDatabaseStats returns high-level counts for observability panels
+func (s *BaseStore) GetDatabaseStats(ctx context.Context) (*DatabaseStats, error) {
+	query := `
+		SELECT
+			(SELECT COUNT(*) FROM agents),
+			(SELECT COUNT(*) FROM devices),
+			(SELECT COUNT(*) FROM metrics_history),
+			(SELECT COUNT(*) FROM sessions),
+			(SELECT COUNT(*) FROM users),
+			(SELECT COUNT(*) FROM audit_log),
+			(SELECT COUNT(*) FROM release_artifacts),
+			COALESCE((SELECT SUM(size_bytes) FROM release_artifacts), 0),
+			(SELECT COUNT(*) FROM installer_bundles),
+			COALESCE((SELECT SUM(size_bytes) FROM installer_bundles), 0)
+	`
+	row := s.db.QueryRowContext(ctx, query)
+	stats := &DatabaseStats{}
+	if err := row.Scan(
+		&stats.Agents,
+		&stats.Devices,
+		&stats.MetricsSnapshots,
+		&stats.Sessions,
+		&stats.Users,
+		&stats.AuditEntries,
+		&stats.ReleaseArtifacts,
+		&stats.ReleaseBytes,
+		&stats.InstallerBundles,
+		&stats.InstallerBytes,
+	); err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+// Helper functions for aggregated metrics
+
+func classifyStatusMessages(messages []string) (bool, bool, bool) {
+	var hasError, hasWarning, hasJam bool
+	for _, msg := range messages {
+		lower := strings.ToLower(msg)
+		switch {
+		case strings.Contains(lower, "jam"):
+			hasJam = true
+			hasError = true
+		case strings.Contains(lower, "error") || strings.Contains(lower, "fail") || strings.Contains(lower, "offline"):
+			hasError = true
+		case strings.Contains(lower, "warn") || strings.Contains(lower, "low"):
+			hasWarning = true
+		}
+	}
+	return hasError, hasWarning, hasJam
+}
+
+func classifyConsumableBand(snapshot *MetricsSnapshot, device *Device) consumableBand {
+	if snapshot != nil {
+		if band := bandFromTonerLevels(snapshot.TonerLevels); band != consumableUnknown {
+			return band
+		}
+	}
+	if device != nil {
+		if band := bandFromConsumableStrings(device.Consumables); band != consumableUnknown {
+			return band
+		}
+	}
+	return consumableUnknown
+}
+
+func bandFromTonerLevels(levels map[string]interface{}) consumableBand {
+	if len(levels) == 0 {
+		return consumableUnknown
+	}
+	worst := consumableUnknown
+	for _, raw := range levels {
+		if pct, ok := normalizePercentage(raw); ok {
+			band := bandForPercentage(pct)
+			if band > worst {
+				worst = band
+			}
+		}
+	}
+	return worst
+}
+
+func bandFromConsumableStrings(entries []string) consumableBand {
+	worst := consumableUnknown
+	for _, entry := range entries {
+		lower := strings.ToLower(entry)
+		switch {
+		case strings.Contains(lower, "empty") || strings.Contains(lower, "replace") || strings.Contains(lower, "exhausted") || strings.Contains(lower, "depleted"):
+			if consumableCritical > worst {
+				worst = consumableCritical
+			}
+		case strings.Contains(lower, "very low") || strings.Contains(lower, "near empty"):
+			if consumableCritical > worst {
+				worst = consumableCritical
+			}
+		case strings.Contains(lower, "low"):
+			if consumableLow > worst {
+				worst = consumableLow
+			}
+		case strings.Contains(lower, "medium") || strings.Contains(lower, "half"):
+			if consumableMedium > worst {
+				worst = consumableMedium
+			}
+		case strings.Contains(lower, "high") || strings.Contains(lower, "full") || strings.Contains(lower, "ok") || strings.Contains(lower, "ready"):
+			if consumableHigh > worst {
+				worst = consumableHigh
+			}
+		}
+		if pct, ok := percentFromString(entry); ok {
+			band := bandForPercentage(pct)
+			if band > worst {
+				worst = band
+			}
+		}
+	}
+	return worst
+}
+
+func normalizePercentage(value interface{}) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case json.Number:
+		if f, err := v.Float64(); err == nil {
+			return f, true
+		}
+	case string:
+		return percentFromString(v)
+	}
+	return 0, false
+}
+
+func percentFromString(s string) (float64, bool) {
+	var buf strings.Builder
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || r == '.' {
+			buf.WriteRune(r)
+			continue
+		}
+		if buf.Len() > 0 {
+			break
+		}
+	}
+	if buf.Len() == 0 {
+		return 0, false
+	}
+	val, err := strconv.ParseFloat(buf.String(), 64)
+	if err != nil {
+		return 0, false
+	}
+	return val, true
+}
+
+func bandForPercentage(pct float64) consumableBand {
+	switch {
+	case pct <= 5:
+		return consumableCritical
+	case pct <= 15:
+		return consumableLow
+	case pct <= 60:
+		return consumableMedium
+	default:
+		return consumableHigh
+	}
 }

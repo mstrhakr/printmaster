@@ -2,7 +2,6 @@ package storage
 
 import (
 	"fmt"
-	"time"
 
 	"printmaster/common/config"
 )
@@ -47,29 +46,4 @@ func NewStore(cfg *config.DatabaseConfig) (Store, error) {
 	default:
 		return nil, fmt.Errorf("unsupported database driver: %q (supported: sqlite, postgres, mysql)", driver)
 	}
-}
-
-// applyPoolSettings configures connection pool settings on a store's database connection.
-// This is called by individual store implementations after opening the connection.
-func applyPoolSettings(cfg *config.DatabaseConfig, setMaxOpen, setMaxIdle func(int), setMaxLifetime func(time.Duration)) {
-	// Max open connections (default: 25, 0 = unlimited)
-	maxOpen := cfg.MaxOpenConns
-	if maxOpen == 0 {
-		maxOpen = 25
-	}
-	setMaxOpen(maxOpen)
-
-	// Max idle connections (default: 5)
-	maxIdle := cfg.MaxIdleConns
-	if maxIdle == 0 {
-		maxIdle = 5
-	}
-	setMaxIdle(maxIdle)
-
-	// Connection max lifetime (default: 5 minutes)
-	lifetime := time.Duration(cfg.ConnMaxLifetimeSecs) * time.Second
-	if lifetime == 0 {
-		lifetime = 5 * time.Minute
-	}
-	setMaxLifetime(lifetime)
 }

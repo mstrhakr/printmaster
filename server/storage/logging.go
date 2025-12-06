@@ -9,6 +9,14 @@ import (
 	"printmaster/common/logger"
 )
 
+// Package-level logger that can be set by the application (server)
+var Log *logger.Logger
+
+// SetLogger injects the structured logger from the main application.
+func SetLogger(l *logger.Logger) {
+	Log = l
+}
+
 func logWithLevel(level logger.LogLevel, msg string, kv ...interface{}) {
 	if Log != nil {
 		switch level {
@@ -62,10 +70,6 @@ func logInfo(msg string, kv ...interface{}) {
 
 func logWarn(msg string, kv ...interface{}) {
 	logWithLevel(logger.WARN, msg, kv...)
-}
-
-func logError(msg string, kv ...interface{}) {
-	logWithLevel(logger.ERROR, msg, kv...)
 }
 
 func logDebug(msg string, kv ...interface{}) {
