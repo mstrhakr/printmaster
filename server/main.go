@@ -3266,7 +3266,7 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 		SiteIDs        []string `json:"site_ids,omitempty"`
 	}
 
-	var resp []agentView
+	resp := make([]agentView, 0, len(agents))
 	// Determine connection type using live WS map and last_seen recency
 	for _, agent := range agents {
 		agent.Token = "" // Don't expose tokens to UI

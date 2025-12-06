@@ -5312,7 +5312,7 @@ async function loadSiteAgentsList(selectedAgentIds) {
     try {
         const r = await fetch('/api/v1/agents/list');
         if (!r.ok) throw new Error(await r.text());
-        const agents = await r.json();
+        const agents = await r.json() || [];
         
         // Filter to agents belonging to this tenant (or no tenant)
         const tenantAgents = agents.filter(a => 
