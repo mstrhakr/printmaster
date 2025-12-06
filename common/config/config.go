@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -226,9 +227,109 @@ func LoadTOML(configPath string, config interface{}) error {
 
 // Common configuration structs that both agent and server use
 
-// DatabaseConfig holds database settings
+// DatabaseConfig holds database settings supporting multiple backends.
+// For SQLite: only Path is required.
+// For PostgreSQL/MySQL: use Host, Port, User, Password, Name, and optionally SSLMode.
 type DatabaseConfig struct {
+	// Driver specifies the database backend: "sqlite" (default), "postgres", "mysql"
+	Driver string `toml:"driver"`
+	// Path is the SQLite database file path (only used for sqlite driver)
 	Path string `toml:"path"`
+	// DSN is a full connection string that overrides individual connection fields
+	// Example for postgres: "postgres://user:pass@localhost:5432/dbname?sslmode=disable"
+	DSN string `toml:"dsn"`
+	// Host is the database server hostname (for postgres/mysql)
+	Host string `toml:"host"`
+	// Port is the database server port (default: 5432 for postgres, 3306 for mysql)
+	Port int `toml:"port"`
+	// User is the database username
+	User string `toml:"user"`
+	// Password is the database password
+	Password string `toml:"password"`
+	// Name is the database name
+	Name string `toml:"name"`
+	// SSLMode controls SSL connection (postgres: disable, require, verify-ca, verify-full)
+	SSLMode string `toml:"ssl_mode"`
+	// MaxOpenConns limits the number of open connections (0 = unlimited, default: 25)
+	MaxOpenConns int `toml:"max_open_conns"`
+	// MaxIdleConns limits the number of idle connections (default: 5)
+	MaxIdleConns int `toml:"max_idle_conns"`
+	// ConnMaxLifetimeSecs is max connection lifetime in seconds (0 = no limit, default: 300)
+	ConnMaxLifetimeSecs int `toml:"conn_max_lifetime_secs"`
+}
+
+// EffectiveDriver returns the database driver, defaulting to "sqlite" if not set.
+func (c *DatabaseConfig) EffectiveDriver() string {
+	if c.Driver == "" {
+		return "sqlite"
+	}
+	return c.Driver
+}
+
+// BuildDSN constructs a connection string for the configured database driver.
+// If DSN is explicitly set, it is returned directly. Otherwise, a DSN is
+// built from the individual connection fields.
+func (c *DatabaseConfig) BuildDSN() string {
+	if c.DSN != "" {
+		return c.DSN
+	}
+
+	switch c.EffectiveDriver() {
+	case "postgres", "postgresql":
+		// Build PostgreSQL connection string
+		port := c.Port
+		if port == 0 {
+			port = 5432
+		}
+		sslMode := c.SSLMode
+		if sslMode == "" {
+			sslMode = "prefer"
+		}
+		dbName := c.Name
+		if dbName == "" {
+			dbName = "printmaster"
+		}
+		host := c.Host
+		if host == "" {
+			host = "localhost"
+		}
+		user := c.User
+		if user == "" {
+			user = "printmaster"
+		}
+		dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			user, c.Password, host, port, dbName, sslMode)
+		return dsn
+
+	case "mysql", "mariadb":
+		// Build MySQL/MariaDB connection string (DSN format: user:pass@tcp(host:port)/dbname)
+		port := c.Port
+		if port == 0 {
+			port = 3306
+		}
+		dbName := c.Name
+		if dbName == "" {
+			dbName = "printmaster"
+		}
+		host := c.Host
+		if host == "" {
+			host = "localhost"
+		}
+		user := c.User
+		if user == "" {
+			user = "printmaster"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+			user, c.Password, host, port, dbName)
+		return dsn
+
+	default:
+		// SQLite: return path or default
+		if c.Path != "" {
+			return c.Path
+		}
+		return "printmaster.db"
+	}
 }
 
 // LoggingConfig holds logging settings
@@ -237,22 +338,82 @@ type LoggingConfig struct {
 }
 
 // ApplyEnvOverrides applies common environment variable overrides
-// ApplyDatabaseEnvOverrides applies database path overrides from environment.
-// It supports a component-specific override via <PREFIX>_DB_PATH (e.g. SERVER_DB_PATH,
-// AGENT_DB_PATH). If that is not set, it falls back to the generic DB_PATH.
+// ApplyDatabaseEnvOverrides applies database config overrides from environment.
+// It supports component-specific overrides via <PREFIX>_DB_* (e.g. SERVER_DB_DRIVER,
+// AGENT_DB_PATH). If those are not set, it falls back to the generic DB_* variants.
 func ApplyDatabaseEnvOverrides(cfg *DatabaseConfig, prefix string) {
-	// Check component-specific env var first
-	if prefix != "" {
-		key := strings.ToUpper(prefix) + "_DB_PATH"
-		if val := os.Getenv(key); val != "" {
-			cfg.Path = val
-			return
+	// Helper to get env with prefix fallback
+	getEnv := func(key string) string {
+		if prefix != "" {
+			if val := os.Getenv(strings.ToUpper(prefix) + "_DB_" + key); val != "" {
+				return val
+			}
+		}
+		return os.Getenv("DB_" + key)
+	}
+
+	// Driver
+	if val := getEnv("DRIVER"); val != "" {
+		cfg.Driver = val
+	}
+
+	// Path (SQLite)
+	if val := getEnv("PATH"); val != "" {
+		cfg.Path = val
+	}
+
+	// DSN (full connection string)
+	if val := getEnv("DSN"); val != "" {
+		cfg.DSN = val
+	}
+
+	// Host
+	if val := getEnv("HOST"); val != "" {
+		cfg.Host = val
+	}
+
+	// Port
+	if val := getEnv("PORT"); val != "" {
+		if port, err := strconv.Atoi(val); err == nil {
+			cfg.Port = port
 		}
 	}
 
-	// Fallback to generic DB_PATH
-	if val := os.Getenv("DB_PATH"); val != "" {
-		cfg.Path = val
+	// User
+	if val := getEnv("USER"); val != "" {
+		cfg.User = val
+	}
+
+	// Password
+	if val := getEnv("PASSWORD"); val != "" {
+		cfg.Password = val
+	}
+
+	// Database name
+	if val := getEnv("NAME"); val != "" {
+		cfg.Name = val
+	}
+
+	// SSL Mode
+	if val := getEnv("SSL_MODE"); val != "" {
+		cfg.SSLMode = val
+	}
+
+	// Connection pool settings
+	if val := getEnv("MAX_OPEN_CONNS"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			cfg.MaxOpenConns = n
+		}
+	}
+	if val := getEnv("MAX_IDLE_CONNS"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			cfg.MaxIdleConns = n
+		}
+	}
+	if val := getEnv("CONN_MAX_LIFETIME_SECS"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			cfg.ConnMaxLifetimeSecs = n
+		}
 	}
 }
 

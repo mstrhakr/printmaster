@@ -1378,14 +1378,6 @@ func (s *SQLiteStore) SetAgentSites(ctx context.Context, agentID string, siteIDs
 	return tx.Commit()
 }
 
-// nullBytes returns nil for empty byte slices
-func nullBytes(b []byte) interface{} {
-	if len(b) == 0 {
-		return nil
-	}
-	return string(b)
-}
-
 // CreateJoinToken generates an opaque token for tenant onboarding and stores only its hash.
 func (s *SQLiteStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMinutes int, oneTime bool) (*JoinToken, string, error) {
 	// verify tenant exists
@@ -1427,32 +1419,11 @@ func (s *SQLiteStore) CreateJoinToken(ctx context.Context, tenantID string, ttlM
 	return jt, raw, nil
 }
 
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func nullString(s string) sql.NullString {
-	if s == "" {
-		return sql.NullString{Valid: false}
-	}
-	return sql.NullString{String: s, Valid: true}
-}
-
 func nullTime(t time.Time) sql.NullTime {
 	if t.IsZero() {
 		return sql.NullTime{Valid: false}
 	}
 	return sql.NullTime{Time: t, Valid: true}
-}
-
-func nullInt64(v int64) sql.NullInt64 {
-	if v == 0 {
-		return sql.NullInt64{Valid: false}
-	}
-	return sql.NullInt64{Int64: v, Valid: true}
 }
 
 func encodeMetadata(meta map[string]any) (sql.NullString, error) {
@@ -1499,8 +1470,6 @@ func (s *SQLiteStore) migrateLegacyRoles() {
 		}
 	}
 }
-
-func intToBool(i int) bool { return i != 0 }
 
 // ValidateJoinToken checks token validity and consumes it if one-time.
 func (s *SQLiteStore) ValidateJoinToken(ctx context.Context, token string) (*JoinToken, error) {
@@ -1591,65 +1560,6 @@ func generateArgonHash(secret string) (string, error) {
 	b64Hash := base64.RawStdEncoding.EncodeToString(hash)
 	encoded := fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", memory, time, threads, b64Salt, b64Hash)
 	return encoded, nil
-}
-
-func verifyArgonHash(secret, encoded string) (bool, error) {
-	// encoded format: $argon2id$v=19$m=<mem>,t=<time>,p=<threads>$<salt>$<hash>
-	parts := strings.Split(encoded, "$")
-	if len(parts) < 6 {
-		return false, fmt.Errorf("bad encoded hash")
-	}
-	// parts[3] = params, parts[4]=salt, parts[5]=hash
-	params := parts[3]
-	saltB64 := parts[4]
-	hashB64 := parts[5]
-
-	// parse params (m=...,t=...,p=...)
-	var memory uint32
-	var time uint32
-	var threads uint8
-	_, err := fmt.Sscanf(params, "m=%d,t=%d,p=%d", &memory, &time, &threads)
-	if err != nil {
-		// fallback: try comma separated parsing
-		vals := strings.Split(params, ",")
-		for _, v := range vals {
-			kv := strings.SplitN(v, "=", 2)
-			if len(kv) != 2 {
-				continue
-			}
-			switch kv[0] {
-			case "m":
-				var m uint32
-				fmt.Sscanf(kv[1], "%d", &m)
-				memory = m
-			case "t":
-				var tt uint32
-				fmt.Sscanf(kv[1], "%d", &tt)
-				time = tt
-			case "p":
-				var p uint8
-				fmt.Sscanf(kv[1], "%d", &p)
-				threads = p
-			}
-		}
-	}
-
-	salt, err := base64.RawStdEncoding.DecodeString(saltB64)
-	if err != nil {
-		return false, err
-	}
-	expected, err := base64.RawStdEncoding.DecodeString(hashB64)
-	if err != nil {
-		return false, err
-	}
-
-	keyLen := uint32(len(expected))
-	derived := argon2.IDKey([]byte(secret), salt, time, memory, threads, keyLen)
-
-	if subtleConstantTimeCompare(derived, expected) {
-		return true, nil
-	}
-	return false, nil
 }
 
 // OIDC provider CRUD
@@ -1821,17 +1731,6 @@ func (s *SQLiteStore) ListOIDCLinksForUser(ctx context.Context, userID int64) ([
 func (s *SQLiteStore) DeleteOIDCLink(ctx context.Context, providerSlug, subject string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM oidc_links WHERE provider_slug = ? AND subject = ?`, providerSlug, subject)
 	return err
-}
-
-func subtleConstantTimeCompare(a, b []byte) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	var diff byte = 0
-	for i := 0; i < len(a); i++ {
-		diff |= a[i] ^ b[i]
-	}
-	return diff == 0
 }
 
 // tokenHash computes a stable SHA-256 hex digest of a session token.

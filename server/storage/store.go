@@ -1,0 +1,75 @@
+package storage
+
+import (
+	"fmt"
+	"time"
+
+	"printmaster/common/config"
+)
+
+// NewStore creates a new Store implementation based on the database configuration.
+// It supports SQLite (default), PostgreSQL, and MySQL/MariaDB backends.
+//
+// For SQLite: uses Path from config or defaults to "printmaster.db"
+// For PostgreSQL/MySQL: uses DSN or builds connection string from Host, Port, User, Password, Name
+//
+// Example usage:
+//
+//	cfg := &config.DatabaseConfig{Driver: "postgres", Host: "localhost", Name: "printmaster"}
+//	store, err := NewStore(cfg)
+func NewStore(cfg *config.DatabaseConfig) (Store, error) {
+	if cfg == nil {
+		cfg = &config.DatabaseConfig{}
+	}
+
+	driver := cfg.EffectiveDriver()
+	dsn := cfg.BuildDSN()
+
+	switch driver {
+	case "sqlite", "sqlite3", "modernc", "modernc-sqlite":
+		// Default SQLite path handling
+		path := dsn
+		if path == "" {
+			path = cfg.Path
+		}
+		if path == "" {
+			path = "printmaster.db"
+		}
+		return NewSQLiteStore(path)
+
+	case "postgres", "postgresql":
+		// PostgreSQL support is in development - schema and methods are being ported
+		return nil, fmt.Errorf("PostgreSQL support is not yet complete; use sqlite for now")
+
+	case "mysql", "mariadb":
+		return nil, fmt.Errorf("MySQL/MariaDB support is not yet implemented")
+
+	default:
+		return nil, fmt.Errorf("unsupported database driver: %q (supported: sqlite, postgres, mysql)", driver)
+	}
+}
+
+// applyPoolSettings configures connection pool settings on a store's database connection.
+// This is called by individual store implementations after opening the connection.
+func applyPoolSettings(cfg *config.DatabaseConfig, setMaxOpen, setMaxIdle func(int), setMaxLifetime func(time.Duration)) {
+	// Max open connections (default: 25, 0 = unlimited)
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen == 0 {
+		maxOpen = 25
+	}
+	setMaxOpen(maxOpen)
+
+	// Max idle connections (default: 5)
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle == 0 {
+		maxIdle = 5
+	}
+	setMaxIdle(maxIdle)
+
+	// Connection max lifetime (default: 5 minutes)
+	lifetime := time.Duration(cfg.ConnMaxLifetimeSecs) * time.Second
+	if lifetime == 0 {
+		lifetime = 5 * time.Minute
+	}
+	setMaxLifetime(lifetime)
+}
