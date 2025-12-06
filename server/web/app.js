@@ -5009,11 +5009,11 @@ async function fetchSitesForTenant(tenantId) {
 
 async function fetchAgentsForTenant(tenantId) {
     // Fetch agents assigned to this tenant
-    const r = await fetch(`/api/v1/agents`);
+    const r = await fetch('/api/v1/agents/list');
     if (!r.ok) throw new Error(await r.text());
     const data = await r.json();
-    // Filter agents by tenant
-    return (data.agents || []).filter(a => a.tenant_id === tenantId);
+    // Filter agents by tenant - API returns array directly
+    return (data || []).filter(a => a.tenant_id === tenantId);
 }
 
 function renderSitesTree(tenantId, sites, agents) {
@@ -5310,7 +5310,7 @@ async function loadSiteAgentsList(selectedAgentIds) {
     container.innerHTML = '<div class="muted-text">Loading agents...</div>';
     
     try {
-        const r = await fetch('/api/v1/agents');
+        const r = await fetch('/api/v1/agents/list');
         if (!r.ok) throw new Error(await r.text());
         const agents = await r.json();
         
