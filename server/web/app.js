@@ -3693,8 +3693,16 @@ function initTenantBundlesUI(){
     const table = document.getElementById('tenant_bundles_table');
     if (!select || !table) return;
     tenantBundlesUIInitialized = true;
-    select.innerHTML = '<option value="">Select tenant…</option>';
+    
+    // Populate with "Add Tenant" option
+    populateTenantDropdown(select, { 
+        placeholder: 'Select tenant…', 
+        showAddOption: true 
+    });
+    
+    // Add change listener for loading bundles (but skip for "Add Tenant")
     select.addEventListener('change', (event) => {
+        if (event.target.value === '__add_new_tenant__') return; // Handled by populateTenantDropdown
         tenantBundlesState.selectedTenantId = event.target.value;
         if (!tenantBundlesState.selectedTenantId) {
             renderTenantBundlesMessage('Select a tenant to view installer bundles.');
@@ -3713,6 +3721,81 @@ function initTenantBundlesUI(){
         });
     }
     syncTenantBundlesTenantDirectory(window._tenants || []);
+}
+
+// Callback for after new tenant is created via dropdown "Add Tenant" option
+let _tenantDropdownCallback = null;
+
+/**
+ * Populate a tenant dropdown select with options and "Add Tenant" entry
+ * @param {HTMLSelectElement} selectEl - The select element to populate
+ * @param {Object} options - Configuration options
+ * @param {string} options.selectedId - ID of tenant to select
+ * @param {string} options.placeholder - Placeholder text for empty option
+ * @param {boolean} options.showAddOption - Whether to show "Add Tenant" option (default true)
+ * @param {boolean} options.required - Whether to include empty placeholder option
+ */
+function populateTenantDropdown(selectEl, options = {}) {
+    if (!selectEl) return;
+    const { 
+        selectedId = '', 
+        placeholder = 'Select tenant…', 
+        showAddOption = true,
+        required = false 
+    } = options;
+    
+    const tenants = window._tenants || [];
+    selectEl.innerHTML = '';
+    
+    // Add placeholder option if not required
+    if (!required) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '';
+        emptyOpt.textContent = placeholder;
+        selectEl.appendChild(emptyOpt);
+    }
+    
+    // Add tenant options
+    tenants.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        if (t.id === selectedId) opt.selected = true;
+        selectEl.appendChild(opt);
+    });
+    
+    // Add "Add Tenant" option
+    if (showAddOption) {
+        const addOpt = document.createElement('option');
+        addOpt.value = '__add_new_tenant__';
+        addOpt.textContent = '+ Add Tenant…';
+        addOpt.style.fontWeight = 'bold';
+        addOpt.style.fontStyle = 'italic';
+        selectEl.appendChild(addOpt);
+    }
+    
+    // Remove any existing listener to avoid duplicates
+    selectEl.removeEventListener('change', handleTenantDropdownChange);
+    if (showAddOption) {
+        selectEl.addEventListener('change', handleTenantDropdownChange);
+    }
+}
+
+function handleTenantDropdownChange(e) {
+    const selectEl = e.target;
+    if (selectEl.value !== '__add_new_tenant__') return;
+    
+    // Reset to first option to prevent showing "Add Tenant" as selected
+    selectEl.selectedIndex = 0;
+    
+    // Store callback to update this dropdown after tenant is created
+    _tenantDropdownCallback = {
+        selectEl: selectEl,
+        previousValue: selectEl.value
+    };
+    
+    // Open tenant modal for new tenant
+    openTenantModal(null);
 }
 
 function openTenantModal(tenant){
@@ -3780,15 +3863,26 @@ async function submitTenantForm(){
     }
     const editId = modal ? modal.getAttribute('data-edit-id') : '';
     try {
+        let newTenantId = null;
         if (editId) {
             await updateTenant(editId, payload);
             window.__pm_shared.showToast('Tenant updated', 'success');
         } else {
-            await createTenant(payload);
+            const result = await createTenant(payload);
+            newTenantId = result && result.id ? result.id : null;
             window.__pm_shared.showToast('Tenant created', 'success');
         }
         closeTenantModal();
-        loadTenants();
+        await loadTenants();
+        
+        // If we have a dropdown callback and this was a new tenant, update the dropdown
+        if (_tenantDropdownCallback && newTenantId) {
+            const { selectEl } = _tenantDropdownCallback;
+            if (selectEl && selectEl.isConnected) {
+                populateTenantDropdown(selectEl, { selectedId: newTenantId });
+            }
+            _tenantDropdownCallback = null;
+        }
     } catch (err) {
         const message = (err && err.message) ? err.message : 'Failed to save tenant';
         if (errEl) {
@@ -3900,18 +3994,13 @@ function openInviteModal(){
     document.getElementById('invite_role').value = 'viewer';
     document.getElementById('invite_error').textContent = '';
     
-    // Populate tenant select
+    // Populate tenant select with "Add Tenant" option
     const tenantSel = document.getElementById('invite_tenant');
     if(tenantSel){
-        tenantSel.innerHTML = '<option value="">(Global / Server)</option>';
-        if(window._tenants && Array.isArray(window._tenants)){
-            window._tenants.forEach(t=>{
-                const opt = document.createElement('option');
-                opt.value = t.id || t.uuid || '';
-                opt.textContent = t.name || opt.value;
-                tenantSel.appendChild(opt);
-            });
-        }
+        populateTenantDropdown(tenantSel, { 
+            placeholder: '(Global / Server)', 
+            showAddOption: true 
+        });
     }
     
     // Show/hide SMTP warning
@@ -4491,18 +4580,13 @@ async function openUserModal(editMode = false){
     // Load password policy if not cached
     if (!passwordPolicy) await loadPasswordPolicy();
     
-    // Populate tenant select from cached tenants
+    // Populate tenant select from cached tenants with "Add Tenant" option
     const sel = document.getElementById('user_tenant');
     if(sel){
-        sel.innerHTML = '<option value="">(Global / Server)</option>';
-        if(window._tenants && Array.isArray(window._tenants)){
-            window._tenants.forEach(t=>{
-                const opt = document.createElement('option');
-                opt.value = t.id || t.uuid || '';
-                opt.textContent = t.name || opt.value;
-                sel.appendChild(opt);
-            });
-        }
+        populateTenantDropdown(sel, { 
+            placeholder: '(Global / Server)', 
+            showAddOption: true 
+        });
     }
     
     // Clear edit mode
@@ -4613,18 +4697,13 @@ async function openUserEditModal(id){
         // Load password policy if not cached
         if (!passwordPolicy) await loadPasswordPolicy();
         
-        // Populate tenant select
+        // Populate tenant select with "Add Tenant" option
         const sel = document.getElementById('user_tenant');
         if(sel){
-            sel.innerHTML = '<option value="">(Global / Server)</option>';
-            if(window._tenants && Array.isArray(window._tenants)){
-                window._tenants.forEach(t=>{
-                    const opt = document.createElement('option');
-                    opt.value = t.id || t.uuid || '';
-                    opt.textContent = t.name || opt.value;
-                    sel.appendChild(opt);
-                });
-            }
+            populateTenantDropdown(sel, { 
+                placeholder: '(Global / Server)', 
+                showAddOption: true 
+            });
         }
         
         const r = await fetch('/api/v1/users/'+encodeURIComponent(id));
@@ -4694,15 +4773,20 @@ function syncTenantBundlesTenantDirectory(list){
     if (!select) return;
     const normalized = normalizeTenantList(list);
     const previous = tenantBundlesState.selectedTenantId;
-    const options = ['<option value="">Select tenant…</option>'];
+    
+    // Use populateTenantDropdown to update with "Add Tenant" option
+    populateTenantDropdown(select, { 
+        placeholder: 'Select tenant…', 
+        selectedId: previous,
+        showAddOption: true 
+    });
+    
+    // Build set of valid IDs for cache cleanup
     const validIds = new Set();
     normalized.forEach(tenant => {
-        if (!tenant.id) return;
-        validIds.add(tenant.id);
-        const selected = previous && tenant.id === previous ? ' selected' : '';
-        options.push(`<option value="${escapeHtml(tenant.id)}"${selected}>${escapeHtml(tenant.name || tenant.id)}</option>`);
+        if (tenant.id) validIds.add(tenant.id);
     });
-    select.innerHTML = options.join('');
+    
     tenantBundlesState.cache.forEach((_, key) => {
         if (!validIds.has(key)) {
             tenantBundlesState.cache.delete(key);
@@ -12147,19 +12231,8 @@ function renderAddAgentStep(step){
     }
 
     if(step === 1){
-        // Tenant select
+        // Tenant select - handled by populateTenantDropdown after content is set
         const state = window._addAgentState || {};
-        const tenants = Array.isArray(window._tenants) ? window._tenants : [];
-        let tenantOptions = '';
-        if(tenants.length === 0 && state.tenantID){
-            tenantOptions = `<option value="${escapeHtml(state.tenantID)}">${escapeHtml(state.tenantID)}</option>`;
-        } else {
-            tenantOptions = tenants.map(t => {
-                const value = t.id || t.uuid || t.name || '';
-                const label = t.name || t.id || t.uuid || value;
-                return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
-            }).join('\n');
-        }
         const ttlValue = state.ttl && state.ttl > 0 ? state.ttl : 60;
         const oneTimeChecked = state.one_time === undefined ? true : !!state.one_time;
         const defaultPlatform = state.platform || 'windows';
@@ -12181,8 +12254,6 @@ function renderAddAgentStep(step){
             <div style="display:flex;flex-direction:column;gap:8px;">
                 <label style="font-weight:600">Customer (tenant)</label>
                 <select id="add_agent_tenant" style="padding:8px;border-radius:4px;border:1px solid var(--border);">
-                    <option value="">-- select customer --</option>
-                    ${tenantOptions}
                 </select>
 
                 <label style="font-weight:600">Join token TTL (minutes)</label>
@@ -12221,9 +12292,21 @@ function renderAddAgentStep(step){
             </div>
         `;
 
+        // Populate tenant dropdown with "Add Tenant" option
         const tenantSelect = content.querySelector('#add_agent_tenant');
-        if(tenantSelect && state.tenantID){ tenantSelect.value = state.tenantID; }
-        if(tenantSelect){ tenantSelect.addEventListener('change', ()=>{ state.tenantID = tenantSelect.value; }); }
+        if(tenantSelect){
+            populateTenantDropdown(tenantSelect, { 
+                placeholder: '-- select customer --', 
+                selectedId: state.tenantID || '',
+                showAddOption: true 
+            });
+            // Also track state change when tenant is selected (but not for "Add Tenant")
+            tenantSelect.addEventListener('change', ()=>{ 
+                if(tenantSelect.value !== '__add_new_tenant__'){
+                    state.tenantID = tenantSelect.value; 
+                }
+            });
+        }
 
         const ttlInput = content.querySelector('#add_agent_ttl');
         if(ttlInput){
