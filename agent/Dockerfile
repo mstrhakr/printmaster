@@ -48,3 +48,6 @@ ENV DOCKER=true
 
 # Expose web UI port (default 8000)
 EXPOSE 8000
+
+# Run the agent (distroless nonroot user)
+ENTRYPOINT ["/printmaster-agent"]
