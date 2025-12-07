@@ -95,6 +95,18 @@ func TokenHash(token string) string {
 	return hashSHA256(token)
 }
 
+// safePrefix returns the first n characters of a string for safe logging.
+// Returns "<empty>" for empty strings and "<short>" for strings shorter than n.
+func safePrefix(s string, n int) string {
+	if s == "" {
+		return "<empty>"
+	}
+	if len(s) < n {
+		return "<short>"
+	}
+	return s[:n]
+}
+
 // ============================================================================
 // Database Path Helpers
 // ============================================================================

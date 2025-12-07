@@ -1465,6 +1465,7 @@ func (s *BaseStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMin
 		return nil, "", err
 	}
 	rawToken := hex.EncodeToString(b)
+	logDebug("CreateJoinToken: generated token", "tenant_id", tenantID, "token_length", len(rawToken), "token_prefix", rawToken[:8], "ttl_minutes", ttlMinutes, "one_time", oneTime)
 
 	// Hash the token using Argon2
 	tokenHash, err := hashArgon(rawToken)
@@ -1479,6 +1480,7 @@ func (s *BaseStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMin
 	query := `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at) VALUES (?, ?, ?, ?, ?, ?)`
 	_, err = s.execContext(ctx, query, tokenID, tokenHash, tenantID, expiresAt, boolToInt(oneTime), now)
 	if err != nil {
+		logWarn("CreateJoinToken: failed to insert", "error", err, "tenant_id", tenantID)
 		return nil, "", err
 	}
 
@@ -1490,39 +1492,54 @@ func (s *BaseStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMin
 		CreatedAt: now,
 	}
 
+	logInfo("CreateJoinToken: token created successfully", "token_id", tokenID, "tenant_id", tenantID, "expires_at", expiresAt.Format(time.RFC3339), "one_time", oneTime)
 	return jt, rawToken, nil
 }
 
 // ValidateJoinToken validates a join token and returns the JoinToken if valid.
 func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*JoinToken, error) {
+	logDebug("ValidateJoinToken: starting validation", "token_length", len(rawToken), "token_prefix", safePrefix(rawToken, 8))
+	now := time.Now().UTC()
 	// Fetch all non-revoked, unexpired tokens
 	rows, err := s.queryContext(ctx, `
 		SELECT id, token_hash, tenant_id, expires_at, one_time, created_at
 		FROM join_tokens
 		WHERE revoked = 0 AND expires_at > ?
-	`, time.Now().UTC())
+	`, now)
 	if err != nil {
+		logWarn("ValidateJoinToken: query failed", "error", err)
 		return nil, err
 	}
 	defer rows.Close()
 
+	candidateCount := 0
+
 	for rows.Next() {
+		candidateCount++
 		var id, hash, tenantID string
 		var expiresAt, createdAt time.Time
 		var oneTimeInt interface{}
 		if err := rows.Scan(&id, &hash, &tenantID, &expiresAt, &oneTimeInt, &createdAt); err != nil {
+			logWarn("ValidateJoinToken: scan failed", "error", err)
 			return nil, err
 		}
+
+		logDebug("ValidateJoinToken: checking candidate", "token_id", id, "tenant_id", tenantID, "expires_at", expiresAt.Format(time.RFC3339), "one_time", intToBool(oneTimeInt))
 
 		// Verify the hash
 		ok, verr := verifyArgonHash(rawToken, hash)
 		if verr != nil {
+			logWarn("ValidateJoinToken: hash verification error", "token_id", id, "error", verr)
 			continue
 		}
 		if ok {
+			logInfo("ValidateJoinToken: token matched", "token_id", id, "tenant_id", tenantID, "one_time", intToBool(oneTimeInt))
 			// If one-time token, mark as used (revoked)
 			if intToBool(oneTimeInt) {
-				s.execContext(ctx, `UPDATE join_tokens SET revoked = 1, used_at = ? WHERE id = ?`, time.Now().UTC(), id)
+				if _, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = 1, used_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
+					logWarn("ValidateJoinToken: failed to mark token as used", "token_id", id, "error", err)
+				}
+				logInfo("ValidateJoinToken: marked one-time token as used", "token_id", id)
 			}
 			return &JoinToken{
 				ID:        id,
@@ -1532,9 +1549,12 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 				OneTime:   intToBool(oneTimeInt),
 				CreatedAt: createdAt,
 			}, nil
+		} else {
+			logDebug("ValidateJoinToken: hash mismatch for candidate", "token_id", id)
 		}
 	}
 
+	logWarn("ValidateJoinToken: no matching token found", "candidates_checked", candidateCount, "token_prefix", safePrefix(rawToken, 8))
 	return nil, fmt.Errorf("invalid or expired join token")
 }
 

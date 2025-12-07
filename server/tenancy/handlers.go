@@ -616,9 +616,13 @@ func handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		OneTime    bool   `json:"one_time"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		pkgLogger.Warn("create-join-token: invalid JSON", "remote_addr", r.RemoteAddr, "error", err)
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"error":"invalid json"}`))
 		return
+	}
+	if pkgLogger != nil {
+		pkgLogger.Info("create-join-token: request received", "tenant_id", in.TenantID, "ttl_minutes", in.TTLMinutes, "one_time", in.OneTime, "remote_addr", r.RemoteAddr)
 	}
 	if in.TTLMinutes <= 0 {
 		in.TTLMinutes = 60
@@ -814,9 +818,15 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		GitCommit       string `json:"git_commit,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		if pkgLogger != nil {
+			pkgLogger.Warn("register-with-token: invalid JSON", "remote_addr", r.RemoteAddr, "error", err)
+		}
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"error":"invalid json"}`))
 		return
+	}
+	if pkgLogger != nil {
+		pkgLogger.Info("register-with-token: request received", "agent_id", in.AgentID, "name", in.Name, "hostname", in.Hostname, "platform", in.Platform, "version", in.AgentVersion, "token_length", len(in.Token), "remote_addr", r.RemoteAddr)
 	}
 	if in.Token == "" || in.AgentID == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -824,8 +834,14 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if dbStore != nil {
+		if pkgLogger != nil {
+			pkgLogger.Debug("register-with-token: validating with dbStore", "agent_id", in.AgentID)
+		}
 		jt, err := dbStore.ValidateJoinToken(r.Context(), in.Token)
 		if err != nil {
+			if pkgLogger != nil {
+				pkgLogger.Warn("register-with-token: token validation failed", "agent_id", in.AgentID, "error", err, "remote_addr", r.RemoteAddr)
+			}
 			recordAudit(r, &storage.AuditEntry{
 				ActorType: storage.AuditActorAgent,
 				ActorID:   strings.TrimSpace(in.AgentID),
@@ -842,6 +858,10 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error":"invalid or expired token"}`))
 			return
+		}
+
+		if pkgLogger != nil {
+			pkgLogger.Info("register-with-token: token validated successfully", "agent_id", in.AgentID, "tenant_id", jt.TenantID, "token_id", jt.ID)
 		}
 
 		// Create or update agent in server DB with tenant assignment and issue a secure token
@@ -877,9 +897,16 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 			TenantID:        jt.TenantID,
 		}
 		if err := dbStore.RegisterAgent(r.Context(), ag); err != nil {
+			if pkgLogger != nil {
+				pkgLogger.Error("register-with-token: failed to register agent", "agent_id", in.AgentID, "error", err)
+			}
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to register agent"}`))
 			return
+		}
+
+		if pkgLogger != nil {
+			pkgLogger.Info("register-with-token: agent registered successfully", "agent_id", ag.AgentID, "tenant_id", ag.TenantID, "name", ag.Name)
 		}
 
 		emitAgentEvent("agent_registered", ag)
