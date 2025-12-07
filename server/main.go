@@ -498,38 +498,43 @@ func runServer(ctx context.Context, configFlag string) {
 		usingDefaultConfig = false
 	}
 
-	// Always apply environment overrides for database path (supports SERVER_DB_PATH and DB_PATH)
-	// even when using default configuration (no config file present).
+	// Always apply environment overrides for database configuration (supports SERVER_DB_* and DB_*).
+	// Path-related overrides are only relevant for SQLite; other drivers rely on DSN/host credentials.
 	config.ApplyDatabaseEnvOverrides(&cfg.Database, "SERVER")
-	if cfg.Database.Path != "" {
+	dbDriver := strings.ToLower(cfg.Database.EffectiveDriver())
+	isSQLiteDriver := dbDriver == "sqlite" || dbDriver == "sqlite3" || dbDriver == "modernc" || dbDriver == "modernc-sqlite"
+
+	if isSQLiteDriver {
 		// If the env var points to a directory, append the default filename
 		// so users can set either a directory or a full file path.
-		dbPath := cfg.Database.Path
-		// Normalize and detect directory-like values
-		if strings.HasSuffix(dbPath, string(os.PathSeparator)) || strings.HasSuffix(dbPath, "/") {
-			dbPath = filepath.Join(dbPath, "server.db")
-		} else {
-			if fi, err := os.Stat(dbPath); err == nil && fi.IsDir() {
+		if cfg.Database.Path != "" {
+			dbPath := cfg.Database.Path
+			// Normalize and detect directory-like values
+			if strings.HasSuffix(dbPath, string(os.PathSeparator)) || strings.HasSuffix(dbPath, "/") {
 				dbPath = filepath.Join(dbPath, "server.db")
+			} else {
+				if fi, err := os.Stat(dbPath); err == nil && fi.IsDir() {
+					dbPath = filepath.Join(dbPath, "server.db")
+				}
 			}
-		}
 
-		// Ensure parent directory exists
-		parent := filepath.Dir(dbPath)
-		if err := os.MkdirAll(parent, 0755); err != nil {
-			logWarn("Could not create DB parent directory; falling back to default", "path", parent, "error", err)
-			// clear to allow fallback logic to run
-			cfg.Database.Path = ""
-		} else {
-			// Try to open or create the DB file to ensure we have write access
-			f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0644)
-			if err != nil {
-				logWarn("Cannot write to DB path; falling back to default", "path", dbPath, "error", err)
+			// Ensure parent directory exists
+			parent := filepath.Dir(dbPath)
+			if err := os.MkdirAll(parent, 0755); err != nil {
+				logWarn("Could not create DB parent directory; falling back to default", "path", parent, "error", err)
+				// clear to allow fallback logic to run
 				cfg.Database.Path = ""
 			} else {
-				f.Close()
-				cfg.Database.Path = dbPath
-				logInfo("Database path overridden by environment", "path", cfg.Database.Path)
+				// Try to open or create the DB file to ensure we have write access
+				f, err := os.OpenFile(dbPath, os.O_RDWR|os.O_CREATE, 0644)
+				if err != nil {
+					logWarn("Cannot write to DB path; falling back to default", "path", dbPath, "error", err)
+					cfg.Database.Path = ""
+				} else {
+					f.Close()
+					cfg.Database.Path = dbPath
+					logInfo("Database path overridden by environment", "path", cfg.Database.Path)
+				}
 			}
 		}
 	}
@@ -539,43 +544,48 @@ func runServer(ctx context.Context, configFlag string) {
 	logDebug("Runtime", "go", runtime.Version(), "os", runtime.GOOS, "arch", runtime.GOARCH)
 
 	// Initialize logger
-	if cfg.Database.Path == "" {
-		if runtime.GOOS == "windows" && !isService {
-			if userDir, err := config.GetDataDirectory("server", false); err == nil {
-				cfg.Database.Path = filepath.Join(userDir, "server.db")
-				logDebug("Using per-user data directory for database", "path", cfg.Database.Path)
+	if isSQLiteDriver {
+		if cfg.Database.Path == "" {
+			if runtime.GOOS == "windows" && !isService {
+				if userDir, err := config.GetDataDirectory("server", false); err == nil {
+					cfg.Database.Path = filepath.Join(userDir, "server.db")
+					logDebug("Using per-user data directory for database", "path", cfg.Database.Path)
+				} else {
+					logWarn("Failed to resolve user data directory; falling back to default DB path", "error", err)
+					cfg.Database.Path = storage.GetDefaultDBPath()
+				}
 			} else {
-				logWarn("Failed to resolve user data directory; falling back to default DB path", "error", err)
 				cfg.Database.Path = storage.GetDefaultDBPath()
 			}
-		} else {
-			cfg.Database.Path = storage.GetDefaultDBPath()
 		}
-	}
 
-	if cfg.Database.Path != "" && runtime.GOOS == "windows" && !isService {
-		// If the path still points into ProgramData (custom config/env override), verify permissions
-		pd := os.Getenv("PROGRAMDATA")
-		if pd == "" {
-			pd = "C:\\ProgramData"
-		}
-		if strings.HasPrefix(strings.ToLower(cfg.Database.Path), strings.ToLower(pd)) {
-			parent := filepath.Dir(cfg.Database.Path)
-			if err := os.MkdirAll(parent, 0755); err != nil {
-				logInfo("ProgramData path not writable; switching to per-user data directory", "programdata", pd, "error", err)
-				if userDir, derr := config.GetDataDirectory("server", false); derr == nil {
-					cfg.Database.Path = filepath.Join(userDir, "server.db")
-				} else {
-					logWarn("Failed to resolve user data directory; keeping existing DB path", "error", derr)
+		if cfg.Database.Path != "" && runtime.GOOS == "windows" && !isService {
+			// If the path still points into ProgramData (custom config/env override), verify permissions
+			pd := os.Getenv("PROGRAMDATA")
+			if pd == "" {
+				pd = "C:\\ProgramData"
+			}
+			if strings.HasPrefix(strings.ToLower(cfg.Database.Path), strings.ToLower(pd)) {
+				parent := filepath.Dir(cfg.Database.Path)
+				if err := os.MkdirAll(parent, 0755); err != nil {
+					logInfo("ProgramData path not writable; switching to per-user data directory", "programdata", pd, "error", err)
+					if userDir, derr := config.GetDataDirectory("server", false); derr == nil {
+						cfg.Database.Path = filepath.Join(userDir, "server.db")
+					} else {
+						logWarn("Failed to resolve user data directory; keeping existing DB path", "error", derr)
+					}
 				}
 			}
 		}
-	}
 
-	if cfg.Database.Path != "" {
-		if absDBPath, err := filepath.Abs(cfg.Database.Path); err == nil {
-			cfg.Database.Path = absDBPath
+		if cfg.Database.Path != "" {
+			if absDBPath, err := filepath.Abs(cfg.Database.Path); err == nil {
+				cfg.Database.Path = absDBPath
+			}
 		}
+	} else if cfg.Database.Path != "" {
+		logDebug("Ignoring SQLite database path because non-sqlite driver is configured", "driver", dbDriver, "path", cfg.Database.Path)
+		cfg.Database.Path = ""
 	}
 
 	// Determine log directory based on whether we're running as a service
@@ -592,12 +602,30 @@ func runServer(ctx context.Context, configFlag string) {
 	serverConfig = cfg
 
 	// Initialize database
-	logInfo("Using database", "path", cfg.Database.Path)
-	logInfo("Initializing database", "path", cfg.Database.Path)
+	dbLogFields := []interface{}{"driver", dbDriver}
+	if isSQLiteDriver {
+		dbLogFields = append(dbLogFields, "path", cfg.Database.Path)
+	} else {
+		dbLogFields = append(dbLogFields, "host", cfg.Database.Host, "database", cfg.Database.Name)
+		if cfg.Database.DSN != "" {
+			dbLogFields = append(dbLogFields, "dsn_source", "explicit")
+		} else {
+			dbLogFields = append(dbLogFields, "dsn_source", "built")
+		}
+	}
+	logInfo("Using database", dbLogFields...)
+	logInfo("Initializing database", dbLogFields...)
 
 	// Inject structured logger into storage package so DB initialization logs are structured
 	storage.SetLogger(serverLogger)
-	serverStore, err = storage.NewSQLiteStore(cfg.Database.Path)
+	switch dbDriver {
+	case "sqlite", "sqlite3", "modernc", "modernc-sqlite":
+		serverStore, err = storage.NewSQLiteStore(cfg.Database.Path)
+	case "postgres", "postgresql":
+		serverStore, err = storage.NewPostgresStore(&cfg.Database)
+	default:
+		err = fmt.Errorf("unsupported database driver: %s", dbDriver)
+	}
 	if err != nil {
 		logFatal("Failed to initialize database", "error", err)
 	}
