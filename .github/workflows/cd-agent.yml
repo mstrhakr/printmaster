@@ -5,6 +5,10 @@ on:
     tags:
       - 'agent-v*'
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
   # Wait for CI to pass on this commit
   wait-for-ci:
@@ -159,9 +163,79 @@ jobs:
         name: agent-windows-msi
         path: agent/dist/printmaster-agent-v${{ steps.version.outputs.agent_version }}-windows-amd64.msi
 
+  build-docker:
+    name: Build Docker Images (Multi-Arch)
+    needs: [wait-for-ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        install: true
+        driver-opts: |
+          image=moby/buildkit:latest
+          network=host
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Get version
+      id: version
+      run: |
+        echo "version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
+        echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-agent
+        tags: |
+          type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
+          type=raw,value=latest,enable=true
+          type=raw,value=${{ steps.version.outputs.version }}
+        labels: |
+          org.opencontainers.image.description=PrintMaster Agent container image (build ${{ steps.version.outputs.version }} / commit ${{ steps.version.outputs.git_commit }})
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./agent/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          VERSION=${{ steps.version.outputs.version }}
+          BUILD_TIME=${{ steps.version.outputs.build_time }}
+          GIT_COMMIT=${{ steps.version.outputs.git_commit }}
+        cache-from: type=gha,scope=distroless
+        cache-to: type=gha,mode=max,scope=distroless
+        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        provenance: false
+        sbom: false
+
   release-agent:
     name: Create Agent Release
-    needs: [build-agent]
+    needs: [build-agent, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -239,10 +313,21 @@ jobs:
           #### Windows MSI Installer
           Download `printmaster-agent-v${{ steps.version.outputs.version }}-windows-amd64.msi` for easy installation on Windows.
           
+          #### Docker Installation (Recommended)
+          ```bash
+          docker pull ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
+          docker run -d \
+            -p 8000:8000 \
+            -v agent-data:/var/lib/printmaster/agent \
+            ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
+          ```
+          
+          See `docker-compose.yml` in the repository for a complete multi-service example.
+          
           **Supported Platforms:**
           - Windows (amd64) - EXE and MSI installer
-          - Linux (amd64, arm64)
-          - macOS (amd64, arm64)
+          - Linux (amd64, arm64, armv7) - Docker container
+          - macOS (amd64, arm64) - Binary
           
           ### ⏱️ Build Information
           - **Workflow run:** ${{ github.run_id }}
