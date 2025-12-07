@@ -100,7 +100,7 @@
         }
 
         updateTenantBanner(opts);
-        maybeShowTenantLookup(opts);
+        maybeShowTenantLookup(providers, opts);
         maybeAutoLogin(providers, opts);
     }
 
@@ -193,12 +193,13 @@
         }
     }
 
-    function maybeShowTenantLookup(opts){
+    function maybeShowTenantLookup(providers, opts){
         if(!elements.lookupSection){
             return;
         }
+        const providerCount = Array.isArray(providers) ? providers.length : 0;
         const resolvedTenant = opts && (opts.tenant_id || opts.tenantId);
-        const shouldShow = !tenantParam && !resolvedTenant;
+        const shouldShow = providerCount > 1 && !tenantParam && !resolvedTenant;
         if(shouldShow){
             elements.lookupSection.style.display = 'block';
             initTenantLookup();

@@ -150,4 +150,35 @@ describe('login page behavior', () => {
         expect(errorEl.style.display).toBe('block');
         expect(errorEl.textContent).toContain('We could not create or find a user');
     });
+
+    test('tenant lookup stays hidden with one provider', async () => {
+        const { window, triggerInit } = setupDom('');
+        queueFetchResponses(window, [mockFetchResponse({
+            local_login: false,
+            providers: [ { slug: 'one', display_name: 'OneID' } ],
+        })]);
+
+        triggerInit();
+        await flushPromises();
+
+        const lookup = window.document.getElementById('tenant_lookup_section');
+        expect(lookup.style.display).toBe('none');
+    });
+
+    test('tenant lookup shows when multiple providers available', async () => {
+        const { window, triggerInit } = setupDom('');
+        queueFetchResponses(window, [mockFetchResponse({
+            local_login: false,
+            providers: [
+                { slug: 'p1', display_name: 'Provider 1' },
+                { slug: 'p2', display_name: 'Provider 2' },
+            ],
+        })]);
+
+        triggerInit();
+        await flushPromises();
+
+        const lookup = window.document.getElementById('tenant_lookup_section');
+        expect(lookup.style.display).toBe('block');
+    });
 });
