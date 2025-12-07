@@ -692,24 +692,31 @@ func runServer(ctx context.Context, configFlag string) {
 		startInstallerCleanupWorker(ctx, serverStore, installerCacheDir)
 	}
 
-	// Self-update manager only supports SQLite (requires database file path for apply helper)
-	// For PostgreSQL, self-update should be handled by container orchestration
-	selfUpdateEnabled := cfg.Server.SelfUpdateEnabled && cfg.Database.Path != ""
-	if !selfUpdateEnabled && cfg.Server.SelfUpdateEnabled {
-		logInfo("Self-update disabled (not supported with PostgreSQL - use container orchestration)")
+	// Serialize database config for self-update helper
+	dbConfigJSON, err := json.Marshal(map[string]interface{}{
+		"driver":   cfg.Database.Driver,
+		"path":     cfg.Database.Path,
+		"host":     cfg.Database.Host,
+		"port":     cfg.Database.Port,
+		"name":     cfg.Database.Name,
+		"user":     cfg.Database.User,
+		"password": cfg.Database.Password,
+	})
+	if err != nil {
+		logWarn("Failed to serialize database config", "error", err)
 	}
 
 	if manager, err := selfupdate.NewManager(selfupdate.Options{
 		Store:          serverStore,
 		Log:            serverLogger,
 		DataDir:        dataDir,
-		Enabled:        selfUpdateEnabled,
+		Enabled:        cfg.Server.SelfUpdateEnabled,
 		CurrentVersion: Version,
 		Component:      "server",
 		Channel:        "stable",
 		Platform:       runtime.GOOS,
 		Arch:           runtime.GOARCH,
-		DatabasePath:   cfg.Database.Path,
+		DatabaseConfig: string(dbConfigJSON),
 		ServiceName:    getServiceConfig().Name,
 	}); err != nil {
 		logWarn("Self-update manager disabled", "error", err)

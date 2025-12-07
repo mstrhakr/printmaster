@@ -46,7 +46,7 @@ type Options struct {
 	Arch             string
 	MaxArtifacts     int
 	BinaryPath       string
-	DatabasePath     string
+	DatabaseConfig   string
 	ServiceName      string
 	ApplyLauncher    ApplyLauncher
 	RuntimeSkipCheck func() string // Returns reason to skip, or "" to proceed. Defaults to runtimeSkipReason.
@@ -69,7 +69,7 @@ type Manager struct {
 	arch             string
 	maxArtifacts     int
 	binaryPath       string
-	databasePath     string
+	databaseConfig   string
 	serviceName      string
 	applier          ApplyLauncher
 	runtimeSkipCheck func() string
@@ -125,7 +125,7 @@ func NewManager(opts Options) (*Manager, error) {
 			binaryPath = exe
 		}
 	}
-	databasePath := strings.TrimSpace(opts.DatabasePath)
+	databaseConfig := strings.TrimSpace(opts.DatabaseConfig)
 	serviceName := strings.TrimSpace(opts.ServiceName)
 	if serviceName == "" {
 		serviceName = defaultServiceName
@@ -146,10 +146,8 @@ func NewManager(opts Options) (*Manager, error) {
 		if binaryPath == "" {
 			return nil, fmt.Errorf("binary path is required for self-update")
 		}
-		if databasePath == "" {
-			// Database path is required for apply helper (SQLite only)
-			// For PostgreSQL, self-update should be disabled via config or container detection
-			return nil, fmt.Errorf("self-update requires SQLite database (not supported with PostgreSQL)")
+		if databaseConfig == "" {
+			return nil, fmt.Errorf("database config required for self-update apply helper")
 		}
 		applier = newHelperLauncher(stateDir, binaryPath, serviceName, opts.Log)
 	}
@@ -174,7 +172,7 @@ func NewManager(opts Options) (*Manager, error) {
 		arch:             strings.ToLower(arch),
 		maxArtifacts:     maxArtifacts,
 		binaryPath:       binaryPath,
-		databasePath:     databasePath,
+		databaseConfig:   databaseConfig,
 		serviceName:      serviceName,
 		applier:          applier,
 		runtimeSkipCheck: runtimeSkipCheck,
@@ -516,7 +514,7 @@ func (m *Manager) beginApply(ctx context.Context, run *storage.SelfUpdateRun) er
 		Arch:           m.arch,
 		Channel:        run.Channel,
 		Component:      m.component,
-		DatabasePath:   m.databasePath,
+		DatabaseConfig: m.databaseConfig,
 		StateDir:       m.stateDir,
 		CreatedAt:      m.clock(),
 	}

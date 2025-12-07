@@ -7,11 +7,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"printmaster/common/config"
+	"printmaster/server/storage"
 	"runtime"
 	"strings"
 	"time"
-
-	"printmaster/server/storage"
 )
 
 // RunApplyHelper executes inside the detached helper binary to orchestrate
@@ -33,7 +33,37 @@ func RunApplyHelper(instructionPath string) error {
 		logger.Printf("warning: unable to remove instruction file: %v", err)
 	}
 
-	store, err := storage.NewSQLiteStore(inst.DatabasePath)
+	// Parse database config from JSON
+	var dbConfig struct {
+		Driver   string `json:"driver"`
+		Path     string `json:"path,omitempty"`
+		Host     string `json:"host,omitempty"`
+		Port     int    `json:"port,omitempty"`
+		Name     string `json:"name,omitempty"`
+		User     string `json:"user,omitempty"`
+		Password string `json:"password,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(inst.DatabaseConfig), &dbConfig); err != nil {
+		logger.Printf("failed to parse database config: %v", err)
+		return err
+	}
+
+	// Open database using appropriate driver
+	var store storage.Store
+	if dbConfig.Driver == "postgres" {
+		cfg := &config.DatabaseConfig{
+			Driver:   "postgres",
+			Host:     dbConfig.Host,
+			Port:     dbConfig.Port,
+			Name:     dbConfig.Name,
+			User:     dbConfig.User,
+			Password: dbConfig.Password,
+		}
+		store, err = storage.NewPostgresStore(cfg)
+	} else {
+		// SQLite
+		store, err = storage.NewSQLiteStore(dbConfig.Path)
+	}
 	if err != nil {
 		logger.Printf("failed to open database: %v", err)
 		return err

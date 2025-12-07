@@ -27,7 +27,7 @@ type ApplyInstruction struct {
 	Arch             string    `json:"arch"`
 	Channel          string    `json:"channel"`
 	Component        string    `json:"component"`
-	DatabasePath     string    `json:"database_path"`
+	DatabaseConfig   string    `json:"database_config"` // JSON-encoded database config
 	StateDir         string    `json:"state_dir"`
 	HelperBinaryPath string    `json:"helper_binary_path"`
 	LogPath          string    `json:"log_path"`
