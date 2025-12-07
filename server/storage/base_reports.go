@@ -22,7 +22,7 @@ func (s *BaseStore) CreateReport(ctx context.Context, report *ReportDefinition) 
 	groupBy := strings.Join(report.GroupBy, ",")
 	emailRecipients := strings.Join(report.EmailRecipients, ",")
 
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO reports (
 			name, description, type, format, scope,
 			tenant_ids, site_ids, agent_ids, device_filter,
@@ -41,10 +41,6 @@ func (s *BaseStore) CreateReport(ctx context.Context, report *ReportDefinition) 
 		return fmt.Errorf("create report: %w", err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("get report id: %w", err)
-	}
 	report.ID = id
 	report.CreatedAt = time.Now()
 	report.UpdatedAt = report.CreatedAt
@@ -172,7 +168,7 @@ func (s *BaseStore) scanReport(row *sql.Row) (*ReportDefinition, error) {
 	var description, deviceFilter, timeRangeType, timeRangeStart, timeRangeEnd sql.NullString
 	var optionsJSON, orderBy, webhookURL, createdBy sql.NullString
 	var timeRangeDays, limit sql.NullInt64
-	var isBuiltIn int
+	var isBuiltIn interface{}
 
 	err := row.Scan(
 		&r.ID, &r.Name, &description, &r.Type, &r.Format, &r.Scope,
@@ -200,7 +196,7 @@ func (s *BaseStore) scanReport(row *sql.Row) (*ReportDefinition, error) {
 	r.Limit = int(limit.Int64)
 	r.WebhookURL = webhookURL.String
 	r.CreatedBy = createdBy.String
-	r.IsBuiltIn = isBuiltIn != 0
+	r.IsBuiltIn = intToBool(isBuiltIn)
 
 	if tenantIDs.String != "" {
 		r.TenantIDs = strings.Split(tenantIDs.String, ",")
@@ -231,7 +227,7 @@ func (s *BaseStore) scanReportRow(rows *sql.Rows) (*ReportDefinition, error) {
 	var description, deviceFilter, timeRangeType, timeRangeStart, timeRangeEnd sql.NullString
 	var optionsJSON, orderBy, webhookURL, createdBy sql.NullString
 	var timeRangeDays, limit sql.NullInt64
-	var isBuiltIn int
+	var isBuiltIn interface{}
 
 	err := rows.Scan(
 		&r.ID, &r.Name, &description, &r.Type, &r.Format, &r.Scope,
@@ -256,7 +252,7 @@ func (s *BaseStore) scanReportRow(rows *sql.Rows) (*ReportDefinition, error) {
 	r.Limit = int(limit.Int64)
 	r.WebhookURL = webhookURL.String
 	r.CreatedBy = createdBy.String
-	r.IsBuiltIn = isBuiltIn != 0
+	r.IsBuiltIn = intToBool(isBuiltIn)
 
 	if tenantIDs.String != "" {
 		r.TenantIDs = strings.Split(tenantIDs.String, ",")
@@ -286,7 +282,7 @@ func (s *BaseStore) scanReportRow(rows *sql.Rows) (*ReportDefinition, error) {
 
 // CreateReportSchedule creates a new schedule.
 func (s *BaseStore) CreateReportSchedule(ctx context.Context, schedule *ReportSchedule) error {
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO report_schedules (
 			report_id, name, enabled, frequency,
 			day_of_week, day_of_month, time_of_day, timezone,
@@ -301,10 +297,6 @@ func (s *BaseStore) CreateReportSchedule(ctx context.Context, schedule *ReportSc
 		return fmt.Errorf("create schedule: %w", err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("get schedule id: %w", err)
-	}
 	schedule.ID = id
 	schedule.CreatedAt = time.Now()
 	schedule.UpdatedAt = schedule.CreatedAt
@@ -497,7 +489,7 @@ func (s *BaseStore) scanScheduleRow(rows *sql.Rows) (*ReportSchedule, error) {
 
 // CreateReportRun creates a new report run.
 func (s *BaseStore) CreateReportRun(ctx context.Context, run *ReportRun) error {
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO report_runs (
 			report_id, schedule_id, status, format,
 			started_at, parameters_json, run_by
@@ -510,10 +502,6 @@ func (s *BaseStore) CreateReportRun(ctx context.Context, run *ReportRun) error {
 		return fmt.Errorf("create run: %w", err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("get run id: %w", err)
-	}
 	run.ID = id
 	run.CreatedAt = time.Now()
 	return nil

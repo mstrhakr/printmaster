@@ -77,6 +77,53 @@ func (s *BaseStore) queryRowContext(ctx context.Context, query string, args ...i
 	return s.db.QueryRowContext(ctx, s.query(query), args...)
 }
 
+// insertReturningID executes an INSERT and returns the generated ID.
+// For PostgreSQL, it appends RETURNING id and uses QueryRow.
+// For SQLite, it uses LastInsertId from the result.
+func (s *BaseStore) insertReturningID(ctx context.Context, query string, args ...interface{}) (int64, error) {
+	if s.dialect.Name() == "postgres" {
+		// PostgreSQL: use RETURNING id
+		query = s.query(query) + " RETURNING id"
+		var id int64
+		err := s.db.QueryRowContext(ctx, query, args...).Scan(&id)
+		if err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+
+	// SQLite: use LastInsertId
+	result, err := s.execContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// upsertReturningID executes an UPSERT (INSERT...ON CONFLICT) and returns the generated ID.
+// For PostgreSQL, it appends RETURNING id. On conflict/update, this returns the existing ID.
+// For SQLite, it uses LastInsertId (which may be 0 on update).
+func (s *BaseStore) upsertReturningID(ctx context.Context, query string, args ...interface{}) (int64, error) {
+	if s.dialect.Name() == "postgres" {
+		// PostgreSQL: use RETURNING id - works for both insert and update
+		query = s.query(query) + " RETURNING id"
+		var id int64
+		err := s.db.QueryRowContext(ctx, query, args...).Scan(&id)
+		if err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+
+	// SQLite: use LastInsertId (returns 0 on update, which is fine)
+	result, err := s.execContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	id, _ := result.LastInsertId()
+	return id, nil
+}
+
 // ============================================================================
 // Agent Management Methods
 // ============================================================================
@@ -112,7 +159,8 @@ func (s *BaseStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 			last_heartbeat = excluded.last_heartbeat
 	`
 
-	result, err := s.execContext(ctx, query,
+	// Use upsertReturningID which handles both Postgres RETURNING and SQLite LastInsertId
+	id, err := s.upsertReturningID(ctx, query,
 		agent.AgentID, agent.Name, agent.Hostname, agent.IP, agent.Platform,
 		agent.Version, agent.ProtocolVersion, agent.Token, agent.TenantID, agent.RegisteredAt,
 		agent.LastSeen, agent.Status,
@@ -123,7 +171,6 @@ func (s *BaseStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 	}
 
 	// Set the auto-increment ID
-	id, _ := result.LastInsertId()
 	if id > 0 {
 		agent.ID = id
 	}
@@ -1036,12 +1083,7 @@ func (s *BaseStore) CreateUser(ctx context.Context, user *User, rawPassword stri
 	}
 
 	query := `INSERT INTO users (username, password_hash, role, tenant_id, email, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-	res, err := s.execContext(ctx, query, user.Username, hash, string(user.Role), nullString(user.TenantID), nullString(user.Email), user.CreatedAt)
-	if err != nil {
-		return err
-	}
-
-	id, err := res.LastInsertId()
+	id, err := s.insertReturningID(ctx, query, user.Username, hash, string(user.Role), nullString(user.TenantID), nullString(user.Email), user.CreatedAt)
 	if err != nil {
 		return err
 	}
@@ -1341,7 +1383,7 @@ func (s *BaseStore) SaveAuditEntry(ctx context.Context, entry *AuditEntry) error
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	res, err := s.execContext(ctx, query,
+	id, err := s.insertReturningID(ctx, query,
 		entry.Timestamp, entry.ActorType, entry.ActorID, entry.ActorName, entry.Action,
 		entry.TargetType, entry.TargetID, entry.TenantID, entry.Severity, entry.Details,
 		string(metadataJSON), entry.IPAddress, entry.UserAgent, entry.RequestID)
@@ -1349,7 +1391,6 @@ func (s *BaseStore) SaveAuditEntry(ctx context.Context, entry *AuditEntry) error
 		return err
 	}
 
-	id, _ := res.LastInsertId()
 	entry.ID = id
 	return nil
 }
@@ -1468,7 +1509,7 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 	for rows.Next() {
 		var id, hash, tenantID string
 		var expiresAt, createdAt time.Time
-		var oneTimeInt int
+		var oneTimeInt interface{}
 		if err := rows.Scan(&id, &hash, &tenantID, &expiresAt, &oneTimeInt, &createdAt); err != nil {
 			return nil, err
 		}
@@ -1480,7 +1521,7 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 		}
 		if ok {
 			// If one-time token, mark as used (revoked)
-			if oneTimeInt != 0 {
+			if intToBool(oneTimeInt) {
 				s.execContext(ctx, `UPDATE join_tokens SET revoked = 1, used_at = ? WHERE id = ?`, time.Now().UTC(), id)
 			}
 			return &JoinToken{
@@ -1488,7 +1529,7 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 				TokenHash: hash,
 				TenantID:  tenantID,
 				ExpiresAt: expiresAt,
-				OneTime:   oneTimeInt != 0,
+				OneTime:   intToBool(oneTimeInt),
 				CreatedAt: createdAt,
 			}, nil
 		}
@@ -1513,13 +1554,13 @@ func (s *BaseStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*Joi
 	var tokens []*JoinToken
 	for rows.Next() {
 		var jt JoinToken
-		var oneInt, revokedInt int
+		var oneInt, revokedInt interface{}
 		var usedAt sql.NullTime
 		if err := rows.Scan(&jt.ID, &jt.TokenHash, &jt.TenantID, &jt.ExpiresAt, &oneInt, &jt.CreatedAt, &usedAt, &revokedInt); err != nil {
 			return nil, err
 		}
-		jt.OneTime = oneInt != 0
-		jt.Revoked = revokedInt != 0
+		jt.OneTime = intToBool(oneInt)
+		jt.Revoked = intToBool(revokedInt)
 		if usedAt.Valid {
 			jt.UsedAt = usedAt.Time
 		}
@@ -1582,7 +1623,7 @@ func (s *BaseStore) ValidatePasswordResetToken(ctx context.Context, token string
 		var id, userID int64
 		var hash string
 		var expiresAt time.Time
-		var usedInt int
+		var usedInt interface{}
 		if err := rows.Scan(&id, &hash, &userID, &expiresAt, &usedInt); err != nil {
 			rows.Close()
 			return 0, err
@@ -1663,7 +1704,7 @@ func (s *BaseStore) CreateUserInvitation(ctx context.Context, inv *UserInvitatio
 	now := time.Now().UTC()
 	role := NormalizeRole(string(inv.Role))
 
-	res, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO user_invitations (email, username, role, tenant_id, token_hash, expires_at, created_at, created_by)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`, inv.Email, nullString(inv.Username), string(role), nullString(inv.TenantID), tokenHash, expiresAt, now, nullString(inv.CreatedBy))
@@ -1671,7 +1712,6 @@ func (s *BaseStore) CreateUserInvitation(ctx context.Context, inv *UserInvitatio
 		return "", err
 	}
 
-	id, _ := res.LastInsertId()
 	inv.ID = id
 	inv.TokenHash = tokenHash
 	inv.ExpiresAt = expiresAt
@@ -1779,7 +1819,7 @@ func (s *BaseStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProvid
 
 	scopes := strings.Join(provider.Scopes, " ")
 
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO oidc_providers (
 			slug, display_name, issuer, client_id, client_secret, scopes, icon,
 			button_text, button_style, auto_login, tenant_id, default_role, created_at, updated_at
@@ -1789,10 +1829,6 @@ func (s *BaseStore) CreateOIDCProvider(ctx context.Context, provider *OIDCProvid
 		provider.ClientSecret, scopes, provider.Icon, provider.ButtonText,
 		provider.ButtonStyle, boolToInt(provider.AutoLogin), nullString(provider.TenantID),
 		string(provider.DefaultRole), provider.CreatedAt, provider.UpdatedAt)
-	if err != nil {
-		return err
-	}
-	id, err := result.LastInsertId()
 	if err != nil {
 		return err
 	}
@@ -1843,7 +1879,7 @@ func (s *BaseStore) GetOIDCProvider(ctx context.Context, slug string) (*OIDCProv
 
 	var p OIDCProvider
 	var scopes string
-	var autoLogin int
+	var autoLogin interface{}
 	var tenantID sql.NullString
 	var defaultRole string
 
@@ -1891,7 +1927,7 @@ func (s *BaseStore) ListOIDCProviders(ctx context.Context, tenantID string) ([]*
 	for rows.Next() {
 		var p OIDCProvider
 		var scopes string
-		var autoLogin int
+		var autoLogin interface{}
 		var tid sql.NullString
 		var defaultRole string
 
@@ -1960,14 +1996,10 @@ func (s *BaseStore) CreateOIDCLink(ctx context.Context, link *OIDCLink) error {
 		return fmt.Errorf("link required")
 	}
 
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO oidc_links (provider_slug, subject, email, user_id, created_at)
 		VALUES (?, ?, ?, ?, ?)
 	`, link.ProviderSlug, link.Subject, link.Email, link.UserID, time.Now().UTC())
-	if err != nil {
-		return err
-	}
-	id, err := result.LastInsertId()
 	if err != nil {
 		return err
 	}
@@ -2259,22 +2291,22 @@ func (s *BaseStore) scanFleetUpdatePolicy(row *sql.Row, isGlobal bool) (*FleetUp
 		tid                   string
 		updateCheckDays       int
 		pinStrategy           string
-		allowMajor            int
+		allowMajor            interface{}
 		targetVersion         sql.NullString
-		mwEnabled             int
+		mwEnabled             interface{}
 		mwStartHour           int
 		mwStartMin            int
 		mwEndHour             int
 		mwEndMin              int
 		mwTimezone            string
 		mwDaysJSON            sql.NullString
-		rolloutStaggered      int
+		rolloutStaggered      interface{}
 		rolloutMaxConcurrent  int
 		rolloutBatchSize      int
 		rolloutDelayWaves     int
 		rolloutJitterSec      int
-		rolloutEmergencyAbort int
-		collectTelemetry      int
+		rolloutEmergencyAbort interface{}
+		collectTelemetry      interface{}
 		updatedAt             time.Time
 	)
 
@@ -2312,11 +2344,11 @@ func (s *BaseStore) scanFleetUpdatePolicy(row *sql.Row, isGlobal bool) (*FleetUp
 		PolicySpec: PolicySpec{
 			UpdateCheckDays:    updateCheckDays,
 			VersionPinStrategy: VersionPinStrategy(pinStrategy),
-			AllowMajorUpgrade:  allowMajor != 0,
+			AllowMajorUpgrade:  intToBool(allowMajor),
 			TargetVersion:      targetVersion.String,
-			CollectTelemetry:   collectTelemetry != 0,
+			CollectTelemetry:   intToBool(collectTelemetry),
 			MaintenanceWindow: MaintenanceWindow{
-				Enabled:    mwEnabled != 0,
+				Enabled:    intToBool(mwEnabled),
 				StartHour:  mwStartHour,
 				StartMin:   mwStartMin,
 				EndHour:    mwEndHour,
@@ -2325,12 +2357,12 @@ func (s *BaseStore) scanFleetUpdatePolicy(row *sql.Row, isGlobal bool) (*FleetUp
 				DaysOfWeek: daysOfWeek,
 			},
 			RolloutControl: RolloutControl{
-				Staggered:         rolloutStaggered != 0,
+				Staggered:         intToBool(rolloutStaggered),
 				MaxConcurrent:     rolloutMaxConcurrent,
 				BatchSize:         rolloutBatchSize,
 				DelayBetweenWaves: rolloutDelayWaves,
 				JitterSeconds:     rolloutJitterSec,
-				EmergencyAbort:    rolloutEmergencyAbort != 0,
+				EmergencyAbort:    intToBool(rolloutEmergencyAbort),
 			},
 		},
 	}, nil
@@ -3374,7 +3406,7 @@ func (s *BaseStore) CreateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun)
 		return err
 	}
 
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO self_update_runs (
 			status, requested_at, started_at, completed_at,
 			current_version, target_version, channel, platform, arch,
@@ -3388,9 +3420,7 @@ func (s *BaseStore) CreateSelfUpdateRun(ctx context.Context, run *SelfUpdateRun)
 	if err != nil {
 		return err
 	}
-	if id, err := result.LastInsertId(); err == nil {
-		run.ID = id
-	}
+	run.ID = id
 	return nil
 }
 

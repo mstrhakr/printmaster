@@ -66,7 +66,7 @@ func (s *BaseStore) CreateAlert(ctx context.Context, alert *Alert) (int64, error
 	`
 
 	now := time.Now().UTC()
-	result, err := s.execContext(ctx, query,
+	id, err := s.insertReturningID(ctx, query,
 		nullInt64(alert.RuleID),
 		alert.Type,
 		alert.Severity,
@@ -93,10 +93,6 @@ func (s *BaseStore) CreateAlert(ctx context.Context, alert *Alert) (int64, error
 		return 0, fmt.Errorf("insert alert: %w", err)
 	}
 
-	id, err := result.LastInsertId()
-	if err != nil {
-		return 0, fmt.Errorf("get alert id: %w", err)
-	}
 	alert.ID = id
 	alert.CreatedAt = now
 	alert.UpdatedAt = now
@@ -513,7 +509,7 @@ func (s *BaseStore) CreateAlertRule(ctx context.Context, rule *AlertRule) (int64
 	agentIDsJSON, _ := json.Marshal(rule.AgentIDs)
 
 	now := time.Now().UTC()
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO alert_rules (
 			name, description, enabled,
 			type, severity, scope,
@@ -534,7 +530,6 @@ func (s *BaseStore) CreateAlertRule(ctx context.Context, rule *AlertRule) (int64
 		return 0, fmt.Errorf("insert alert rule: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
 	rule.ID = id
 	rule.CreatedAt = now
 	rule.UpdatedAt = now
@@ -727,7 +722,7 @@ func (s *BaseStore) CreateNotificationChannel(ctx context.Context, ch *Notificat
 	tenantIDsJSON, _ := json.Marshal(ch.TenantIDs)
 	now := time.Now().UTC()
 
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO notification_channels (
 			name, type, enabled, config_json,
 			min_severity, tenant_ids,
@@ -744,7 +739,6 @@ func (s *BaseStore) CreateNotificationChannel(ctx context.Context, ch *Notificat
 		return 0, fmt.Errorf("insert notification channel: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
 	ch.ID = id
 	ch.CreatedAt = now
 	ch.UpdatedAt = now
@@ -853,7 +847,7 @@ func (s *BaseStore) DeleteNotificationChannel(ctx context.Context, id int64) err
 // CreateEscalationPolicy creates a new escalation policy.
 func (s *BaseStore) CreateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) (int64, error) {
 	now := time.Now().UTC()
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO escalation_policies (name, description, enabled, steps_json, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, policy.Name, policy.Description, policy.Enabled, policy.StepsJSON, now, now)
@@ -861,7 +855,6 @@ func (s *BaseStore) CreateEscalationPolicy(ctx context.Context, policy *Escalati
 		return 0, fmt.Errorf("insert escalation policy: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
 	policy.ID = id
 	policy.CreatedAt = now
 	policy.UpdatedAt = now
@@ -917,7 +910,7 @@ func (s *BaseStore) CreateAlertMaintenanceWindow(ctx context.Context, mw *AlertM
 	recurDaysJSON, _ := json.Marshal(mw.RecurDays)
 	now := time.Now().UTC()
 
-	result, err := s.execContext(ctx, `
+	id, err := s.insertReturningID(ctx, `
 		INSERT INTO maintenance_windows (
 			name, description, scope,
 			tenant_id, site_id, agent_id, device_serial,
@@ -938,7 +931,6 @@ func (s *BaseStore) CreateAlertMaintenanceWindow(ctx context.Context, mw *AlertM
 		return 0, fmt.Errorf("insert maintenance window: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
 	mw.ID = id
 	mw.CreatedAt = now
 	mw.UpdatedAt = now

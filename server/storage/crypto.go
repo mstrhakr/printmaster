@@ -97,14 +97,22 @@ func subtleConstantTimeCompare(a, b []byte) bool {
 }
 
 // boolToInt converts a boolean to an integer (0 or 1) for database storage.
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
+// Note: Both SQLite and PostgreSQL drivers can handle bool directly, so this
+// is kept for backwards compatibility but not strictly necessary.
+func boolToInt(b bool) interface{} {
+	return b // Return bool directly - both drivers handle it correctly
 }
 
-// intToBool converts an integer (0 or 1) to a boolean.
-func intToBool(i int) bool {
-	return i != 0
+// intToBool converts a database value (int, int64, or bool) to a boolean.
+func intToBool(v interface{}) bool {
+	switch val := v.(type) {
+	case bool:
+		return val
+	case int:
+		return val != 0
+	case int64:
+		return val != 0
+	default:
+		return false
+	}
 }
