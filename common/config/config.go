@@ -69,10 +69,14 @@ func GetConfigSearchPaths(filename string, component string) []string {
 // GetDataDirectory returns the appropriate directory for storing application data
 // When running as service, returns system-wide directory
 // When running interactively, returns user-specific directory
+// When running in Docker (DOCKER env var set), returns the mounted volume directory
 func GetDataDirectory(component string, isService bool) (string, error) {
 	var dataDir string
 
-	if isService {
+	// Docker takes precedence - use mounted volume path
+	if os.Getenv("DOCKER") != "" {
+		dataDir = filepath.Join("/var/lib/printmaster", component)
+	} else if isService {
 		// Service mode - use system-wide directory with component subdirectory
 		switch runtime.GOOS {
 		case "windows":
@@ -111,7 +115,10 @@ func GetDataDirectory(component string, isService bool) (string, error) {
 func GetLogDirectory(component string, isService bool) (string, error) {
 	var logDir string
 
-	if isService {
+	// Docker takes precedence - use mounted volume path
+	if os.Getenv("DOCKER") != "" {
+		logDir = filepath.Join("/var/log/printmaster", component)
+	} else if isService {
 		// Service mode - use system log directory with component subdirectory
 		switch runtime.GOOS {
 		case "windows":
