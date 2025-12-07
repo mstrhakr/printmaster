@@ -209,6 +209,49 @@ jobs:
         fail_ci_if_error: false
 
   # ============================================================================
+  # INTEGRATION TESTS - Postgres tests with Docker
+  # ============================================================================
+  test-server-integration:
+    name: Test Server (Postgres Integration)
+    runs-on: ubuntu-latest
+    needs: [test-server]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24'
+        cache: false
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-server-${{ hashFiles('server/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-server-
+      continue-on-error: true
+    
+    - name: Download dependencies
+      working-directory: ./server
+      run: go mod download
+    
+    - name: Run Postgres integration tests
+      working-directory: ./server
+      run: go test -v -tags=integration -coverprofile=coverage-integration.out ./storage/...
+    
+    - name: Upload integration coverage
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./server/coverage-integration.out
+        flags: server-integration
+        fail_ci_if_error: false
+
+  # ============================================================================
   # E2E - Runs after both agent and server pass
   # ============================================================================
   test-e2e:
