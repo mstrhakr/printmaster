@@ -147,7 +147,9 @@ func NewManager(opts Options) (*Manager, error) {
 			return nil, fmt.Errorf("binary path is required for self-update")
 		}
 		if databasePath == "" {
-			return nil, fmt.Errorf("database path is required for self-update apply helper")
+			// Database path is required for apply helper (SQLite only)
+			// For PostgreSQL, self-update should be disabled via config or container detection
+			return nil, fmt.Errorf("self-update requires SQLite database (not supported with PostgreSQL)")
 		}
 		applier = newHelperLauncher(stateDir, binaryPath, serviceName, opts.Log)
 	}

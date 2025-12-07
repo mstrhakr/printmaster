@@ -43,8 +43,8 @@ COPY --from=builder /build/server/printmaster-server /printmaster-server
 # Data will be stored in /var/lib/printmaster/server (mount as volume)
 WORKDIR /var/lib/printmaster/server
 
-# Set environment to indicate Docker environment
-ENV DOCKER=true
+# Set standard container environment variable for detection
+ENV CONTAINER=docker
 
 # Expose ports
 EXPOSE 9090 9443

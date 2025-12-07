@@ -99,8 +99,6 @@ services:
       SMTP_FROM: ${SMTP_FROM}
       # Admin user password (set before first run!)
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      # Docker environment flag
-      DOCKER: "true"
       # Uncomment and adjust additional server settings as needed:
       LOG_LEVEL: "info"
       # TLS_CERT: "/var/lib/printmaster/server/cert.pem"

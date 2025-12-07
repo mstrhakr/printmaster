@@ -692,11 +692,18 @@ func runServer(ctx context.Context, configFlag string) {
 		startInstallerCleanupWorker(ctx, serverStore, installerCacheDir)
 	}
 
+	// Self-update manager only supports SQLite (requires database file path for apply helper)
+	// For PostgreSQL, self-update should be handled by container orchestration
+	selfUpdateEnabled := cfg.Server.SelfUpdateEnabled && cfg.Database.Path != ""
+	if !selfUpdateEnabled && cfg.Server.SelfUpdateEnabled {
+		logInfo("Self-update disabled (not supported with PostgreSQL - use container orchestration)")
+	}
+
 	if manager, err := selfupdate.NewManager(selfupdate.Options{
 		Store:          serverStore,
 		Log:            serverLogger,
 		DataDir:        dataDir,
-		Enabled:        cfg.Server.SelfUpdateEnabled,
+		Enabled:        selfUpdateEnabled,
 		CurrentVersion: Version,
 		Component:      "server",
 		Channel:        "stable",
