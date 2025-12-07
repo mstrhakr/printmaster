@@ -33,11 +33,26 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=release'" \
         -o printmaster-agent .
 
+# Prepare passwd/group entries so hosts that remap UID/GID (e.g., Unraid PUID/PGID 99:100)
+# have known identities inside the container. We keep the distroless nonroot user (65532)
+# and add a compat user/group pair for 99:100.
+RUN printf "root:x:0:0:root:/root:/sbin/nologin\n" \
+            "nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin\n" \
+            "printmaster:x:99:100:printmaster:/home/printmaster:/sbin/nologin\n" > /tmp/passwd && \
+        printf "root:x:0:\n" \
+            "nonroot:x:65532:\n" \
+            "users:x:100:nonroot,printmaster\n" > /tmp/group && \
+        mkdir -p /tmp/home/nonroot /tmp/home/printmaster
+
 # Runtime stage - use distroless for minimal size
 FROM gcr.io/distroless/cc-debian11:nonroot
 
 # Copy binary from builder
 COPY --from=builder /build/agent/printmaster-agent /printmaster-agent
+# Provide passwd/group entries so running with --user 99:100 works cleanly
+COPY --from=builder /tmp/passwd /etc/passwd
+COPY --from=builder /tmp/group /etc/group
+COPY --from=builder /tmp/home /home
 
 # Distroless nonroot user is UID 65532
 # Data will be stored in /var/lib/printmaster/agent (mount as volume)
