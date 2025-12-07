@@ -1303,3 +1303,84 @@ func TestDisplayNameForAgent(t *testing.T) {
 		}
 	}
 }
+
+// TestAdminBootstrapLogic verifies the admin user bootstrap pattern from main.go.
+// This test ensures that the logic correctly handles the case where GetUserByUsername
+// returns (nil, nil) for a non-existent user, and creates the admin user only in that case.
+func TestAdminBootstrapLogic(t *testing.T) {
+	t.Parallel()
+
+	store, err := storage.NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	adminUser := "admin"
+	adminPass := "testpass123"
+
+	t.Run("CreatesAdminWhenNoUserExists", func(t *testing.T) {
+		// Simulate the bootstrap logic from main.go (after fix)
+		existingUser, err := store.GetUserByUsername(ctx, adminUser)
+		if err != nil {
+			t.Fatalf("GetUserByUsername failed: %v", err)
+		}
+
+		// This is the critical check: non-existent users return (nil, nil), not an error
+		if existingUser != nil {
+			t.Fatal("Expected nil for non-existent user, got a user")
+		}
+
+		// Since user is nil, create admin
+		u := &storage.User{Username: adminUser, Role: storage.RoleAdmin}
+		if err := store.CreateUser(ctx, u, adminPass); err != nil {
+			t.Fatalf("CreateUser failed: %v", err)
+		}
+
+		// Verify user was created
+		created, err := store.GetUserByUsername(ctx, adminUser)
+		if err != nil {
+			t.Fatalf("GetUserByUsername after create failed: %v", err)
+		}
+		if created == nil {
+			t.Fatal("User was not created")
+		}
+		if created.Username != adminUser {
+			t.Errorf("Username = %q, want %q", created.Username, adminUser)
+		}
+		if created.Role != storage.RoleAdmin {
+			t.Errorf("Role = %q, want %q", created.Role, storage.RoleAdmin)
+		}
+	})
+
+	t.Run("SkipsCreationWhenUserExists", func(t *testing.T) {
+		// User should already exist from previous test
+		existingUser, err := store.GetUserByUsername(ctx, adminUser)
+		if err != nil {
+			t.Fatalf("GetUserByUsername failed: %v", err)
+		}
+
+		if existingUser == nil {
+			t.Fatal("Expected existing user, got nil")
+		}
+
+		// Trying to create the same user again should fail
+		u := &storage.User{Username: adminUser, Role: storage.RoleAdmin}
+		err = store.CreateUser(ctx, u, "differentpass")
+		if err == nil {
+			t.Error("Expected error when creating duplicate user, got nil")
+		}
+	})
+
+	t.Run("GetUserByUsernameReturnsNilNotErrorForMissingUser", func(t *testing.T) {
+		// This is the contract that was incorrectly used in the original bug
+		nonExistentUser, err := store.GetUserByUsername(ctx, "nonexistent_user_12345")
+		if err != nil {
+			t.Fatalf("GetUserByUsername should not return error for missing user, got: %v", err)
+		}
+		if nonExistentUser != nil {
+			t.Error("GetUserByUsername should return nil user for non-existent user")
+		}
+	})
+}

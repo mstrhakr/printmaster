@@ -580,3 +580,144 @@ func TestPostgresStore_Close(t *testing.T) {
 		t.Error("Expected error after Close(), got nil")
 	}
 }
+
+// TestPostgresStore_FreshDatabaseInitialization verifies that a fresh database
+// is properly initialized with schema and that the admin bootstrap pattern works correctly.
+// This test catches bugs like incorrectly checking for non-existent users.
+func TestPostgresStore_FreshDatabaseInitialization(t *testing.T) {
+	WithPostgresStore(t, func(t *testing.T, store *PostgresStore) {
+		ctx := context.Background()
+
+		t.Run("SchemaVersionIsSet", func(t *testing.T) {
+			// Verify schema_version table exists and has the correct version
+			var version int
+			err := store.db.QueryRow("SELECT MAX(version) FROM schema_version").Scan(&version)
+			if err != nil {
+				t.Fatalf("Failed to query schema_version: %v", err)
+			}
+			if version != pgSchemaVersion {
+				t.Errorf("Schema version = %d, want %d", version, pgSchemaVersion)
+			}
+		})
+
+		t.Run("AllTablesCreated", func(t *testing.T) {
+			// Verify critical tables exist
+			requiredTables := []string{
+				"agents", "devices", "metrics_history", "audit_log",
+				"tenants", "sites", "agent_sites", "join_tokens",
+				"users", "user_tenants", "sessions", "password_resets",
+				"user_invitations", "oidc_providers", "oidc_sessions", "oidc_links",
+				"settings_global", "settings_tenant",
+				"fleet_update_policies", "fleet_update_policy_global",
+				"release_artifacts", "signing_keys", "release_manifests",
+				"installer_bundles", "self_update_runs",
+				"alert_rules", "escalation_policies", "alerts",
+				"notification_channels", "maintenance_windows", "alert_settings",
+				"reports", "report_schedules", "report_runs",
+			}
+
+			for _, table := range requiredTables {
+				var exists bool
+				query := `SELECT EXISTS (
+					SELECT FROM information_schema.tables 
+					WHERE table_schema = 'public' 
+					AND table_name = $1
+				)`
+				err := store.db.QueryRow(query, table).Scan(&exists)
+				if err != nil {
+					t.Errorf("Failed to check table %s: %v", table, err)
+					continue
+				}
+				if !exists {
+					t.Errorf("Required table %s does not exist", table)
+				}
+			}
+		})
+
+		t.Run("UsersTableEmpty", func(t *testing.T) {
+			// Verify users table starts empty (no default admin created by schema)
+			var count int
+			err := store.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+			if err != nil {
+				t.Fatalf("Failed to count users: %v", err)
+			}
+			if count != 0 {
+				t.Errorf("Expected 0 users in fresh database, got %d", count)
+			}
+		})
+
+		t.Run("AdminBootstrapPattern", func(t *testing.T) {
+			// Simulate the admin bootstrap logic from main.go
+			// This is the pattern that was broken and should be tested
+			adminUser := "testadmin"
+			adminPass := "testpassword123"
+
+			// Check if user exists (should return nil, nil for non-existent user)
+			existingUser, err := store.GetUserByUsername(ctx, adminUser)
+			if err != nil {
+				t.Fatalf("GetUserByUsername failed: %v", err)
+			}
+			if existingUser != nil {
+				t.Fatal("Expected no existing user, got one")
+			}
+
+			// Create admin user (this is what main.go does)
+			u := &User{Username: adminUser, Role: RoleAdmin}
+			if err := store.CreateUser(ctx, u, adminPass); err != nil {
+				t.Fatalf("CreateUser failed: %v", err)
+			}
+
+			// Verify user was created
+			created, err := store.GetUserByUsername(ctx, adminUser)
+			if err != nil {
+				t.Fatalf("GetUserByUsername after create failed: %v", err)
+			}
+			if created == nil {
+				t.Fatal("User was not created")
+			}
+			if created.Username != adminUser {
+				t.Errorf("Username = %q, want %q", created.Username, adminUser)
+			}
+			if created.Role != RoleAdmin {
+				t.Errorf("Role = %q, want %q", created.Role, RoleAdmin)
+			}
+
+			// Verify password can be authenticated
+			authenticated, err := store.AuthenticateUser(ctx, adminUser, adminPass)
+			if err != nil {
+				t.Fatalf("AuthenticateUser failed: %v", err)
+			}
+			if authenticated == nil {
+				t.Fatal("Authentication failed for created user")
+			}
+
+			// Try to create the same user again (should fail - duplicate username)
+			u2 := &User{Username: adminUser, Role: RoleAdmin}
+			err = store.CreateUser(ctx, u2, "differentpass")
+			if err == nil {
+				t.Error("Expected error when creating duplicate user, got nil")
+			}
+
+			// Verify that checking for existing user still works after creation
+			existingUser2, err := store.GetUserByUsername(ctx, adminUser)
+			if err != nil {
+				t.Fatalf("GetUserByUsername for existing user failed: %v", err)
+			}
+			if existingUser2 == nil {
+				t.Fatal("GetUserByUsername returned nil for existing user")
+			}
+		})
+
+		t.Run("GlobalSettingsInitialized", func(t *testing.T) {
+			// Verify global settings row exists
+			var count int
+			err := store.db.QueryRow("SELECT COUNT(*) FROM settings_global WHERE id = 1").Scan(&count)
+			if err != nil {
+				t.Fatalf("Failed to check settings_global: %v", err)
+			}
+			if count != 1 {
+				t.Errorf("Expected 1 global settings row, got %d", count)
+			}
+		})
+	})
+}

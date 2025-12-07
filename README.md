@@ -71,9 +71,23 @@ docker run -d \
 
 Access UI at `http://localhost:9090`
 
+Default credentials: `admin` / `printmaster` (change on first login)
+
 **For Unraid:** See [docs/UNRAID_DEPLOYMENT.md](docs/UNRAID_DEPLOYMENT.md)
 
-**For Docker Compose:** See [server/docker-compose.yml](server/docker-compose.yml)
+**For Docker Compose with PostgreSQL:** See [docker-compose.example.yml](docker-compose.example.yml)
+
+Quick setup:
+```bash
+# Copy example and configure
+cp docker-compose.example.yml docker-compose.yml
+# Edit .env with your settings (ADMIN_PASSWORD, DB credentials, etc.)
+nano .env
+# Start services
+docker compose up -d
+```
+
+**Important:** Set `ADMIN_PASSWORD` environment variable **before first run**. The admin password can only be set during initial database creation. To reset: stop containers, delete server data volume, restart with new password.
 
 ### For Developers
 

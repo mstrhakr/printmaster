@@ -1,0 +1,159 @@
+# PrintMaster Docker Compose Example
+#
+# This example demonstrates running PrintMaster server and agent with PostgreSQL.
+# Customize the following before deploying to production:
+#   - DATABASE_URL credentials and connection string
+#   - Port mappings and expose settings
+#   - Volume mount paths and persistent storage
+#   - Resource limits and restart policies
+#   - Network configuration and isolation
+#
+# Usage:
+#   1. Copy this file: cp docker-compose.example.yml docker-compose.yml
+#   2. Create .env file with your configuration (see below)
+#   3. Build and start: docker compose up -d --build
+#   4. View logs:       docker compose logs -f server
+#   5. Stop services:   docker compose down
+#   6. Cleanup volumes: docker compose down -v
+#
+# Required Environment Variables (.env file):
+#   PUID=99
+#   PGID=100
+#   ROOT_PATH=/path/to/data
+#   DB_HOST=printmaster-db
+#   DB_PORT=5432
+#   DB_NAME=printmaster
+#   DB_USER=printmaster
+#   DB_PASS=<your-secure-password>
+#   TZ=America/New_York
+#   BEHIND_PROXY=true
+#   TRUSTED_PROXIES=nginx
+#   SMTP_ENABLED=false
+#   SMTP_HOST=
+#   SMTP_PORT=
+#   SMTP_USER=
+#   SMTP_PASS=
+#   SMTP_FROM=
+#   ADMIN_PASSWORD=<your-admin-password>
+#
+# IMPORTANT: Set ADMIN_PASSWORD before first run!
+# The admin password can only be set during initial database creation.
+# To reset: stop containers, delete server data volume, restart with new password.
+
+services:
+  # PostgreSQL Database
+  # Replace credentials and tune performance for production use.
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    container_name: ${DB_HOST}
+    environment:
+      # User and group IDs for file permissions
+      PUID: ${PUID}
+      PGID: ${PGID}
+      # IMPORTANT: Change these credentials in production
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - ${ROOT_PATH}/server/database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - printmaster-net
+
+  # PrintMaster Server
+  # Central hub for multi-agent management and device aggregation.
+  server:
+    image: 'ghcr.io/mstrhakr/printmaster-server:latest'
+    restart: on-failure:5
+    container_name: printmaster-server
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # User and group IDs for file permissions
+      PUID: ${PUID}
+      PGID: ${PGID}
+      # Database configuration
+      SERVER_DB_DRIVER: postgres 
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASS: ${DB_PASS}
+      # Timezone setting
+      TZ: ${TZ}
+      # Proxy and HTTPS settings
+      BEHIND_PROXY: ${BEHIND_PROXY}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES}
+      # SMTP settings for email notifications
+      SMTP_ENABLED: ${SMTP_ENABLED}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      # Admin user password (set before first run!)
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # Docker environment flag
+      DOCKER: "true"
+      # Uncomment and adjust additional server settings as needed:
+      LOG_LEVEL: "info"
+      # TLS_CERT: "/var/lib/printmaster/server/cert.pem"
+      # TLS_KEY: "/var/lib/printmaster/server/key.pem"
+    volumes:
+      - '${ROOT_PATH}/server/data:/var/lib/printmaster/server:rw'
+      - '${ROOT_PATH}/server/logs:/var/log/printmaster/server:rw'
+    user: '99:100'
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9090/health" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - printmaster-net
+      - backend
+
+  # PrintMaster Agent (Optional)
+  # Local agent for printer discovery and monitoring. Can be run on separate hosts.
+  # Comment out if you only need the server.
+  agent:
+    image: 'ghcr.io/mstrhakr/printmaster-agent:latest'
+    restart: on-failure:5
+    container_name: printmaster-agent
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      # User and group IDs for file permissions
+      PUID: ${PUID}
+      PGID: ${PGID}
+      # Server registration
+      SERVER_URL: "http://printmaster-server:9090"
+      DOCKER: "true"
+      # Uncomment and adjust additional agent settings as needed:
+      # DISCOVERY_RANGE: "192.168.1.0/24"
+      # AGENT_NAME: "Site-A-Agent"
+      LOG_LEVEL: "info"
+    volumes:
+      - '${ROOT_PATH}/agent/data:/var/lib/printmaster/agent:rw'
+    user: '99:100'
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://127.0.0.1:8080" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - printmaster-net
+
+networks:
+  printmaster-net:
+    name: printmaster-net
+    driver: bridge
+  backend:
+    name: backend
+    external: true

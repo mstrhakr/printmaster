@@ -722,7 +722,9 @@ func runServer(ctx context.Context, configFlag string) {
 	}
 
 	bctx := context.Background()
-	if _, err := serverStore.GetUserByUsername(bctx, adminUser); err != nil {
+	if existingUser, err := serverStore.GetUserByUsername(bctx, adminUser); err != nil {
+		logWarn("Failed to check for existing admin user", "user", adminUser, "error", err)
+	} else if existingUser == nil {
 		// create admin user
 		u := &storage.User{Username: adminUser, Role: storage.RoleAdmin}
 		if err := serverStore.CreateUser(bctx, u, adminPass); err != nil {
