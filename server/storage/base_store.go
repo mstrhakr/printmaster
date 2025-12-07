@@ -207,7 +207,7 @@ func (s *BaseStore) GetAgent(ctx context.Context, agentID string) (*Agent, error
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, fmt.Errorf("agent not found")
 	}
 	if err != nil {
 		return nil, err
@@ -272,7 +272,7 @@ func (s *BaseStore) GetAgentByToken(ctx context.Context, token string) (*Agent, 
 	)
 
 	if err == sql.ErrNoRows {
-		return nil, nil
+		return nil, fmt.Errorf("agent not found")
 	}
 	if err != nil {
 		return nil, err

@@ -116,11 +116,11 @@ func TestAgentLifecycle(t *testing.T) {
 	}
 
 	got, err = s.GetAgent(ctx, "agent-uuid-123")
-	if err != nil {
-		t.Fatalf("GetAgent after delete: %v", err)
+	if err == nil {
+		t.Fatalf("GetAgent after delete: expected error for deleted agent")
 	}
 	if got != nil {
-		t.Error("expected nil after delete")
+		t.Error("expected nil agent after delete")
 	}
 }
 
@@ -136,17 +136,17 @@ func TestAgentNotFound(t *testing.T) {
 
 	// Get non-existent agent
 	got, err := s.GetAgent(ctx, "non-existent")
-	if err != nil {
-		t.Fatalf("GetAgent: %v", err)
+	if err == nil {
+		t.Fatalf("GetAgent: expected error for non-existent agent")
 	}
 	if got != nil {
-		t.Error("expected nil for non-existent agent")
+		t.Error("expected nil agent for non-existent agent")
 	}
 
 	// Get by non-existent token
 	got, err = s.GetAgentByToken(ctx, "bad-token")
-	if err != nil {
-		t.Fatalf("GetAgentByToken: %v", err)
+	if err == nil {
+		t.Fatalf("GetAgentByToken: expected error for non-existent token")
 	}
 	if got != nil {
 		t.Error("expected nil for non-existent token")
