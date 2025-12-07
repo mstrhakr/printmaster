@@ -2388,14 +2388,20 @@ func runInteractive(ctx context.Context, configFlag string) {
 			}
 		})
 		defer appLogger.Close()
+	} else {
+		// Fallback: if log directory creation fails, use a logger with empty directory
+		appLogger = logger.New(logger.DEBUG, "", 1000)
+		logger.SetGlobal(appLogger)
 	}
 
-	appLogger.Info("Printer Fleet Agent starting",
-		"startup_scan", "disabled",
-		"version", Version,
-		"build_time", BuildTime,
-		"git_commit", GitCommit,
-		"build_type", BuildType)
+	if appLogger != nil {
+		appLogger.Info("Printer Fleet Agent starting",
+			"startup_scan", "disabled",
+			"version", Version,
+			"build_time", BuildTime,
+			"git_commit", GitCommit,
+			"build_type", BuildType)
+	}
 
 	// Provide the app logger to the agent package so internal logs are structured
 	agent.SetLogger(appLogger)

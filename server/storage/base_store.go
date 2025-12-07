@@ -1504,7 +1504,7 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 	rows, err := s.queryContext(ctx, `
 		SELECT id, token_hash, tenant_id, expires_at, one_time, created_at
 		FROM join_tokens
-		WHERE revoked = 0 AND expires_at > ?
+		WHERE revoked = FALSE AND expires_at > ?
 	`, now)
 	if err != nil {
 		logWarn("ValidateJoinToken: query failed", "error", err)
@@ -1536,7 +1536,7 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 			logInfo("ValidateJoinToken: token matched", "token_id", id, "tenant_id", tenantID, "one_time", intToBool(oneTimeInt))
 			// If one-time token, mark as used (revoked)
 			if intToBool(oneTimeInt) {
-				if _, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = 1, used_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
+				if _, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = TRUE, used_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
 					logWarn("ValidateJoinToken: failed to mark token as used", "token_id", id, "error", err)
 				}
 				logInfo("ValidateJoinToken: marked one-time token as used", "token_id", id)
@@ -1591,7 +1591,7 @@ func (s *BaseStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*Joi
 
 // RevokeJoinToken marks a join token as revoked
 func (s *BaseStore) RevokeJoinToken(ctx context.Context, id string) error {
-	_, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = 1 WHERE id = ?`, id)
+	_, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = TRUE WHERE id = ?`, id)
 	return err
 }
 
