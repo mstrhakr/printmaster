@@ -397,6 +397,147 @@ func TestPostgresStore_Integration(t *testing.T) {
 				t.Fatalf("ResolveAlert: %v", err)
 			}
 		})
+
+		// Test signing keys and manifests (Postgres boolean handling)
+		t.Run("SigningKeysAndManifests", func(t *testing.T) {
+			// Create first signing key
+			key1 := &SigningKey{
+				ID:         "key-pg-1",
+				Algorithm:  "ed25519",
+				PublicKey:  "pubkey1",
+				PrivateKey: "privkey1",
+				Notes:      "first key",
+			}
+			if err := store.CreateSigningKey(ctx, key1); err != nil {
+				t.Fatalf("CreateSigningKey(key1): %v", err)
+			}
+
+			// Activate first key (tests active = TRUE in Postgres)
+			if err := store.SetSigningKeyActive(ctx, key1.ID); err != nil {
+				t.Fatalf("SetSigningKeyActive(key1): %v", err)
+			}
+
+			// Verify GetActiveSigningKey works (tests WHERE active = TRUE)
+			active, err := store.GetActiveSigningKey(ctx)
+			if err != nil {
+				t.Fatalf("GetActiveSigningKey: %v", err)
+			}
+			if active == nil || active.ID != key1.ID {
+				t.Fatalf("GetActiveSigningKey: got %v, want key1", active)
+			}
+			if !active.Active {
+				t.Errorf("GetActiveSigningKey: Active = false, want true")
+			}
+
+			// Create second key
+			key2 := &SigningKey{
+				ID:         "key-pg-2",
+				Algorithm:  "ed25519",
+				PublicKey:  "pubkey2",
+				PrivateKey: "privkey2",
+				Notes:      "second key",
+			}
+			if err := store.CreateSigningKey(ctx, key2); err != nil {
+				t.Fatalf("CreateSigningKey(key2): %v", err)
+			}
+
+			// Activate second key (should deactivate first key, tests active = FALSE)
+			if err := store.SetSigningKeyActive(ctx, key2.ID); err != nil {
+				t.Fatalf("SetSigningKeyActive(key2): %v", err)
+			}
+
+			// Verify key2 is now active
+			active, err = store.GetActiveSigningKey(ctx)
+			if err != nil {
+				t.Fatalf("GetActiveSigningKey after key2 activation: %v", err)
+			}
+			if active.ID != key2.ID {
+				t.Errorf("GetActiveSigningKey: got %s, want %s", active.ID, key2.ID)
+			}
+			if !active.Active {
+				t.Errorf("GetActiveSigningKey: key2 Active = false, want true")
+			}
+
+			// List keys (verify both exist and only key2 is active)
+			keys, err := store.ListSigningKeys(ctx, 10)
+			if err != nil {
+				t.Fatalf("ListSigningKeys: %v", err)
+			}
+			if len(keys) != 2 {
+				t.Fatalf("ListSigningKeys: got %d keys, want 2", len(keys))
+			}
+			var key1Found, key2Found bool
+			for _, k := range keys {
+				switch k.ID {
+				case key1.ID:
+					key1Found = true
+					if k.Active {
+						t.Errorf("ListSigningKeys: key1 Active = true, want false")
+					}
+				case key2.ID:
+					key2Found = true
+					if !k.Active {
+						t.Errorf("ListSigningKeys: key2 Active = false, want true")
+					}
+				}
+			}
+			if !key1Found || !key2Found {
+				t.Errorf("ListSigningKeys: missing keys (key1=%v, key2=%v)", key1Found, key2Found)
+			}
+
+			// Test release manifest operations
+			artifact := &ReleaseArtifact{
+				Component:   "agent",
+				Version:     "1.0.0-pg",
+				Platform:    "linux",
+				Arch:        "amd64",
+				Channel:     "stable",
+				SourceURL:   "https://github.com/example/releases/1.0.0",
+				SHA256:      "abcd1234",
+				SizeBytes:   1024000,
+				PublishedAt: time.Now().UTC(),
+			}
+			if err := store.UpsertReleaseArtifact(ctx, artifact); err != nil {
+				t.Fatalf("UpsertReleaseArtifact: %v", err)
+			}
+
+			manifest := &ReleaseManifest{
+				Component:       "agent",
+				Version:         "1.0.0-pg",
+				Platform:        "linux",
+				Arch:            "amd64",
+				Channel:         "stable",
+				ManifestVersion: "1.0",
+				ManifestJSON:    `{"version":"1.0.0-pg","sha256":"abcd1234"}`,
+				Signature:       "signature-data",
+				SigningKeyID:    key2.ID,
+				GeneratedAt:     time.Now().UTC(),
+			}
+			if err := store.UpsertReleaseManifest(ctx, manifest); err != nil {
+				t.Fatalf("UpsertReleaseManifest: %v", err)
+			}
+
+			// Retrieve manifest
+			fetched, err := store.GetReleaseManifest(ctx, "agent", "1.0.0-pg", "linux", "amd64")
+			if err != nil {
+				t.Fatalf("GetReleaseManifest: %v", err)
+			}
+			if fetched.Signature != "signature-data" {
+				t.Errorf("GetReleaseManifest: Signature = %q, want %q", fetched.Signature, "signature-data")
+			}
+			if fetched.SigningKeyID != key2.ID {
+				t.Errorf("GetReleaseManifest: SigningKeyID = %q, want %q", fetched.SigningKeyID, key2.ID)
+			}
+
+			// List manifests
+			manifests, err := store.ListReleaseManifests(ctx, "agent", 10)
+			if err != nil {
+				t.Fatalf("ListReleaseManifests: %v", err)
+			}
+			if len(manifests) != 1 {
+				t.Fatalf("ListReleaseManifests: got %d manifests, want 1", len(manifests))
+			}
+		})
 	})
 }
 

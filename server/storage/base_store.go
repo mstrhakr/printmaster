@@ -2848,10 +2848,13 @@ func (s *BaseStore) GetSigningKey(ctx context.Context, id string) (*SigningKey, 
 
 // GetActiveSigningKey retrieves the currently active signing key
 func (s *BaseStore) GetActiveSigningKey(ctx context.Context) (*SigningKey, error) {
-	row := s.queryRowContext(ctx, `
-		SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at
-		FROM signing_keys WHERE active = 1 LIMIT 1
-	`)
+	var query string
+	if s.dialect.Name() == "postgres" {
+		query = `SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at FROM signing_keys WHERE active = TRUE LIMIT 1`
+	} else {
+		query = `SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at FROM signing_keys WHERE active = 1 LIMIT 1`
+	}
+	row := s.queryRowContext(ctx, query)
 	return s.scanSigningKey(row)
 }
 
@@ -2898,17 +2901,23 @@ func (s *BaseStore) SetSigningKeyActive(ctx context.Context, id string) error {
 	defer tx.Rollback()
 
 	// Deactivate other keys
-	deactivateQuery := s.query(`
-		UPDATE signing_keys
-		SET active = 0, rotated_at = CASE WHEN rotated_at IS NULL THEN ? ELSE rotated_at END
-		WHERE active = 1 AND id != ?
-	`)
+	var deactivateQuery string
+	if s.dialect.Name() == "postgres" {
+		deactivateQuery = s.query(`UPDATE signing_keys SET active = FALSE, rotated_at = CASE WHEN rotated_at IS NULL THEN ? ELSE rotated_at END WHERE active = TRUE AND id != ?`)
+	} else {
+		deactivateQuery = s.query(`UPDATE signing_keys SET active = 0, rotated_at = CASE WHEN rotated_at IS NULL THEN ? ELSE rotated_at END WHERE active = 1 AND id != ?`)
+	}
 	if _, err = tx.ExecContext(ctx, deactivateQuery, time.Now().UTC(), id); err != nil {
 		return err
 	}
 
 	// Activate target key
-	activateQuery := s.query(`UPDATE signing_keys SET active = 1, rotated_at = NULL WHERE id = ?`)
+	var activateQuery string
+	if s.dialect.Name() == "postgres" {
+		activateQuery = s.query(`UPDATE signing_keys SET active = TRUE, rotated_at = NULL WHERE id = ?`)
+	} else {
+		activateQuery = s.query(`UPDATE signing_keys SET active = 1, rotated_at = NULL WHERE id = ?`)
+	}
 	result, err := tx.ExecContext(ctx, activateQuery, id)
 	if err != nil {
 		return err
@@ -2930,7 +2939,7 @@ func (s *BaseStore) scanSigningKey(row *sql.Row) (*SigningKey, error) {
 		publicKey  string
 		privateKey string
 		notes      sql.NullString
-		active     int
+		active     bool
 		createdAt  time.Time
 		rotatedAt  sql.NullTime
 	)
@@ -2942,7 +2951,7 @@ func (s *BaseStore) scanSigningKey(row *sql.Row) (*SigningKey, error) {
 		Algorithm:  algorithm,
 		PublicKey:  publicKey,
 		PrivateKey: privateKey,
-		Active:     active == 1,
+		Active:     active,
 		CreatedAt:  createdAt,
 	}
 	if notes.Valid {
@@ -2961,7 +2970,7 @@ func (s *BaseStore) scanSigningKeyRow(rows *sql.Rows) (*SigningKey, error) {
 		publicKey  string
 		privateKey string
 		notes      sql.NullString
-		active     int
+		active     bool
 		createdAt  time.Time
 		rotatedAt  sql.NullTime
 	)
@@ -2973,7 +2982,7 @@ func (s *BaseStore) scanSigningKeyRow(rows *sql.Rows) (*SigningKey, error) {
 		Algorithm:  algorithm,
 		PublicKey:  publicKey,
 		PrivateKey: privateKey,
-		Active:     active == 1,
+		Active:     active,
 		CreatedAt:  createdAt,
 	}
 	if notes.Valid {
