@@ -99,6 +99,10 @@ services:
       SMTP_FROM: ${SMTP_FROM}
       # Admin user password (set before first run!)
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # Docker environment flag
+      DOCKER: "true"
+      # Auto-join secret for agent registration (change to re-enable auto-join)
+      INIT_SECRET: ${INIT_SECRET:-}
       # Uncomment and adjust additional server settings as needed:
       LOG_LEVEL: "info"
       # TLS_CERT: "/var/lib/printmaster/server/cert.pem"
@@ -133,6 +137,8 @@ services:
       # Server registration
       SERVER_URL: "http://printmaster-server:9090"
       DOCKER: "true"
+      # Auto-join secret (must match server INIT_SECRET for auto-registration)
+      INIT_SECRET: ${INIT_SECRET:-}
       # Uncomment and adjust additional agent settings as needed:
       # DISCOVERY_RANGE: "192.168.1.0/24"
       # AGENT_NAME: "Site-A-Agent"

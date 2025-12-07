@@ -239,6 +239,11 @@ func newAgentAuthManager(cfg *AgentConfig, sessions *agentSessionManager) *agent
 		serverURL = strings.TrimSpace(cfg.Server.URL)
 		serverCA = strings.TrimSpace(cfg.Server.CAPath)
 		serverSkip = cfg.Server.InsecureSkipVerify
+
+		// Auto-enable server mode if server URL is configured and mode not explicitly set
+		if serverURL != "" && cfg.Web.Auth.Mode == "" {
+			mode = "server"
+		}
 	}
 	return &agentAuthManager{
 		mode:             mode,

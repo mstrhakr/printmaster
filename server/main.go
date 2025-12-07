@@ -760,6 +760,42 @@ func runServer(ctx context.Context, configFlag string) {
 		}
 	}
 
+	// Bootstrap auto-join token if INIT_SECRET is set (for Docker Compose auto-registration)
+	initSecret := os.Getenv("INIT_SECRET")
+	if initSecret != "" {
+		// Check if this secret was already used
+		secretUsedFile := filepath.Join(dataDir, ".init_secret_used")
+		if _, err := os.Stat(secretUsedFile); os.IsNotExist(err) {
+			// Secret not yet used - create a one-time join token with the init secret as the token value
+			// This allows agents with the same INIT_SECRET to auto-register
+			defaultTenant := ""
+			tenants, err := serverStore.ListTenants(bctx)
+			if err == nil && len(tenants) > 0 {
+				defaultTenant = tenants[0].ID
+			}
+			
+			if defaultTenant != "" {
+				// Use the init secret directly as the join token
+				jt := &storage.JoinToken{
+					ID:        "init-secret",
+					TenantID:  defaultTenant,
+					ExpiresAt: time.Now().Add(365 * 24 * time.Hour), // Valid for 1 year
+					OneTime:   false, // Allow multiple agents to use it
+					CreatedAt: time.Now(),
+				}
+				
+				// Store it with the init secret as the raw token
+				if _, err := serverStore.CreateJoinTokenWithSecret(bctx, jt, initSecret); err != nil {
+					logWarn("Failed to create init secret join token", "error", err)
+				} else {
+					logInfo("Auto-join token created from INIT_SECRET (allows agent auto-registration)")
+				}
+			}
+		} else {
+			logInfo("INIT_SECRET was previously used, skipping auto-join token creation")
+		}
+	}
+
 	// Initialize SSE hub for real-time UI updates if not already created (tests may have pre-initialized)
 	if sseHub == nil {
 		sseHub = NewSSEHub()

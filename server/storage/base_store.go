@@ -1496,6 +1496,49 @@ func (s *BaseStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMin
 	return jt, rawToken, nil
 }
 
+// CreateJoinTokenWithSecret creates a join token using a predefined secret instead of generating a random one.
+// This is used for auto-join scenarios where agent and server share a common init secret.
+func (s *BaseStore) CreateJoinTokenWithSecret(ctx context.Context, jt *JoinToken, rawSecret string) (*JoinToken, error) {
+	if jt == nil || jt.TenantID == "" {
+		return nil, fmt.Errorf("tenant_id required")
+	}
+	if rawSecret == "" {
+		return nil, fmt.Errorf("secret required")
+	}
+	
+	// Verify tenant exists
+	if _, err := s.GetTenant(ctx, jt.TenantID); err != nil {
+		return nil, fmt.Errorf("tenant not found: %s", jt.TenantID)
+	}
+
+	// Hash the secret using Argon2
+	tokenHash, err := hashArgon(rawSecret)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	if jt.ID == "" {
+		jt.ID = generateSecureToken(16)
+	}
+	if jt.CreatedAt.IsZero() {
+		jt.CreatedAt = now
+	}
+	if jt.ExpiresAt.IsZero() {
+		jt.ExpiresAt = now.Add(365 * 24 * time.Hour) // Default 1 year
+	}
+
+	query := `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+	_, err = s.execContext(ctx, query, jt.ID, tokenHash, jt.TenantID, jt.ExpiresAt, boolToInt(jt.OneTime), jt.CreatedAt)
+	if err != nil {
+		logWarn("CreateJoinTokenWithSecret: failed to insert", "error", err, "tenant_id", jt.TenantID)
+		return nil, err
+	}
+
+	logInfo("CreateJoinTokenWithSecret: token created successfully", "token_id", jt.ID, "tenant_id", jt.TenantID, "expires_at", jt.ExpiresAt.Format(time.RFC3339), "one_time", jt.OneTime)
+	return jt, nil
+}
+
 // ValidateJoinToken validates a join token and returns the JoinToken if valid.
 func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*JoinToken, error) {
 	logDebug("ValidateJoinToken: starting validation", "token_length", len(rawToken), "token_prefix", safePrefix(rawToken, 8))

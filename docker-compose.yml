@@ -79,6 +79,8 @@ services:
       DB_USER: "printmaster"
       DB_PASS: "changeme"
       DOCKER: "true"
+      # Auto-join secret for agent registration (change to re-enable auto-join)
+      INIT_SECRET: "changeme-for-production"
       # Uncomment and adjust additional server settings as needed:
       # LOG_LEVEL: "info"
       # TLS_CERT: "/var/lib/printmaster/server/cert.pem"
@@ -109,6 +111,8 @@ services:
       # Server registration
       SERVER_URL: "http://server:9090"
       DOCKER: "true"
+      # Auto-join secret (must match server INIT_SECRET for auto-registration)
+      INIT_SECRET: "changeme-for-production"
       # Uncomment and adjust additional agent settings as needed:
       # DISCOVERY_RANGE: "192.168.1.0/24"
       # AGENT_NAME: "Site-A-Agent"

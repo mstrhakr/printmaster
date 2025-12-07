@@ -542,6 +542,7 @@ type Store interface {
 	// and the raw token string that should be returned to the caller (raw token
 	// is not persisted in plain form).
 	CreateJoinToken(ctx context.Context, tenantID string, ttlMinutes int, oneTime bool) (*JoinToken, string, error)
+	CreateJoinTokenWithSecret(ctx context.Context, jt *JoinToken, rawSecret string) (*JoinToken, error)
 	ValidateJoinToken(ctx context.Context, token string) (*JoinToken, error)
 
 	// Admin: list and revoke join tokens
