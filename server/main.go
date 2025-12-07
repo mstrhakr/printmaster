@@ -773,17 +773,17 @@ func runServer(ctx context.Context, configFlag string) {
 			if err == nil && len(tenants) > 0 {
 				defaultTenant = tenants[0].ID
 			}
-			
+
 			if defaultTenant != "" {
 				// Use the init secret directly as the join token
 				jt := &storage.JoinToken{
 					ID:        "init-secret",
 					TenantID:  defaultTenant,
 					ExpiresAt: time.Now().Add(365 * 24 * time.Hour), // Valid for 1 year
-					OneTime:   false, // Allow multiple agents to use it
+					OneTime:   false,                                // Allow multiple agents to use it
 					CreatedAt: time.Now(),
 				}
-				
+
 				// Store it with the init secret as the raw token
 				if _, err := serverStore.CreateJoinTokenWithSecret(bctx, jt, initSecret); err != nil {
 					logWarn("Failed to create init secret join token", "error", err)

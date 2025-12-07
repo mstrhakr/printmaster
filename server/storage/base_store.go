@@ -1505,7 +1505,7 @@ func (s *BaseStore) CreateJoinTokenWithSecret(ctx context.Context, jt *JoinToken
 	if rawSecret == "" {
 		return nil, fmt.Errorf("secret required")
 	}
-	
+
 	// Verify tenant exists
 	if _, err := s.GetTenant(ctx, jt.TenantID); err != nil {
 		return nil, fmt.Errorf("tenant not found: %s", jt.TenantID)
