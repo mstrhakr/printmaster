@@ -4,12 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	commonconfig "printmaster/common/config"
 	pmsettings "printmaster/common/settings"
 	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	"printmaster/server/tenancy"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -140,6 +145,83 @@ func TestHealthEndpoint(t *testing.T) {
 
 	if result["status"] != "healthy" {
 		t.Errorf("Expected status=healthy, got %v", result["status"])
+	}
+}
+
+func TestRunHealthCheckHTTP(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(handleHealth))
+	t.Cleanup(server.Close)
+
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	port, _ := strconv.Atoi(parsed.Port())
+
+	cfg := DefaultConfig()
+	cfg.Server.HTTPPort = port
+	cfg.Server.HTTPSPort = 0
+
+	configPath := filepath.Join(t.TempDir(), "server-config.toml")
+	if err := commonconfig.WriteTOML(configPath, cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := runHealthCheck(configPath); err != nil {
+		t.Fatalf("expected health check success, got error: %v", err)
+	}
+}
+
+func TestRunHealthCheckHTTPS(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(handleHealth))
+	t.Cleanup(server.Close)
+
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	port, _ := strconv.Atoi(parsed.Port())
+
+	cfg := DefaultConfig()
+	cfg.Server.HTTPPort = 0
+	cfg.Server.HTTPSPort = port
+
+	configPath := filepath.Join(t.TempDir(), "server-config-https.toml")
+	if err := commonconfig.WriteTOML(configPath, cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := runHealthCheck(configPath); err != nil {
+		t.Fatalf("expected health check success, got error: %v", err)
+	}
+}
+
+func TestRunHealthCheckFailure(t *testing.T) {
+	t.Parallel()
+
+	// Allocate an unused port and close it so the health check will fail to connect.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to allocate port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	cfg := DefaultConfig()
+	cfg.Server.HTTPPort = port
+	cfg.Server.HTTPSPort = 0
+
+	configPath := filepath.Join(t.TempDir(), "server-config-fail.toml")
+	if err := commonconfig.WriteTOML(configPath, cfg); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := runHealthCheck(configPath); err == nil {
+		t.Fatalf("expected health check to fail, but it succeeded")
 	}
 }
 
