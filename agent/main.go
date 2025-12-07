@@ -250,6 +250,7 @@ func newAgentAuthManager(cfg *AgentConfig, sessions *agentSessionManager) *agent
 		publicExact: map[string]struct{}{
 			"/login":               {},
 			"/favicon.ico":         {},
+			"/health":              {},
 			"/api/version":         {},
 			"/api/v1/auth/options": {},
 			"/api/v1/auth/login":   {},
@@ -411,6 +412,98 @@ func requestIsHTTPS(r *http.Request) bool {
 	}
 	proto := strings.TrimSpace(strings.ToLower(r.Header.Get("X-Forwarded-Proto")))
 	return proto == "https"
+}
+
+// handleHealth responds with a simple JSON payload indicating the agent is alive.
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "healthy",
+		"timestamp": time.Now().UTC(),
+	})
+}
+
+type agentHealthAttempt struct {
+	url      string
+	insecure bool
+}
+
+// runAgentHealthCheck probes the local /health endpoint using configured ports.
+// Returns nil when healthy; otherwise an error summarizing failures.
+func runAgentHealthCheck(configFlag string) error {
+	cfg := DefaultAgentConfig()
+
+	if resolved := config.ResolveConfigPath("AGENT", configFlag); resolved != "" {
+		if _, err := os.Stat(resolved); err == nil {
+			if loaded, loadErr := LoadAgentConfig(resolved); loadErr == nil {
+				cfg = loaded
+			}
+		}
+	}
+
+	attempts := make([]agentHealthAttempt, 0, 2)
+	if cfg.Web.HTTPPort > 0 {
+		attempts = append(attempts, agentHealthAttempt{url: fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Web.HTTPPort)})
+	}
+	if cfg.Web.HTTPSPort > 0 {
+		attempts = append(attempts, agentHealthAttempt{url: fmt.Sprintf("https://127.0.0.1:%d/health", cfg.Web.HTTPSPort), insecure: true})
+	}
+
+	if len(attempts) == 0 {
+		attempts = append(attempts, agentHealthAttempt{url: "http://127.0.0.1:8080/health"})
+	}
+
+	var errs []string
+	for _, attempt := range attempts {
+		if err := probeAgentHealth(attempt.url, attempt.insecure); err != nil {
+			errMsg := fmt.Sprintf("%s: %v", attempt.url, err)
+			errs = append(errs, errMsg)
+			continue
+		}
+		return nil
+	}
+
+	if len(errs) == 0 {
+		return fmt.Errorf("no health endpoints to probe")
+	}
+
+	return fmt.Errorf("%s", strings.Join(errs, "; "))
+}
+
+func probeAgentHealth(endpoint string, insecure bool) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	if insecure {
+		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+
+	if strings.ToLower(strings.TrimSpace(payload.Status)) != "healthy" {
+		return fmt.Errorf("status=%s", payload.Status)
+	}
+
+	return nil
 }
 
 func acceptsHTML(r *http.Request) bool {
@@ -1806,6 +1899,7 @@ func main() {
 	flag.BoolVar(quiet, "q", false, "Shorthand for --quiet")
 	silent := flag.Bool("silent", false, "Suppress ALL output (complete silence)")
 	flag.BoolVar(silent, "s", false, "Shorthand for --silent")
+	healthCheck := flag.Bool("health", false, "Perform local health check against /health and exit")
 	flag.Parse()
 
 	// Set quiet/silent mode globally for util functions
@@ -1833,6 +1927,16 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("Generated default configuration at %s\n", *configPath)
+		return
+	}
+
+	// Lightweight health probe for Docker/monitoring: call local /health and exit.
+	if *healthCheck {
+		if err := runAgentHealthCheck(*configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "health check failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("healthy")
 		return
 	}
 
@@ -3645,6 +3749,10 @@ func runInteractive(ctx context.Context, configFlag string) {
 	// Ensure key handlers are registered (register sandbox explicitly so it's
 	// always present regardless of init ordering in other files). Use a
 	// Start web UI
+
+	// Lightweight health endpoint for Docker/monitoring (public).
+	http.HandleFunc("/health", handleHealth)
+
 	// Serve the UI only for the exact root path and GET method. This prevents
 	// the UI HTML from being returned as a fallback for other endpoints (e.g.
 	// POST /sandbox_simulate) when a handler is missing or not registered.

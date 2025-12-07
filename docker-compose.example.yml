@@ -108,7 +108,7 @@ services:
       - '${ROOT_PATH}/server/logs:/var/log/printmaster/server:rw'
     user: '99:100'
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://127.0.0.1:9090/health" ]
+      test: [ "CMD", "/printmaster-server", "--health" ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -141,7 +141,7 @@ services:
       - '${ROOT_PATH}/agent/data:/var/lib/printmaster/agent:rw'
     user: '99:100'
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://127.0.0.1:8080" ]
+      test: [ "CMD", "/printmaster-agent", "--health" ]
       interval: 30s
       timeout: 5s
       retries: 3

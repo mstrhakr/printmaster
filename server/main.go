@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"database/sql"
 	"embed"
 	"encoding/base64"
@@ -338,6 +339,7 @@ func main() {
 	flag.BoolVar(quiet, "q", false, "Shorthand for --quiet")
 	silent := flag.Bool("silent", false, "Suppress ALL output (complete silence)")
 	flag.BoolVar(silent, "s", false, "Shorthand for --silent")
+	healthCheck := flag.Bool("health", false, "Perform local health check against /health and exit")
 	selfUpdateApply := flag.String("selfupdate-apply", "", "Internal use only: path to self-update instruction")
 
 	// Service management flags
@@ -377,6 +379,16 @@ func main() {
 			logFatal("Failed to generate config", "error", err)
 		}
 		logInfo("Generated default configuration", "path", *configPath)
+		return
+	}
+
+	// Lightweight health probe for Docker/monitoring: call local /health and exit.
+	if *healthCheck {
+		if err := runHealthCheck(*configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "health check failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("healthy")
 		return
 	}
 
@@ -3075,6 +3087,92 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":    "healthy",
 		"timestamp": time.Now().UTC(),
 	})
+}
+
+type healthAttempt struct {
+	url      string
+	insecure bool
+}
+
+// runHealthCheck probes the local /health endpoint over HTTP/HTTPS using configured ports.
+// Returns nil on success; otherwise an error summarizing all failed attempts.
+func runHealthCheck(configFlag string) error {
+	cfg := DefaultConfig()
+
+	// Load configuration if provided so we honor custom ports/env overrides.
+	if resolved := config.ResolveConfigPath("SERVER", configFlag); resolved != "" {
+		if _, err := os.Stat(resolved); err == nil {
+			if loaded, _, loadErr := LoadConfig(resolved); loadErr == nil {
+				cfg = loaded
+			}
+		}
+	}
+
+	attempts := make([]healthAttempt, 0, 2)
+	if cfg.Server.HTTPPort > 0 {
+		attempts = append(attempts, healthAttempt{url: fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Server.HTTPPort)})
+	}
+	if cfg.Server.HTTPSPort > 0 {
+		attempts = append(attempts, healthAttempt{url: fmt.Sprintf("https://127.0.0.1:%d/health", cfg.Server.HTTPSPort), insecure: true})
+	}
+
+	// Fallback to defaults if nothing configured
+	if len(attempts) == 0 {
+		attempts = append(attempts, healthAttempt{url: "http://127.0.0.1:9090/health"})
+	}
+
+	var errs []string
+	for _, attempt := range attempts {
+		if err := probeHealthEndpoint(attempt.url, attempt.insecure); err != nil {
+			errMsg := fmt.Sprintf("%s: %v", attempt.url, err)
+			errs = append(errs, errMsg)
+			continue
+		}
+		return nil
+	}
+
+	if len(errs) == 0 {
+		return fmt.Errorf("no health endpoints to probe")
+	}
+
+	return fmt.Errorf("%s", strings.Join(errs, "; "))
+}
+
+func probeHealthEndpoint(endpoint string, insecure bool) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	if insecure {
+		// Skip TLS verification for self-signed/local certs used by the server.
+		client.Transport = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+
+	var payload struct {
+		Status string `json:"status"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return fmt.Errorf("decode response: %w", err)
+	}
+
+	if strings.ToLower(strings.TrimSpace(payload.Status)) != "healthy" {
+		return fmt.Errorf("status=%s", payload.Status)
+	}
+
+	return nil
 }
 
 // handleSSE streams server-sent events to UI clients for real-time updates
