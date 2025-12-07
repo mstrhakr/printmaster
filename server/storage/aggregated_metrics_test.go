@@ -300,30 +300,6 @@ func TestBuildPlaceholderListFrom(t *testing.T) {
 	}
 }
 
-// Helper type for testing - need to create a compatible Device
-type commonstorageDevice = struct {
-	Serial          string
-	IP              string
-	Manufacturer    string
-	Model           string
-	Hostname        string
-	Firmware        string
-	MACAddress      string
-	SubnetMask      string
-	Gateway         string
-	Consumables     []string
-	StatusMessages  []string
-	LastSeen        time.Time
-	FirstSeen       time.Time
-	CreatedAt       time.Time
-	DiscoveryMethod string
-	AssetNumber     string
-	Location        string
-	Description     string
-	WebUIURL        string
-	RawData         map[string]interface{}
-}
-
 func TestGetAggregatedMetrics(t *testing.T) {
 	t.Parallel()
 	s, err := NewSQLiteStore(":memory:")
