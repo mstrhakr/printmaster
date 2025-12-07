@@ -3271,7 +3271,16 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get authenticated agent from context
-	agent := r.Context().Value(agentContextKey).(*storage.Agent)
+	agentCtx := r.Context().Value(agentContextKey)
+	if agentCtx == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	agent, ok := agentCtx.(*storage.Agent)
+	if !ok || agent == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
 
 	// Update agent - if version info is provided, update full info; otherwise just heartbeat
 	ctx := context.Background()
@@ -3578,7 +3587,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		{
 			agent, err := serverStore.GetAgent(ctx, agentID)
-			if err != nil {
+			if err != nil || agent == nil {
 				logError("Failed to get agent", "agent_id", agentID, "error", err)
 				http.Error(w, "Agent not found", http.StatusNotFound)
 				return
@@ -3641,7 +3650,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			}
 
 			agent, err := serverStore.GetAgent(ctx, agentID)
-			if err != nil {
+			if err != nil || agent == nil {
 				logError("Failed to load agent for update", "agent_id", agentID, "error", err)
 				http.Error(w, "Agent not found", http.StatusNotFound)
 				return
@@ -3695,7 +3704,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		{
 			agent, err := serverStore.GetAgent(ctx, agentID)
-			if err != nil {
+			if err != nil || agent == nil {
 				logError("Failed to get agent before delete", "agent_id", agentID, "error", err)
 				if errors.Is(err, sql.ErrNoRows) || strings.Contains(strings.ToLower(err.Error()), "not found") {
 					http.Error(w, "Agent not found", http.StatusNotFound)
