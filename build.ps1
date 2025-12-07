@@ -456,7 +456,9 @@ function Build-Agent {
         Write-BuildLog "Build Time: $buildTime"
         Write-BuildLog "Git Commit: $gitCommit"
         
-        # Execute build with full output capture
+        # Execute build with CGO_ENABLED=0 (pure Go build for consistent cross-platform support)
+        # This is required because we use pure-Go dependencies: modernc.org/sqlite and gosnmp
+        $env:CGO_ENABLED = 0
         $buildOutput = & go @buildArgs 2>&1
         $buildExitCode = $LASTEXITCODE
         
