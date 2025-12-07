@@ -384,8 +384,10 @@ func ApplyDatabaseEnvOverrides(cfg *DatabaseConfig, prefix string) {
 		cfg.User = val
 	}
 
-	// Password
+	// Password (supports both DB_PASSWORD and DB_PASS)
 	if val := getEnv("PASSWORD"); val != "" {
+		cfg.Password = val
+	} else if val := getEnv("PASS"); val != "" {
 		cfg.Password = val
 	}
 

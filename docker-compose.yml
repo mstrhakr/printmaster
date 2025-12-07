@@ -1,0 +1,138 @@
+# PrintMaster Docker Compose Example
+#
+# This example demonstrates running PrintMaster server and agent with PostgreSQL.
+# The server reads database config from environment variables:
+#   - SERVER_DB_HOST, SERVER_DB_PORT, SERVER_DB_USER, SERVER_DB_PASS, SERVER_DB_NAME
+#   - Falls back to DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME if SERVER_DB_* not set
+#
+# Customize the following before deploying to production:
+#   - Database credentials and connection settings
+#   - Port mappings and expose settings
+#   - Volume mount paths and persistent storage
+#   - Resource limits and restart policies
+#   - Network configuration and isolation
+#
+# Usage:
+#   Build and start: docker compose up -d --build
+#   View logs:       docker compose logs -f server
+#   Stop services:   docker compose down
+#   Cleanup volumes: docker compose down -v
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  # Replace credentials and tune performance for production use.
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    container_name: printmaster-db
+    hostname: db
+    environment:
+      # IMPORTANT: Change these credentials in production
+      POSTGRES_USER: printmaster
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: printmaster
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printmaster"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin (Optional) - Web UI for database management
+  # Comment out this service if you don't need the admin panel.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    container_name: printmaster-pgadmin
+    environment:
+      # IMPORTANT: Change these credentials in production
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: changeme
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+  # PrintMaster Server
+  # Central hub for multi-agent management and device aggregation.
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      args:
+        VERSION: latest
+    restart: unless-stopped
+    container_name: printmaster-server
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Database configuration - use individual components instead of URL
+      DB_HOST: "db"
+      DB_PORT: "5432"
+      DB_NAME: "printmaster"
+      DB_USER: "printmaster"
+      DB_PASS: "changeme"
+      DOCKER: "true"
+      # Uncomment and adjust additional server settings as needed:
+      # LOG_LEVEL: "info"
+      # TLS_CERT: "/var/lib/printmaster/server/cert.pem"
+      # TLS_KEY: "/var/lib/printmaster/server/key.pem"
+    ports:
+      - "9090:9090"    # HTTP API
+      - "9443:9443"    # HTTPS API
+    volumes:
+      # Persistent storage for logs, certificates, and data
+      - server-data:/var/lib/printmaster/server
+    networks:
+      - printmaster-net
+
+  # PrintMaster Agent (Optional)
+  # Local agent for printer discovery and monitoring. Can be run on separate hosts.
+  # Comment out if you only need the server.
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+      args:
+        VERSION: latest
+    restart: unless-stopped
+    container_name: printmaster-agent
+    depends_on:
+      - server
+    environment:
+      # Server registration
+      SERVER_URL: "http://server:9090"
+      DOCKER: "true"
+      # Uncomment and adjust additional agent settings as needed:
+      # DISCOVERY_RANGE: "192.168.1.0/24"
+      # AGENT_NAME: "Site-A-Agent"
+      # LOG_LEVEL: "info"
+    ports:
+      - "8000:8000"    # Web UI
+    volumes:
+      # Persistent storage for discovered devices and metrics
+      - agent-data:/var/lib/printmaster/agent
+    networks:
+      - printmaster-net
+
+volumes:
+  db-data:
+    name: printmaster_db_data
+    driver: local
+  server-data:
+    name: printmaster_server_data
+    driver: local
+  agent-data:
+    name: printmaster_agent_data
+    driver: local
+
+networks:
+  printmaster-net:
+    name: printmaster-net
+    driver: bridge
