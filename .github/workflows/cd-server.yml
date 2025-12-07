@@ -1,4 +1,5 @@
 name: CD Server
+run-name: CD Server - ${{ github.ref_name }} @ ${{ github.sha }}
 
 on:
   push:
