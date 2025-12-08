@@ -357,19 +357,45 @@ function Push-Release {
         return
     }
     
-    # Push commits
+    # Push commits first
     git push
     if ($LASTEXITCODE -ne 0) {
         throw "Git push failed"
     }
     
-    # Push version tags (force needed for floating tags)
-    git push --tags --force
-    if ($LASTEXITCODE -ne 0) {
-        throw "Git push tags failed"
+    # Push the specific version tags FIRST (these trigger CD workflows)
+    # Must be pushed individually to ensure GitHub Actions receives proper push events
+    if ($Component -eq 'both') {
+        $agentVer = (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
+        $serverVer = (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
+        
+        Write-Status "Pushing version tag: agent-v$agentVer" "INFO"
+        git push origin "agent-v$agentVer"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git push agent version tag failed"
+        }
+        
+        Write-Status "Pushing version tag: server-v$serverVer" "INFO"
+        git push origin "server-v$serverVer"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git push server version tag failed"
+        }
+    } elseif ($Component -eq 'agent') {
+        Write-Status "Pushing version tag: agent-v$Version" "INFO"
+        git push origin "agent-v$Version"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git push agent version tag failed"
+        }
+    } else {
+        Write-Status "Pushing version tag: server-v$Version" "INFO"
+        git push origin "server-v$Version"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Git push server version tag failed"
+        }
     }
     
-    # Force-push moving latest tags (they need -f because they're updated with each release)
+    # Now force-push floating/moving tags (these don't trigger CD, just for convenience)
+    Write-Status "Updating floating tags..." "INFO"
     if ($Component -eq 'both' -or $Component -eq 'agent') {
         $null = git push -f origin latest-agent 2>&1
         if ($LASTEXITCODE -ne 0) {
