@@ -55,6 +55,43 @@ function Invoke-JSUnitTests {
     finally { Pop-Location }
 }
 
+function Invoke-JSSyntaxCheck {
+    Write-BuildLog "Running JS syntax check (node --check)" "INFO"
+
+    Push-Location $ProjectRoot
+    try {
+        $pathsToCheck = @(
+            Join-Path $ProjectRoot "server\web",
+            Join-Path $ProjectRoot "common\web"
+        )
+
+        $failed = $false
+        foreach ($p in $pathsToCheck) {
+            if (-not (Test-Path $p)) { continue }
+            Get-ChildItem -Path $p -Recurse -Include *.js -File | ForEach-Object {
+                $file = $_.FullName
+                Write-BuildLog "Checking JS syntax: $file" "INFO"
+                $out = & node --check $file 2>&1
+                $exit = $LASTEXITCODE
+                if ($exit -ne 0) {
+                    $out | ForEach-Object { Write-BuildLog $_ "ERROR" }
+                    Write-BuildLog "Syntax error in $file" "ERROR"
+                    $failed = $true
+                }
+            }
+        }
+
+        if ($failed) {
+            Write-BuildLog "JS syntax check failed" "ERROR"
+            return $false
+        }
+
+        Write-BuildLog "JS syntax check passed" "INFO"
+        return $true
+    }
+    finally { Pop-Location }
+}
+
 function Invoke-PlaywrightTests {
     Write-BuildLog "Running Playwright smoke tests..." "INFO"
 
@@ -252,6 +289,12 @@ function Invoke-Linters {
         $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
         Write-BuildLog "$Component passed staticcheck" "INFO"
         Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] PASS: $Component passed staticcheck"
+
+        # After Go linters pass, run a JS syntax check to catch broken JS bundles early
+        if (-not (Invoke-JSSyntaxCheck)) {
+            Write-BuildLog "Aborting: JS syntax check failed" "ERROR"
+            return $false
+        }
 
         return $true
     }
