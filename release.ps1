@@ -254,16 +254,93 @@ function Save-CommitAndTag {
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed for server" }
         Write-Status "Tagged as server-v$serverVer -> $commitSHA" "INFO"
         
+        # Create floating version tags for agent
+        if ($agentVer -match '^(\d+)\.(\d+)\.(\d+)$') {
+            $major = $Matches[1]
+            $minor = $Matches[2]
+            
+            # agent-v0 (latest v0.x.x)
+            $null = git tag -f -a "agent-v$major" $commitSHA -m "Latest Agent v$major (v$agentVer)" 2>&1
+            Write-Status "Updated floating tag: agent-v$major -> v$agentVer" "INFO"
+            
+            # agent-v0.12 (latest v0.12.x)
+            $null = git tag -f -a "agent-v$major.$minor" $commitSHA -m "Latest Agent v$major.$minor (v$agentVer)" 2>&1
+            Write-Status "Updated floating tag: agent-v$major.$minor -> v$agentVer" "INFO"
+        }
+        
+        # Create floating version tags for server
+        if ($serverVer -match '^(\d+)\.(\d+)\.(\d+)$') {
+            $major = $Matches[1]
+            $minor = $Matches[2]
+            
+            # server-v0 (latest v0.x.x)
+            $null = git tag -f -a "server-v$major" $commitSHA -m "Latest Server v$major (v$serverVer)" 2>&1
+            Write-Status "Updated floating tag: server-v$major -> v$serverVer" "INFO"
+            
+            # server-v0.12 (latest v0.12.x)
+            $null = git tag -f -a "server-v$major.$minor" $commitSHA -m "Latest Server v$major.$minor (v$serverVer)" 2>&1
+            Write-Status "Updated floating tag: server-v$major.$minor -> v$serverVer" "INFO"
+        }
+        
+        # Create/update moving latest tags
+        $null = git tag -f -a "latest-agent" $commitSHA -m "Latest Agent Release (v$agentVer)" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for latest-agent" }
+        Write-Status "Updated moving tag: latest-agent -> $commitSHA" "INFO"
+        
+        $null = git tag -f -a "latest-server" $commitSHA -m "Latest Server Release (v$serverVer)" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for latest-server" }
+        Write-Status "Updated moving tag: latest-server -> $commitSHA" "INFO"
+        
     }
     elseif ($Component -eq 'server') {
         $null = git tag -a "server-v$Version" -m "Server Release v$Version" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
         Write-Status "Tagged as server-v$Version" "INFO"
+        
+        # Create floating version tags
+        $commitSHA = git rev-parse HEAD
+        if ($Version -match '^(\d+)\.(\d+)\.(\d+)$') {
+            $major = $Matches[1]
+            $minor = $Matches[2]
+            
+            # server-v0 (latest v0.x.x)
+            $null = git tag -f -a "server-v$major" $commitSHA -m "Latest Server v$major (v$Version)" 2>&1
+            Write-Status "Updated floating tag: server-v$major -> v$Version" "INFO"
+            
+            # server-v0.12 (latest v0.12.x)
+            $null = git tag -f -a "server-v$major.$minor" $commitSHA -m "Latest Server v$major.$minor (v$Version)" 2>&1
+            Write-Status "Updated floating tag: server-v$major.$minor -> v$Version" "INFO"
+        }
+        
+        # Create/update moving latest-server tag
+        $null = git tag -f -a "latest-server" $commitSHA -m "Latest Server Release (v$Version)" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for latest-server" }
+        Write-Status "Updated moving tag: latest-server -> $commitSHA" "INFO"
     }
     else {
         $null = git tag -a "agent-v$Version" -m "Agent Release v$Version" 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Git tag failed" }
         Write-Status "Tagged as agent-v$Version" "INFO"
+        
+        # Create floating version tags
+        $commitSHA = git rev-parse HEAD
+        if ($Version -match '^(\d+)\.(\d+)\.(\d+)$') {
+            $major = $Matches[1]
+            $minor = $Matches[2]
+            
+            # agent-v0 (latest v0.x.x)
+            $null = git tag -f -a "agent-v$major" $commitSHA -m "Latest Agent v$major (v$Version)" 2>&1
+            Write-Status "Updated floating tag: agent-v$major -> v$Version" "INFO"
+            
+            # agent-v0.12 (latest v0.12.x)
+            $null = git tag -f -a "agent-v$major.$minor" $commitSHA -m "Latest Agent v$major.$minor (v$Version)" 2>&1
+            Write-Status "Updated floating tag: agent-v$major.$minor -> v$Version" "INFO"
+        }
+        
+        # Create/update moving latest-agent tag
+        $null = git tag -f -a "latest-agent" $commitSHA -m "Latest Agent Release (v$Version)" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Git tag failed for latest-agent" }
+        Write-Status "Updated moving tag: latest-agent -> $commitSHA" "INFO"
     }
 }
 
@@ -286,10 +363,70 @@ function Push-Release {
         throw "Git push failed"
     }
     
-    # Push tags
+    # Push version tags
     $null = git push --tags 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Git push tags failed"
+    }
+    
+    # Force-push moving latest tags (they need -f because they're updated with each release)
+    if ($Component -eq 'both' -or $Component -eq 'agent') {
+        $null = git push -f origin latest-agent 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Status "Warning: Failed to push latest-agent tag" "WARN"
+        } else {
+            Write-Status "Pushed moving tag: latest-agent" "INFO"
+        }
+        
+        # Push floating version tags (agent-v0, agent-v0.12, etc.)
+        $agentVer = if ($Component -eq 'both') {
+            (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
+        } else {
+            $Version
+        }
+        if ($agentVer -match '^(\d+)\.(\d+)\.(\d+)$') {
+            $major = $Matches[1]
+            $minor = $Matches[2]
+            
+            $null = git push -f origin "agent-v$major" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Status "Pushed floating tag: agent-v$major" "INFO"
+            }
+            
+            $null = git push -f origin "agent-v$major.$minor" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Status "Pushed floating tag: agent-v$major.$minor" "INFO"
+            }
+        }
+    }
+    if ($Component -eq 'both' -or $Component -eq 'server') {
+        $null = git push -f origin latest-server 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Status "Warning: Failed to push latest-server tag" "WARN"
+        } else {
+            Write-Status "Pushed moving tag: latest-server" "INFO"
+        }
+        
+        # Push floating version tags (server-v0, server-v0.12, etc.)
+        $serverVer = if ($Component -eq 'both') {
+            (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
+        } else {
+            $Version
+        }
+        if ($serverVer -match '^(\d+)\.(\d+)\.(\d+)$') {
+            $major = $Matches[1]
+            $minor = $Matches[2]
+            
+            $null = git push -f origin "server-v$major" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Status "Pushed floating tag: server-v$major" "INFO"
+            }
+            
+            $null = git push -f origin "server-v$major.$minor" 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                Write-Status "Pushed floating tag: server-v$major.$minor" "INFO"
+            }
+        }
     }
     
     $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
@@ -443,11 +580,33 @@ function New-GitHubRelease {
     # Use pre-generated changelog
     $changelog = $ChangelogContent
     
+    # Get the other component's latest version for cross-linking
+    $otherComponent = if ($Component -eq 'server') { 'agent' } else { 'server' }
+    $otherVersionFile = Join-Path $ProjectRoot "$otherComponent\VERSION"
+    $otherVersion = ""
+    if (Test-Path $otherVersionFile) {
+        $otherVersion = (Get-Content $otherVersionFile -Raw).Trim()
+    }
+    
+    # Build compatibility note with link to other component
+    $compatibilityNote = ""
+    if ($otherVersion -ne "") {
+        $otherComponentTitle = $otherComponent.Substring(0,1).ToUpper() + $otherComponent.Substring(1)
+        $compatibilityNote = @"
+
+### 🔄 Compatibility
+- **Compatible with $otherComponentTitle**: [v$otherVersion](https://github.com/mstrhakr/printmaster/releases/tag/$otherComponent-v$otherVersion) ([latest-$otherComponent](https://github.com/mstrhakr/printmaster/releases/tag/latest-$otherComponent))
+- Use matching versions for best compatibility
+
+"@
+    }
+    
     # Generate release notes
     $releaseNotes = @"
 ## PrintMaster $Component v$Version
 
 $changelog
+$compatibilityNote
 
 ---
 
