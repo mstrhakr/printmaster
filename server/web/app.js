@@ -2083,6 +2083,131 @@ function editAlertRule(id) {
         });
 }
 
+// Initialize Alert Rule Modal
+let alertRuleModalInitialized = false;
+function initAlertRuleModal() {
+    const modal = document.getElementById('alert_rule_modal');
+    if (!modal || alertRuleModalInitialized) return;
+    alertRuleModalInitialized = true;
+    
+    const closeBtn = document.getElementById('alert_rule_modal_close_x');
+    const cancelBtn = document.getElementById('alert_rule_cancel');
+    const saveBtn = document.getElementById('alert_rule_save');
+    
+    if (closeBtn) closeBtn.addEventListener('click', closeAlertRuleModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeAlertRuleModal);
+    if (saveBtn) saveBtn.addEventListener('click', saveAlertRule);
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeAlertRuleModal();
+    });
+}
+
+function closeAlertRuleModal() {
+    const modal = document.getElementById('alert_rule_modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// Initialize Notification Channel Modal
+let notificationChannelModalInitialized = false;
+function initNotificationChannelModal() {
+    const modal = document.getElementById('notification_channel_modal');
+    if (!modal || notificationChannelModalInitialized) return;
+    notificationChannelModalInitialized = true;
+    
+    const closeBtn = document.getElementById('notification_channel_modal_close_x');
+    const cancelBtn = document.getElementById('channel_cancel');
+    const saveBtn = document.getElementById('channel_save');
+    
+    if (closeBtn) closeBtn.addEventListener('click', closeNotificationChannelModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeNotificationChannelModal);
+    if (saveBtn) saveBtn.addEventListener('click', saveNotificationChannel);
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeNotificationChannelModal();
+    });
+}
+
+function closeNotificationChannelModal() {
+    const modal = document.getElementById('notification_channel_modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// Initialize Escalation Policy Modal
+let escalationPolicyModalInitialized = false;
+function initEscalationPolicyModal() {
+    const modal = document.getElementById('escalation_policy_modal');
+    if (!modal || escalationPolicyModalInitialized) return;
+    escalationPolicyModalInitialized = true;
+    
+    const closeBtn = document.getElementById('escalation_policy_modal_close_x');
+    const cancelBtn = document.getElementById('escalation_cancel');
+    const saveBtn = document.getElementById('escalation_save');
+    
+    if (closeBtn) closeBtn.addEventListener('click', closeEscalationPolicyModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeEscalationPolicyModal);
+    if (saveBtn) saveBtn.addEventListener('click', saveEscalationPolicy);
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeEscalationPolicyModal();
+    });
+}
+
+function closeEscalationPolicyModal() {
+    const modal = document.getElementById('escalation_policy_modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// Initialize Maintenance Window Modal
+let maintenanceWindowModalInitialized = false;
+function initMaintenanceWindowModal() {
+    const modal = document.getElementById('maintenance_window_modal');
+    if (!modal || maintenanceWindowModalInitialized) return;
+    maintenanceWindowModalInitialized = true;
+    
+    const closeBtn = document.getElementById('maintenance_window_modal_close_x');
+    const cancelBtn = document.getElementById('maintenance_cancel');
+    const saveBtn = document.getElementById('maintenance_save');
+    
+    if (closeBtn) closeBtn.addEventListener('click', closeMaintenanceWindowModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeMaintenanceWindowModal);
+    if (saveBtn) saveBtn.addEventListener('click', saveMaintenanceWindow);
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeMaintenanceWindowModal();
+    });
+}
+
+function closeMaintenanceWindowModal() {
+    const modal = document.getElementById('maintenance_window_modal');
+    if (modal) modal.style.display = 'none';
+}
+
+// Initialize Scheduled Report Modal
+let scheduledReportModalInitialized = false;
+function initScheduledReportModal() {
+    const modal = document.getElementById('scheduled_report_modal');
+    if (!modal || scheduledReportModalInitialized) return;
+    scheduledReportModalInitialized = true;
+    
+    const closeBtn = document.getElementById('scheduled_report_modal_close_x');
+    const cancelBtn = document.getElementById('schedule_cancel');
+    const saveBtn = document.getElementById('schedule_save');
+    
+    if (closeBtn) closeBtn.addEventListener('click', closeScheduledReportModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeScheduledReportModal);
+    if (saveBtn) saveBtn.addEventListener('click', saveScheduledReport);
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeScheduledReportModal();
+    });
+}
+
+function closeScheduledReportModal() {
+    const modal = document.getElementById('scheduled_report_modal');
+    if (modal) modal.style.display = 'none';
+}
+
 function showAlertRuleModal(existingRule = null) {
     const modal = document.getElementById('alert_rule_modal');
     if (!modal) return;
