@@ -358,8 +358,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 // handleWSHeartbeat processes heartbeat messages received via WebSocket
 func handleWSHeartbeat(conn *wscommon.Conn, agent *storage.Agent, msg wscommon.Message, serverStore storage.Store) {
 	// Extract optional device count from heartbeat data
-	if deviceCount, ok := msg.Data["device_count"].(float64); ok {
-		agent.DeviceCount = int(deviceCount)
+	deviceCount := 0
+	if dc, ok := msg.Data["device_count"].(float64); ok {
+		deviceCount = int(dc)
 	}
 
 	status := wsStringField(msg.Data, "status")
@@ -367,9 +368,25 @@ func handleWSHeartbeat(conn *wscommon.Conn, agent *storage.Agent, msg wscommon.M
 		status = "active"
 	}
 
+	// Build HeartbeatData from WebSocket message using shared logic
+	hbData := &storage.HeartbeatData{
+		Status:          status,
+		Version:         wsStringField(msg.Data, "version"),
+		ProtocolVersion: wsStringField(msg.Data, "protocol_version"),
+		Hostname:        wsStringField(msg.Data, "hostname"),
+		IP:              wsStringField(msg.Data, "ip"),
+		Platform:        wsStringField(msg.Data, "platform"),
+		OSVersion:       wsStringField(msg.Data, "os_version"),
+		GoVersion:       wsStringField(msg.Data, "go_version"),
+		Architecture:    wsStringField(msg.Data, "architecture"),
+		BuildType:       wsStringField(msg.Data, "build_type"),
+		GitCommit:       wsStringField(msg.Data, "git_commit"),
+		DeviceCount:     deviceCount,
+	}
+
 	ctx := context.Background()
-	if update := buildAgentUpdateFromWS(agent.AgentID, status, msg.Data); update != nil {
-		if err := serverStore.UpdateAgentInfo(ctx, update); err != nil {
+	if agentUpdate := hbData.BuildAgentUpdate(agent.AgentID); agentUpdate != nil {
+		if err := serverStore.UpdateAgentInfo(ctx, agentUpdate); err != nil {
 			logError("Failed to update agent metadata after WebSocket heartbeat", "agent_id", agent.AgentID, "error", err)
 			sendWSError(conn, "Failed to process heartbeat")
 			return
@@ -399,67 +416,6 @@ func handleWSHeartbeat(conn *wscommon.Conn, agent *storage.Agent, msg wscommon.M
 	if err := conn.WriteRaw(payload, 10*time.Second); err != nil {
 		logWarn("Failed to send pong to agent", "agent_id", agent.AgentID, "error", err)
 	}
-}
-
-func buildAgentUpdateFromWS(agentID string, status string, data map[string]interface{}) *storage.Agent {
-	if len(data) == 0 {
-		return nil
-	}
-
-	now := time.Now().UTC()
-	update := &storage.Agent{
-		AgentID:       agentID,
-		Status:        status,
-		LastSeen:      now,
-		LastHeartbeat: now,
-	}
-
-	fields := 0
-	if v := wsStringField(data, "version"); v != "" {
-		update.Version = v
-		fields++
-	}
-	if v := wsStringField(data, "protocol_version"); v != "" {
-		update.ProtocolVersion = v
-		fields++
-	}
-	if v := wsStringField(data, "hostname"); v != "" {
-		update.Hostname = v
-		fields++
-	}
-	if v := wsStringField(data, "ip"); v != "" {
-		update.IP = v
-		fields++
-	}
-	if v := wsStringField(data, "platform"); v != "" {
-		update.Platform = v
-		fields++
-	}
-	if v := wsStringField(data, "os_version"); v != "" {
-		update.OSVersion = v
-		fields++
-	}
-	if v := wsStringField(data, "go_version"); v != "" {
-		update.GoVersion = v
-		fields++
-	}
-	if v := wsStringField(data, "architecture"); v != "" {
-		update.Architecture = v
-		fields++
-	}
-	if v := wsStringField(data, "build_type"); v != "" {
-		update.BuildType = v
-		fields++
-	}
-	if v := wsStringField(data, "git_commit"); v != "" {
-		update.GitCommit = v
-		fields++
-	}
-
-	if fields == 0 {
-		return nil
-	}
-	return update
 }
 
 func wsStringField(data map[string]interface{}, key string) string {

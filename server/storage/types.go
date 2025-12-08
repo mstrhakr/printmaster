@@ -123,6 +123,61 @@ type Agent struct {
 	SiteIDs         []string  `json:"site_ids,omitempty"` // Sites this agent belongs to (can serve multiple sites)
 }
 
+// HeartbeatData contains fields that can be sent with an agent heartbeat.
+// Used by both HTTP and WebSocket heartbeat handlers to build agent updates.
+type HeartbeatData struct {
+	Status          string
+	Version         string
+	ProtocolVersion string
+	Hostname        string
+	IP              string
+	Platform        string
+	OSVersion       string
+	GoVersion       string
+	Architecture    string
+	BuildType       string
+	GitCommit       string
+	DeviceCount     int
+}
+
+// BuildAgentUpdate creates an Agent struct for UpdateAgentInfo if metadata fields are present,
+// or returns nil if only a simple heartbeat (UpdateAgentHeartbeat) is needed.
+// This centralizes the heartbeat logic used by both HTTP and WebSocket handlers.
+func (h *HeartbeatData) BuildAgentUpdate(agentID string) *Agent {
+	// Check if any metadata fields are present (beyond just status)
+	hasMetadata := h.Version != "" || h.ProtocolVersion != "" || h.Hostname != "" ||
+		h.IP != "" || h.Platform != "" || h.OSVersion != "" || h.GoVersion != "" ||
+		h.Architecture != "" || h.BuildType != "" || h.GitCommit != ""
+
+	if !hasMetadata {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	status := h.Status
+	if status == "" {
+		status = "active"
+	}
+
+	return &Agent{
+		AgentID:         agentID,
+		Status:          status,
+		Version:         h.Version,
+		ProtocolVersion: h.ProtocolVersion,
+		Hostname:        h.Hostname,
+		IP:              h.IP,
+		Platform:        h.Platform,
+		OSVersion:       h.OSVersion,
+		GoVersion:       h.GoVersion,
+		Architecture:    h.Architecture,
+		BuildType:       h.BuildType,
+		GitCommit:       h.GitCommit,
+		DeviceCount:     h.DeviceCount,
+		LastSeen:        now,
+		LastHeartbeat:   now,
+	}
+}
+
 // Device represents a printer device discovered by an agent (extends common Device)
 type Device struct {
 	commonstorage.Device // Embed common fields
