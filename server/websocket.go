@@ -406,9 +406,12 @@ func buildAgentUpdateFromWS(agentID string, status string, data map[string]inter
 		return nil
 	}
 
+	now := time.Now().UTC()
 	update := &storage.Agent{
-		AgentID: agentID,
-		Status:  status,
+		AgentID:       agentID,
+		Status:        status,
+		LastSeen:      now,
+		LastHeartbeat: now,
 	}
 
 	fields := 0
