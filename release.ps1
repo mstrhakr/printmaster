@@ -358,13 +358,13 @@ function Push-Release {
     }
     
     # Push commits
-    $null = git push 2>&1
+    git push
     if ($LASTEXITCODE -ne 0) {
         throw "Git push failed"
     }
     
-    # Push version tags
-    $null = git push --tags 2>&1
+    # Push version tags (force needed for floating tags)
+    git push --tags --force
     if ($LASTEXITCODE -ne 0) {
         throw "Git push tags failed"
     }
