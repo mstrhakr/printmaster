@@ -3462,6 +3462,7 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 	// Update agent - if version info is provided, update full info; otherwise just heartbeat
 	ctx := context.Background()
+	now := time.Now().UTC()
 	if req.Version != "" {
 		// Full info update (version changed or first heartbeat with version)
 		agentUpdate := &storage.Agent{
@@ -3477,6 +3478,8 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 			BuildType:       req.BuildType,
 			GitCommit:       req.GitCommit,
 			Status:          req.Status,
+			LastSeen:        now,
+			LastHeartbeat:   now,
 		}
 		if err := serverStore.UpdateAgentInfo(ctx, agentUpdate); err != nil {
 			logWarn("Failed to update agent info", "agent_id", agent.AgentID, "error", err)
