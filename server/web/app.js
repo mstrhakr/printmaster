@@ -6411,7 +6411,22 @@ function renderAgentVersionCell(agent, forTable = false) {
     // Check if there's an active update for this agent
     const updateState = agentsVM.updateState[agentId];
     if (updateState) {
-        const status = updateState.status;
+        const rawStatus = updateState.status || '';
+        const status = (() => {
+            switch (rawStatus) {
+                case 'pending':
+                    return 'checking';
+                case 'staging':
+                case 'applying':
+                    return 'ready';
+                case 'succeeded':
+                    return 'complete';
+                case 'rolled_back':
+                    return 'failed';
+                default:
+                    return rawStatus;
+            }
+        })();
         const progress = updateState.progress || 0;
         const targetVersion = updateState.targetVersion || latestVersion || '';
         
@@ -6444,6 +6459,15 @@ function renderAgentVersionCell(agent, forTable = false) {
         if (status === 'failed') {
             const errorMsg = updateState.error || 'Failed';
             const content = `<span class="update-error" title="${escapeHtml(errorMsg)}">✕ Failed</span>`;
+            if (forTable) {
+                return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
+            }
+            return `${displayVersion} ${content}`;
+        }
+
+        // Skipped update (policy or already current)
+        if (status === 'skipped') {
+            const content = `<span class="update-progress">Skipped</span>`;
             if (forTable) {
                 return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
             }
@@ -7236,7 +7260,26 @@ function handleAgentUpdateProgress(data) {
     const agentId = data.agent_id;
     if (!agentId) return;
     
-    const status = data.status || 'unknown';
+    // Normalize status values emitted by agent auto-update pipeline
+    const rawStatus = (data.status || 'unknown').toLowerCase();
+    const status = (() => {
+        switch (rawStatus) {
+            case 'pending':
+                return 'checking';
+            case 'staging':
+            case 'applying':
+                return 'ready'; // installing phase
+            case 'succeeded':
+                return 'complete';
+            case 'rolled_back':
+                return 'failed';
+            case 'skipped':
+                return 'skipped';
+            default:
+                return rawStatus;
+        }
+    })();
+
     const progress = data.progress || 0;
     const message = data.message || '';
     const targetVersion = data.target_version || '';
@@ -7289,10 +7332,19 @@ function handleAgentUpdateProgress(data) {
                 refreshAgentVersionCell(agentId);
             }, 5000);
             break;
-        case 'cancelled':
-            window.__pm_shared.showToast(`${agentName}: Update cancelled`, 'warning');
-            delete agentsVM.updateState[agentId];
+        case 'restarting':
+            window.__pm_shared.showToast(`${agentName}: Restarting to apply update...`, 'info');
+            // Fallback: if we never hear back after restart, clear the state and refresh
+            setTimeout(() => {
+                const st = agentsVM.updateState[agentId];
+                if (st && st.status === 'restarting') {
+                    delete agentsVM.updateState[agentId];
+                    refreshAgentVersionCell(agentId);
+                    loadAgents();
+                }
+            }, 20000);
             break;
+        case 'complete':
         case 'idle':
             // Agent returned to idle, clear any pending state
             delete agentsVM.updateState[agentId];
@@ -7316,6 +7368,10 @@ function refreshAgentVersionCell(agentId) {
             }
         }
     }
+        case 'skipped':
+            window.__pm_shared.showToast(`${agentName}: Update skipped`, 'info');
+            delete agentsVM.updateState[agentId];
+            break;
     
     // Update in card view
     const card = document.querySelector(`.device-card[data-agent-id="${agentId}"]`);
