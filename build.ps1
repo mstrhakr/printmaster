@@ -61,8 +61,8 @@ function Invoke-JSSyntaxCheck {
     Push-Location $ProjectRoot
     try {
         $pathsToCheck = @(
-            Join-Path $ProjectRoot "server\web",
-            Join-Path $ProjectRoot "common\web"
+            (Join-Path $ProjectRoot "server\web"),
+            (Join-Path $ProjectRoot "common\web")
         )
 
         $failed = $false
