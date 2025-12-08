@@ -294,13 +294,11 @@ const SERVER_SETTINGS_SCHEMA = [
                     { value: 'self-signed', label: 'Self-signed (default)' },
                     { value: 'custom', label: 'Custom certificate' },
                     { value: 'letsencrypt', label: 'Let\'s Encrypt (automatic)' }
-                ],
-                helper: 'Self-signed is easiest. Custom and Let\'s Encrypt require additional metadata.',
-                configKey: 'tls.mode'
+                ]
+
             },
-            { key: 'domain', label: 'Primary Domain', type: 'text', placeholder: 'pm.yourdomain.com', helper: 'Common Name used for certificates and redirects.', configKey: 'tls.domain', required: true },
-            { key: 'cert_path', label: 'Certificate Path', type: 'text', placeholder: 'C:/printmaster/server.crt', helper: 'Path to PEM certificate when using custom TLS.', configKey: 'tls.cert_path', fullWidth: true },
-            { key: 'key_path', label: 'Key Path', type: 'text', placeholder: 'C:/printmaster/server.key', helper: 'Private key for custom TLS certificates.', configKey: 'tls.key_path', fullWidth: true },
+
+            { key: 'letsencrypt_domain', label: 'Let\'s Encrypt Domain', type: 'text', placeholder: 'pm.yourdomain.com', helper: 'FQDN requested from Let\'s Encrypt.', configKey: 'tls.letsencrypt.domain' },
             { key: 'letsencrypt_domain', label: 'Let\'s Encrypt Domain', type: 'text', placeholder: 'pm.yourdomain.com', helper: 'FQDN requested from Let\'s Encrypt.', configKey: 'tls.letsencrypt.domain' },
             { key: 'letsencrypt_email', label: 'Let\'s Encrypt Email', type: 'text', placeholder: 'ops@yourdomain.com', helper: 'Administrative contact for ACME registration.', configKey: 'tls.letsencrypt.email' },
             { key: 'letsencrypt_cache_dir', label: 'Let\'s Encrypt Cache Dir', type: 'text', placeholder: 'letsencrypt-cache', helper: 'Directory for cached ACME assets.', configKey: 'tls.letsencrypt.cache_dir' },
@@ -7368,11 +7366,6 @@ function refreshAgentVersionCell(agentId) {
             }
         }
     }
-        case 'skipped':
-            window.__pm_shared.showToast(`${agentName}: Update skipped`, 'info');
-            delete agentsVM.updateState[agentId];
-            break;
-    
     // Update in card view
     const card = document.querySelector(`.device-card[data-agent-id="${agentId}"]`);
     if (card) {

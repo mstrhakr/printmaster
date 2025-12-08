@@ -104,7 +104,16 @@ async function loadApp(page, user) {
     };
   });
   await mockApi(page, user);
-  await page.goto(`${global.__PM_BASE_URL__}/app`);
+  await page.goto(`${global.__PM_BASE_URL__}/app`, { waitUntil: 'networkidle' });
+  // Wait for auth API to be called and RBAC to be applied
+  await page.waitForLoadState('networkidle');
+  // Wait for auth to complete and dynamic tabs to be rendered
+  // Base tabs (agents, devices, etc) are always present, check for those first
+  await page.waitForSelector('#desktop_tabs .tab[data-target="agents"]', { timeout: 10000 });
+  // For admin users, wait specifically for the admin tab to appear
+  if (user && user.role === 'admin') {
+    await page.waitForSelector('#desktop_tabs .tab[data-target="admin"]', { timeout: 10000 });
+  }
 }
 
 let server;
@@ -127,9 +136,11 @@ const viewerUser = { username: 'victor', role: 'viewer', tenant_ids: ['t1'] };
 
 test('admin sees tenants in admin tab', async ({ page }) => {
   await loadApp(page, adminUser);
+  // Wait for dynamic tabs to be created after auth
+  await page.waitForLoadState('networkidle');
   // Navigate to Admin tab
   const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
-  await expect(adminTab).toBeVisible();
+  await expect(adminTab).toBeVisible({ timeout: 10000 });
   await adminTab.click();
   // Switch to Tenants sub-view
   const tenantsSubtab = page.locator('.admin-subtab[data-adminview="tenants"]');
@@ -151,6 +162,8 @@ test('viewer cannot see add agent button', async ({ page }) => {
 
 test('admin can view audit subtab in admin tab', async ({ page }) => {
   await loadApp(page, adminUser);
+  // Wait for dynamic tabs to be created after auth
+  await page.waitForLoadState('networkidle');
   await page.locator('#desktop_tabs [data-target="admin"]').click();
   const auditSubtab = page.locator('.admin-subtab[data-adminview="audit"]');
   await expect(auditSubtab).toBeVisible();

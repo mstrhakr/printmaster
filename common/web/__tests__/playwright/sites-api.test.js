@@ -107,9 +107,15 @@ async function loadApp(page, apiHandler) {
     };
   });
   await page.route('**/api/**', apiHandler);
-  await page.goto(`${global.__PM_BASE_URL__}/app`);
-  // Wait for app to initialize
+  await page.goto(`${global.__PM_BASE_URL__}/app`, { waitUntil: 'networkidle' });
+  // Wait for auth API to be called and RBAC to be applied
   await page.waitForLoadState('networkidle');
+  // Wait for auth to complete and dynamic tabs to be rendered
+  // Base tabs (agents, devices, etc) are always present, check for those first
+  await page.waitForSelector('#desktop_tabs .tab[data-target="agents"]', { timeout: 10000 });
+  // For admin users (tests use adminUser), wait specifically for the admin tab
+  // Note: admin tab is only visible if user.role='admin' AND userCan('settings.read')
+  await page.waitForSelector('#desktop_tabs .tab[data-target="admin"]', { timeout: 10000 });
 }
 
 function createBaseHandler(overrides = {}) {
@@ -155,10 +161,11 @@ test.describe('Sites API Integration', () => {
     };
     
     await loadApp(page, handler);
+    await page.waitForLoadState('networkidle');
     
     // Navigate to admin > tenants
     const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
-    await expect(adminTab).toBeVisible();
+    await expect(adminTab).toBeVisible({ timeout: 10000 });
     await adminTab.click();
     await page.locator('.admin-subtab[data-adminview="tenants"]').click();
     
@@ -188,9 +195,10 @@ test.describe('Sites API Integration', () => {
 
   test('handles null sites response gracefully', async ({ page }) => {
     await loadApp(page, createBaseHandler({ sites: 'null' }));
+    await page.waitForLoadState('networkidle');
     
     const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
-    await expect(adminTab).toBeVisible();
+    await expect(adminTab).toBeVisible({ timeout: 10000 });
     await adminTab.click();
     await page.locator('.admin-subtab[data-adminview="tenants"]').click();
     
@@ -214,9 +222,10 @@ test.describe('Sites API Integration', () => {
     ];
     
     await loadApp(page, createBaseHandler({ sites: testSites }));
+    await page.waitForLoadState('networkidle');
     
     const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
-    await expect(adminTab).toBeVisible();
+    await expect(adminTab).toBeVisible({ timeout: 10000 });
     await adminTab.click();
     await page.locator('.admin-subtab[data-adminview="tenants"]').click();
     
@@ -334,9 +343,10 @@ test.describe('Agents API Integration', () => {
 test.describe('Tenant Sites Expansion', () => {
   test('expand button toggles sites row visibility', async ({ page }) => {
     await loadApp(page, createBaseHandler());
+    await page.waitForLoadState('networkidle');
     
     const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
-    await expect(adminTab).toBeVisible();
+    await expect(adminTab).toBeVisible({ timeout: 10000 });
     await adminTab.click();
     await page.locator('.admin-subtab[data-adminview="tenants"]').click();
     
@@ -362,9 +372,10 @@ test.describe('Tenant Sites Expansion', () => {
 
   test('empty sites shows Add Site button', async ({ page }) => {
     await loadApp(page, createBaseHandler());
+    await page.waitForLoadState('networkidle');
     
     const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
-    await expect(adminTab).toBeVisible();
+    await expect(adminTab).toBeVisible({ timeout: 10000 });
     await adminTab.click();
     await page.locator('.admin-subtab[data-adminview="tenants"]').click();
     
