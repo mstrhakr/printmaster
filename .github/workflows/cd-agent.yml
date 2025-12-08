@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - 'agent-v*'
+  workflow_dispatch: {}
 
 env:
   REGISTRY: ghcr.io

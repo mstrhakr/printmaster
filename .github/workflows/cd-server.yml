@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - 'server-v*'
+  workflow_dispatch: {}
 
 env:
   REGISTRY: ghcr.io
