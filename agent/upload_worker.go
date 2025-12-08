@@ -270,42 +270,52 @@ func (w *UploadWorker) ensureRegistered(ctx context.Context, version string) err
 
 	// First, try INIT_SECRET for auto-join (Docker Compose scenario)
 	initSecret := os.Getenv("INIT_SECRET")
+	if initSecret == "" {
+		// Common typo safeguard so users with INIT_SERCRET still get auto-join
+		initSecret = os.Getenv("INIT_SERCRET")
+	}
 	if initSecret != "" {
 		secretUsedFile := filepath.Join(w.dataDir, ".init_secret_used")
-		if _, err := os.Stat(secretUsedFile); os.IsNotExist(err) {
+		usedBefore := false
+		if _, err := os.Stat(secretUsedFile); err == nil {
+			usedBefore = true
+		}
+
+		if usedBefore {
+			w.logger.Info("INIT_SECRET was previously used; retrying because no valid server token is present")
+		} else {
 			w.logger.Info("Attempting auto-registration with INIT_SECRET")
-			joinToken = initSecret
+		}
 
-			// Try registration with init secret
-			regCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			agentToken, tenantID, err := w.client.RegisterWithToken(regCtx, joinToken, version)
-			cancel()
+		joinToken = initSecret
 
-			if err == nil && agentToken != "" {
-				// Success! Mark init secret as used
-				if err := os.WriteFile(secretUsedFile, []byte(time.Now().UTC().Format(time.RFC3339)), 0600); err != nil {
-					w.logger.Warn("Failed to mark init secret as used", "error", err)
-				}
+		// Try registration with init secret
+		regCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		agentToken, tenantID, err := w.client.RegisterWithToken(regCtx, joinToken, version)
+		cancel()
 
-				if w.dataDir != "" {
-					if err := SaveServerToken(w.dataDir, agentToken); err != nil {
-						w.logger.Warn("Failed to persist agent token", "error", err)
-					}
-				}
-
-				masked := agentToken
-				if len(masked) > 8 {
-					masked = agentToken[:8] + "..."
-				}
-
-				w.logger.Info("Agent auto-registered successfully using INIT_SECRET", "token", masked, "tenant_id", tenantID)
-				return nil
+		if err == nil && agentToken != "" {
+			// Success! Mark init secret as used (idempotent)
+			if err := os.WriteFile(secretUsedFile, []byte(time.Now().UTC().Format(time.RFC3339)), 0600); err != nil {
+				w.logger.Warn("Failed to mark init secret as used", "error", err)
 			}
 
-			w.logger.Warn("Auto-registration with INIT_SECRET failed, falling back to join token", "error", err)
-		} else {
-			w.logger.Info("INIT_SECRET was previously used, skipping auto-registration")
+			if w.dataDir != "" {
+				if err := SaveServerToken(w.dataDir, agentToken); err != nil {
+					w.logger.Warn("Failed to persist agent token", "error", err)
+				}
+			}
+
+			masked := agentToken
+			if len(masked) > 8 {
+				masked = agentToken[:8] + "..."
+			}
+
+			w.logger.Info("Agent auto-registered successfully using INIT_SECRET", "token", masked, "tenant_id", tenantID)
+			return nil
 		}
+
+		w.logger.Warn("Auto-registration with INIT_SECRET failed, falling back to join token", "error", err)
 	}
 
 	// Fallback: load join token from file

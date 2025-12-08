@@ -1126,13 +1126,13 @@ func (s *BaseStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error) 
 	}
 
 	// Count active rules
-	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM alert_rules WHERE enabled = 1`).Scan(&summary.ActiveRules)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM alert_rules WHERE enabled = ?`, true).Scan(&summary.ActiveRules)
 	if err != nil {
 		return nil, err
 	}
 
 	// Count active channels
-	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM notification_channels WHERE enabled = 1`).Scan(&summary.ActiveChannels)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM notification_channels WHERE enabled = ?`, true).Scan(&summary.ActiveChannels)
 	if err != nil {
 		return nil, err
 	}

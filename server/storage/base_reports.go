@@ -387,9 +387,9 @@ func (s *BaseStore) GetDueSchedules(ctx context.Context, before time.Time) ([]*R
 			next_run_at, last_run_at, last_run_id, failure_count,
 			created_at, updated_at
 		FROM report_schedules 
-		WHERE enabled = 1 AND next_run_at <= ?
+		WHERE enabled = ? AND next_run_at <= ?
 		ORDER BY next_run_at
-	`, before)
+	`, true, before)
 	if err != nil {
 		return nil, fmt.Errorf("get due schedules: %w", err)
 	}
@@ -408,19 +408,15 @@ func (s *BaseStore) GetDueSchedules(ctx context.Context, before time.Time) ([]*R
 
 // UpdateScheduleAfterRun updates schedule after a run completes.
 func (s *BaseStore) UpdateScheduleAfterRun(ctx context.Context, scheduleID int64, runID int64, nextRun time.Time, failed bool) error {
-	failureIncr := 0
-	if failed {
-		failureIncr = 1
-	}
 	_, err := s.execContext(ctx, `
 		UPDATE report_schedules SET
 			last_run_at = CURRENT_TIMESTAMP,
 			last_run_id = ?,
 			next_run_at = ?,
-			failure_count = CASE WHEN ? = 1 THEN failure_count + 1 ELSE 0 END,
+			failure_count = CASE WHEN ? THEN failure_count + 1 ELSE 0 END,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?
-	`, runID, nextRun, failureIncr, scheduleID)
+	`, runID, nextRun, failed, scheduleID)
 	return err
 }
 
@@ -686,7 +682,7 @@ func (s *BaseStore) GetReportSummary(ctx context.Context) (*ReportSummary, error
 	if err != nil {
 		return nil, fmt.Errorf("count schedules: %w", err)
 	}
-	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM report_schedules WHERE enabled = 1`).Scan(&summary.ActiveSchedules)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM report_schedules WHERE enabled = ?`, true).Scan(&summary.ActiveSchedules)
 	if err != nil {
 		return nil, fmt.Errorf("count active schedules: %w", err)
 	}
