@@ -1855,6 +1855,7 @@ async function loadAlertRules() {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             const channels = data.channels || [];
+            cachedNotificationChannels = channels;
             
             if (channels.length === 0) {
                 channelsContainer.innerHTML = '<div class="muted-text">No notification channels configured.</div>';
@@ -1867,7 +1868,9 @@ async function loadAlertRules() {
                             <span class="badge">${ch.type}</span>
                             <span class="config-item-status ${ch.enabled ? 'enabled' : 'disabled'}">${ch.enabled ? 'Enabled' : 'Disabled'}</span>
                         </div>
+                        <div class="config-item-details muted-text">${getChannelSummary(ch)}</div>
                         <div class="config-item-actions">
+                            <button class="btn btn-sm" onclick="editNotificationChannel(${ch.id})">Edit</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteNotificationChannel(${ch.id})">Delete</button>
                         </div>
                     </div>
@@ -1890,18 +1893,25 @@ async function loadAlertRules() {
             if (policies.length === 0) {
                 escalationContainer.innerHTML = '<div class="muted-text">No escalation policies configured.</div>';
             } else {
-                escalationContainer.innerHTML = policies.map(p => `
-                    <div class="config-item" data-policy-id="${p.id}">
-                        <div class="config-item-header">
-                            <span class="config-item-name">${escapeHtml(p.name)}</span>
-                            <span class="config-item-status ${p.enabled ? 'enabled' : 'disabled'}">${p.enabled ? 'Enabled' : 'Disabled'}</span>
+                escalationContainer.innerHTML = policies.map(p => {
+                    const stepsSummary = (p.steps || []).length > 0 
+                        ? `${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}`
+                        : 'No steps';
+                    return `
+                        <div class="config-item" data-policy-id="${p.id}">
+                            <div class="config-item-header">
+                                <span class="config-item-name">${escapeHtml(p.name)}</span>
+                                <span class="badge">${stepsSummary}</span>
+                                <span class="config-item-status ${p.enabled ? 'enabled' : 'disabled'}">${p.enabled ? 'Enabled' : 'Disabled'}</span>
+                            </div>
+                            ${p.description ? `<div class="config-item-details muted-text">${escapeHtml(p.description)}</div>` : ''}
+                            <div class="config-item-actions">
+                                <button class="btn btn-sm" onclick="editEscalationPolicy(${p.id})">Edit</button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteEscalationPolicy(${p.id})">Delete</button>
+                            </div>
                         </div>
-                        ${p.description ? `<div class="config-item-details muted-text">${escapeHtml(p.description)}</div>` : ''}
-                        <div class="config-item-actions">
-                            <button class="btn btn-sm btn-danger" onclick="deleteEscalationPolicy(${p.id})">Delete</button>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
             }
         } catch (err) {
             console.error('Failed to load escalation policies:', err);
@@ -1936,6 +1946,7 @@ async function loadAlertRules() {
                                 ${w.scope ? ` • Scope: ${w.scope}` : ''}
                             </div>
                             <div class="config-item-actions">
+                                <button class="btn btn-sm" onclick="editMaintenanceWindow(${w.id})">Edit</button>
                                 <button class="btn btn-sm btn-danger" onclick="deleteMaintenanceWindow(${w.id})">Delete</button>
                             </div>
                         </div>
@@ -2011,6 +2022,40 @@ async function deleteAlertRule(id) {
     }
 }
 
+function getChannelSummary(channel) {
+    if (!channel) return '';
+    let config = {};
+    try {
+        config = channel.config_json ? JSON.parse(channel.config_json) : (channel.config || {});
+    } catch (e) { config = {}; }
+    
+    switch (channel.type) {
+        case 'email':
+            const recipients = Array.isArray(config.to) ? config.to.join(', ') : (config.to || 'No recipients');
+            return `Recipients: ${escapeHtml(recipients)}`;
+        case 'webhook':
+            return `URL: ${escapeHtml(config.url || 'Not configured')}`;
+        case 'slack':
+            const slackChannel = config.channel ? ` (${config.channel})` : '';
+            return `Slack webhook${slackChannel}`;
+        case 'teams':
+            return 'Microsoft Teams webhook';
+        case 'pagerduty':
+            return `PagerDuty (${config.severity || 'warning'} severity)`;
+        default:
+            return channel.type;
+    }
+}
+
+function editNotificationChannel(id) {
+    const channel = cachedNotificationChannels.find(ch => ch.id === id);
+    if (channel) {
+        showNotificationChannelModal(channel);
+    } else {
+        window.__pm_shared.showToast('Channel not found', 'error');
+    }
+}
+
 async function deleteNotificationChannel(id) {
     if (!await window.__pm_shared.showConfirm('Delete this notification channel?')) return;
     try {
@@ -2024,6 +2069,18 @@ async function deleteNotificationChannel(id) {
     }
 }
 
+async function editEscalationPolicy(id) {
+    try {
+        const resp = await fetch(`/api/v1/escalation-policies/${id}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const policy = await resp.json();
+        showEscalationPolicyModal(policy);
+    } catch (err) {
+        console.error('Failed to load escalation policy:', err);
+        window.__pm_shared.showToast('Failed to load escalation policy', 'error');
+    }
+}
+
 async function deleteEscalationPolicy(id) {
     if (!await window.__pm_shared.showConfirm('Delete this escalation policy?')) return;
     try {
@@ -2034,6 +2091,18 @@ async function deleteEscalationPolicy(id) {
     } catch (err) {
         console.error('Failed to delete escalation policy:', err);
         window.__pm_shared.showToast('Failed to delete escalation policy', 'error');
+    }
+}
+
+async function editMaintenanceWindow(id) {
+    try {
+        const resp = await fetch(`/api/v1/maintenance-windows/${id}`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const window_ = await resp.json();
+        showMaintenanceWindowModal(window_);
+    } catch (err) {
+        console.error('Failed to load maintenance window:', err);
+        window.__pm_shared.showToast('Failed to load maintenance window', 'error');
     }
 }
 
@@ -2126,10 +2195,16 @@ function initNotificationChannelModal() {
     const closeBtn = document.getElementById('notification_channel_modal_close_x');
     const cancelBtn = document.getElementById('channel_cancel');
     const saveBtn = document.getElementById('channel_save');
+    const typeSelect = document.getElementById('channel_type');
     
     if (closeBtn) closeBtn.addEventListener('click', closeNotificationChannelModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeNotificationChannelModal);
     if (saveBtn) saveBtn.addEventListener('click', saveNotificationChannel);
+    
+    // Handle type change to show/hide config sections
+    if (typeSelect) {
+        typeSelect.addEventListener('change', updateChannelConfigSection);
+    }
     
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeNotificationChannelModal();
@@ -2151,13 +2226,60 @@ function initEscalationPolicyModal() {
     const closeBtn = document.getElementById('escalation_policy_modal_close_x');
     const cancelBtn = document.getElementById('escalation_cancel');
     const saveBtn = document.getElementById('escalation_save');
+    const addStepBtn = document.getElementById('add_escalation_step');
     
     if (closeBtn) closeBtn.addEventListener('click', closeEscalationPolicyModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeEscalationPolicyModal);
     if (saveBtn) saveBtn.addEventListener('click', saveEscalationPolicy);
+    if (addStepBtn) addStepBtn.addEventListener('click', addEscalationStep);
     
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeEscalationPolicyModal();
+    });
+}
+
+function addEscalationStep(afterMinutes = 15, channelId = '') {
+    const container = document.getElementById('escalation_steps_container');
+    if (!container) return;
+    
+    const stepNum = container.querySelectorAll('.escalation-step').length + 1;
+    const stepDiv = document.createElement('div');
+    stepDiv.className = 'escalation-step';
+    stepDiv.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px;background:var(--bg-tertiary);border-radius:4px;';
+    
+    // Build channel options from cached channels
+    const channelOptions = (cachedNotificationChannels || [])
+        .filter(ch => ch.enabled)
+        .map(ch => `<option value="${ch.id}" ${ch.id == channelId ? 'selected' : ''}>${escapeHtml(ch.name)} (${ch.type})</option>`)
+        .join('');
+    
+    stepDiv.innerHTML = `
+        <span style="color:var(--text-muted);min-width:60px;">Step ${stepNum}</span>
+        <span style="color:var(--text-muted);">After</span>
+        <input type="number" class="step-delay" value="${afterMinutes}" min="1" max="1440" style="width:70px;" title="Minutes to wait before escalating" />
+        <span style="color:var(--text-muted);">min, notify</span>
+        <select class="step-channel" style="flex:1;min-width:150px;">
+            <option value="">-- Select Channel --</option>
+            ${channelOptions}
+        </select>
+        <button type="button" class="btn btn-sm btn-danger remove-step" title="Remove step" style="padding:4px 8px;">×</button>
+    `;
+    
+    stepDiv.querySelector('.remove-step').addEventListener('click', () => {
+        stepDiv.remove();
+        renumberEscalationSteps();
+    });
+    
+    container.appendChild(stepDiv);
+}
+
+function renumberEscalationSteps() {
+    const container = document.getElementById('escalation_steps_container');
+    if (!container) return;
+    
+    container.querySelectorAll('.escalation-step').forEach((step, idx) => {
+        const label = step.querySelector('span');
+        if (label) label.textContent = `Step ${idx + 1}`;
     });
 }
 
@@ -2298,73 +2420,191 @@ function showNotificationChannelModal(existingChannel = null) {
     const modal = document.getElementById('notification_channel_modal');
     if (!modal) return;
     
-    const form = modal.querySelector('form') || modal;
     const isEdit = existingChannel && existingChannel.id;
     
-    const nameInput = form.querySelector('#channel_name');
-    const typeSelect = form.querySelector('#channel_type');
-    const configInput = form.querySelector('#channel_config');
-    const enabledCheck = form.querySelector('#channel_enabled');
+    // Reset all fields
+    const nameInput = document.getElementById('channel_name');
+    const typeSelect = document.getElementById('channel_type');
+    const enabledCheck = document.getElementById('channel_enabled');
+    const minSeveritySelect = document.getElementById('channel_min_severity');
+    const rateLimitInput = document.getElementById('channel_rate_limit');
     
+    // Reset basic fields
     if (nameInput) nameInput.value = existingChannel?.name || '';
     if (typeSelect) typeSelect.value = existingChannel?.type || 'email';
-    if (configInput) configInput.value = existingChannel?.config ? JSON.stringify(existingChannel.config, null, 2) : '{}';
     if (enabledCheck) enabledCheck.checked = existingChannel?.enabled !== false;
+    if (minSeveritySelect) minSeveritySelect.value = existingChannel?.min_severity || '';
+    if (rateLimitInput) rateLimitInput.value = existingChannel?.rate_limit_per_hour || 0;
+    
+    // Parse existing config if editing
+    let config = {};
+    if (existingChannel?.config_json) {
+        try { config = JSON.parse(existingChannel.config_json); } catch (e) { config = {}; }
+    } else if (existingChannel?.config) {
+        config = existingChannel.config;
+    }
+    
+    // Populate type-specific fields based on channel type
+    const channelType = existingChannel?.type || 'email';
+    
+    // Email fields
+    const emailTo = document.getElementById('channel_email_to');
+    const emailSubject = document.getElementById('channel_email_subject');
+    if (emailTo) emailTo.value = Array.isArray(config.to) ? config.to.join(', ') : (config.to || '');
+    if (emailSubject) emailSubject.value = config.subject_prefix || '';
+    
+    // Webhook fields
+    const webhookUrl = document.getElementById('channel_webhook_url');
+    const webhookMethod = document.getElementById('channel_webhook_method');
+    const webhookHeaders = document.getElementById('channel_webhook_headers');
+    if (webhookUrl) webhookUrl.value = config.url || '';
+    if (webhookMethod) webhookMethod.value = config.method || 'POST';
+    if (webhookHeaders) webhookHeaders.value = config.headers ? JSON.stringify(config.headers, null, 2) : '';
+    
+    // Slack fields
+    const slackUrl = document.getElementById('channel_slack_url');
+    const slackChannel = document.getElementById('channel_slack_channel');
+    const slackUsername = document.getElementById('channel_slack_username');
+    if (slackUrl) slackUrl.value = config.webhook_url || '';
+    if (slackChannel) slackChannel.value = config.channel || '';
+    if (slackUsername) slackUsername.value = config.username || '';
+    
+    // Teams fields
+    const teamsUrl = document.getElementById('channel_teams_url');
+    if (teamsUrl) teamsUrl.value = config.webhook_url || '';
+    
+    // PagerDuty fields
+    const pagerdutyKey = document.getElementById('channel_pagerduty_key');
+    const pagerdutySeverity = document.getElementById('channel_pagerduty_severity');
+    if (pagerdutyKey) pagerdutyKey.value = config.routing_key || '';
+    if (pagerdutySeverity) pagerdutySeverity.value = config.severity || 'warning';
     
     modal.dataset.editId = isEdit ? existingChannel.id : '';
     
     const title = modal.querySelector('.modal-title');
     if (title) title.textContent = isEdit ? 'Edit Notification Channel' : 'New Notification Channel';
     
-    // Update config placeholder based on type
-    updateChannelConfigPlaceholder();
+    // Show correct config section
+    updateChannelConfigSection();
     
     modal.style.display = 'flex';
 }
 
-function updateChannelConfigPlaceholder() {
-    const typeSelect = document.querySelector('#channel_type');
-    const configInput = document.querySelector('#channel_config');
-    if (!typeSelect || !configInput) return;
+function updateChannelConfigSection() {
+    const typeSelect = document.getElementById('channel_type');
+    if (!typeSelect) return;
     
-    const examples = {
-        email: '{\n  "to": ["admin@example.com"],\n  "subject_prefix": "[PrintMaster Alert]"\n}',
-        webhook: '{\n  "url": "https://example.com/webhook",\n  "method": "POST"\n}',
-        slack: '{\n  "webhook_url": "https://hooks.slack.com/...",\n  "channel": "#alerts"\n}',
-        teams: '{\n  "webhook_url": "https://outlook.office.com/webhook/..."\n}',
-        pagerduty: '{\n  "routing_key": "your-integration-key",\n  "severity": "critical"\n}'
-    };
+    const channelType = typeSelect.value;
+    const sections = ['email', 'webhook', 'slack', 'teams', 'pagerduty'];
     
-    configInput.placeholder = examples[typeSelect.value] || '{}';
+    sections.forEach(section => {
+        const el = document.getElementById(`channel_config_${section}`);
+        if (el) {
+            el.style.display = (section === channelType) ? 'block' : 'none';
+        }
+    });
 }
 
 async function saveNotificationChannel() {
     const modal = document.getElementById('notification_channel_modal');
     if (!modal) return;
     
-    const form = modal.querySelector('form') || modal;
     const editId = modal.dataset.editId;
+    const channelType = document.getElementById('channel_type')?.value || 'email';
+    const name = document.getElementById('channel_name')?.value?.trim() || '';
     
+    if (!name) {
+        window.__pm_shared.showToast('Channel name is required', 'error');
+        return;
+    }
+    
+    // Build config based on channel type
     let config = {};
-    try {
-        const configStr = form.querySelector('#channel_config')?.value || '{}';
-        config = JSON.parse(configStr);
-    } catch (e) {
-        window.__pm_shared.showToast('Invalid JSON in configuration', 'error');
+    let validationError = null;
+    
+    switch (channelType) {
+        case 'email': {
+            const toStr = document.getElementById('channel_email_to')?.value?.trim() || '';
+            const subjectPrefix = document.getElementById('channel_email_subject')?.value?.trim() || '';
+            if (!toStr) {
+                validationError = 'Email recipients are required';
+                break;
+            }
+            const toList = toStr.split(',').map(e => e.trim()).filter(e => e);
+            if (toList.length === 0) {
+                validationError = 'At least one email recipient is required';
+                break;
+            }
+            config = { to: toList };
+            if (subjectPrefix) config.subject_prefix = subjectPrefix;
+            break;
+        }
+        case 'webhook': {
+            const url = document.getElementById('channel_webhook_url')?.value?.trim() || '';
+            const method = document.getElementById('channel_webhook_method')?.value || 'POST';
+            const headersStr = document.getElementById('channel_webhook_headers')?.value?.trim() || '';
+            if (!url) {
+                validationError = 'Webhook URL is required';
+                break;
+            }
+            config = { url, method };
+            if (headersStr) {
+                try {
+                    config.headers = JSON.parse(headersStr);
+                } catch (e) {
+                    validationError = 'Invalid JSON in headers field';
+                    break;
+                }
+            }
+            break;
+        }
+        case 'slack': {
+            const webhookUrl = document.getElementById('channel_slack_url')?.value?.trim() || '';
+            const channel = document.getElementById('channel_slack_channel')?.value?.trim() || '';
+            const username = document.getElementById('channel_slack_username')?.value?.trim() || '';
+            if (!webhookUrl) {
+                validationError = 'Slack webhook URL is required';
+                break;
+            }
+            config = { webhook_url: webhookUrl };
+            if (channel) config.channel = channel;
+            if (username) config.username = username;
+            break;
+        }
+        case 'teams': {
+            const webhookUrl = document.getElementById('channel_teams_url')?.value?.trim() || '';
+            if (!webhookUrl) {
+                validationError = 'Teams webhook URL is required';
+                break;
+            }
+            config = { webhook_url: webhookUrl };
+            break;
+        }
+        case 'pagerduty': {
+            const routingKey = document.getElementById('channel_pagerduty_key')?.value?.trim() || '';
+            const severity = document.getElementById('channel_pagerduty_severity')?.value || 'warning';
+            if (!routingKey) {
+                validationError = 'PagerDuty integration key is required';
+                break;
+            }
+            config = { routing_key: routingKey, severity };
+            break;
+        }
+    }
+    
+    if (validationError) {
+        window.__pm_shared.showToast(validationError, 'error');
         return;
     }
     
     const payload = {
-        name: form.querySelector('#channel_name')?.value || '',
-        type: form.querySelector('#channel_type')?.value || 'email',
-        config: config,
-        enabled: form.querySelector('#channel_enabled')?.checked !== false
+        name,
+        type: channelType,
+        config_json: JSON.stringify(config),
+        enabled: document.getElementById('channel_enabled')?.checked !== false,
+        min_severity: document.getElementById('channel_min_severity')?.value || '',
+        rate_limit_per_hour: parseInt(document.getElementById('channel_rate_limit')?.value, 10) || 0
     };
-    
-    if (!payload.name) {
-        window.__pm_shared.showToast('Name is required', 'error');
-        return;
-    }
     
     try {
         const url = editId ? `/api/v1/notification-channels/${editId}` : '/api/v1/notification-channels';
@@ -2374,14 +2614,17 @@ async function saveNotificationChannel() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        if (!resp.ok) {
+            const errorText = await resp.text();
+            throw new Error(errorText || `HTTP ${resp.status}`);
+        }
         
         window.__pm_shared.showToast(editId ? 'Channel updated' : 'Channel created', 'success');
         modal.style.display = 'none';
         loadAlertRules();
     } catch (err) {
         console.error('Failed to save notification channel:', err);
-        window.__pm_shared.showToast('Failed to save notification channel', 'error');
+        window.__pm_shared.showToast('Failed to save: ' + (err.message || err), 'error');
     }
 }
 
@@ -2389,18 +2632,33 @@ function showEscalationPolicyModal(existingPolicy = null) {
     const modal = document.getElementById('escalation_policy_modal');
     if (!modal) return;
     
-    const form = modal.querySelector('form') || modal;
     const isEdit = existingPolicy && existingPolicy.id;
     
-    const nameInput = form.querySelector('#escalation_name');
-    const descInput = form.querySelector('#escalation_description');
-    const stepsInput = form.querySelector('#escalation_steps');
-    const enabledCheck = form.querySelector('#escalation_enabled');
+    const nameInput = document.getElementById('escalation_name');
+    const descInput = document.getElementById('escalation_description');
+    const enabledCheck = document.getElementById('escalation_enabled');
+    const stepsContainer = document.getElementById('escalation_steps_container');
+    const errorDiv = document.getElementById('escalation_error');
     
+    // Reset form
     if (nameInput) nameInput.value = existingPolicy?.name || '';
     if (descInput) descInput.value = existingPolicy?.description || '';
-    if (stepsInput) stepsInput.value = existingPolicy?.steps ? JSON.stringify(existingPolicy.steps, null, 2) : '[]';
     if (enabledCheck) enabledCheck.checked = existingPolicy?.enabled !== false;
+    if (stepsContainer) stepsContainer.innerHTML = '';
+    if (errorDiv) errorDiv.style.display = 'none';
+    
+    // Populate existing steps or add a default one
+    const steps = existingPolicy?.steps || [];
+    if (steps.length > 0) {
+        steps.forEach(step => {
+            // Handle both channel_ids (array) and legacy channel_id (single)
+            const channelId = step.channel_ids?.[0] || step.channel_id || '';
+            addEscalationStep(step.delay_minutes || 15, channelId);
+        });
+    } else {
+        // Add a default first step
+        addEscalationStep(15, '');
+    }
     
     modal.dataset.editId = isEdit ? existingPolicy.id : '';
     
@@ -2414,27 +2672,66 @@ async function saveEscalationPolicy() {
     const modal = document.getElementById('escalation_policy_modal');
     if (!modal) return;
     
-    const form = modal.querySelector('form') || modal;
     const editId = modal.dataset.editId;
+    const errorDiv = document.getElementById('escalation_error');
     
-    let steps = [];
-    try {
-        const stepsStr = form.querySelector('#escalation_steps')?.value || '[]';
-        steps = JSON.parse(stepsStr);
-    } catch (e) {
-        window.__pm_shared.showToast('Invalid JSON in escalation steps', 'error');
-        return;
-    }
+    // Gather steps from the UI
+    const stepsContainer = document.getElementById('escalation_steps_container');
+    const steps = [];
+    let hasError = false;
+    
+    stepsContainer?.querySelectorAll('.escalation-step').forEach((stepDiv, idx) => {
+        const delay = parseInt(stepDiv.querySelector('.step-delay')?.value) || 0;
+        const channelId = stepDiv.querySelector('.step-channel')?.value;
+        
+        if (!channelId) {
+            hasError = true;
+            if (errorDiv) {
+                errorDiv.textContent = `Step ${idx + 1}: Please select a notification channel`;
+                errorDiv.style.display = 'block';
+            }
+            return;
+        }
+        
+        if (delay < 1) {
+            hasError = true;
+            if (errorDiv) {
+                errorDiv.textContent = `Step ${idx + 1}: Delay must be at least 1 minute`;
+                errorDiv.style.display = 'block';
+            }
+            return;
+        }
+        
+        steps.push({
+            delay_minutes: delay,
+            channel_ids: [parseInt(channelId)]
+        });
+    });
+    
+    if (hasError) return;
     
     const payload = {
-        name: form.querySelector('#escalation_name')?.value || '',
-        description: form.querySelector('#escalation_description')?.value || '',
+        name: document.getElementById('escalation_name')?.value || '',
+        description: document.getElementById('escalation_description')?.value || '',
         steps: steps,
-        enabled: form.querySelector('#escalation_enabled')?.checked !== false
+        enabled: document.getElementById('escalation_enabled')?.checked !== false
     };
     
     if (!payload.name) {
+        if (errorDiv) {
+            errorDiv.textContent = 'Policy name is required';
+            errorDiv.style.display = 'block';
+        }
         window.__pm_shared.showToast('Name is required', 'error');
+        return;
+    }
+    
+    if (steps.length === 0) {
+        if (errorDiv) {
+            errorDiv.textContent = 'At least one escalation step is required';
+            errorDiv.style.display = 'block';
+        }
+        window.__pm_shared.showToast('At least one escalation step is required', 'error');
         return;
     }
     

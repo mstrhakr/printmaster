@@ -1859,7 +1859,7 @@
 
     <!-- Notification Channel Modal -->
     <div class="modal" id="notification_channel_modal" style="display:none;">
-        <div class="modal-content" style="max-width:500px;">
+        <div class="modal-content" style="max-width:550px;">
             <div class="modal-header">
                 <span class="modal-title" id="notification_channel_modal_title">New Notification Channel</span>
                 <button class="modal-close-x" id="notification_channel_modal_close_x" title="Close">&times;</button>
@@ -1876,11 +1876,98 @@
                         <option value="webhook">Webhook</option>
                         <option value="slack">Slack</option>
                         <option value="teams">Microsoft Teams</option>
+                        <option value="pagerduty">PagerDuty</option>
+                    </select>
+                </label>
+                
+                <!-- Email-specific fields -->
+                <div id="channel_config_email" class="channel-config-section">
+                    <label class="field">
+                        <span>Recipients <span class="required">*</span></span>
+                        <input id="channel_email_to" type="text" placeholder="admin@example.com, alerts@example.com" />
+                        <small class="field-hint">Comma-separated email addresses</small>
+                    </label>
+                    <label class="field">
+                        <span>Subject Prefix</span>
+                        <input id="channel_email_subject" type="text" placeholder="[PrintMaster Alert]" />
+                    </label>
+                </div>
+                
+                <!-- Webhook-specific fields -->
+                <div id="channel_config_webhook" class="channel-config-section" style="display:none;">
+                    <label class="field">
+                        <span>Webhook URL <span class="required">*</span></span>
+                        <input id="channel_webhook_url" type="url" placeholder="https://example.com/webhook" />
+                    </label>
+                    <label class="field">
+                        <span>HTTP Method</span>
+                        <select id="channel_webhook_method">
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Headers (JSON, optional)</span>
+                        <textarea id="channel_webhook_headers" rows="2" style="font-family:monospace;font-size:12px;" placeholder='{"Authorization": "Bearer ..."}'></textarea>
+                    </label>
+                </div>
+                
+                <!-- Slack-specific fields -->
+                <div id="channel_config_slack" class="channel-config-section" style="display:none;">
+                    <label class="field">
+                        <span>Slack Webhook URL <span class="required">*</span></span>
+                        <input id="channel_slack_url" type="url" placeholder="https://hooks.slack.com/services/..." />
+                    </label>
+                    <label class="field">
+                        <span>Channel</span>
+                        <input id="channel_slack_channel" type="text" placeholder="#alerts" />
+                    </label>
+                    <label class="field">
+                        <span>Username (optional)</span>
+                        <input id="channel_slack_username" type="text" placeholder="PrintMaster Bot" />
+                    </label>
+                </div>
+                
+                <!-- Teams-specific fields -->
+                <div id="channel_config_teams" class="channel-config-section" style="display:none;">
+                    <label class="field">
+                        <span>Teams Webhook URL <span class="required">*</span></span>
+                        <input id="channel_teams_url" type="url" placeholder="https://outlook.office.com/webhook/..." />
+                    </label>
+                </div>
+                
+                <!-- PagerDuty-specific fields -->
+                <div id="channel_config_pagerduty" class="channel-config-section" style="display:none;">
+                    <label class="field">
+                        <span>Integration Key <span class="required">*</span></span>
+                        <input id="channel_pagerduty_key" type="text" placeholder="Your PagerDuty integration/routing key" />
+                    </label>
+                    <label class="field">
+                        <span>Default Severity</span>
+                        <select id="channel_pagerduty_severity">
+                            <option value="critical">Critical</option>
+                            <option value="error">Error</option>
+                            <option value="warning" selected>Warning</option>
+                            <option value="info">Info</option>
+                        </select>
+                    </label>
+                </div>
+                
+                <hr style="margin:16px 0;border:none;border-top:1px solid var(--divider);">
+                
+                <label class="field">
+                    <span>Minimum Severity</span>
+                    <select id="channel_min_severity">
+                        <option value="">All severities</option>
+                        <option value="info">Info and above</option>
+                        <option value="warning">Warning and above</option>
+                        <option value="critical">Critical only</option>
                     </select>
                 </label>
                 <label class="field">
-                    <span>Configuration (JSON)</span>
-                    <textarea id="channel_config" rows="6" style="font-family:monospace;font-size:12px;" placeholder='{"to": ["admin@example.com"]}'></textarea>
+                    <span>Rate Limit (per hour)</span>
+                    <input id="channel_rate_limit" type="number" min="0" value="0" placeholder="0 = unlimited" />
+                    <small class="field-hint">Maximum notifications per hour (0 = no limit)</small>
                 </label>
                 <label class="field inline-check" style="margin-top:12px;">
                     <input type="checkbox" id="channel_enabled" checked />
@@ -1897,7 +1984,7 @@
 
     <!-- Escalation Policy Modal -->
     <div class="modal" id="escalation_policy_modal" style="display:none;">
-        <div class="modal-content" style="max-width:550px;">
+        <div class="modal-content" style="max-width:600px;">
             <div class="modal-header">
                 <span class="modal-title" id="escalation_policy_modal_title">New Escalation Policy</span>
                 <button class="modal-close-x" id="escalation_policy_modal_close_x" title="Close">&times;</button>
@@ -1911,15 +1998,15 @@
                     <span>Description</span>
                     <textarea id="escalation_description" rows="2" placeholder="Optional description..."></textarea>
                 </label>
-                <label class="field">
-                    <span>Escalate After (minutes) <span class="required">*</span></span>
-                    <input id="escalation_delay" type="number" value="30" min="1" />
-                </label>
-                <label class="field">
-                    <span>Escalation Steps (JSON)</span>
-                    <textarea id="escalation_steps" rows="5" style="font-family:monospace;font-size:12px;" placeholder='[{"delay_minutes": 15, "channel_id": 1}]'></textarea>
-                </label>
-                <label class="field inline-check" style="margin-top:12px;">
+                
+                <div class="field" style="margin-top:16px;">
+                    <span style="font-weight:500;">Escalation Steps</span>
+                    <small class="field-hint">Define escalation steps. Alerts will escalate to the next step if not acknowledged.</small>
+                    <div id="escalation_steps_container" style="margin-top:8px;"></div>
+                    <button type="button" class="btn btn-sm" id="add_escalation_step" style="margin-top:8px;">+ Add Step</button>
+                </div>
+                
+                <label class="field inline-check" style="margin-top:16px;">
                     <input type="checkbox" id="escalation_enabled" checked />
                     <span>Enable this policy</span>
                 </label>

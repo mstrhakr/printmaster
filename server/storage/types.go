@@ -714,16 +714,21 @@ type Store interface {
 	CreateNotificationChannel(ctx context.Context, channel *NotificationChannel) (int64, error)
 	GetNotificationChannel(ctx context.Context, id int64) (*NotificationChannel, error)
 	ListNotificationChannels(ctx context.Context) ([]NotificationChannel, error)
+	UpdateNotificationChannel(ctx context.Context, channel *NotificationChannel) error
 	DeleteNotificationChannel(ctx context.Context, id int64) error
 
 	// Escalation policy management
 	CreateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) (int64, error)
+	GetEscalationPolicy(ctx context.Context, id int64) (*EscalationPolicy, error)
 	ListEscalationPolicies(ctx context.Context) ([]EscalationPolicy, error)
+	UpdateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) error
 	DeleteEscalationPolicy(ctx context.Context, id int64) error
 
 	// Maintenance window management
 	CreateAlertMaintenanceWindow(ctx context.Context, window *AlertMaintenanceWindow) (int64, error)
+	GetAlertMaintenanceWindow(ctx context.Context, id int64) (*AlertMaintenanceWindow, error)
 	ListAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error)
+	UpdateAlertMaintenanceWindow(ctx context.Context, window *AlertMaintenanceWindow) error
 	GetActiveAlertMaintenanceWindows(ctx context.Context) ([]AlertMaintenanceWindow, error)
 	DeleteAlertMaintenanceWindow(ctx context.Context, id int64) error
 

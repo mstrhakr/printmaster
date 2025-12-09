@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -200,6 +201,23 @@ type EscalationPolicy struct {
 	StepsJSON   string           `json:"-"` // Internal JSON representation
 	CreatedAt   time.Time        `json:"created_at"`
 	UpdatedAt   time.Time        `json:"updated_at"`
+}
+
+// MarshalSteps converts the Steps array to StepsJSON string for database storage.
+func (p *EscalationPolicy) MarshalSteps() {
+	if len(p.Steps) > 0 {
+		data, _ := json.Marshal(p.Steps)
+		p.StepsJSON = string(data)
+	} else if p.StepsJSON == "" {
+		p.StepsJSON = "[]"
+	}
+}
+
+// UnmarshalSteps converts the StepsJSON string to Steps array.
+func (p *EscalationPolicy) UnmarshalSteps() {
+	if p.StepsJSON != "" {
+		json.Unmarshal([]byte(p.StepsJSON), &p.Steps)
+	}
 }
 
 // AlertMaintenanceWindow defines a maintenance window for alert suppression

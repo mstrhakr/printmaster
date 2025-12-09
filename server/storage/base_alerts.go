@@ -840,6 +840,31 @@ func (s *BaseStore) DeleteNotificationChannel(ctx context.Context, id int64) err
 	return err
 }
 
+// UpdateNotificationChannel updates an existing notification channel.
+func (s *BaseStore) UpdateNotificationChannel(ctx context.Context, ch *NotificationChannel) error {
+	tenantIDsJSON, _ := json.Marshal(ch.TenantIDs)
+	now := time.Now().UTC()
+
+	_, err := s.execContext(ctx, `
+		UPDATE notification_channels SET
+			name = ?, type = ?, enabled = ?, config_json = ?,
+			min_severity = ?, tenant_ids = ?,
+			rate_limit_per_hour = ?, use_quiet_hours = ?,
+			updated_at = ?
+		WHERE id = ?
+	`,
+		ch.Name, ch.Type, ch.Enabled, ch.ConfigJSON,
+		ch.MinSeverity, string(tenantIDsJSON),
+		ch.RateLimitPerHour, ch.UseQuietHours,
+		now, ch.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update notification channel: %w", err)
+	}
+	ch.UpdatedAt = now
+	return nil
+}
+
 // ============================================================
 // Escalation Policy Storage Methods (BaseStore)
 // ============================================================
@@ -847,6 +872,8 @@ func (s *BaseStore) DeleteNotificationChannel(ctx context.Context, id int64) err
 // CreateEscalationPolicy creates a new escalation policy.
 func (s *BaseStore) CreateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) (int64, error) {
 	now := time.Now().UTC()
+	policy.MarshalSteps() // Convert Steps array to StepsJSON
+
 	id, err := s.insertReturningID(ctx, `
 		INSERT INTO escalation_policies (name, description, enabled, steps_json, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
@@ -887,6 +914,7 @@ func (s *BaseStore) ListEscalationPolicies(ctx context.Context) ([]EscalationPol
 		if description.Valid {
 			p.Description = description.String
 		}
+		p.UnmarshalSteps() // Convert StepsJSON to Steps array
 
 		policies = append(policies, p)
 	}
@@ -898,6 +926,48 @@ func (s *BaseStore) ListEscalationPolicies(ctx context.Context) ([]EscalationPol
 func (s *BaseStore) DeleteEscalationPolicy(ctx context.Context, id int64) error {
 	_, err := s.execContext(ctx, "DELETE FROM escalation_policies WHERE id = ?", id)
 	return err
+}
+
+// GetEscalationPolicy retrieves a single escalation policy by ID.
+func (s *BaseStore) GetEscalationPolicy(ctx context.Context, id int64) (*EscalationPolicy, error) {
+	var p EscalationPolicy
+	var description sql.NullString
+
+	err := s.queryRowContext(ctx, `
+		SELECT id, name, description, enabled, steps_json, created_at, updated_at
+		FROM escalation_policies
+		WHERE id = ?
+	`, id).Scan(&p.ID, &p.Name, &description, &p.Enabled, &p.StepsJSON, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("escalation policy %d not found", id)
+		}
+		return nil, fmt.Errorf("get escalation policy: %w", err)
+	}
+
+	if description.Valid {
+		p.Description = description.String
+	}
+	p.UnmarshalSteps() // Convert StepsJSON to Steps array
+
+	return &p, nil
+}
+
+// UpdateEscalationPolicy updates an existing escalation policy.
+func (s *BaseStore) UpdateEscalationPolicy(ctx context.Context, policy *EscalationPolicy) error {
+	now := time.Now().UTC()
+	policy.MarshalSteps() // Convert Steps array to StepsJSON
+
+	_, err := s.execContext(ctx, `
+		UPDATE escalation_policies
+		SET name = ?, description = ?, enabled = ?, steps_json = ?, updated_at = ?
+		WHERE id = ?
+	`, policy.Name, policy.Description, policy.Enabled, policy.StepsJSON, now, policy.ID)
+	if err != nil {
+		return fmt.Errorf("update escalation policy: %w", err)
+	}
+	policy.UpdatedAt = now
+	return nil
 }
 
 // ============================================================
@@ -1040,6 +1110,100 @@ func (s *BaseStore) scanMaintenanceWindows(rows *sql.Rows) ([]AlertMaintenanceWi
 func (s *BaseStore) DeleteAlertMaintenanceWindow(ctx context.Context, id int64) error {
 	_, err := s.execContext(ctx, "DELETE FROM maintenance_windows WHERE id = ?", id)
 	return err
+}
+
+// GetAlertMaintenanceWindow retrieves a single maintenance window by ID.
+func (s *BaseStore) GetAlertMaintenanceWindow(ctx context.Context, id int64) (*AlertMaintenanceWindow, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT 
+			id, name, description, scope,
+			tenant_id, site_id, agent_id, device_serial,
+			start_time, end_time, timezone,
+			recurring, recur_pattern, recur_days,
+			alert_types, allow_critical,
+			created_at, updated_at, created_by
+		FROM maintenance_windows
+		WHERE id = ?
+	`, id)
+
+	var mw AlertMaintenanceWindow
+	var description, tenantID, siteID, agentID, deviceSerial, recurPattern, createdBy sql.NullString
+	var alertTypesJSON, recurDaysJSON sql.NullString
+
+	err := row.Scan(
+		&mw.ID, &mw.Name, &description, &mw.Scope,
+		&tenantID, &siteID, &agentID, &deviceSerial,
+		&mw.StartTime, &mw.EndTime, &mw.Timezone,
+		&mw.Recurring, &recurPattern, &recurDaysJSON,
+		&alertTypesJSON, &mw.AllowCritical,
+		&mw.CreatedAt, &mw.UpdatedAt, &createdBy,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("maintenance window %d not found", id)
+		}
+		return nil, fmt.Errorf("get maintenance window: %w", err)
+	}
+
+	if description.Valid {
+		mw.Description = description.String
+	}
+	if tenantID.Valid {
+		mw.TenantID = tenantID.String
+	}
+	if siteID.Valid {
+		mw.SiteID = siteID.String
+	}
+	if agentID.Valid {
+		mw.AgentID = agentID.String
+	}
+	if deviceSerial.Valid {
+		mw.DeviceSerial = deviceSerial.String
+	}
+	if recurPattern.Valid {
+		mw.RecurPattern = recurPattern.String
+	}
+	if createdBy.Valid {
+		mw.CreatedBy = createdBy.String
+	}
+	if alertTypesJSON.Valid && alertTypesJSON.String != "" {
+		json.Unmarshal([]byte(alertTypesJSON.String), &mw.AlertTypes)
+	}
+	if recurDaysJSON.Valid && recurDaysJSON.String != "" {
+		json.Unmarshal([]byte(recurDaysJSON.String), &mw.RecurDays)
+	}
+
+	return &mw, nil
+}
+
+// UpdateAlertMaintenanceWindow updates an existing maintenance window.
+func (s *BaseStore) UpdateAlertMaintenanceWindow(ctx context.Context, mw *AlertMaintenanceWindow) error {
+	alertTypesJSON, _ := json.Marshal(mw.AlertTypes)
+	recurDaysJSON, _ := json.Marshal(mw.RecurDays)
+	now := time.Now().UTC()
+
+	_, err := s.execContext(ctx, `
+		UPDATE maintenance_windows SET
+			name = ?, description = ?, scope = ?,
+			tenant_id = ?, site_id = ?, agent_id = ?, device_serial = ?,
+			start_time = ?, end_time = ?, timezone = ?,
+			recurring = ?, recur_pattern = ?, recur_days = ?,
+			alert_types = ?, allow_critical = ?,
+			updated_at = ?
+		WHERE id = ?
+	`,
+		mw.Name, mw.Description, mw.Scope,
+		nullString(mw.TenantID), nullString(mw.SiteID), nullString(mw.AgentID), nullString(mw.DeviceSerial),
+		mw.StartTime, mw.EndTime, mw.Timezone,
+		mw.Recurring, nullString(mw.RecurPattern), string(recurDaysJSON),
+		string(alertTypesJSON), mw.AllowCritical,
+		now, mw.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update maintenance window: %w", err)
+	}
+	mw.UpdatedAt = now
+	return nil
 }
 
 // ============================================================

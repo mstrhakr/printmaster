@@ -35,17 +35,23 @@ type Store interface {
 
 	// Notification Channels CRUD
 	CreateNotificationChannel(context.Context, *storage.NotificationChannel) (int64, error)
+	GetNotificationChannel(context.Context, int64) (*storage.NotificationChannel, error)
 	ListNotificationChannels(context.Context) ([]storage.NotificationChannel, error)
+	UpdateNotificationChannel(context.Context, *storage.NotificationChannel) error
 	DeleteNotificationChannel(context.Context, int64) error
 
 	// Escalation Policies CRUD
 	CreateEscalationPolicy(context.Context, *storage.EscalationPolicy) (int64, error)
+	GetEscalationPolicy(context.Context, int64) (*storage.EscalationPolicy, error)
 	ListEscalationPolicies(context.Context) ([]storage.EscalationPolicy, error)
+	UpdateEscalationPolicy(context.Context, *storage.EscalationPolicy) error
 	DeleteEscalationPolicy(context.Context, int64) error
 
 	// Maintenance Windows CRUD
 	CreateAlertMaintenanceWindow(context.Context, *storage.AlertMaintenanceWindow) (int64, error)
+	GetAlertMaintenanceWindow(context.Context, int64) (*storage.AlertMaintenanceWindow, error)
 	ListAlertMaintenanceWindows(context.Context) ([]storage.AlertMaintenanceWindow, error)
+	UpdateAlertMaintenanceWindow(context.Context, *storage.AlertMaintenanceWindow) error
 	GetActiveAlertMaintenanceWindows(context.Context) ([]storage.AlertMaintenanceWindow, error)
 	DeleteAlertMaintenanceWindow(context.Context, int64) error
 
@@ -693,11 +699,57 @@ func (api *API) handleNotificationChannelRoute(w http.ResponseWriter, r *http.Re
 	}
 
 	switch r.Method {
+	case http.MethodGet:
+		api.handleGetNotificationChannel(w, r, id)
+	case http.MethodPut:
+		api.handleUpdateNotificationChannel(w, r, id)
 	case http.MethodDelete:
 		api.handleDeleteNotificationChannel(w, r, id)
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+}
+
+func (api *API) handleGetNotificationChannel(w http.ResponseWriter, r *http.Request, id int64) {
+	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		return
+	}
+
+	channel, err := api.store.GetNotificationChannel(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "notification channel not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, channel)
+}
+
+func (api *API) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.Request, id int64) {
+	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+		return
+	}
+
+	var req storage.NotificationChannel
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	req.ID = id
+
+	if err := api.store.UpdateNotificationChannel(r.Context(), &req); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update notification channel")
+		return
+	}
+
+	api.audit(r, &storage.AuditEntry{
+		Action:     "notification_channel.update",
+		TargetType: "notification_channel",
+		TargetID:   fmt.Sprintf("%d", id),
+		Details:    fmt.Sprintf("Updated notification channel: %s (%s)", req.Name, api.actorLabel(r)),
+	})
+
+	writeJSON(w, http.StatusOK, &req)
 }
 
 func (api *API) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.Request, id int64) {
@@ -801,11 +853,57 @@ func (api *API) handleEscalationPolicyRoute(w http.ResponseWriter, r *http.Reque
 	}
 
 	switch r.Method {
+	case http.MethodGet:
+		api.handleGetEscalationPolicy(w, r, id)
+	case http.MethodPut:
+		api.handleUpdateEscalationPolicy(w, r, id)
 	case http.MethodDelete:
 		api.handleDeleteEscalationPolicy(w, r, id)
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+}
+
+func (api *API) handleGetEscalationPolicy(w http.ResponseWriter, r *http.Request, id int64) {
+	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		return
+	}
+
+	policy, err := api.store.GetEscalationPolicy(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "escalation policy not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, policy)
+}
+
+func (api *API) handleUpdateEscalationPolicy(w http.ResponseWriter, r *http.Request, id int64) {
+	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+		return
+	}
+
+	var req storage.EscalationPolicy
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	req.ID = id
+
+	if err := api.store.UpdateEscalationPolicy(r.Context(), &req); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update escalation policy")
+		return
+	}
+
+	api.audit(r, &storage.AuditEntry{
+		Action:     "escalation_policy.update",
+		TargetType: "escalation_policy",
+		TargetID:   fmt.Sprintf("%d", id),
+		Details:    fmt.Sprintf("Updated escalation policy: %s (%s)", req.Name, api.actorLabel(r)),
+	})
+
+	writeJSON(w, http.StatusOK, &req)
 }
 
 func (api *API) handleDeleteEscalationPolicy(w http.ResponseWriter, r *http.Request, id int64) {
@@ -934,11 +1032,57 @@ func (api *API) handleMaintenanceWindowRoute(w http.ResponseWriter, r *http.Requ
 	}
 
 	switch r.Method {
+	case http.MethodGet:
+		api.handleGetMaintenanceWindow(w, r, id)
+	case http.MethodPut:
+		api.handleUpdateMaintenanceWindow(w, r, id)
 	case http.MethodDelete:
 		api.handleDeleteMaintenanceWindow(w, r, id)
 	default:
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
+}
+
+func (api *API) handleGetMaintenanceWindow(w http.ResponseWriter, r *http.Request, id int64) {
+	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		return
+	}
+
+	window, err := api.store.GetAlertMaintenanceWindow(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "maintenance window not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, window)
+}
+
+func (api *API) handleUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Request, id int64) {
+	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+		return
+	}
+
+	var req storage.AlertMaintenanceWindow
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	req.ID = id
+
+	if err := api.store.UpdateAlertMaintenanceWindow(r.Context(), &req); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update maintenance window")
+		return
+	}
+
+	api.audit(r, &storage.AuditEntry{
+		Action:     "maintenance_window.update",
+		TargetType: "maintenance_window",
+		TargetID:   fmt.Sprintf("%d", id),
+		Details:    fmt.Sprintf("Updated maintenance window: %s (%s)", req.Name, api.actorLabel(r)),
+	})
+
+	writeJSON(w, http.StatusOK, &req)
 }
 
 func (api *API) handleDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request, id int64) {
