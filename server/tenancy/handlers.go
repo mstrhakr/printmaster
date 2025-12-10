@@ -263,7 +263,7 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	mux.HandleFunc("/api/v1/join-tokens", wrap(handleListJoinTokens))             // GET (admin)
 	mux.HandleFunc("/api/v1/join-token/revoke", wrap(handleRevokeJoinToken))      // POST {"id":"..."}
 	// Pending agent registrations (expired token capture)
-	mux.HandleFunc("/api/v1/pending-registrations", wrap(handlePendingRegistrations))   // GET (admin)
+	mux.HandleFunc("/api/v1/pending-registrations", wrap(handlePendingRegistrations))     // GET (admin)
 	mux.HandleFunc("/api/v1/pending-registrations/", wrap(handlePendingRegistrationByID)) // GET/POST/DELETE by ID
 	// Package generation (bootstrap script / archive) - admin only
 	mux.HandleFunc("/api/v1/packages", wrap(handleGeneratePackage))
@@ -814,17 +814,17 @@ func handlePendingRegistrations(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"database not available"}`))
 		return
 	}
-	
+
 	// Optional status filter
 	status := r.URL.Query().Get("status")
-	
+
 	list, err := dbStore.ListPendingAgentRegistrations(r.Context(), status)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"error":"failed to list pending registrations"}`))
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(list)
 }
@@ -839,7 +839,7 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"database not available"}`))
 		return
 	}
-	
+
 	// Extract ID from path
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/pending-registrations/")
 	id, err := strconv.ParseInt(path, 10, 64)
@@ -848,7 +848,7 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"invalid registration id"}`))
 		return
 	}
-	
+
 	switch r.Method {
 	case http.MethodGet:
 		if !authorizeOrReject(w, r, authz.ActionAgentsRead, authz.ResourceRef{}) {
@@ -862,14 +862,14 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(reg)
-		
+
 	case http.MethodPost:
 		// Approve or reject
 		if !authorizeOrReject(w, r, authz.ActionAgentsWrite, authz.ResourceRef{}) {
 			return
 		}
 		var in struct {
-			Action   string `json:"action"` // "approve" or "reject"
+			Action   string `json:"action"`              // "approve" or "reject"
 			TenantID string `json:"tenant_id,omitempty"` // For approve
 			Notes    string `json:"notes,omitempty"`     // For reject
 		}
@@ -878,9 +878,9 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(`{"error":"invalid json"}`))
 			return
 		}
-		
+
 		username := "admin" // TODO: Extract from auth context when available
-		
+
 		switch in.Action {
 		case "approve":
 			if in.TenantID == "" {
@@ -911,7 +911,7 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
-			
+
 		case "reject":
 			if err := dbStore.RejectPendingRegistration(r.Context(), id, username, in.Notes); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -926,12 +926,12 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 			})
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]bool{"success": true})
-			
+
 		default:
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte(`{"error":"action must be 'approve' or 'reject'"}`))
 		}
-		
+
 	case http.MethodDelete:
 		if !authorizeOrReject(w, r, authz.ActionAgentsWrite, authz.ResourceRef{}) {
 			return
@@ -949,7 +949,7 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 		})
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]bool{"success": true})
-		
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -1006,7 +1006,7 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 				var tve *storage.TokenValidationError
 				if errors.As(err, &tve) && tve.TenantID != "" {
 					if pkgLogger != nil {
-						pkgLogger.Info("register-with-token: capturing expired token registration", 
+						pkgLogger.Info("register-with-token: capturing expired token registration",
 							"agent_id", in.AgentID, "expired_tenant_id", tve.TenantID, "token_id", tve.TokenID)
 					}
 					// Create pending registration for admin review
@@ -1046,7 +1046,7 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			
+
 			// Unknown or invalid token - don't capture, just reject
 			if pkgLogger != nil {
 				pkgLogger.Warn("register-with-token: token validation failed", "agent_id", in.AgentID, "error", err, "remote_addr", r.RemoteAddr)

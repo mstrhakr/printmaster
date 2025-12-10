@@ -1563,15 +1563,15 @@ func isValidTokenFormat(token string) bool {
 // Returns specific errors for expired vs unknown tokens to allow different handling.
 func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*JoinToken, error) {
 	logDebug("ValidateJoinToken: starting validation", "token_length", len(rawToken), "token_prefix", safePrefix(rawToken, 8))
-	
+
 	// First check token format - reject obviously invalid tokens early
 	if !isValidTokenFormat(rawToken) {
 		logWarn("ValidateJoinToken: invalid token format", "token_length", len(rawToken))
 		return nil, &TokenValidationError{Err: ErrTokenInvalid}
 	}
-	
+
 	now := time.Now().UTC()
-	
+
 	// First, try to find a valid (non-revoked, non-expired) token
 	rows, err := s.queryContext(ctx, `
 		SELECT id, token_hash, tenant_id, expires_at, one_time, created_at
@@ -1714,30 +1714,30 @@ func (s *BaseStore) CreatePendingAgentRegistration(ctx context.Context, reg *Pen
 	if reg.AgentID == "" || reg.ExpiredTokenID == "" || reg.ExpiredTenantID == "" {
 		return 0, fmt.Errorf("agent_id, expired_token_id, and expired_tenant_id are required")
 	}
-	
+
 	now := time.Now().UTC()
 	if reg.Status == "" {
 		reg.Status = PendingStatusPending
 	}
-	
+
 	result, err := s.execContext(ctx, `
 		INSERT INTO pending_agent_registrations 
 		(agent_id, name, hostname, ip, platform, agent_version, protocol_version, expired_token_id, expired_tenant_id, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, reg.AgentID, reg.Name, reg.Hostname, reg.IP, reg.Platform, reg.AgentVersion, reg.ProtocolVersion, 
-	   reg.ExpiredTokenID, reg.ExpiredTenantID, reg.Status, now)
+	`, reg.AgentID, reg.Name, reg.Hostname, reg.IP, reg.Platform, reg.AgentVersion, reg.ProtocolVersion,
+		reg.ExpiredTokenID, reg.ExpiredTenantID, reg.Status, now)
 	if err != nil {
 		return 0, err
 	}
-	
+
 	id, err := result.LastInsertId()
 	if err != nil {
 		return 0, err
 	}
 	reg.ID = id
 	reg.CreatedAt = now
-	
-	logInfo("CreatePendingAgentRegistration: created pending registration", 
+
+	logInfo("CreatePendingAgentRegistration: created pending registration",
 		"id", id, "agent_id", reg.AgentID, "expired_tenant_id", reg.ExpiredTenantID)
 	return id, nil
 }
@@ -1749,18 +1749,18 @@ func (s *BaseStore) GetPendingAgentRegistration(ctx context.Context, id int64) (
 		       expired_token_id, expired_tenant_id, status, created_at, reviewed_at, reviewed_by, notes
 		FROM pending_agent_registrations WHERE id = ?
 	`, id)
-	
+
 	var reg PendingAgentRegistration
 	var name, hostname, ip, platform, agentVersion, protocolVersion sql.NullString
 	var reviewedAt sql.NullTime
 	var reviewedBy, notes sql.NullString
-	
+
 	err := row.Scan(&reg.ID, &reg.AgentID, &name, &hostname, &ip, &platform, &agentVersion, &protocolVersion,
 		&reg.ExpiredTokenID, &reg.ExpiredTenantID, &reg.Status, &reg.CreatedAt, &reviewedAt, &reviewedBy, &notes)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	reg.Name = name.String
 	reg.Hostname = hostname.String
 	reg.IP = ip.String
@@ -1772,7 +1772,7 @@ func (s *BaseStore) GetPendingAgentRegistration(ctx context.Context, id int64) (
 	}
 	reg.ReviewedBy = reviewedBy.String
 	reg.Notes = notes.String
-	
+
 	return &reg, nil
 }
 
@@ -1780,7 +1780,7 @@ func (s *BaseStore) GetPendingAgentRegistration(ctx context.Context, id int64) (
 func (s *BaseStore) ListPendingAgentRegistrations(ctx context.Context, status string) ([]*PendingAgentRegistration, error) {
 	var rows *sql.Rows
 	var err error
-	
+
 	if status != "" {
 		rows, err = s.queryContext(ctx, `
 			SELECT id, agent_id, name, hostname, ip, platform, agent_version, protocol_version,
@@ -1801,20 +1801,20 @@ func (s *BaseStore) ListPendingAgentRegistrations(ctx context.Context, status st
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	var registrations []*PendingAgentRegistration
 	for rows.Next() {
 		var reg PendingAgentRegistration
 		var name, hostname, ip, platform, agentVersion, protocolVersion sql.NullString
 		var reviewedAt sql.NullTime
 		var reviewedBy, notes sql.NullString
-		
+
 		err := rows.Scan(&reg.ID, &reg.AgentID, &name, &hostname, &ip, &platform, &agentVersion, &protocolVersion,
 			&reg.ExpiredTokenID, &reg.ExpiredTenantID, &reg.Status, &reg.CreatedAt, &reviewedAt, &reviewedBy, &notes)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		reg.Name = name.String
 		reg.Hostname = hostname.String
 		reg.IP = ip.String
@@ -1826,10 +1826,10 @@ func (s *BaseStore) ListPendingAgentRegistrations(ctx context.Context, status st
 		}
 		reg.ReviewedBy = reviewedBy.String
 		reg.Notes = notes.String
-		
+
 		registrations = append(registrations, &reg)
 	}
-	
+
 	return registrations, rows.Err()
 }
 

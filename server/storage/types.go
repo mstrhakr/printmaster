@@ -222,17 +222,17 @@ func (h *HeartbeatData) BuildAgentUpdate(agentID string) *Agent {
 // This allows admins to review and approve agents that tried to join with stale tokens.
 type PendingAgentRegistration struct {
 	ID              int64     `json:"id"`
-	AgentID         string    `json:"agent_id"`         // UUID from the agent
-	Name            string    `json:"name"`             // Requested display name
-	Hostname        string    `json:"hostname"`         // Agent hostname
-	IP              string    `json:"ip"`               // Remote IP address
-	Platform        string    `json:"platform"`         // windows, linux, darwin
-	AgentVersion    string    `json:"agent_version"`    // Agent version string
-	ProtocolVersion string    `json:"protocol_version"` // Protocol compatibility version
-	ExpiredTokenID  string    `json:"expired_token_id"` // The token that matched but was expired
-	ExpiredTenantID string    `json:"expired_tenant_id"`// Tenant the expired token belonged to
-	Status          string    `json:"status"`           // pending, approved, rejected
-	CreatedAt       time.Time `json:"created_at"`       // When the registration was attempted
+	AgentID         string    `json:"agent_id"`              // UUID from the agent
+	Name            string    `json:"name"`                  // Requested display name
+	Hostname        string    `json:"hostname"`              // Agent hostname
+	IP              string    `json:"ip"`                    // Remote IP address
+	Platform        string    `json:"platform"`              // windows, linux, darwin
+	AgentVersion    string    `json:"agent_version"`         // Agent version string
+	ProtocolVersion string    `json:"protocol_version"`      // Protocol compatibility version
+	ExpiredTokenID  string    `json:"expired_token_id"`      // The token that matched but was expired
+	ExpiredTenantID string    `json:"expired_tenant_id"`     // Tenant the expired token belonged to
+	Status          string    `json:"status"`                // pending, approved, rejected
+	CreatedAt       time.Time `json:"created_at"`            // When the registration was attempted
 	ReviewedAt      time.Time `json:"reviewed_at,omitempty"` // When admin reviewed
 	ReviewedBy      string    `json:"reviewed_by,omitempty"` // Admin who reviewed
 	Notes           string    `json:"notes,omitempty"`       // Admin notes
