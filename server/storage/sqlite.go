@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -745,6 +746,11 @@ func (s *SQLiteStore) initSchema() error {
 	}
 
 	if err := s.ensureGlobalSettingsSeed(); err != nil {
+		return err
+	}
+
+	// Seed default alert rules on first run
+	if err := s.SeedDefaultAlertRules(context.Background()); err != nil {
 		return err
 	}
 

@@ -786,6 +786,11 @@ func (s *PostgresStore) initSchema() error {
 		return err
 	}
 
+	// Seed default alert rules on first run
+	if err := s.SeedDefaultAlertRules(context.Background()); err != nil {
+		return err
+	}
+
 	// Update schema version
 	var currentVersion int
 	err := s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&currentVersion)

@@ -236,13 +236,16 @@ func TestAlertRuleLifecycle(t *testing.T) {
 		t.Error("enabled not updated to false")
 	}
 
-	// List rules
+	// List rules - includes default seeded rules plus the one we created
 	rules, err := s.ListAlertRules(ctx)
 	if err != nil {
 		t.Fatalf("ListAlertRules: %v", err)
 	}
-	if len(rules) != 1 {
-		t.Errorf("expected 1 rule, got %d", len(rules))
+	// We seed 7 default rules, plus we created 1 = 8 total
+	defaultRulesCount := len(DefaultAlertRules())
+	expectedCount := defaultRulesCount + 1
+	if len(rules) != expectedCount {
+		t.Errorf("expected %d rules (including %d defaults), got %d", expectedCount, defaultRulesCount, len(rules))
 	}
 
 	// Delete the rule
@@ -255,8 +258,9 @@ func TestAlertRuleLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAlertRules after delete: %v", err)
 	}
-	if len(rules) != 0 {
-		t.Errorf("expected 0 rules after delete, got %d", len(rules))
+	// After deleting our test rule, only the default seeded rules remain
+	if len(rules) != defaultRulesCount {
+		t.Errorf("expected %d rules (defaults only) after delete, got %d", defaultRulesCount, len(rules))
 	}
 }
 

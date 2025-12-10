@@ -1327,3 +1327,136 @@ func (s *BaseStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error) 
 
 	return summary, nil
 }
+
+// ============================================================
+// Default Alert Rules Seed
+// ============================================================
+
+// DefaultAlertRules returns the default alert rules to seed on first initialization.
+func DefaultAlertRules() []AlertRule {
+	now := time.Now().UTC()
+	return []AlertRule{
+		{
+			Name:            "Low Toner Warning",
+			Description:     "Alerts when any toner level drops below 20%",
+			Enabled:         true,
+			Type:            "threshold",
+			Severity:        "warning",
+			Scope:           "all",
+			Threshold:       20,
+			ThresholdUnit:   "percent",
+			DurationMinutes: 0,
+			CooldownMinutes: 60,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			CreatedBy:       "system",
+		},
+		{
+			Name:            "Critical Toner Level",
+			Description:     "Alerts when any toner level drops below 5%",
+			Enabled:         true,
+			Type:            "threshold",
+			Severity:        "critical",
+			Scope:           "all",
+			Threshold:       5,
+			ThresholdUnit:   "percent",
+			DurationMinutes: 0,
+			CooldownMinutes: 30,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			CreatedBy:       "system",
+		},
+		{
+			Name:            "Printer Offline",
+			Description:     "Alerts when a printer has been offline for 15 minutes",
+			Enabled:         true,
+			Type:            "offline",
+			Severity:        "warning",
+			Scope:           "all",
+			DurationMinutes: 15,
+			CooldownMinutes: 60,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			CreatedBy:       "system",
+		},
+		{
+			Name:            "Agent Disconnected",
+			Description:     "Alerts when an agent has been disconnected for 10 minutes",
+			Enabled:         true,
+			Type:            "agent_offline",
+			Severity:        "warning",
+			Scope:           "all",
+			DurationMinutes: 10,
+			CooldownMinutes: 30,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			CreatedBy:       "system",
+		},
+		{
+			Name:            "Paper Jam Detected",
+			Description:     "Alerts when a paper jam is detected on any printer",
+			Enabled:         true,
+			Type:            "status",
+			Severity:        "warning",
+			Scope:           "all",
+			DurationMinutes: 0,
+			CooldownMinutes: 15,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			CreatedBy:       "system",
+		},
+		{
+			Name:            "Paper Low",
+			Description:     "Alerts when paper tray is low or empty",
+			Enabled:         true,
+			Type:            "status",
+			Severity:        "info",
+			Scope:           "all",
+			DurationMinutes: 0,
+			CooldownMinutes: 120,
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			CreatedBy:       "system",
+		},
+		{
+			Name:            "High Page Volume",
+			Description:     "Alerts when daily page count exceeds 1000 pages",
+			Enabled:         false, // Disabled by default - user can enable
+			Type:            "threshold",
+			Severity:        "info",
+			Scope:           "all",
+			Threshold:       1000,
+			ThresholdUnit:   "pages",
+			DurationMinutes: 0,
+			CooldownMinutes: 1440, // Once per day
+			CreatedAt:       now,
+			UpdatedAt:       now,
+			CreatedBy:       "system",
+		},
+	}
+}
+
+// SeedDefaultAlertRules inserts the default alert rules if none exist.
+func (s *BaseStore) SeedDefaultAlertRules(ctx context.Context) error {
+	// Check if any alert rules exist
+	var count int
+	err := s.queryRowContext(ctx, "SELECT COUNT(*) FROM alert_rules").Scan(&count)
+	if err != nil {
+		return fmt.Errorf("check alert rules count: %w", err)
+	}
+
+	// Only seed if no rules exist
+	if count > 0 {
+		return nil
+	}
+
+	defaults := DefaultAlertRules()
+	for _, rule := range defaults {
+		if _, err := s.CreateAlertRule(ctx, &rule); err != nil {
+			return fmt.Errorf("seed alert rule %q: %w", rule.Name, err)
+		}
+	}
+
+	logInfo("Seeded default alert rules", "count", len(defaults))
+	return nil
+}
