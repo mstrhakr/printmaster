@@ -4679,7 +4679,7 @@ func handleDevicePreviewProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Proxy to agent's /devices/preview endpoint
 	agentURL := "http://localhost:8080/devices/preview"
-	
+
 	// Reconstruct the request with body
 	proxyReq, _ := http.NewRequest(http.MethodPost, agentURL, bytes.NewReader(bodyBytes))
 	proxyReq.Header.Set("Content-Type", "application/json")

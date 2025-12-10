@@ -255,12 +255,12 @@ type Device struct {
 // DeviceWithMetrics extends Device with latest toner/consumable data for UI display
 type DeviceWithMetrics struct {
 	Device
-	TonerLevels    map[string]interface{} `json:"toner_levels,omitempty"`
-	PageCount      int                    `json:"page_count,omitempty"`
-	ColorPages     int                    `json:"color_pages,omitempty"`
-	MonoPages      int                    `json:"mono_pages,omitempty"`
-	ScanCount      int                    `json:"scan_count,omitempty"`
-	LastMetricsAt  *time.Time             `json:"last_metrics_at,omitempty"`
+	TonerLevels   map[string]interface{} `json:"toner_levels,omitempty"`
+	PageCount     int                    `json:"page_count,omitempty"`
+	ColorPages    int                    `json:"color_pages,omitempty"`
+	MonoPages     int                    `json:"mono_pages,omitempty"`
+	ScanCount     int                    `json:"scan_count,omitempty"`
+	LastMetricsAt *time.Time             `json:"last_metrics_at,omitempty"`
 }
 
 // MetricsSnapshot represents a point-in-time snapshot of device metrics (base struct)
