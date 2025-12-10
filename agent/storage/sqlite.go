@@ -54,12 +54,14 @@ func NewSQLiteStoreWithConfig(dbPath string, configStore AgentConfigStore) (*SQL
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// SQLite write serialization: limit to 1 open connection to prevent SQLITE_BUSY errors.
-	// With WAL mode, reads can still proceed concurrently from the same connection,
-	// but writes are serialized. This is the recommended approach for SQLite in Go.
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0) // connections are reused indefinitely
+	// Connection pool settings for SQLite:
+	// - MaxOpenConns: Allow multiple connections for reads (WAL mode supports this)
+	// - MaxIdleConns: Keep some connections ready to reduce open/close overhead
+	// - ConnMaxLifetime: Prevent stale connections
+	// Note: SQLite handles write serialization internally with busy_timeout
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
 	// Enable foreign keys and set pragmas for better performance
 	pragmas := []string{

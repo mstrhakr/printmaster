@@ -36,7 +36,9 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 	connStr := dbPath
 	const busyTimeoutMS = 30000 // 30 seconds - gives time for long operations
 	if dbPath != ":memory:" {
-		connStr += fmt.Sprintf("?_busy_timeout=%d&_journal_mode=WAL&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON", busyTimeoutMS)
+		// WAL mode allows concurrent reads while writing
+		// _txlock=immediate acquires write lock at transaction start, reducing contention
+		connStr += fmt.Sprintf("?_busy_timeout=%d&_journal_mode=WAL&_synchronous=NORMAL&_cache_size=-64000&_foreign_keys=ON&_txlock=immediate", busyTimeoutMS)
 	} else {
 		connStr += fmt.Sprintf("?_busy_timeout=%d&_foreign_keys=ON", busyTimeoutMS)
 	}
@@ -47,13 +49,14 @@ func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// SQLite write serialization: limit to 1 open connection to prevent SQLITE_BUSY errors.
-	// With WAL mode, reads can still proceed concurrently from the same connection,
-	// but writes are serialized. This is the recommended approach for SQLite in Go.
-	// See: https://github.com/mattn/go-sqlite3/issues/274
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0) // connections are reused indefinitely
+	// Connection pool settings for SQLite:
+	// - MaxOpenConns: Allow multiple connections for reads (WAL mode supports this)
+	// - MaxIdleConns: Keep some connections ready to reduce open/close overhead
+	// - ConnMaxLifetime: Prevent stale connections
+	// Note: SQLite handles write serialization internally with busy_timeout
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
+	db.SetConnMaxLifetime(30 * time.Minute)
 
 	logInfo("Opened SQLite database", "path", dbPath)
 
