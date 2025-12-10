@@ -145,11 +145,18 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["color_pages"] = colorTotal
 	}
 
-	// Use vendor total if available, otherwise calculate
+	// Determine page_count using best available source:
+	// 1. Kyocera enterprise total (most accurate for Kyocera)
+	// 2. Standard Printer-MIB PrtMarkerLifeCount (widely supported)
+	// 3. Calculated from mono+color (last resort)
 	if totalPrinted > 0 {
 		result["page_count"] = totalPrinted
 		result["total_pages"] = totalPrinted
+	} else if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
+		result["page_count"] = pageCount
+		result["total_pages"] = pageCount
 	} else if monoTotal > 0 || colorTotal > 0 {
+		// Last resort: calculate from function counters
 		result["page_count"] = monoTotal + colorTotal
 		result["total_pages"] = monoTotal + colorTotal
 	}
@@ -190,13 +197,7 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result[k] = v
 	}
 
-	// Fallback to standard Printer-MIB if enterprise OIDs failed
-	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
-			result["page_count"] = pageCount
-			result["total_pages"] = pageCount
-		}
-	}
+	// Note: PrtMarkerLifeCount is now checked earlier in the priority chain
 
 	if logger.Global != nil {
 		mono := 0
