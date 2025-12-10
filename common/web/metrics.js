@@ -77,8 +77,18 @@ function buildTonerSeries(history) {
     history.forEach(snapshot => {
         const timestamp = new Date(snapshot.timestamp).getTime();
         if (Number.isNaN(timestamp)) return;
+        // Track which labels we've seen in THIS snapshot to handle duplicates
+        // within a single snapshot (e.g., two black cartridges in one device)
+        const seenInSnapshot = {};
         extractSnapshotTonerEntries(snapshot).forEach(entry => {
-            const key = resolveSeriesLabel(entry.label, series);
+            // Use the canonical label as the base key
+            let key = entry.label;
+            // Only disambiguate if we see the SAME label multiple times in ONE snapshot
+            if (seenInSnapshot[entry.label]) {
+                // This snapshot has multiple supplies with same canonical name
+                key = resolveSeriesLabel(entry.label, series);
+            }
+            seenInSnapshot[entry.label] = true;
             if (!series[key]) {
                 series[key] = { colorKey: entry.colorKey, points: [] };
             }
