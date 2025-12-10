@@ -630,14 +630,7 @@ func runServer(ctx context.Context, configFlag string) {
 
 	// Inject structured logger into storage package so DB initialization logs are structured
 	storage.SetLogger(serverLogger)
-	switch dbDriver {
-	case "sqlite", "sqlite3", "modernc", "modernc-sqlite":
-		serverStore, err = storage.NewSQLiteStore(cfg.Database.Path)
-	case "postgres", "postgresql":
-		serverStore, err = storage.NewPostgresStore(&cfg.Database)
-	default:
-		err = fmt.Errorf("unsupported database driver: %s", dbDriver)
-	}
+	serverStore, err = storage.NewStore(&cfg.Database)
 	if err != nil {
 		logFatal("Failed to initialize database", "error", err)
 	}
