@@ -1531,6 +1531,12 @@ func (s *BaseStore) CreateJoinTokenWithSecret(ctx context.Context, jt *JoinToken
 	query := `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at) VALUES (?, ?, ?, ?, ?, ?)`
 	_, err = s.execContext(ctx, query, jt.ID, tokenHash, jt.TenantID, jt.ExpiresAt, boolToInt(jt.OneTime), jt.CreatedAt)
 	if err != nil {
+		// Check if this is a duplicate key error (token already exists)
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "duplicate") || strings.Contains(errStr, "unique constraint") || strings.Contains(errStr, "already exists") {
+			logDebug("CreateJoinTokenWithSecret: token already exists, skipping", "token_id", jt.ID, "tenant_id", jt.TenantID)
+			return jt, nil // Return success - the token already exists
+		}
 		logWarn("CreateJoinTokenWithSecret: failed to insert", "error", err, "tenant_id", jt.TenantID)
 		return nil, err
 	}
@@ -1539,11 +1545,34 @@ func (s *BaseStore) CreateJoinTokenWithSecret(ctx context.Context, jt *JoinToken
 	return jt, nil
 }
 
+// isValidTokenFormat checks if a token has the expected format (48 hex chars).
+// This prevents processing of completely invalid tokens.
+func isValidTokenFormat(token string) bool {
+	if len(token) != 48 {
+		return false
+	}
+	for _, c := range token {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 // ValidateJoinToken validates a join token and returns the JoinToken if valid.
+// Returns specific errors for expired vs unknown tokens to allow different handling.
 func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*JoinToken, error) {
 	logDebug("ValidateJoinToken: starting validation", "token_length", len(rawToken), "token_prefix", safePrefix(rawToken, 8))
+	
+	// First check token format - reject obviously invalid tokens early
+	if !isValidTokenFormat(rawToken) {
+		logWarn("ValidateJoinToken: invalid token format", "token_length", len(rawToken))
+		return nil, &TokenValidationError{Err: ErrTokenInvalid}
+	}
+	
 	now := time.Now().UTC()
-	// Fetch all non-revoked, unexpired tokens
+	
+	// First, try to find a valid (non-revoked, non-expired) token
 	rows, err := s.queryContext(ctx, `
 		SELECT id, token_hash, tenant_id, expires_at, one_time, created_at
 		FROM join_tokens
@@ -1596,9 +1625,46 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 			logDebug("ValidateJoinToken: hash mismatch for candidate", "token_id", id)
 		}
 	}
+	rows.Close()
 
-	logWarn("ValidateJoinToken: no matching token found", "candidates_checked", candidateCount, "token_prefix", safePrefix(rawToken, 8))
-	return nil, fmt.Errorf("invalid or expired join token")
+	// No valid token found - now check if the token matches any expired or revoked tokens
+	// This allows us to distinguish between "expired but known" vs "completely unknown"
+	expiredRows, err := s.queryContext(ctx, `
+		SELECT id, token_hash, tenant_id, expires_at, revoked
+		FROM join_tokens
+		WHERE revoked = TRUE OR expires_at <= ?
+	`, now)
+	if err != nil {
+		logWarn("ValidateJoinToken: expired token query failed", "error", err)
+		return nil, &TokenValidationError{Err: ErrTokenInvalid}
+	}
+	defer expiredRows.Close()
+
+	for expiredRows.Next() {
+		var id, hash, tenantID string
+		var expiresAt time.Time
+		var revokedInt interface{}
+		if err := expiredRows.Scan(&id, &hash, &tenantID, &expiresAt, &revokedInt); err != nil {
+			continue
+		}
+
+		ok, verr := verifyArgonHash(rawToken, hash)
+		if verr != nil {
+			continue
+		}
+		if ok {
+			revoked := intToBool(revokedInt)
+			if revoked {
+				logWarn("ValidateJoinToken: matched revoked token", "token_id", id, "tenant_id", tenantID)
+				return nil, &TokenValidationError{Err: ErrTokenRevoked, TenantID: tenantID, TokenID: id}
+			}
+			logWarn("ValidateJoinToken: matched expired token", "token_id", id, "tenant_id", tenantID, "expired_at", expiresAt.Format(time.RFC3339))
+			return nil, &TokenValidationError{Err: ErrTokenExpired, TenantID: tenantID, TokenID: id}
+		}
+	}
+
+	logWarn("ValidateJoinToken: no matching token found (unknown token)", "candidates_checked", candidateCount, "token_prefix", safePrefix(rawToken, 8))
+	return nil, &TokenValidationError{Err: ErrTokenInvalid}
 }
 
 // ListJoinTokens lists tokens for a tenant (admin view)
@@ -1635,6 +1701,172 @@ func (s *BaseStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*Joi
 // RevokeJoinToken marks a join token as revoked
 func (s *BaseStore) RevokeJoinToken(ctx context.Context, id string) error {
 	_, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = TRUE WHERE id = ?`, id)
+	return err
+}
+
+// ============================================================================
+// Pending Agent Registration Methods
+// ============================================================================
+
+// CreatePendingAgentRegistration stores a pending registration from an expired token attempt.
+// Only call this when ValidateJoinToken returns ErrTokenExpired.
+func (s *BaseStore) CreatePendingAgentRegistration(ctx context.Context, reg *PendingAgentRegistration) (int64, error) {
+	if reg.AgentID == "" || reg.ExpiredTokenID == "" || reg.ExpiredTenantID == "" {
+		return 0, fmt.Errorf("agent_id, expired_token_id, and expired_tenant_id are required")
+	}
+	
+	now := time.Now().UTC()
+	if reg.Status == "" {
+		reg.Status = PendingStatusPending
+	}
+	
+	result, err := s.execContext(ctx, `
+		INSERT INTO pending_agent_registrations 
+		(agent_id, name, hostname, ip, platform, agent_version, protocol_version, expired_token_id, expired_tenant_id, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, reg.AgentID, reg.Name, reg.Hostname, reg.IP, reg.Platform, reg.AgentVersion, reg.ProtocolVersion, 
+	   reg.ExpiredTokenID, reg.ExpiredTenantID, reg.Status, now)
+	if err != nil {
+		return 0, err
+	}
+	
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	reg.ID = id
+	reg.CreatedAt = now
+	
+	logInfo("CreatePendingAgentRegistration: created pending registration", 
+		"id", id, "agent_id", reg.AgentID, "expired_tenant_id", reg.ExpiredTenantID)
+	return id, nil
+}
+
+// GetPendingAgentRegistration retrieves a pending registration by ID.
+func (s *BaseStore) GetPendingAgentRegistration(ctx context.Context, id int64) (*PendingAgentRegistration, error) {
+	row := s.queryRowContext(ctx, `
+		SELECT id, agent_id, name, hostname, ip, platform, agent_version, protocol_version,
+		       expired_token_id, expired_tenant_id, status, created_at, reviewed_at, reviewed_by, notes
+		FROM pending_agent_registrations WHERE id = ?
+	`, id)
+	
+	var reg PendingAgentRegistration
+	var name, hostname, ip, platform, agentVersion, protocolVersion sql.NullString
+	var reviewedAt sql.NullTime
+	var reviewedBy, notes sql.NullString
+	
+	err := row.Scan(&reg.ID, &reg.AgentID, &name, &hostname, &ip, &platform, &agentVersion, &protocolVersion,
+		&reg.ExpiredTokenID, &reg.ExpiredTenantID, &reg.Status, &reg.CreatedAt, &reviewedAt, &reviewedBy, &notes)
+	if err != nil {
+		return nil, err
+	}
+	
+	reg.Name = name.String
+	reg.Hostname = hostname.String
+	reg.IP = ip.String
+	reg.Platform = platform.String
+	reg.AgentVersion = agentVersion.String
+	reg.ProtocolVersion = protocolVersion.String
+	if reviewedAt.Valid {
+		reg.ReviewedAt = reviewedAt.Time
+	}
+	reg.ReviewedBy = reviewedBy.String
+	reg.Notes = notes.String
+	
+	return &reg, nil
+}
+
+// ListPendingAgentRegistrations lists pending registrations, optionally filtered by status.
+func (s *BaseStore) ListPendingAgentRegistrations(ctx context.Context, status string) ([]*PendingAgentRegistration, error) {
+	var rows *sql.Rows
+	var err error
+	
+	if status != "" {
+		rows, err = s.queryContext(ctx, `
+			SELECT id, agent_id, name, hostname, ip, platform, agent_version, protocol_version,
+			       expired_token_id, expired_tenant_id, status, created_at, reviewed_at, reviewed_by, notes
+			FROM pending_agent_registrations 
+			WHERE status = ?
+			ORDER BY created_at DESC
+		`, status)
+	} else {
+		rows, err = s.queryContext(ctx, `
+			SELECT id, agent_id, name, hostname, ip, platform, agent_version, protocol_version,
+			       expired_token_id, expired_tenant_id, status, created_at, reviewed_at, reviewed_by, notes
+			FROM pending_agent_registrations 
+			ORDER BY created_at DESC
+		`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	var registrations []*PendingAgentRegistration
+	for rows.Next() {
+		var reg PendingAgentRegistration
+		var name, hostname, ip, platform, agentVersion, protocolVersion sql.NullString
+		var reviewedAt sql.NullTime
+		var reviewedBy, notes sql.NullString
+		
+		err := rows.Scan(&reg.ID, &reg.AgentID, &name, &hostname, &ip, &platform, &agentVersion, &protocolVersion,
+			&reg.ExpiredTokenID, &reg.ExpiredTenantID, &reg.Status, &reg.CreatedAt, &reviewedAt, &reviewedBy, &notes)
+		if err != nil {
+			return nil, err
+		}
+		
+		reg.Name = name.String
+		reg.Hostname = hostname.String
+		reg.IP = ip.String
+		reg.Platform = platform.String
+		reg.AgentVersion = agentVersion.String
+		reg.ProtocolVersion = protocolVersion.String
+		if reviewedAt.Valid {
+			reg.ReviewedAt = reviewedAt.Time
+		}
+		reg.ReviewedBy = reviewedBy.String
+		reg.Notes = notes.String
+		
+		registrations = append(registrations, &reg)
+	}
+	
+	return registrations, rows.Err()
+}
+
+// ApprovePendingRegistration approves a pending registration and assigns to a tenant.
+// This creates a new join token for the agent to use.
+func (s *BaseStore) ApprovePendingRegistration(ctx context.Context, id int64, tenantID, reviewedBy string) error {
+	now := time.Now().UTC()
+	_, err := s.execContext(ctx, `
+		UPDATE pending_agent_registrations 
+		SET status = ?, reviewed_at = ?, reviewed_by = ?
+		WHERE id = ?
+	`, PendingStatusApproved, now, reviewedBy, id)
+	if err != nil {
+		return err
+	}
+	logInfo("ApprovePendingRegistration: approved", "id", id, "tenant_id", tenantID, "reviewed_by", reviewedBy)
+	return nil
+}
+
+// RejectPendingRegistration rejects a pending registration with optional notes.
+func (s *BaseStore) RejectPendingRegistration(ctx context.Context, id int64, reviewedBy, notes string) error {
+	now := time.Now().UTC()
+	_, err := s.execContext(ctx, `
+		UPDATE pending_agent_registrations 
+		SET status = ?, reviewed_at = ?, reviewed_by = ?, notes = ?
+		WHERE id = ?
+	`, PendingStatusRejected, now, reviewedBy, notes, id)
+	if err != nil {
+		return err
+	}
+	logInfo("RejectPendingRegistration: rejected", "id", id, "reviewed_by", reviewedBy)
+	return nil
+}
+
+// DeletePendingAgentRegistration deletes a pending registration.
+func (s *BaseStore) DeletePendingAgentRegistration(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, `DELETE FROM pending_agent_registrations WHERE id = ?`, id)
 	return err
 }
 

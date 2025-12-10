@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	pmsettings "printmaster/common/settings"
 	commonstorage "printmaster/common/storage"
@@ -10,6 +12,43 @@ import (
 	"strings"
 	"time"
 )
+
+// Token validation errors for distinguishing token failure reasons
+var (
+	// ErrTokenInvalid indicates the token format is invalid or completely unknown
+	ErrTokenInvalid = errors.New("invalid or unknown token")
+	// ErrTokenExpired indicates a known token that has expired (can be captured)
+	ErrTokenExpired = errors.New("token expired")
+	// ErrTokenRevoked indicates a known token that was manually revoked
+	ErrTokenRevoked = errors.New("token revoked")
+)
+
+// TokenValidationError wraps a token error with the original tenant for expired tokens
+type TokenValidationError struct {
+	Err      error
+	TenantID string // Set when token was valid but expired/revoked
+	TokenID  string // ID of the matched token (if known)
+}
+
+func (e *TokenValidationError) Error() string {
+	if e.TenantID != "" {
+		return fmt.Sprintf("%s (tenant: %s)", e.Err.Error(), e.TenantID)
+	}
+	return e.Err.Error()
+}
+
+func (e *TokenValidationError) Unwrap() error {
+	return e.Err
+}
+
+// IsExpiredToken checks if an error is specifically an expired token error
+func IsExpiredToken(err error) bool {
+	var tve *TokenValidationError
+	if errors.As(err, &tve) {
+		return errors.Is(tve.Err, ErrTokenExpired)
+	}
+	return false
+}
 
 // Role represents the authorization level granted to a user.
 type Role string
@@ -177,6 +216,34 @@ func (h *HeartbeatData) BuildAgentUpdate(agentID string) *Agent {
 		LastHeartbeat:   now,
 	}
 }
+
+// PendingAgentRegistration captures an agent registration attempt using an expired token.
+// Only stored when the token was once valid (known hash match) but has since expired.
+// This allows admins to review and approve agents that tried to join with stale tokens.
+type PendingAgentRegistration struct {
+	ID              int64     `json:"id"`
+	AgentID         string    `json:"agent_id"`         // UUID from the agent
+	Name            string    `json:"name"`             // Requested display name
+	Hostname        string    `json:"hostname"`         // Agent hostname
+	IP              string    `json:"ip"`               // Remote IP address
+	Platform        string    `json:"platform"`         // windows, linux, darwin
+	AgentVersion    string    `json:"agent_version"`    // Agent version string
+	ProtocolVersion string    `json:"protocol_version"` // Protocol compatibility version
+	ExpiredTokenID  string    `json:"expired_token_id"` // The token that matched but was expired
+	ExpiredTenantID string    `json:"expired_tenant_id"`// Tenant the expired token belonged to
+	Status          string    `json:"status"`           // pending, approved, rejected
+	CreatedAt       time.Time `json:"created_at"`       // When the registration was attempted
+	ReviewedAt      time.Time `json:"reviewed_at,omitempty"` // When admin reviewed
+	ReviewedBy      string    `json:"reviewed_by,omitempty"` // Admin who reviewed
+	Notes           string    `json:"notes,omitempty"`       // Admin notes
+}
+
+// PendingRegistrationStatus constants
+const (
+	PendingStatusPending  = "pending"
+	PendingStatusApproved = "approved"
+	PendingStatusRejected = "rejected"
+)
 
 // Device represents a printer device discovered by an agent (extends common Device)
 type Device struct {
@@ -603,6 +670,14 @@ type Store interface {
 	// Admin: list and revoke join tokens
 	ListJoinTokens(ctx context.Context, tenantID string) ([]*JoinToken, error)
 	RevokeJoinToken(ctx context.Context, id string) error
+
+	// Pending agent registrations (expired token capture)
+	CreatePendingAgentRegistration(ctx context.Context, reg *PendingAgentRegistration) (int64, error)
+	GetPendingAgentRegistration(ctx context.Context, id int64) (*PendingAgentRegistration, error)
+	ListPendingAgentRegistrations(ctx context.Context, status string) ([]*PendingAgentRegistration, error)
+	ApprovePendingRegistration(ctx context.Context, id int64, tenantID, reviewedBy string) error
+	RejectPendingRegistration(ctx context.Context, id int64, reviewedBy, notes string) error
+	DeletePendingAgentRegistration(ctx context.Context, id int64) error
 
 	// User & session management (local login)
 	CreateUser(ctx context.Context, user *User, rawPassword string) error

@@ -242,6 +242,29 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_join_tokens_hash ON join_tokens(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_join_tokens_tenant ON join_tokens(tenant_id);
 
+	-- Pending agent registrations (for expired but known tokens)
+	CREATE TABLE IF NOT EXISTS pending_agent_registrations (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		agent_id TEXT NOT NULL,
+		name TEXT,
+		hostname TEXT,
+		ip TEXT,
+		platform TEXT,
+		agent_version TEXT,
+		protocol_version TEXT,
+		expired_token_id TEXT NOT NULL,
+		expired_tenant_id TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		reviewed_at DATETIME,
+		reviewed_by TEXT,
+		notes TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_pending_registrations_status ON pending_agent_registrations(status);
+	CREATE INDEX IF NOT EXISTS idx_pending_registrations_tenant ON pending_agent_registrations(expired_tenant_id);
+	CREATE INDEX IF NOT EXISTS idx_pending_registrations_agent ON pending_agent_registrations(agent_id);
+
 	-- Local users for UI and API authentication
 	CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
