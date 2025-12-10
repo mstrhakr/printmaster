@@ -4,7 +4,7 @@ run-name: CD Server - ${{ github.ref_name }} @ ${{ github.sha }}
 on:
   push:
     tags:
-      - 'server-v*'
+      - 'server-v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch: {}
 
 env:

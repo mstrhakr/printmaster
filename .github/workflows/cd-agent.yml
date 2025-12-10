@@ -4,7 +4,7 @@ run-name: CD Agent - ${{ github.ref_name }} @ ${{ github.sha }}
 on:
   push:
     tags:
-      - 'agent-v*'
+      - 'agent-v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch: {}
 
 env:
