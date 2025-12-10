@@ -672,6 +672,57 @@ func (s *BaseStore) GetLatestMetrics(ctx context.Context, serial string) (*Metri
 	return &m, nil
 }
 
+// GetLatestMetricsBatch retrieves the most recent metrics for multiple devices efficiently.
+// Returns a map from serial to MetricsSnapshot.
+func (s *BaseStore) GetLatestMetricsBatch(ctx context.Context, serials []string) (map[string]*MetricsSnapshot, error) {
+	result := make(map[string]*MetricsSnapshot, len(serials))
+	if len(serials) == 0 {
+		return result, nil
+	}
+
+	// Use a subquery to get the latest timestamp for each serial, then join back
+	// This is more efficient than N separate queries.
+	placeholders := make([]string, len(serials))
+	args := make([]interface{}, len(serials))
+	for i, s := range serials {
+		placeholders[i] = "?"
+		args[i] = s
+	}
+
+	query := fmt.Sprintf(`
+		SELECT m.id, m.serial, m.agent_id, m.timestamp, m.page_count, m.color_pages, m.mono_pages, m.scan_count, m.toner_levels
+		FROM metrics_history m
+		INNER JOIN (
+			SELECT serial, MAX(timestamp) as max_ts
+			FROM metrics_history
+			WHERE serial IN (%s)
+			GROUP BY serial
+		) latest ON m.serial = latest.serial AND m.timestamp = latest.max_ts
+	`, strings.Join(placeholders, ","))
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var m MetricsSnapshot
+		var tonerJSON sql.NullString
+		err := rows.Scan(&m.ID, &m.Serial, &m.AgentID, &m.Timestamp,
+			&m.PageCount, &m.ColorPages, &m.MonoPages, &m.ScanCount, &tonerJSON)
+		if err != nil {
+			return nil, err
+		}
+		if tonerJSON.Valid {
+			json.Unmarshal([]byte(tonerJSON.String), &m.TonerLevels)
+		}
+		result[m.Serial] = &m
+	}
+
+	return result, rows.Err()
+}
+
 // GetMetricsHistory retrieves metrics history for a device since a given time
 func (s *BaseStore) GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error) {
 	query := `

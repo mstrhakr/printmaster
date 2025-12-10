@@ -3042,6 +3042,10 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/v1/devices/list", requireWebAuth(handleDevicesList)) // List all devices (for UI)
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
+	// Device management endpoints that proxy to agent (for server UI Details modal)
+	http.HandleFunc("/devices/preview", requireWebAuth(handleDevicePreviewProxy))
+	http.HandleFunc("/devices/metrics/collect", requireWebAuth(handleDeviceMetricsCollectProxy))
+
 	// Web UI endpoints - keep landing/static public so login assets load
 	http.HandleFunc("/", handleWebUI)
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
@@ -4632,6 +4636,106 @@ func rewriteProxyJS(body []byte, proxyBase string, targetURL string) []byte {
 	return []byte(s)
 }
 
+// handleDevicePreviewProxy proxies /devices/preview requests to the device's agent
+// This allows the server UI to use the same "Refresh Details" button as the agent UI
+func handleDevicePreviewProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body to get device serial/IP
+	var req struct {
+		Serial string `json:"serial"`
+		IP     string `json:"ip"`
+	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Look up device to find the agent
+	ctx := context.Background()
+	device, err := serverStore.GetDevice(ctx, req.Serial)
+	if err != nil || device == nil {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	if device.AgentID == "" {
+		http.Error(w, "Device has no associated agent", http.StatusBadRequest)
+		return
+	}
+
+	if !isAgentConnectedWS(device.AgentID) {
+		http.Error(w, "Device's agent not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Proxy to agent's /devices/preview endpoint
+	agentURL := "http://localhost:8080/devices/preview"
+	
+	// Reconstruct the request with body
+	proxyReq, _ := http.NewRequest(http.MethodPost, agentURL, bytes.NewReader(bodyBytes))
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	// Use the WebSocket proxy infrastructure
+	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
+}
+
+// handleDeviceMetricsCollectProxy proxies /devices/metrics/collect requests to the device's agent
+// This allows the server UI to use the same "Collect Metrics" button as the agent UI
+func handleDeviceMetricsCollectProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body to get device serial/IP
+	var req struct {
+		Serial string `json:"serial"`
+		IP     string `json:"ip"`
+	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Look up device to find the agent
+	ctx := context.Background()
+	device, err := serverStore.GetDevice(ctx, req.Serial)
+	if err != nil || device == nil {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	if device.AgentID == "" {
+		http.Error(w, "Device has no associated agent", http.StatusBadRequest)
+		return
+	}
+
+	if !isAgentConnectedWS(device.AgentID) {
+		http.Error(w, "Device's agent not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Proxy to agent's /devices/metrics/collect endpoint
+	agentURL := "http://localhost:8080/devices/metrics/collect"
+
+	// Use the WebSocket proxy infrastructure
+	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
+}
+
 // Devices batch upload - agent sends discovered devices
 func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -4808,8 +4912,54 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		devices = fDevices
 	}
 
+	// Enrich devices with latest metrics (toner levels, page counts)
+	enriched := enrichDevicesWithMetrics(ctx, devices)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(devices)
+	json.NewEncoder(w).Encode(enriched)
+}
+
+// enrichDevicesWithMetrics adds latest toner levels and page counts to devices
+func enrichDevicesWithMetrics(ctx context.Context, devices []*storage.Device) []*storage.DeviceWithMetrics {
+	if len(devices) == 0 {
+		return []*storage.DeviceWithMetrics{}
+	}
+
+	// Collect all serials
+	serials := make([]string, 0, len(devices))
+	for _, d := range devices {
+		if d != nil && d.Serial != "" {
+			serials = append(serials, d.Serial)
+		}
+	}
+
+	// Batch fetch latest metrics
+	metricsMap, err := serverStore.GetLatestMetricsBatch(ctx, serials)
+	if err != nil {
+		logError("Failed to fetch latest metrics for devices", "error", err)
+		// Continue without metrics rather than failing
+		metricsMap = make(map[string]*storage.MetricsSnapshot)
+	}
+
+	// Build enriched list
+	result := make([]*storage.DeviceWithMetrics, 0, len(devices))
+	for _, d := range devices {
+		if d == nil {
+			continue
+		}
+		enriched := &storage.DeviceWithMetrics{Device: *d}
+		if m, ok := metricsMap[d.Serial]; ok && m != nil {
+			enriched.TonerLevels = m.TonerLevels
+			enriched.PageCount = m.PageCount
+			enriched.ColorPages = m.ColorPages
+			enriched.MonoPages = m.MonoPages
+			enriched.ScanCount = m.ScanCount
+			enriched.LastMetricsAt = &m.Timestamp
+		}
+		result = append(result, enriched)
+	}
+
+	return result
 }
 
 // handleMetricsSummary returns a lightweight metrics summary for the UI

@@ -192,7 +192,8 @@
         const out = {};
         try {
             // If object already has explicit structured toners, use it
-            const explicit = p && (p.toners || p.toner);
+            // Check toner_levels (server enriched), toners, and toner
+            const explicit = p && (p.toner_levels || p.toners || p.toner);
             if (explicit && Object.keys(explicit).length > 0) {
                 // Copy through
                 Object.entries(explicit).forEach(([k, v]) => { out[k] = v; });
@@ -200,7 +201,7 @@
             }
 
             // If latest metrics snapshot contains structured toners, prefer that
-            const latestStructured = latest && (latest.toners || latest.toner) ? (latest.toners || latest.toner) : null;
+            const latestStructured = latest && (latest.toner_levels || latest.toners || latest.toner) ? (latest.toner_levels || latest.toners || latest.toner) : null;
             if (latestStructured && Object.keys(latestStructured).length > 0) {
                 Object.entries(latestStructured).forEach(([k, v]) => { out[k] = v; });
                 return out;

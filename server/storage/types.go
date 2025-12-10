@@ -252,6 +252,17 @@ type Device struct {
 	AgentID string `json:"agent_id"` // Which agent discovered this (server-specific field)
 }
 
+// DeviceWithMetrics extends Device with latest toner/consumable data for UI display
+type DeviceWithMetrics struct {
+	Device
+	TonerLevels    map[string]interface{} `json:"toner_levels,omitempty"`
+	PageCount      int                    `json:"page_count,omitempty"`
+	ColorPages     int                    `json:"color_pages,omitempty"`
+	MonoPages      int                    `json:"mono_pages,omitempty"`
+	ScanCount      int                    `json:"scan_count,omitempty"`
+	LastMetricsAt  *time.Time             `json:"last_metrics_at,omitempty"`
+}
+
 // MetricsSnapshot represents a point-in-time snapshot of device metrics (base struct)
 type MetricsSnapshot struct {
 	ID          int64                  `json:"id"`
@@ -630,6 +641,7 @@ type Store interface {
 	// Metrics
 	SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) error
 	GetLatestMetrics(ctx context.Context, serial string) (*MetricsSnapshot, error)
+	GetLatestMetricsBatch(ctx context.Context, serials []string) (map[string]*MetricsSnapshot, error)
 	GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error)
 	GetAggregatedMetrics(ctx context.Context, since time.Time, tenantIDs []string) (*AggregatedMetrics, error)
 	GetDatabaseStats(ctx context.Context) (*DatabaseStats, error)
