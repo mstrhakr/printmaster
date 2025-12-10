@@ -73,6 +73,11 @@ type Dialect interface {
 
 	// IntegerType returns the appropriate integer type.
 	IntegerType(big bool) string
+
+	// BoolValue returns the SQL literal for a boolean value.
+	// SQLite: "0" or "1"
+	// PostgreSQL: "FALSE" or "TRUE"
+	BoolValue(b bool) string
 }
 
 // SQLiteDialect implements Dialect for SQLite.
@@ -146,6 +151,13 @@ func (d *SQLiteDialect) TextType() string {
 
 func (d *SQLiteDialect) IntegerType(big bool) string {
 	return "INTEGER"
+}
+
+func (d *SQLiteDialect) BoolValue(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 // PostgresDialect implements Dialect for PostgreSQL.
@@ -224,6 +236,13 @@ func (d *PostgresDialect) IntegerType(big bool) string {
 		return "BIGINT"
 	}
 	return "INTEGER"
+}
+
+func (d *PostgresDialect) BoolValue(b bool) string {
+	if b {
+		return "TRUE"
+	}
+	return "FALSE"
 }
 
 // ConvertPlaceholders converts SQLite-style ? placeholders to PostgreSQL-style $n placeholders.

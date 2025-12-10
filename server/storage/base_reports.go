@@ -779,7 +779,8 @@ func getBuiltInReportDefs() []builtInReportDef {
 func (s *BaseStore) SeedBuiltInReports(ctx context.Context) error {
 	// Check if already seeded
 	var count int
-	err := s.queryRowContext(ctx, `SELECT COUNT(*) FROM reports WHERE is_built_in = 1`).Scan(&count)
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM reports WHERE is_built_in = %s`, s.dialect.BoolValue(true))
+	err := s.queryRowContext(ctx, query).Scan(&count)
 	if err != nil {
 		return fmt.Errorf("check built-in reports: %w", err)
 	}

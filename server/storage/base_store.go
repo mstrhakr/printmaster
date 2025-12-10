@@ -1624,11 +1624,12 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 	now := time.Now().UTC()
 
 	// First, try to find a valid (non-revoked, non-expired) token
-	rows, err := s.queryContext(ctx, `
+	query := fmt.Sprintf(`
 		SELECT id, token_hash, tenant_id, expires_at, one_time, created_at
 		FROM join_tokens
-		WHERE revoked = FALSE AND expires_at > ?
-	`, now)
+		WHERE revoked = %s AND expires_at > ?
+	`, s.dialect.BoolValue(false))
+	rows, err := s.queryContext(ctx, query, now)
 	if err != nil {
 		logWarn("ValidateJoinToken: query failed", "error", err)
 		return nil, err
@@ -1659,7 +1660,8 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 			logInfo("ValidateJoinToken: token matched", "token_id", id, "tenant_id", tenantID, "one_time", intToBool(oneTimeInt))
 			// If one-time token, mark as used (revoked)
 			if intToBool(oneTimeInt) {
-				if _, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = TRUE, used_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
+				markUsedQuery := fmt.Sprintf(`UPDATE join_tokens SET revoked = %s, used_at = ? WHERE id = ?`, s.dialect.BoolValue(true))
+				if _, err := s.execContext(ctx, markUsedQuery, time.Now().UTC(), id); err != nil {
 					logWarn("ValidateJoinToken: failed to mark token as used", "token_id", id, "error", err)
 				}
 				logInfo("ValidateJoinToken: marked one-time token as used", "token_id", id)
@@ -1680,11 +1682,12 @@ func (s *BaseStore) ValidateJoinToken(ctx context.Context, rawToken string) (*Jo
 
 	// No valid token found - now check if the token matches any expired or revoked tokens
 	// This allows us to distinguish between "expired but known" vs "completely unknown"
-	expiredRows, err := s.queryContext(ctx, `
+	expiredQuery := fmt.Sprintf(`
 		SELECT id, token_hash, tenant_id, expires_at, revoked
 		FROM join_tokens
-		WHERE revoked = TRUE OR expires_at <= ?
-	`, now)
+		WHERE revoked = %s OR expires_at <= ?
+	`, s.dialect.BoolValue(true))
+	expiredRows, err := s.queryContext(ctx, expiredQuery, now)
 	if err != nil {
 		logWarn("ValidateJoinToken: expired token query failed", "error", err)
 		return nil, &TokenValidationError{Err: ErrTokenInvalid}
@@ -1751,7 +1754,8 @@ func (s *BaseStore) ListJoinTokens(ctx context.Context, tenantID string) ([]*Joi
 
 // RevokeJoinToken marks a join token as revoked
 func (s *BaseStore) RevokeJoinToken(ctx context.Context, id string) error {
-	_, err := s.execContext(ctx, `UPDATE join_tokens SET revoked = TRUE WHERE id = ?`, id)
+	query := fmt.Sprintf(`UPDATE join_tokens SET revoked = %s WHERE id = ?`, s.dialect.BoolValue(true))
+	_, err := s.execContext(ctx, query, id)
 	return err
 }
 
@@ -1953,7 +1957,8 @@ func (s *BaseStore) CreatePasswordResetToken(ctx context.Context, userID int64, 
 
 // ValidatePasswordResetToken verifies the token and marks it used; returns userID
 func (s *BaseStore) ValidatePasswordResetToken(ctx context.Context, token string) (int64, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id, token_hash, user_id, expires_at, used FROM password_resets WHERE used = 0 AND expires_at > ?", time.Now().UTC())
+	query := fmt.Sprintf("SELECT id, token_hash, user_id, expires_at, used FROM password_resets WHERE used = %s AND expires_at > ?", s.dialect.BoolValue(false))
+	rows, err := s.queryContext(ctx, query, time.Now().UTC())
 	if err != nil {
 		return 0, err
 	}
@@ -1988,7 +1993,8 @@ func (s *BaseStore) ValidatePasswordResetToken(ctx context.Context, token string
 	}
 
 	// Now safe to UPDATE since rows are closed
-	if _, err := s.execContext(ctx, `UPDATE password_resets SET used = 1 WHERE id = ?`, foundMatch.id); err != nil {
+	updateQuery := fmt.Sprintf("UPDATE password_resets SET used = %s WHERE id = ?", s.dialect.BoolValue(true))
+	if _, err := s.execContext(ctx, updateQuery, foundMatch.id); err != nil {
 		return 0, err
 	}
 	return foundMatch.userID, nil
@@ -2069,11 +2075,12 @@ func (s *BaseStore) CreateUserInvitation(ctx context.Context, inv *UserInvitatio
 
 // GetUserInvitation validates token and returns the invitation if valid and unused
 func (s *BaseStore) GetUserInvitation(ctx context.Context, token string) (*UserInvitation, error) {
-	rows, err := s.queryContext(ctx, `
+	query := fmt.Sprintf(`
 		SELECT id, email, username, role, tenant_id, token_hash, expires_at, used, created_at, created_by
 		FROM user_invitations
-		WHERE used = 0 AND expires_at > ?
-	`, time.Now().UTC())
+		WHERE used = %s AND expires_at > ?
+	`, s.dialect.BoolValue(false))
+	rows, err := s.queryContext(ctx, query, time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -2105,7 +2112,8 @@ func (s *BaseStore) GetUserInvitation(ctx context.Context, token string) (*UserI
 
 // MarkInvitationUsed marks an invitation as used
 func (s *BaseStore) MarkInvitationUsed(ctx context.Context, id int64) error {
-	_, err := s.execContext(ctx, `UPDATE user_invitations SET used = 1 WHERE id = ?`, id)
+	query := fmt.Sprintf("UPDATE user_invitations SET used = %s WHERE id = ?", s.dialect.BoolValue(true))
+	_, err := s.execContext(ctx, query, id)
 	return err
 }
 
@@ -3194,12 +3202,7 @@ func (s *BaseStore) GetSigningKey(ctx context.Context, id string) (*SigningKey, 
 
 // GetActiveSigningKey retrieves the currently active signing key
 func (s *BaseStore) GetActiveSigningKey(ctx context.Context) (*SigningKey, error) {
-	var query string
-	if s.dialect.Name() == "postgres" {
-		query = `SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at FROM signing_keys WHERE active = TRUE LIMIT 1`
-	} else {
-		query = `SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at FROM signing_keys WHERE active = 1 LIMIT 1`
-	}
+	query := fmt.Sprintf(`SELECT id, algorithm, public_key, private_key, notes, active, created_at, rotated_at FROM signing_keys WHERE active = %s LIMIT 1`, s.dialect.BoolValue(true))
 	row := s.queryRowContext(ctx, query)
 	return s.scanSigningKey(row)
 }
@@ -3247,23 +3250,13 @@ func (s *BaseStore) SetSigningKeyActive(ctx context.Context, id string) error {
 	defer tx.Rollback()
 
 	// Deactivate other keys
-	var deactivateQuery string
-	if s.dialect.Name() == "postgres" {
-		deactivateQuery = s.query(`UPDATE signing_keys SET active = FALSE, rotated_at = CASE WHEN rotated_at IS NULL THEN ? ELSE rotated_at END WHERE active = TRUE AND id != ?`)
-	} else {
-		deactivateQuery = s.query(`UPDATE signing_keys SET active = 0, rotated_at = CASE WHEN rotated_at IS NULL THEN ? ELSE rotated_at END WHERE active = 1 AND id != ?`)
-	}
+	deactivateQuery := s.query(fmt.Sprintf(`UPDATE signing_keys SET active = %s, rotated_at = CASE WHEN rotated_at IS NULL THEN ? ELSE rotated_at END WHERE active = %s AND id != ?`, s.dialect.BoolValue(false), s.dialect.BoolValue(true)))
 	if _, err = tx.ExecContext(ctx, deactivateQuery, time.Now().UTC(), id); err != nil {
 		return err
 	}
 
 	// Activate target key
-	var activateQuery string
-	if s.dialect.Name() == "postgres" {
-		activateQuery = s.query(`UPDATE signing_keys SET active = TRUE, rotated_at = NULL WHERE id = ?`)
-	} else {
-		activateQuery = s.query(`UPDATE signing_keys SET active = 1, rotated_at = NULL WHERE id = ?`)
-	}
+	activateQuery := s.query(fmt.Sprintf(`UPDATE signing_keys SET active = %s, rotated_at = NULL WHERE id = ?`, s.dialect.BoolValue(true)))
 	result, err := tx.ExecContext(ctx, activateQuery, id)
 	if err != nil {
 		return err

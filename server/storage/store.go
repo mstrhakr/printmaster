@@ -37,8 +37,7 @@ func NewStore(cfg *config.DatabaseConfig) (Store, error) {
 		return NewSQLiteStore(path)
 
 	case "postgres", "postgresql":
-		// PostgreSQL support is in development - schema and methods are being ported
-		return nil, fmt.Errorf("PostgreSQL support is not yet complete; use sqlite for now")
+		return NewPostgresStore(cfg)
 
 	case "mysql", "mariadb":
 		return nil, fmt.Errorf("MySQL/MariaDB support is not yet implemented")
