@@ -381,14 +381,14 @@ function Push-Release {
             throw "Git push server version tag failed"
         }
     } elseif ($Component -eq 'agent') {
-        Write-Status "Pushing version tag: agent-v$Version" "INFO"
-        git push origin "agent-v$Version"
+        Write-Status "Pushing version tag: agent-v$finalVersion" "INFO"
+        git push origin "agent-v$finalVersion"
         if ($LASTEXITCODE -ne 0) {
             throw "Git push agent version tag failed"
         }
     } else {
-        Write-Status "Pushing version tag: server-v$Version" "INFO"
-        git push origin "server-v$Version"
+        Write-Status "Pushing version tag: server-v$finalVersion" "INFO"
+        git push origin "server-v$finalVersion"
         if ($LASTEXITCODE -ne 0) {
             throw "Git push server version tag failed"
         }
@@ -408,7 +408,7 @@ function Push-Release {
         $agentVer = if ($Component -eq 'both') {
             (Get-Content (Join-Path $ProjectRoot 'agent\VERSION') -Raw).Trim()
         } else {
-            $Version
+            $finalVersion
         }
         if ($agentVer -match '^(\d+)\.(\d+)\.(\d+)$') {
             $major = $Matches[1]
@@ -437,7 +437,7 @@ function Push-Release {
         $serverVer = if ($Component -eq 'both') {
             (Get-Content (Join-Path $ProjectRoot 'server\VERSION') -Raw).Trim()
         } else {
-            $Version
+            $finalVersion
         }
         if ($serverVer -match '^(\d+)\.(\d+)\.(\d+)$') {
             $major = $Matches[1]
