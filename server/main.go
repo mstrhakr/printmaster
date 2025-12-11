@@ -1647,6 +1647,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 	ses, err := createSessionCookie(w, r, user.ID)
 	if err != nil {
+		serverLogger.Error("Failed to create session cookie after login", "user_id", user.ID, "username", user.Username, "error", err)
 		http.Error(w, "failed to create session", http.StatusInternalServerError)
 		return
 	}
@@ -1816,6 +1817,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		users, err := serverStore.ListUsers(ctx)
 		if err != nil {
+			serverLogger.Error("Failed to list users", "error", err)
 			http.Error(w, "failed to list users", http.StatusInternalServerError)
 			return
 		}
@@ -1870,6 +1872,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 			u.TenantID = tenantIDs[0]
 		}
 		if err := serverStore.CreateUser(ctx, u, req.Password); err != nil {
+			serverLogger.Error("Failed to create user", "username", req.Username, "role", role, "error", err)
 			http.Error(w, fmt.Sprintf("failed to create user: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -2021,6 +2024,7 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := serverStore.DeleteUser(ctx, id); err != nil {
+			serverLogger.Error("Failed to delete user", "user_id", id, "username", u.Username, "error", err)
 			http.Error(w, "failed to delete user", http.StatusInternalServerError)
 			return
 		}
@@ -2086,6 +2090,7 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			u.Email = req.Email
 		}
 		if err := serverStore.UpdateUser(ctx, u); err != nil {
+			serverLogger.Error("Failed to update user", "user_id", id, "username", u.Username, "error", err)
 			http.Error(w, "failed to update user", http.StatusInternalServerError)
 			return
 		}
@@ -2118,6 +2123,7 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err := serverStore.UpdateUserPassword(ctx, id, req.Password); err != nil {
+				serverLogger.Error("Failed to update user password", "user_id", id, "error", err)
 				http.Error(w, "failed to update password", http.StatusInternalServerError)
 				return
 			}
@@ -2158,6 +2164,7 @@ func handleListSessions(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	sessions, err := serverStore.ListSessions(ctx)
 	if err != nil {
+		serverLogger.Error("Failed to list sessions", "error", err)
 		http.Error(w, "failed to list sessions", http.StatusInternalServerError)
 		return
 	}
@@ -2195,6 +2202,7 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := context.Background()
 	if err := serverStore.DeleteSessionByHash(ctx, key); err != nil {
+		serverLogger.Error("Failed to delete session", "key", key, "error", err)
 		http.Error(w, "failed to delete session", http.StatusInternalServerError)
 		return
 	}
@@ -2293,6 +2301,7 @@ func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 	clientIP := getRealIP(r)
 	if authRateLimiter != nil {
 		if isBlocked, _ := authRateLimiter.IsBlocked(clientIP, req.Email); isBlocked {
+			serverLogger.Warn("Password reset rate limited", "email", req.Email, "ip", clientIP)
 			http.Error(w, "Too many requests. Try again later.", http.StatusTooManyRequests)
 			return
 		}
@@ -2310,6 +2319,7 @@ func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := serverStore.CreatePasswordResetToken(ctx, u.ID, 60)
 	if err != nil {
+		serverLogger.Error("Failed to create password reset token", "user_id", u.ID, "email", req.Email, "error", err)
 		http.Error(w, "failed to create token", http.StatusInternalServerError)
 		return
 	}
@@ -2362,11 +2372,13 @@ func handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	userID, err := serverStore.ValidatePasswordResetToken(ctx, req.Token)
 	if err != nil {
+		serverLogger.Warn("Invalid or expired password reset token used", "error", err, "ip", extractClientIP(r))
 		http.Error(w, "invalid or expired token", http.StatusBadRequest)
 		return
 	}
 	userRecord, _ := serverStore.GetUserByID(ctx, userID)
 	if err := serverStore.UpdateUserPassword(ctx, userID, req.Password); err != nil {
+		serverLogger.Error("Failed to reset password", "user_id", userID, "error", err)
 		http.Error(w, "failed to reset password", http.StatusInternalServerError)
 		return
 	}
@@ -2446,6 +2458,7 @@ func handleUserInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := serverStore.CreateUserInvitation(ctx, inv, 48*60) // 48 hours
 	if err != nil {
+		serverLogger.Error("Failed to create user invitation", "email", req.Email, "role", req.Role, "error", err)
 		http.Error(w, "failed to create invitation", http.StatusInternalServerError)
 		return
 	}

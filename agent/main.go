@@ -4439,6 +4439,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 		ctx := context.Background()
 		pi, err := LiveDiscoveryDetect(ctx, targetIP, getSNMPTimeoutSeconds())
 		if err != nil {
+			appLogger.Error("Device refresh failed", "ip", targetIP, "error", err)
 			http.Error(w, "refresh failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -4543,6 +4544,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 
 		// Save updated device
 		if err := deviceStore.Update(ctx, device); err != nil {
+			appLogger.Error("Device update failed", "serial", device.Serial, "error", err)
 			http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -5564,6 +5566,7 @@ window.top.location.href = '/proxy/%s/';
 
 		ctx := context.Background()
 		if err := deviceStore.MarkSaved(ctx, req.Serial); err != nil {
+			appLogger.Error("Failed to save device", "serial", req.Serial, "error", err)
 			http.Error(w, "failed to save device: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -5586,6 +5589,7 @@ window.top.location.href = '/proxy/%s/';
 		ctx := context.Background()
 		count, err := deviceStore.MarkAllSaved(ctx)
 		if err != nil {
+			appLogger.Error("Failed to save all devices", "error", err)
 			http.Error(w, "failed to save all devices: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

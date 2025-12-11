@@ -66,6 +66,7 @@ func handleAuthOptions(w http.ResponseWriter, r *http.Request) {
 
 	providers, err := serverStore.ListOIDCProviders(ctx, tenantID)
 	if err != nil {
+		serverLogger.Error("Failed to load OIDC providers for login", "tenant_id", tenantID, "error", err)
 		http.Error(w, "failed to load providers", http.StatusInternalServerError)
 		return
 	}
@@ -141,6 +142,7 @@ func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
 		tenantID := strings.TrimSpace(r.URL.Query().Get("tenant"))
 		providers, err := serverStore.ListOIDCProviders(ctx, tenantID)
 		if err != nil {
+			serverLogger.Error("Failed to list OIDC providers", "tenant_id", tenantID, "error", err)
 			http.Error(w, "failed to list providers", http.StatusInternalServerError)
 			return
 		}
@@ -166,6 +168,7 @@ func handleOIDCProviders(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx := context.Background()
 		if err := serverStore.CreateOIDCProvider(ctx, provider); err != nil {
+			serverLogger.Error("Failed to create OIDC provider", "slug", provider.Slug, "issuer", provider.Issuer, "error", err)
 			http.Error(w, fmt.Sprintf("failed to create provider: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -213,6 +216,7 @@ func handleOIDCProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := serverStore.UpdateOIDCProvider(ctx, updated); err != nil {
+			serverLogger.Error("Failed to update OIDC provider", "slug", slug, "error", err)
 			http.Error(w, fmt.Sprintf("failed to update provider: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -223,6 +227,7 @@ func handleOIDCProvider(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := serverStore.DeleteOIDCProvider(ctx, slug); err != nil {
+			serverLogger.Error("Failed to delete OIDC provider", "slug", slug, "error", err)
 			http.Error(w, fmt.Sprintf("failed to delete provider: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -253,6 +258,7 @@ func handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		if effectiveTenant == "" {
 			effectiveTenant = provider.TenantID
 		} else if effectiveTenant != provider.TenantID {
+			serverLogger.Warn("OIDC tenant mismatch attempted", "slug", slug, "provider_tenant", provider.TenantID, "requested_tenant", effectiveTenant)
 			http.Error(w, "tenant mismatch", http.StatusForbidden)
 			return
 		}
@@ -261,17 +267,20 @@ func handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 	redirectURL := sanitizeRedirectTarget(r.URL.Query().Get("redirect"))
 	state, err := randomURLSafe(24)
 	if err != nil {
+		serverLogger.Error("Failed to generate OIDC state", "slug", slug, "error", err)
 		http.Error(w, "failed to create state", http.StatusInternalServerError)
 		return
 	}
 	nonce, err := randomURLSafe(24)
 	if err != nil {
+		serverLogger.Error("Failed to generate OIDC nonce", "slug", slug, "error", err)
 		http.Error(w, "failed to create nonce", http.StatusInternalServerError)
 		return
 	}
 
 	op, err := cachedOIDCProvider(ctx, provider.Issuer)
 	if err != nil {
+		serverLogger.Error("Failed to load OIDC issuer", "slug", slug, "issuer", provider.Issuer, "error", err)
 		http.Error(w, "failed to load issuer", http.StatusBadGateway)
 		return
 	}
@@ -288,6 +297,7 @@ func handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    time.Now().UTC(),
 	}
 	if err := serverStore.CreateOIDCSession(ctx, sess); err != nil {
+		serverLogger.Error("Failed to persist OIDC session state", "slug", slug, "error", err)
 		http.Error(w, "failed to persist state", http.StatusInternalServerError)
 		return
 	}

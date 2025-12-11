@@ -112,6 +112,7 @@ func handleReports(w http.ResponseWriter, r *http.Request) {
 
 		reports, err := serverStore.ListReports(ctx, filter)
 		if err != nil {
+			serverLogger.Error("Failed to list reports", "error", err)
 			http.Error(w, fmt.Sprintf("list reports: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -136,6 +137,7 @@ func handleReports(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := serverStore.CreateReport(ctx, &report); err != nil {
+			serverLogger.Error("Failed to create report", "name", report.Name, "type", report.Type, "error", err)
 			http.Error(w, fmt.Sprintf("create report: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -189,6 +191,7 @@ func handleReport(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		report, err := serverStore.GetReport(ctx, id)
 		if err != nil {
+			serverLogger.Error("Failed to get report", "report_id", id, "error", err)
 			http.Error(w, fmt.Sprintf("get report: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -209,6 +212,7 @@ func handleReport(w http.ResponseWriter, r *http.Request) {
 		report.ID = id
 
 		if err := serverStore.UpdateReport(ctx, &report); err != nil {
+			serverLogger.Error("Failed to update report", "report_id", report.ID, "error", err)
 			http.Error(w, fmt.Sprintf("update report: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -218,6 +222,7 @@ func handleReport(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		if err := serverStore.DeleteReport(ctx, id); err != nil {
+			serverLogger.Error("Failed to delete report", "report_id", id, "error", err)
 			http.Error(w, fmt.Sprintf("delete report: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -249,6 +254,7 @@ func handleReportRun(w http.ResponseWriter, r *http.Request, reportID int64) {
 
 	run, err := scheduler.RunNow(ctx, reportID, username)
 	if err != nil {
+		serverLogger.Error("Report run failed", "report_id", reportID, "username", username, "error", err)
 		http.Error(w, fmt.Sprintf("run report: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -282,6 +288,7 @@ func handleReportRuns(w http.ResponseWriter, r *http.Request, reportID int64) {
 
 	runs, err := serverStore.ListReportRuns(ctx, filter)
 	if err != nil {
+		serverLogger.Error("Failed to list report runs", "report_id", reportID, "error", err)
 		http.Error(w, fmt.Sprintf("list runs: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -322,6 +329,7 @@ func handleReportRunsCollection(w http.ResponseWriter, r *http.Request) {
 
 	runs, err := serverStore.ListReportRuns(ctx, filter)
 	if err != nil {
+		serverLogger.Error("Failed to list all report runs", "error", err)
 		http.Error(w, fmt.Sprintf("list runs: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -341,6 +349,7 @@ func handleReportSchedules(w http.ResponseWriter, r *http.Request, reportID int6
 	case http.MethodGet:
 		schedules, err := serverStore.ListReportSchedules(ctx, reportID)
 		if err != nil {
+			serverLogger.Error("Failed to list report schedules", "report_id", reportID, "error", err)
 			http.Error(w, fmt.Sprintf("list schedules: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -365,6 +374,7 @@ func handleReportSchedules(w http.ResponseWriter, r *http.Request, reportID int6
 		}
 
 		if err := serverStore.CreateReportSchedule(ctx, &schedule); err != nil {
+			serverLogger.Error("Failed to create report schedule", "report_id", reportID, "error", err)
 			http.Error(w, fmt.Sprintf("create schedule: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -390,6 +400,7 @@ func handleReportSchedulesCollection(w http.ResponseWriter, r *http.Request) {
 	// List all schedules (no report filter)
 	schedules, err := serverStore.ListReportSchedules(ctx, 0)
 	if err != nil {
+		serverLogger.Error("Failed to list all report schedules", "error", err)
 		http.Error(w, fmt.Sprintf("list schedules: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -417,6 +428,7 @@ func handleSchedule(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		schedule, err := serverStore.GetReportSchedule(ctx, id)
 		if err != nil {
+			serverLogger.Error("Failed to get report schedule", "schedule_id", id, "error", err)
 			http.Error(w, fmt.Sprintf("get schedule: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -442,6 +454,7 @@ func handleSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if err := serverStore.UpdateReportSchedule(ctx, &schedule); err != nil {
+			serverLogger.Error("Failed to update report schedule", "schedule_id", id, "error", err)
 			http.Error(w, fmt.Sprintf("update schedule: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -451,6 +464,7 @@ func handleSchedule(w http.ResponseWriter, r *http.Request) {
 
 	case http.MethodDelete:
 		if err := serverStore.DeleteReportSchedule(ctx, id); err != nil {
+			serverLogger.Error("Failed to delete report schedule", "schedule_id", id, "error", err)
 			http.Error(w, fmt.Sprintf("delete schedule: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -487,6 +501,7 @@ func handleReportRunResult(w http.ResponseWriter, r *http.Request) {
 
 	run, err := serverStore.GetReportRun(ctx, id)
 	if err != nil {
+		serverLogger.Error("Failed to get report run", "run_id", id, "error", err)
 		http.Error(w, fmt.Sprintf("get run: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -553,6 +568,7 @@ func handleReportSummary(w http.ResponseWriter, r *http.Request) {
 
 	summary, err := serverStore.GetReportSummary(ctx)
 	if err != nil {
+		serverLogger.Error("Failed to get report summary", "error", err)
 		http.Error(w, fmt.Sprintf("get summary: %v", err), http.StatusInternalServerError)
 		return
 	}

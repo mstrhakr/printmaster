@@ -13143,7 +13143,7 @@ function updateTimeFilter(index) {
     const channelSaveBtn = document.getElementById('channel_save');
     if (channelSaveBtn) channelSaveBtn.addEventListener('click', saveNotificationChannel);
     const channelTypeSelect = document.getElementById('channel_type');
-    if (channelTypeSelect) channelTypeSelect.addEventListener('change', updateChannelConfigPlaceholder);
+    if (channelTypeSelect) channelTypeSelect.addEventListener('change', updateChannelConfigSection);
     
     // Escalation Policy Modal
     wireModalClose('escalation_policy_modal', 'escalation_policy_modal_close_x', 'escalation_cancel');
