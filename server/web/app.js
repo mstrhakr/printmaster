@@ -8538,7 +8538,7 @@ function renderDeviceTable(devices) {
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
     if (!devices || devices.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="muted-text">No devices match the current filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="muted-text">No devices match the current filters.</td></tr>';
         return;
     }
     const rows = devices.map(device => {
@@ -8552,7 +8552,9 @@ function renderDeviceTable(devices) {
                 </td>
                 <td>
                     ${renderDeviceStatusBadge(meta.status)}
-                    ${meta.tonerData && meta.tonerData.length > 0 ? `<div style="margin-top:6px;">${renderTonerBars(meta.tonerData)}</div>` : ''}
+                </td>
+                <td>
+                    ${meta.tonerData && meta.tonerData.length > 0 ? renderTonerBars(meta.tonerData) : '<span class="muted-text">—</span>'}
                 </td>
                 <td>${escapeHtml(meta.agentName || 'Unassigned')}</td>
                 <td>${escapeHtml(tenantLabel)}</td>
