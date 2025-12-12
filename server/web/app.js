@@ -12590,53 +12590,9 @@ window.addEventListener('click', (event) => {
     }
 });
 
-// Delegated click handler for data-action buttons (agent/device cards, modals, tables)
-document.addEventListener('click', (event) => {
-    const btn = event.target.closest('[data-action]');
-    if (!btn || btn.disabled) return;
-    
-    const action = btn.getAttribute('data-action');
-    const agentId = btn.getAttribute('data-agent-id');
-    const serial = btn.getAttribute('data-serial');
-    const agentName = btn.getAttribute('data-agent-name');
-    
-    switch (action) {
-        case 'open-agent':
-            if (agentId && typeof openAgentUI === 'function') {
-                openAgentUI(agentId);
-            }
-            break;
-        case 'open-device':
-            if (serial && typeof openDeviceUI === 'function') {
-                openDeviceUI(serial);
-            }
-            break;
-        case 'view-agent':
-            if (agentId && typeof viewAgentDetails === 'function') {
-                viewAgentDetails(agentId);
-            }
-            break;
-        case 'view-metrics':
-            if (serial && typeof openDeviceMetrics === 'function') {
-                openDeviceMetrics(serial);
-            }
-            break;
-        case 'delete-agent':
-            if (agentId && typeof deleteAgent === 'function') {
-                deleteAgent(agentId, agentName || agentId);
-            }
-            break;
-        case 'show-printer-details':
-            const ip = btn.getAttribute('data-ip');
-            const source = btn.getAttribute('data-source');
-            if (typeof showPrinterDetails === 'function') {
-                showPrinterDetails(ip || serial, source);
-            }
-            break;
-        default:
-            window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('Unknown action:', action);
-    }
-});
+// NOTE: Delegated click handler for data-action buttons is in common/web/cards.js
+// That handler calls window.__pm_shared.* functions which are exported below.
+// Do NOT add a duplicate handler here - it causes actions to fire twice.
 
 // Toggle visibility of advanced settings controls
 function toggleAdvancedSettings() {
