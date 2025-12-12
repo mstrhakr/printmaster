@@ -540,32 +540,34 @@ func (s *BaseStore) DeleteReportRun(ctx context.Context, id int64) error {
 // ListReportRuns lists runs matching the filter.
 func (s *BaseStore) ListReportRuns(ctx context.Context, filter ReportRunFilter) ([]*ReportRun, error) {
 	query := `
-		SELECT id, report_id, schedule_id, status, format,
-			started_at, completed_at, duration_ms,
-			parameters_json, row_count, result_size_bytes, result_path, result_data,
-			error_message, run_by, created_at
-		FROM report_runs WHERE 1=1
+		SELECT rr.id, rr.report_id, r.name, r.type, rr.schedule_id, rr.status, rr.format,
+			rr.started_at, rr.completed_at, rr.duration_ms,
+			rr.parameters_json, rr.row_count, rr.result_size_bytes, rr.result_path, rr.result_data,
+			rr.error_message, rr.run_by, rr.created_at
+		FROM report_runs rr
+		LEFT JOIN reports r ON rr.report_id = r.id
+		WHERE 1=1
 	`
 	var args []interface{}
 
 	if filter.ReportID > 0 {
-		query += " AND report_id = ?"
+		query += " AND rr.report_id = ?"
 		args = append(args, filter.ReportID)
 	}
 	if filter.ScheduleID != nil {
-		query += " AND schedule_id = ?"
+		query += " AND rr.schedule_id = ?"
 		args = append(args, *filter.ScheduleID)
 	}
 	if filter.Status != "" {
-		query += " AND status = ?"
+		query += " AND rr.status = ?"
 		args = append(args, filter.Status)
 	}
 	if filter.Since != nil && !filter.Since.IsZero() {
-		query += " AND started_at >= ?"
+		query += " AND rr.started_at >= ?"
 		args = append(args, *filter.Since)
 	}
 
-	query += " ORDER BY started_at DESC"
+	query += " ORDER BY rr.started_at DESC"
 	if filter.Limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", filter.Limit)
 		if filter.Offset > 0 {
@@ -630,13 +632,14 @@ func (s *BaseStore) scanRun(row *sql.Row) (*ReportRun, error) {
 
 func (s *BaseStore) scanRunRow(rows *sql.Rows) (*ReportRun, error) {
 	var run ReportRun
+	var reportName, reportType sql.NullString
 	var scheduleID sql.NullInt64
 	var completedAt sql.NullTime
 	var durationMS, rowCount, resultSize sql.NullInt64
 	var parametersJSON, resultPath, resultData, errorMessage, runBy sql.NullString
 
 	err := rows.Scan(
-		&run.ID, &run.ReportID, &scheduleID, &run.Status, &run.Format,
+		&run.ID, &run.ReportID, &reportName, &reportType, &scheduleID, &run.Status, &run.Format,
 		&run.StartedAt, &completedAt, &durationMS,
 		&parametersJSON, &rowCount, &resultSize, &resultPath, &resultData,
 		&errorMessage, &runBy, &run.CreatedAt,
@@ -645,6 +648,8 @@ func (s *BaseStore) scanRunRow(rows *sql.Rows) (*ReportRun, error) {
 		return nil, fmt.Errorf("scan run row: %w", err)
 	}
 
+	run.ReportName = reportName.String
+	run.ReportType = reportType.String
 	if scheduleID.Valid {
 		run.ScheduleID = &scheduleID.Int64
 	}

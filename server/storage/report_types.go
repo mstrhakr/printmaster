@@ -192,6 +192,8 @@ const (
 type ReportRun struct {
 	ID              int64      `json:"id"`
 	ReportID        int64      `json:"report_id"`
+	ReportName      string     `json:"report_name,omitempty"`
+	ReportType      string     `json:"report_type,omitempty"`
 	ScheduleID      *int64     `json:"schedule_id,omitempty"`
 	Status          string     `json:"status"`
 	Format          string     `json:"format"`
