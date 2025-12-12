@@ -1554,6 +1554,32 @@ async function loadRecentReports() {
     const container = document.getElementById('recent_reports_list');
     if (!container) return;
     
+    // Map report type codes to display names
+    const typeDisplayNames = {
+        'device_inventory': 'Device Inventory',
+        'agent_inventory': 'Agent Inventory',
+        'site_inventory': 'Site Inventory',
+        'usage_summary': 'Usage Summary',
+        'usage_by_device': 'Usage By Device',
+        'usage_by_agent': 'Usage By Agent',
+        'usage_by_site': 'Usage By Site',
+        'usage_trends': 'Usage Trends',
+        'supplies_status': 'Supplies Status',
+        'supplies_low': 'Supplies Low',
+        'supplies_critical': 'Supplies Critical',
+        'alert_summary': 'Alert Summary',
+        'alert_history': 'Alert History',
+        'agent_status': 'Agent Status',
+        'agent_health': 'Agent Health',
+        'fleet_health': 'Fleet Health',
+        'health_summary': 'Health Summary',
+        'top_printers': 'Top Printers',
+        'offline_devices': 'Offline Devices',
+        'error_devices': 'Error Devices',
+        'cost_analysis': 'Cost Analysis',
+        'custom': 'Custom'
+    };
+    
     try {
         const resp = await fetch('/api/v1/report-runs?limit=10');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -1575,10 +1601,13 @@ async function loadRecentReports() {
                         </tr>
                     </thead>
                     <tbody>
-                        ${runs.map(run => `
+                        ${runs.map(run => {
+                            const typeCode = run.report_type || 'unknown';
+                            const typeDisplay = typeDisplayNames[typeCode] || typeCode;
+                            return `
                             <tr>
                                 <td>${escapeHtml(run.report_name || 'Report #' + run.report_id)}</td>
-                                <td><span class="badge">${run.report_type || 'unknown'}</span></td>
+                                <td><span class="badge">${typeDisplay}</span></td>
                                 <td><span class="badge badge-${run.status === 'completed' ? 'success' : run.status === 'failed' ? 'danger' : 'warning'}">${run.status}</span></td>
                                 <td>${new Date(run.started_at).toLocaleString()}</td>
                                 <td>
@@ -1588,7 +1617,7 @@ async function loadRecentReports() {
                                     ` : ''}
                                 </td>
                             </tr>
-                        `).join('')}
+                        `}).join('')}
                     </tbody>
                 </table>
             `;
@@ -1605,7 +1634,8 @@ async function downloadReportRun(runId, format) {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const run = await resp.json();
         
-        if (!run.result) {
+        // Check for result_data (JSON field name from API)
+        if (!run.result_data) {
             window.__pm_shared.showToast('Report data not available', 'error');
             return;
         }
@@ -1613,7 +1643,7 @@ async function downloadReportRun(runId, format) {
         let content, filename, mimeType;
         if (format === 'csv') {
             // Convert result to CSV
-            const result = typeof run.result === 'string' ? JSON.parse(run.result) : run.result;
+            const result = typeof run.result_data === 'string' ? JSON.parse(run.result_data) : run.result_data;
             if (result.rows && result.columns) {
                 const header = result.columns.join(',');
                 const rows = result.rows.map(row => result.columns.map(col => {
@@ -1629,7 +1659,7 @@ async function downloadReportRun(runId, format) {
             filename = `report-${runId}.csv`;
             mimeType = 'text/csv';
         } else {
-            content = typeof run.result === 'string' ? run.result : JSON.stringify(run.result, null, 2);
+            content = typeof run.result_data === 'string' ? run.result_data : JSON.stringify(run.result_data, null, 2);
             filename = `report-${runId}.json`;
             mimeType = 'application/json';
         }
