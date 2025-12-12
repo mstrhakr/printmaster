@@ -1652,12 +1652,12 @@ async function downloadReportRun(runId, format) {
 }
 
 async function generateReport(type) {
-    // Map UI type to API report type
+    // Map UI type to API report type (must use underscore format to match backend constants)
     const typeMap = {
-        'fleet': 'inventory.devices',
-        'usage': 'usage.summary',
-        'supply': 'supplies.status',
-        'alert': 'alerts.summary'
+        'fleet': 'device_inventory',
+        'usage': 'usage_summary',
+        'supply': 'supplies_status',
+        'alert': 'alert_summary'
     };
     const reportType = typeMap[type] || type;
     
@@ -2849,7 +2849,7 @@ function showScheduledReportModal(existingSchedule = null) {
     const enabledCheck = form.querySelector('#schedule_enabled');
     
     if (nameInput) nameInput.value = existingSchedule?.name || '';
-    if (typeSelect) typeSelect.value = existingSchedule?.report_type || 'inventory.devices';
+    if (typeSelect) typeSelect.value = existingSchedule?.report_type || 'device_inventory';
     if (formatSelect) formatSelect.value = existingSchedule?.output_format || 'csv';
     if (frequencySelect) frequencySelect.value = existingSchedule?.frequency || 'weekly';
     if (emailInput) emailInput.value = existingSchedule?.delivery_email || '';
@@ -2872,7 +2872,7 @@ async function saveScheduledReport() {
     
     const payload = {
         name: form.querySelector('#schedule_name')?.value || '',
-        report_type: form.querySelector('#schedule_report_type')?.value || 'inventory.devices',
+        report_type: form.querySelector('#schedule_report_type')?.value || 'device_inventory',
         output_format: form.querySelector('#schedule_format')?.value || 'csv',
         frequency: form.querySelector('#schedule_frequency')?.value || 'weekly',
         delivery_email: form.querySelector('#schedule_email')?.value || '',

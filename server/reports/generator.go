@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"printmaster/server/storage"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -61,7 +62,11 @@ type GenerateParams struct {
 func (g *Generator) Generate(ctx context.Context, params GenerateParams) (*GenerateResult, error) {
 	report := params.Report
 
-	switch report.Type {
+	// Normalize report type: convert dots to underscores for backwards compatibility
+	// (e.g., "usage.summary" -> "usage_summary")
+	reportType := strings.ReplaceAll(report.Type, ".", "_")
+
+	switch reportType {
 	// Inventory reports
 	case storage.ReportTypeDeviceInventory:
 		return g.generateDeviceInventory(ctx, params)
