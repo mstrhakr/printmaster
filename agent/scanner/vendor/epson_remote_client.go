@@ -41,20 +41,29 @@ func (c *EpsonRemoteClient) GetStatus(ctx context.Context) (*ST2Status, error) {
 	// Build the status command OID
 	oid, err := BuildEpsonRemoteOID(EpsonRemoteStatusCommand, nil)
 	if err != nil {
+		if logger.Global != nil {
+			logger.Global.Error("Epson remote: failed to build status OID", "error", err)
+		}
 		return nil, fmt.Errorf("failed to build status OID: %w", err)
 	}
 
 	if logger.Global != nil {
-		logger.Global.Debug("Epson remote: fetching status", "oid", oid)
+		logger.Global.TraceTag("epson_remote", "Epson remote: fetching status", "oid", oid)
 	}
 
 	// Execute SNMP GET
 	result, err := c.client.Get([]string{oid})
 	if err != nil {
+		if logger.Global != nil {
+			logger.Global.Warn("Epson remote: SNMP GET failed", "oid", oid, "error", err)
+		}
 		return nil, fmt.Errorf("SNMP GET failed: %w", err)
 	}
 
 	if result == nil || len(result.Variables) == 0 {
+		if logger.Global != nil {
+			logger.Global.Warn("Epson remote: no response from status command", "oid", oid)
+		}
 		return nil, fmt.Errorf("no response from status command")
 	}
 
@@ -68,10 +77,16 @@ func (c *EpsonRemoteClient) GetStatus(ctx context.Context) (*ST2Status, error) {
 	case string:
 		data = []byte(v)
 	default:
+		if logger.Global != nil {
+			logger.Global.Warn("Epson remote: unexpected status response type", "type", fmt.Sprintf("%T", pdu.Value))
+		}
 		return nil, fmt.Errorf("unexpected response type: %T", pdu.Value)
 	}
 
 	if len(data) == 0 {
+		if logger.Global != nil {
+			logger.Global.Warn("Epson remote: empty response from status command", "oid", oid)
+		}
 		return nil, fmt.Errorf("empty response from status command")
 	}
 
@@ -79,7 +94,8 @@ func (c *EpsonRemoteClient) GetStatus(ctx context.Context) (*ST2Status, error) {
 	status, err := ParseST2Response(data)
 	if err != nil {
 		if logger.Global != nil {
-			logger.Global.Debug("Epson remote: ST2 parse failed", "error", err, "data_len", len(data))
+			logger.Global.Warn("Epson remote: ST2 parse failed", "error", err, "data_len", len(data))
+			logger.Global.TraceTag("epson_remote", "Epson remote: ST2 raw preview", "prefix_hex", fmt.Sprintf("% x", data[:min(len(data), 32)]))
 		}
 		return nil, fmt.Errorf("failed to parse ST2 response: %w", err)
 	}
@@ -183,7 +199,7 @@ func FetchEpsonRemoteMetrics(ctx context.Context, client SNMPClient, ip string) 
 
 	if client == nil {
 		if logger.Global != nil {
-			logger.Global.Debug("Epson remote: no SNMP client provided")
+			logger.Global.Warn("Epson remote: no SNMP client provided")
 		}
 		return nil
 	}
@@ -194,7 +210,7 @@ func FetchEpsonRemoteMetrics(ctx context.Context, client SNMPClient, ip string) 
 	status, err := remote.GetStatus(ctx)
 	if err != nil {
 		if logger.Global != nil {
-			logger.Global.Debug("Epson remote: status fetch failed", "ip", ip, "error", err)
+			logger.Global.Warn("Epson remote: status fetch failed", "ip", ip, "error", err)
 		}
 		return nil
 	}
@@ -203,7 +219,7 @@ func FetchEpsonRemoteMetrics(ctx context.Context, client SNMPClient, ip string) 
 	metrics := status.ToMetrics()
 
 	if logger.Global != nil {
-		logger.Global.Info("Epson remote mode: metrics collected",
+		logger.Global.Debug("Epson remote mode: metrics collected",
 			"ip", ip,
 			"status", status.StatusText,
 			"ink_colors", len(status.InkLevels),
@@ -233,17 +249,28 @@ func FetchEpsonRemoteMetricsWithIP(ctx context.Context, ip string, timeoutSecond
 		return nil
 	}
 
+	if logger.Global != nil {
+		logger.Global.TraceTag("epson_remote", "Epson remote: creating vendor SNMP client", "ip", ip, "timeout_s", timeoutSeconds)
+	}
+
 	// Create our own SNMP client
 	client, err := NewVendorSNMPClient(ip, "public", timeoutSeconds)
 	if err != nil {
 		if logger.Global != nil {
-			logger.Global.Debug("Epson remote: failed to create SNMP client", "ip", ip, "error", err)
+			logger.Global.Warn("Epson remote: failed to create SNMP client", "ip", ip, "error", err)
 		}
 		return nil
 	}
 	defer client.Close()
 
 	return FetchEpsonRemoteMetrics(ctx, client, ip)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Helper to split on semicolon without importing strings

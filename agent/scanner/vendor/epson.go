@@ -251,7 +251,7 @@ func (v *EpsonVendor) ParseWithRemoteMode(ctx context.Context, pdus []gosnmp.Snm
 	// If remote mode is enabled, fetch additional metrics
 	if featureflags.EpsonRemoteModeEnabled() && ip != "" {
 		if logger.Global != nil {
-			logger.Global.Debug("Epson remote mode: fetching extended metrics", "ip", ip)
+			logger.Global.TraceTag("epson_remote", "Epson remote mode: fetching extended metrics", "ip", ip)
 		}
 
 		remoteMetrics := FetchEpsonRemoteMetricsWithIP(ctx, ip, timeoutSeconds)
@@ -270,12 +270,15 @@ func (v *EpsonVendor) ParseWithRemoteMode(ctx context.Context, pdus []gosnmp.Snm
 			}
 
 			if logger.Global != nil {
-				logger.Global.Info("Epson remote mode: merged metrics",
+				logger.Global.Debug("Epson remote mode: merged metrics",
 					"ip", ip,
 					"remote_metrics", len(remoteMetrics),
 					"total_metrics", len(result))
 			}
 		}
+	} else if logger.Global != nil {
+		// Keep this as trace: it can be called a lot during discovery.
+		logger.Global.TraceTag("epson_remote", "Epson remote mode: skipped", "enabled", featureflags.EpsonRemoteModeEnabled(), "ip_set", ip != "")
 	}
 
 	return result

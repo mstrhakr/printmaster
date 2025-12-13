@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strings"
+
+	"printmaster/common/logger"
 )
 
 // ST2Status holds the parsed status from an Epson ST2 response frame.
@@ -158,6 +160,9 @@ var warningCodes = map[byte]string{
 // Returns parsed status or error if format is invalid.
 func ParseST2Response(data []byte) (*ST2Status, error) {
 	if len(data) < 16 {
+		if logger.Global != nil {
+			logger.Global.TraceTag("epson_st2", "ST2 parse: response too short", "len", len(data))
+		}
 		return nil, fmt.Errorf("ST2 response too short: %d bytes", len(data))
 	}
 
@@ -165,12 +170,18 @@ func ParseST2Response(data []byte) (*ST2Status, error) {
 	header := []byte("BDC ST2\r\n")
 	headerIdx := findBytes(data, header)
 	if headerIdx < 0 {
+		if logger.Global != nil {
+			logger.Global.TraceTag("epson_st2", "ST2 parse: header not found", "len", len(data))
+		}
 		return nil, fmt.Errorf("ST2 header not found (expected 'BDC ST2\\r\\n')")
 	}
 
 	// Skip to after header
 	data = data[headerIdx+len(header):]
 	if len(data) < 2 {
+		if logger.Global != nil {
+			logger.Global.TraceTag("epson_st2", "ST2 parse: truncated after header")
+		}
 		return nil, fmt.Errorf("ST2 response truncated after header")
 	}
 
@@ -179,7 +190,14 @@ func ParseST2Response(data []byte) (*ST2Status, error) {
 	data = data[2:]
 
 	if len(data) < payloadLen {
+		if logger.Global != nil {
+			logger.Global.TraceTag("epson_st2", "ST2 parse: payload truncated", "expected", payloadLen, "got", len(data))
+		}
 		return nil, fmt.Errorf("ST2 payload truncated: expected %d, got %d", payloadLen, len(data))
+	}
+
+	if logger.Global != nil {
+		logger.Global.TraceTag("epson_st2", "ST2 parse: payload", "payload_len", payloadLen)
 	}
 
 	// Trim to payload
