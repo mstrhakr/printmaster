@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -1267,6 +1268,23 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 //   - pdus: Raw SNMP PDUs from the device
 //   - vendorHint: Optional vendor name hint (e.g., "Epson", "Kyocera")
 func MergeVendorMetrics(pi *PrinterInfo, pdus []gosnmp.SnmpPDU, vendorHint string) {
+	// Delegate to extended version with nil context (standard parsing only)
+	MergeVendorMetricsWithContext(context.Background(), pi, pdus, vendorHint, "", 0)
+}
+
+// MergeVendorMetricsWithContext is an extended version of MergeVendorMetrics
+// that supports vendor-specific extended features like Epson remote-mode.
+// When IP is provided, vendors that implement ExtendedVendorModule will
+// be called with additional context to enable features like remote-mode queries.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - pi: Pointer to PrinterInfo to enhance (modified in place)
+//   - pdus: Raw SNMP PDUs from the device
+//   - vendorHint: Optional vendor name hint (e.g., "Epson", "Kyocera")
+//   - ip: Device IP address (enables extended features when non-empty)
+//   - timeoutSeconds: SNMP timeout for extended queries
+func MergeVendorMetricsWithContext(ctx context.Context, pi *PrinterInfo, pdus []gosnmp.SnmpPDU, vendorHint string, ip string, timeoutSeconds int) {
 	if pi == nil || len(pdus) == 0 {
 		return
 	}
@@ -1306,8 +1324,8 @@ func MergeVendorMetrics(pi *PrinterInfo, pdus []gosnmp.SnmpPDU, vendorHint strin
 		return
 	}
 
-	// Call vendor-specific Parse()
-	metrics := vendorModule.Parse(pdus)
+	// Call vendor-specific parsing (extended if available)
+	metrics := vendor.ParseWithContext(ctx, vendorModule, pdus, ip, timeoutSeconds)
 	if len(metrics) == 0 {
 		return
 	}

@@ -1,6 +1,7 @@
 package vendor
 
 import (
+	"context"
 	"strings"
 
 	"printmaster/agent/scanner/capabilities"
@@ -37,6 +38,31 @@ type VendorModule interface {
 	// Keys should match the MetricRegistry names (e.g., "color_pages", "toner_cyan").
 	// Returns map[string]interface{} to support int, float64, string, etc.
 	Parse(pdus []gosnmp.SnmpPDU) map[string]interface{}
+}
+
+// ExtendedVendorModule is an optional interface for vendors that support
+// extended parsing with additional context (IP address, timeout, etc.).
+// This enables features like Epson remote-mode that require additional
+// SNMP queries beyond the standard PDU set.
+type ExtendedVendorModule interface {
+	VendorModule
+
+	// ParseWithRemoteMode performs extended parsing that may issue additional
+	// SNMP queries (e.g., Epson remote-mode commands for ink levels).
+	// Falls back to standard Parse() if IP is empty or remote features disabled.
+	ParseWithRemoteMode(ctx context.Context, pdus []gosnmp.SnmpPDU, ip string, timeoutSeconds int) map[string]interface{}
+}
+
+// ParseWithContext calls the vendor's extended parsing if available,
+// otherwise falls back to standard Parse().
+// This is the preferred way to invoke vendor parsing when IP is known.
+func ParseWithContext(ctx context.Context, module VendorModule, pdus []gosnmp.SnmpPDU, ip string, timeoutSeconds int) map[string]interface{} {
+	// Try extended interface first
+	if ext, ok := module.(ExtendedVendorModule); ok && ip != "" {
+		return ext.ParseWithRemoteMode(ctx, pdus, ip, timeoutSeconds)
+	}
+	// Fall back to standard parse
+	return module.Parse(pdus)
 }
 
 // EnterpriseOIDMap maps IANA enterprise numbers to vendor names.

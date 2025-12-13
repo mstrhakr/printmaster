@@ -1,8 +1,10 @@
 package vendor
 
 import (
+	"context"
 	"strings"
 
+	"printmaster/agent/featureflags"
 	"printmaster/agent/scanner/capabilities"
 	"printmaster/common/logger"
 	"printmaster/common/snmp/oids"
@@ -235,6 +237,47 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 		logger.Global.Debug("Epson parsing complete", "mono_pages", mono, "color_pages", color)
 	}
+	return result
+}
+
+// ParseWithRemoteMode is an extended version of Parse that also queries
+// Epson remote-mode commands when the feature flag is enabled.
+// This provides richer data (ink levels, maintenance box status) that
+// standard SNMP OIDs often don't expose on Epson printers.
+func (v *EpsonVendor) ParseWithRemoteMode(ctx context.Context, pdus []gosnmp.SnmpPDU, ip string, timeoutSeconds int) map[string]interface{} {
+	// Start with standard parsing
+	result := v.Parse(pdus)
+
+	// If remote mode is enabled, fetch additional metrics
+	if featureflags.EpsonRemoteModeEnabled() && ip != "" {
+		if logger.Global != nil {
+			logger.Global.Debug("Epson remote mode: fetching extended metrics", "ip", ip)
+		}
+
+		remoteMetrics := FetchEpsonRemoteMetricsWithIP(ctx, ip, timeoutSeconds)
+		if remoteMetrics != nil {
+			// Merge remote metrics, preferring remote data for ink levels
+			// since it's typically more accurate than standard SNMP
+			for k, v := range remoteMetrics {
+				// For ink levels, always prefer remote mode data
+				if strings.HasPrefix(k, "ink_") || strings.HasPrefix(k, "maintenance_") ||
+					strings.HasPrefix(k, "waste_") || strings.HasPrefix(k, "epson_") {
+					result[k] = v
+				} else if _, exists := result[k]; !exists {
+					// For other metrics, only add if not already present
+					result[k] = v
+				}
+			}
+
+			if logger.Global != nil {
+				logger.Global.Info("Epson remote mode: merged metrics",
+					"ip", ip,
+					"remote_metrics", len(remoteMetrics),
+					"total_metrics", len(result))
+			}
+		}
+	}
+
 	return result
 }
 
