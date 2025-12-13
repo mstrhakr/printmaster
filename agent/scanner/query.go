@@ -194,11 +194,19 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 	var pdus []gosnmp.SnmpPDU
 
 	if profile == QueryFull {
-		// Full diagnostic walk of standard MIB roots
+		// Full diagnostic walk of standard MIB roots.
+		// NOTE: Avoid walking the enterprise root (1.3.6.1.4.1) by default.
+		// It can be extremely large and unpredictable across devices.
 		roots := []string{
 			"1.3.6.1.2.1",    // System MIB
 			"1.3.6.1.2.1.43", // Printer-MIB
-			"1.3.6.1.4.1",    // Enterprise OIDs
+		}
+
+		// If we know the device enterprise (from sysObjectID), walk only that vendor subtree.
+		// This preserves vendor diagnostics without the unbounded cost of the full enterprise root.
+		vendorEnterprise := enterprisePrefixFromSysObjectID(sysObjectID)
+		if vendorEnterprise != "" {
+			roots = append(roots, vendorEnterprise)
 		}
 
 		for _, root := range roots {
@@ -400,6 +408,37 @@ func enterpriseFromHint(name string) string {
 	default:
 		return ""
 	}
+}
+
+// enterprisePrefixFromSysObjectID returns the vendor enterprise subtree root
+// (e.g. "1.3.6.1.4.1.11") when sysObjectID appears to be an enterprise OID.
+// sysObjectID values are commonly represented as dotted strings and may include
+// a leading dot.
+func enterprisePrefixFromSysObjectID(sysObjectID string) string {
+	s := strings.TrimSpace(sysObjectID)
+	s = strings.TrimPrefix(s, ".")
+	const prefix = "1.3.6.1.4.1."
+	if !strings.HasPrefix(s, prefix) {
+		return ""
+	}
+	rest := strings.TrimPrefix(s, prefix)
+	if rest == "" {
+		return ""
+	}
+	// Keep only the first numeric component after the enterprise root.
+	// Example: 1.3.6.1.4.1.11.2.3 -> 1.3.6.1.4.1.11
+	i := 0
+	for i < len(rest) {
+		c := rest[i]
+		if c < '0' || c > '9' {
+			break
+		}
+		i++
+	}
+	if i == 0 {
+		return ""
+	}
+	return prefix + rest[:i]
 }
 
 // detectCapabilities analyzes SNMP PDUs to determine device capabilities.

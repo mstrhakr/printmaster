@@ -19,6 +19,7 @@ type mockSNMPClient struct {
 	getErr     error
 	walkPDUs   []gosnmp.SnmpPDU
 	walkErr    error
+	walkRoots  []string
 	getInputs  [][]string
 	getCalls   int
 }
@@ -46,6 +47,7 @@ func (m *mockSNMPClient) Get(oids []string) (*gosnmp.SnmpPacket, error) {
 }
 
 func (m *mockSNMPClient) Walk(rootOid string, walkFn gosnmp.WalkFunc) error {
+	m.walkRoots = append(m.walkRoots, rootOid)
 	if m.walkErr != nil {
 		return m.walkErr
 	}
@@ -294,6 +296,70 @@ func TestQueryDevice_AllVendors(t *testing.T) {
 
 			// Vendor module verification removed (no longer using vendor package)
 		})
+	}
+}
+
+func TestQueryDevice_QueryFull_DoesNotWalkEnterpriseRoot(t *testing.T) {
+	t.Parallel()
+
+	mockClient := &mockSNMPClient{
+		getResult: &gosnmp.SnmpPacket{
+			Variables: []gosnmp.SnmpPDU{
+				{Name: "." + oids.SysObjectID, Type: gosnmp.OctetString, Value: []byte(".1.3.6.1.4.1.11")},
+				{Name: "." + oids.SysDescr, Type: gosnmp.OctetString, Value: []byte("HP Test")},
+			},
+		},
+		walkPDUs: []gosnmp.SnmpPDU{{Name: "." + oids.SysDescr, Type: gosnmp.OctetString, Value: []byte("Test Device")}},
+	}
+
+	mockFactory := func(cfg *SNMPConfig, target string, timeoutSeconds int) (SNMPClient, error) {
+		return mockClient, nil
+	}
+
+	_, err := queryDeviceWithCapabilitiesAndClient(context.Background(), "10.0.0.7", QueryFull, "", 30, nil, mockFactory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// We should never walk the full enterprise root by default.
+	for _, root := range mockClient.walkRoots {
+		if root == "1.3.6.1.4.1" {
+			t.Fatalf("unexpected enterprise root walk: %s", root)
+		}
+	}
+}
+
+func TestQueryDevice_QueryFull_WalksVendorEnterpriseSubtreeWhenKnown(t *testing.T) {
+	t.Parallel()
+
+	mockClient := &mockSNMPClient{
+		getResult: &gosnmp.SnmpPacket{
+			Variables: []gosnmp.SnmpPDU{
+				{Name: "." + oids.SysObjectID, Type: gosnmp.OctetString, Value: []byte(".1.3.6.1.4.1.11.2.3.9")},
+				{Name: "." + oids.SysDescr, Type: gosnmp.OctetString, Value: []byte("HP Test")},
+			},
+		},
+		walkPDUs: []gosnmp.SnmpPDU{{Name: "." + oids.SysDescr, Type: gosnmp.OctetString, Value: []byte("Test Device")}},
+	}
+
+	mockFactory := func(cfg *SNMPConfig, target string, timeoutSeconds int) (SNMPClient, error) {
+		return mockClient, nil
+	}
+
+	_, err := queryDeviceWithCapabilitiesAndClient(context.Background(), "10.0.0.8", QueryFull, "", 30, nil, mockFactory)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	found := false
+	for _, root := range mockClient.walkRoots {
+		if root == "1.3.6.1.4.1.11" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected vendor enterprise subtree walk (1.3.6.1.4.1.11), got: %v", mockClient.walkRoots)
 	}
 }
 
