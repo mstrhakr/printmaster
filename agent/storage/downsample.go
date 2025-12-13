@@ -532,10 +532,12 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 		rawQuery := `
 			SELECT id, serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
 			FROM metrics_raw
-			WHERE serial = ?
+			WHERE serial = ? AND timestamp >= ? AND timestamp <= ?
 			ORDER BY timestamp ASC
 		`
-		rows, err := s.db.QueryContext(ctx, rawQuery, serial)
+		sinceStr := since.UTC().Format(time.RFC3339Nano)
+		untilStr := until.UTC().Format(time.RFC3339Nano)
+		rows, err := s.db.QueryContext(ctx, rawQuery, serial, sinceStr, untilStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query raw metrics: %w", err)
 		}
@@ -558,12 +560,8 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 				json.Unmarshal([]byte(tonerJSON.String), &snapshot.TonerLevels)
 			}
 
-			// Filter by time range
-			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
-				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
-				snapshot.Tier = "raw"
-				snapshots = append(snapshots, snapshot)
-			}
+			snapshot.Tier = "raw"
+			snapshots = append(snapshots, snapshot)
 		}
 	}
 
@@ -572,10 +570,12 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 		hourlyQuery := `
 			SELECT id, serial, hour_start, page_count_avg, color_pages_avg, mono_pages_avg, scan_count_avg, toner_levels_avg
 			FROM metrics_hourly
-			WHERE serial = ?
+			WHERE serial = ? AND hour_start >= ? AND hour_start <= ?
 			ORDER BY hour_start ASC
 		`
-		rows, err := s.db.QueryContext(ctx, hourlyQuery, serial)
+		sinceStr := since.UTC().Format(time.RFC3339Nano)
+		untilStr := until.UTC().Format(time.RFC3339Nano)
+		rows, err := s.db.QueryContext(ctx, hourlyQuery, serial, sinceStr, untilStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query hourly metrics: %w", err)
 		}
@@ -598,11 +598,8 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 				json.Unmarshal([]byte(tonerJSON.String), &snapshot.TonerLevels)
 			}
 
-			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
-				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
-				snapshot.Tier = "hourly"
-				snapshots = append(snapshots, snapshot)
-			}
+			snapshot.Tier = "hourly"
+			snapshots = append(snapshots, snapshot)
 		}
 	}
 
@@ -611,10 +608,12 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 		dailyQuery := `
 			SELECT id, serial, day_start, page_count_avg, color_pages_avg, mono_pages_avg, scan_count_avg, toner_levels_avg
 			FROM metrics_daily
-			WHERE serial = ?
+			WHERE serial = ? AND day_start >= ? AND day_start <= ?
 			ORDER BY day_start ASC
 		`
-		rows, err := s.db.QueryContext(ctx, dailyQuery, serial)
+		sinceStr := since.UTC().Format(time.RFC3339Nano)
+		untilStr := until.UTC().Format(time.RFC3339Nano)
+		rows, err := s.db.QueryContext(ctx, dailyQuery, serial, sinceStr, untilStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query daily metrics: %w", err)
 		}
@@ -637,11 +636,8 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 				json.Unmarshal([]byte(tonerJSON.String), &snapshot.TonerLevels)
 			}
 
-			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
-				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
-				snapshot.Tier = "daily"
-				snapshots = append(snapshots, snapshot)
-			}
+			snapshot.Tier = "daily"
+			snapshots = append(snapshots, snapshot)
 		}
 	}
 
@@ -650,10 +646,12 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 		monthlyQuery := `
 			SELECT id, serial, month_start, page_count_avg, color_pages_avg, mono_pages_avg, scan_count_avg, toner_levels_avg
 			FROM metrics_monthly
-			WHERE serial = ?
+			WHERE serial = ? AND month_start >= ? AND month_start <= ?
 			ORDER BY month_start ASC
 		`
-		rows, err := s.db.QueryContext(ctx, monthlyQuery, serial)
+		sinceStr := since.UTC().Format(time.RFC3339Nano)
+		untilStr := until.UTC().Format(time.RFC3339Nano)
+		rows, err := s.db.QueryContext(ctx, monthlyQuery, serial, sinceStr, untilStr)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query monthly metrics: %w", err)
 		}
@@ -676,11 +674,8 @@ func (s *SQLiteStore) GetTieredMetricsHistory(ctx context.Context, serial string
 				json.Unmarshal([]byte(tonerJSON.String), &snapshot.TonerLevels)
 			}
 
-			if (snapshot.Timestamp.Equal(since) || snapshot.Timestamp.After(since)) &&
-				(snapshot.Timestamp.Equal(until) || snapshot.Timestamp.Before(until)) {
-				snapshot.Tier = "monthly"
-				snapshots = append(snapshots, snapshot)
-			}
+			snapshot.Tier = "monthly"
+			snapshots = append(snapshots, snapshot)
 		}
 	}
 
