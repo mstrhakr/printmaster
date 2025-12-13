@@ -8,7 +8,9 @@ import (
 )
 
 const (
-	defaultOIDBatchSize = 3
+	// defaultOIDBatchSize controls how many scalar OIDs we request per SNMP GET.
+	// A larger value reduces round-trips and typically improves scan throughput.
+	defaultOIDBatchSize = 15
 )
 
 // clusterOIDs splits the provided OID list into fixed-size batches, preserving order.

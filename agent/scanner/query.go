@@ -129,11 +129,11 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 	}
 	defer client.Close()
 
-	// 3. Preliminary vendor detection (fast, minimal GET) unless full walk
+	// 3. Preliminary vendor detection (fast, minimal GET)
 	var detectedVendor vendor.VendorModule
 	var sysObjectID, sysDescr, model string
 
-	if profile != QueryFull {
+	{
 		preOIDs := []string{
 			oids.SysObjectID,
 			oids.SysDescr,
@@ -164,20 +164,20 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 				}
 			}
 		}
-		// If caller supplied vendorHint, prefer that; else detect
-		if vendorHint != "" {
-			// Attempt to match a registered module by name
-			detectedVendor = vendor.DetectVendor(sysObjectID, sysDescr, model)
-			if !strings.EqualFold(detectedVendor.Name(), vendorHint) {
-				// Fallback: iterate modules to find explicit name match
-				detectedVendor = vendor.DetectVendor("."+enterpriseFromHint(vendorHint), sysDescr, model) // crude fallback
-			}
-		} else {
-			detectedVendor = vendor.DetectVendor(sysObjectID, sysDescr, model)
+	}
+	// If caller supplied vendorHint, prefer that; else detect
+	if vendorHint != "" {
+		// Attempt to match a registered module by name
+		detectedVendor = vendor.DetectVendor(sysObjectID, sysDescr, model)
+		if !strings.EqualFold(detectedVendor.Name(), vendorHint) {
+			// Fallback: iterate modules to find explicit name match
+			detectedVendor = vendor.DetectVendor("."+enterpriseFromHint(vendorHint), sysDescr, model) // crude fallback
 		}
-		if logger.Global != nil {
-			logger.Global.Debug("SNMP preliminary detection", "ip", ip, "sysObjectID", sysObjectID, "vendor_selected", detectedVendor.Name())
-		}
+	} else {
+		detectedVendor = vendor.DetectVendor(sysObjectID, sysDescr, model)
+	}
+	if logger.Global != nil {
+		logger.Global.Debug("SNMP preliminary detection", "ip", ip, "sysObjectID", sysObjectID, "vendor_selected", detectedVendor.Name())
 	}
 	if detectedVendor == nil {
 		// Full walk or detection failed: use generic

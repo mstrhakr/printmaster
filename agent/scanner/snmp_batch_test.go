@@ -31,8 +31,7 @@ func TestClusterOIDs(t *testing.T) {
 			oids:      []string{"1", "2", "3", "4"},
 			batchSize: 0,
 			want: [][]string{
-				{"1", "2", "3"},
-				{"4"},
+				{"1", "2", "3", "4"},
 			},
 		},
 		{

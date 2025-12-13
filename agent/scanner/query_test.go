@@ -163,9 +163,10 @@ func TestQueryDevice_SNMPWalkSuccess(t *testing.T) {
 		t.Fatal("expected non-nil result")
 	}
 
-	// QueryFull walks 3 root OIDs, mock returns 3 PDUs per walk = 9 total
-	if len(result.PDUs) != 9 {
-		t.Errorf("expected 9 PDUs (3 per walk x 3 roots), got %d", len(result.PDUs))
+	// QueryFull walks the standard roots, and optionally a vendor enterprise subtree.
+	// This test doesn't provide sysObjectID, so we expect only the two standard roots.
+	if len(result.PDUs) != 6 {
+		t.Errorf("expected 6 PDUs (3 per walk x 2 roots), got %d", len(result.PDUs))
 	}
 
 	if result.Profile != QueryFull {
