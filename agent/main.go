@@ -5891,7 +5891,8 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
 		snapshot, err := deviceStore.GetLatestMetrics(ctx, serial)
 		if err != nil {
 			if err == storage.ErrNotFound {
@@ -5961,7 +5962,8 @@ window.top.location.href = '/proxy/%s/';
 			}
 		}
 
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
 		// Use tiered metrics retrieval so the store returns the best-resolution
 		// data for the requested time range (raw/hourly/daily/monthly).
 		snapshots, err := deviceStore.GetTieredMetricsHistory(ctx, serial, since, until)
@@ -6008,7 +6010,8 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
 		if deviceStore == nil {
 			http.Error(w, "storage unavailable", http.StatusInternalServerError)
 			return
@@ -6046,7 +6049,8 @@ window.top.location.href = '/proxy/%s/';
 
 		if req.IP == "" {
 			// Try to get IP from database
-			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
 			device, err := deviceStore.Get(ctx, req.Serial)
 			if err == nil {
 				req.IP = device.IP
@@ -6058,7 +6062,8 @@ window.top.location.href = '/proxy/%s/';
 		}
 
 		// Collect metrics snapshot using new scanner
-		metricsCtx := context.Background()
+		metricsCtx, cancelMetrics := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancelMetrics()
 		vendorHint := ""
 		// Get vendor hint from database if possible
 		if deviceStore != nil {
@@ -6103,8 +6108,9 @@ window.top.location.href = '/proxy/%s/';
 		storageSnapshot.ScannerJamEvents = agentSnapshot.ScannerJamEvents
 
 		// Save to database
-		ctx := context.Background()
-		if err := deviceStore.SaveMetricsSnapshot(ctx, storageSnapshot); err != nil {
+		saveCtx, cancelSave := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancelSave()
+		if err := deviceStore.SaveMetricsSnapshot(saveCtx, storageSnapshot); err != nil {
 			http.Error(w, "failed to save metrics: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
