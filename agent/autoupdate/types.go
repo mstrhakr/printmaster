@@ -47,19 +47,19 @@ type UpdateRun struct {
 
 // ManagerStatus exposes the current state of the update manager for UI/API.
 type ManagerStatus struct {
-	Enabled           bool      `json:"enabled"`
-	DisabledReason    string    `json:"disabled_reason,omitempty"`
-	CurrentVersion    string    `json:"current_version"`
-	LatestVersion     string    `json:"latest_version,omitempty"`
-	UpdateAvailable   bool      `json:"update_available"`
-	Status            Status    `json:"status"`
-	LastCheckAt       time.Time `json:"last_check_at,omitempty"`
-	NextCheckAt       time.Time `json:"next_check_at,omitempty"`
-	PolicySource      string    `json:"policy_source,omitempty"`
-	CheckIntervalDays int       `json:"check_interval_days,omitempty"`
-	Channel           string    `json:"channel"`
-	Platform          string    `json:"platform"`
-	Arch              string    `json:"arch"`
+	Enabled           bool       `json:"enabled"`
+	DisabledReason    string     `json:"disabled_reason,omitempty"`
+	CurrentVersion    string     `json:"current_version"`
+	LatestVersion     string     `json:"latest_version,omitempty"`
+	UpdateAvailable   bool       `json:"update_available"`
+	Status            Status     `json:"status"`
+	LastCheckAt       *time.Time `json:"last_check_at,omitempty"`
+	NextCheckAt       *time.Time `json:"next_check_at,omitempty"`
+	PolicySource      string     `json:"policy_source,omitempty"`
+	CheckIntervalDays int        `json:"check_interval_days,omitempty"`
+	Channel           string     `json:"channel"`
+	Platform          string     `json:"platform"`
+	Arch              string     `json:"arch"`
 }
 
 // UpdateManifest mirrors the server's signed manifest payload.

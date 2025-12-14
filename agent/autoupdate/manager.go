@@ -234,6 +234,13 @@ func (m *Manager) Status() ManagerStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	ptrIfNonZero := func(t time.Time) *time.Time {
+		if t.IsZero() {
+			return nil
+		}
+		return &t
+	}
+
 	checkIntervalDays := 7
 	policySource := ""
 	if m.policyProvider != nil {
@@ -251,8 +258,8 @@ func (m *Manager) Status() ManagerStatus {
 		LatestVersion:     m.latestVersion,
 		UpdateAvailable:   m.latestManifest != nil && m.latestVersion != m.currentVersion,
 		Status:            m.status,
-		LastCheckAt:       m.lastCheck,
-		NextCheckAt:       m.nextCheck,
+		LastCheckAt:       ptrIfNonZero(m.lastCheck),
+		NextCheckAt:       ptrIfNonZero(m.nextCheck),
 		PolicySource:      policySource,
 		CheckIntervalDays: checkIntervalDays,
 		Channel:           m.channel,

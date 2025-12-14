@@ -340,6 +340,8 @@ function formatAutoUpdateTimestamp(value) {
     try {
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return value;
+        // Go's zero time serializes as year 0001; treat as unset.
+        if (date.getFullYear && date.getFullYear() < 1971) return 'Never';
         const localized = date.toLocaleString();
         const rel = describeRelativeFromMs(Date.now() - date.getTime());
         return rel ? localized + ' (' + rel + ')' : localized;
