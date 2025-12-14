@@ -111,3 +111,86 @@ func TestSQLiteStore_GetTieredMetricsHistory_RangeBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestAverageTonerLevels(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected map[string]interface{}
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: map[string]interface{}{},
+		},
+		{
+			name:     "single sample",
+			input:    `{"black":80,"cyan":60,"magenta":40,"yellow":20}`,
+			expected: map[string]interface{}{"black": 80, "cyan": 60, "magenta": 40, "yellow": 20},
+		},
+		{
+			name:     "two samples average",
+			input:    `{"black":100,"cyan":80},{"black":50,"cyan":40}`,
+			expected: map[string]interface{}{"black": 75, "cyan": 60},
+		},
+		{
+			name:     "three samples average",
+			input:    `{"black":90},{"black":60},{"black":30}`,
+			expected: map[string]interface{}{"black": 60},
+		},
+		{
+			name:     "mixed colors across samples",
+			input:    `{"black":100},{"black":80,"cyan":60},{"cyan":40}`,
+			expected: map[string]interface{}{"black": 90, "cyan": 50},
+		},
+		{
+			name:     "escaped quotes in JSON",
+			input:    `{"black":100},{"black":50}`,
+			expected: map[string]interface{}{"black": 75},
+		},
+		{
+			name:     "whitespace in GROUP_CONCAT output",
+			input:    ` {"black":100} , {"black":50} `,
+			expected: map[string]interface{}{"black": 75},
+		},
+		{
+			name:     "nested JSON in toner (unusual but should handle)",
+			input:    `{"black":100},{"black":{"level":50}}`,
+			expected: map[string]interface{}{"black": 100}, // only numeric values counted
+		},
+		{
+			name:     "malformed JSON skipped",
+			input:    `{"black":100},invalid,{"black":50}`,
+			expected: map[string]interface{}{"black": 75},
+		},
+		{
+			name:     "empty objects",
+			input:    `{},{"black":50},{}`,
+			expected: map[string]interface{}{"black": 50},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			result := averageTonerLevels(tc.input)
+			if len(result) != len(tc.expected) {
+				t.Errorf("expected %d keys, got %d: %v", len(tc.expected), len(result), result)
+				return
+			}
+			for k, want := range tc.expected {
+				got, ok := result[k]
+				if !ok {
+					t.Errorf("missing key %q", k)
+					continue
+				}
+				if got != want {
+					t.Errorf("key %q: expected %v, got %v", k, want, got)
+				}
+			}
+		})
+	}
+}

@@ -441,57 +441,60 @@ func (s *SQLiteStore) PerformFullDownsampling(ctx context.Context) error {
 }
 
 // averageTonerLevels takes a comma-separated list of JSON toner level objects
-// and returns a map with averaged values
+// (from GROUP_CONCAT) and returns a map with averaged values.
+//
+// This is a streaming-friendly implementation that avoids building a giant
+// slice of strings. It scans through the input once and accumulates values
+// as it finds complete JSON objects.
 func averageTonerLevels(samplesStr string) map[string]interface{} {
 	if samplesStr == "" {
 		return make(map[string]interface{})
 	}
 
-	// Split by comma (from GROUP_CONCAT)
-	samples := []string{}
-	current := ""
-	inQuotes := false
-	braceCount := 0
-
-	// Parse GROUP_CONCAT result which may contain JSON with commas
-	for _, char := range samplesStr {
-		if char == '"' {
-			inQuotes = !inQuotes
-		}
-		if !inQuotes {
-			switch char {
-			case '{':
-				braceCount++
-			case '}':
-				braceCount--
-			}
-		}
-
-		if char == ',' && !inQuotes && braceCount == 0 {
-			samples = append(samples, current)
-			current = ""
-		} else {
-			current += string(char)
-		}
-	}
-	if current != "" {
-		samples = append(samples, current)
-	}
-
-	// Parse each JSON sample and accumulate values
 	totals := make(map[string]float64)
 	counts := make(map[string]int)
 
-	for _, sample := range samples {
-		var levels map[string]interface{}
-		if err := json.Unmarshal([]byte(sample), &levels); err != nil {
+	// Stream through the GROUP_CONCAT result, extracting one JSON object at a time.
+	// JSON objects are delimited by {...} and may contain nested structures.
+	start := -1
+	braceCount := 0
+	inString := false
+	escape := false
+
+	for i := 0; i < len(samplesStr); i++ {
+		c := samplesStr[i]
+
+		// Handle escape sequences inside strings
+		if escape {
+			escape = false
+			continue
+		}
+		if c == '\\' && inString {
+			escape = true
 			continue
 		}
 
-		for color, value := range levels {
-			if v, ok := value.(float64); ok {
-				totals[color] += v
-				counts[color]++
+		// Track string boundaries
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+
+		// Only count braces outside of strings
+		if !inString {
+			if c == '{' {
+				if braceCount == 0 {
+					start = i
+				}
+				braceCount++
+			} else if c == '}' {
+				braceCount--
+				if braceCount == 0 && start >= 0 {
+					// Found complete JSON object
+					jsonStr := samplesStr[start : i+1]
+					accumulateTonerSample(jsonStr, totals, counts)
+					start = -1
+				}
 			}
 		}
 	}
@@ -505,6 +508,25 @@ func averageTonerLevels(samplesStr string) map[string]interface{} {
 	}
 
 	return result
+}
+
+// accumulateTonerSample parses a single JSON toner object and accumulates values.
+func accumulateTonerSample(jsonStr string, totals map[string]float64, counts map[string]int) {
+	var levels map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &levels); err != nil {
+		return
+	}
+
+	for color, value := range levels {
+		switch v := value.(type) {
+		case float64:
+			totals[color] += v
+			counts[color]++
+		case int:
+			totals[color] += float64(v)
+			counts[color]++
+		}
+	}
 }
 
 // GetTieredMetricsHistory retrieves metrics from appropriate tiers based on time range

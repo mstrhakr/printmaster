@@ -1818,9 +1818,15 @@ function viewDiag(ip) {
 }
 
 
-// Show printer details modal by fetching device info by IP
-// source: 'discovered' or 'saved' to control title and action buttons
+// DEPRECATED: Show printer details modal by fetching device info by IP.
+// Use showSavedDeviceDetails(serial) or window.__pm_shared.showPrinterDetails(serial, source) instead.
+// This function is kept for backwards compatibility but may be removed in a future release.
+// The serial-based approach is preferred because:
+// 1. Serial is a stable identifier (IPs can change via DHCP)
+// 2. Avoids the two-stage IP→device lookup which can be slow and error-prone
+// 3. Matches the canonical identifier used throughout the API
 function showPrinterDetails(ip, source) {
+    console.warn('showPrinterDetails(ip) is deprecated. Use serial-based lookup via showSavedDeviceDetails(serial) or window.__pm_shared.showPrinterDetails(serial, source).');
     if (!ip) return;
     source = source || 'discovered'; // default to discovered
     const bodyEl = document.getElementById('printer_details_body');
@@ -1829,14 +1835,18 @@ function showPrinterDetails(ip, source) {
     bodyEl.textContent = 'Loading...';
     modal.classList.remove('hidden');
 
-    // Try to find device by IP (checks discovered in-memory and database)
+    // Try to find device by IP and redirect to serial-based lookup once resolved.
+    // This maintains backwards compatibility while steering towards the preferred approach.
     fetch('/devices/discovered').then(r => r.json()).then(discovered => {
         // Check discovered printers first
         let p = discovered.find(d => d.ip === ip);
-        if (p) {
-            // Previously we fetched /parse_debug and passed parseDebug into the
-            // renderer. That legacy diagnostics display is removed — the
-            // canonical renderer will render using live device data only.
+        if (p && p.serial) {
+            // Redirect to serial-based lookup
+            if (window.__pm_shared && typeof window.__pm_shared.showPrinterDetails === 'function') {
+                window.__pm_shared.showPrinterDetails(p.serial, source);
+                return;
+            }
+            // Fallback to direct render
             try { window.__pm_shared_cards.showPrinterDetailsData(p, source); } catch (e) { bodyEl.textContent = 'Error rendering device: ' + e; }
             return;
         }
@@ -1844,12 +1854,16 @@ function showPrinterDetails(ip, source) {
         // Not in discovered, try database - saved list returns wrapped printer_info
         fetch('/devices/list').then(r => r.json()).then(saved => {
             const item = saved.find(d => (d.printer_info && d.printer_info.ip === ip));
-            if (item && item.printer_info) {
-                try {
-                    const deviceObj = item.printer_info || item;
-                    if ((!deviceObj.serial || deviceObj.serial === '') && item.serial) deviceObj.serial = item.serial;
-                    window.__pm_shared_cards.showPrinterDetailsData(deviceObj, 'saved');
-                } catch (e) { bodyEl.textContent = 'Error rendering saved device: ' + e; }
+            if (item && item.serial) {
+                // Redirect to serial-based lookup
+                if (window.__pm_shared && typeof window.__pm_shared.showPrinterDetails === 'function') {
+                    window.__pm_shared.showPrinterDetails(item.serial, 'saved');
+                    return;
+                }
+                // Fallback to direct render
+                const deviceObj = item.printer_info || item;
+                if (!deviceObj.serial && item.serial) deviceObj.serial = item.serial;
+                try { window.__pm_shared_cards.showPrinterDetailsData(deviceObj, 'saved'); } catch (e) { bodyEl.textContent = 'Error rendering saved device: ' + e; }
             } else {
                 bodyEl.textContent = 'Device not found';
             }
