@@ -887,7 +887,9 @@ func (s *SQLiteStore) Update(ctx context.Context, device *Device) error {
 	return nil
 }
 
-func (s *SQLiteStore) createWithExecer(ctx context.Context, ex execer, device *Device) error {
+// Upsert creates or updates a device using a single INSERT ... ON CONFLICT statement.
+// Preserves created_at, first_seen, is_saved, and locked_fields from the existing row.
+func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 	if device.Serial == "" {
 		return ErrInvalidSerial
 	}
@@ -909,6 +911,10 @@ func (s *SQLiteStore) createWithExecer(ctx context.Context, ex execer, device *D
 	rawJSON, _ := json.Marshal(device.RawData)
 	lockedFieldsJSON, _ := json.Marshal(device.LockedFields)
 
+	// Single-statement UPSERT: insert or update while preserving important fields from the existing row.
+	// On conflict (serial exists), we:
+	// - Keep created_at, first_seen, is_saved, locked_fields from the existing row (devices.*)
+	// - Update all other fields from incoming data (excluded.*)
 	query := `
 		INSERT INTO devices (
 			serial, ip, manufacturer, model, hostname, firmware,
@@ -918,9 +924,33 @@ func (s *SQLiteStore) createWithExecer(ctx context.Context, ex execer, device *D
 			discovery_method, walk_filename, last_scan_id, raw_data,
 			asset_number, location, description, web_ui_url, locked_fields
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(serial) DO UPDATE SET
+			ip = excluded.ip,
+			manufacturer = excluded.manufacturer,
+			model = excluded.model,
+			hostname = excluded.hostname,
+			firmware = excluded.firmware,
+			mac_address = excluded.mac_address,
+			subnet_mask = excluded.subnet_mask,
+			gateway = excluded.gateway,
+			dns_servers = excluded.dns_servers,
+			dhcp_server = excluded.dhcp_server,
+			consumables = excluded.consumables,
+			status_messages = excluded.status_messages,
+			last_seen = excluded.last_seen,
+			visible = excluded.visible,
+			discovery_method = excluded.discovery_method,
+			walk_filename = excluded.walk_filename,
+			last_scan_id = excluded.last_scan_id,
+			raw_data = excluded.raw_data,
+			asset_number = excluded.asset_number,
+			location = excluded.location,
+			description = excluded.description,
+			web_ui_url = excluded.web_ui_url
+			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields are NOT updated (preserved from existing row)
 	`
 
-	_, err := ex.ExecContext(ctx, query,
+	_, err := s.db.ExecContext(ctx, query,
 		device.Serial, device.IP, device.Manufacturer, device.Model,
 		device.Hostname, device.Firmware, device.MACAddress, device.SubnetMask,
 		device.Gateway, string(dnsJSON), device.DHCPServer,
@@ -930,81 +960,9 @@ func (s *SQLiteStore) createWithExecer(ctx context.Context, ex execer, device *D
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
 	)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return ErrDuplicate
-		}
-		return fmt.Errorf("failed to create device: %w", err)
-	}
-
-	return nil
-}
-
-func (s *SQLiteStore) updateWithExecer(ctx context.Context, ex execer, device *Device) error {
-	if device.Serial == "" {
-		return ErrInvalidSerial
-	}
-
-	device.LastSeen = time.Now()
-
-	consumablesJSON, _ := json.Marshal(device.Consumables)
-	statusJSON, _ := json.Marshal(device.StatusMessages)
-	dnsJSON, _ := json.Marshal(device.DNSServers)
-	rawJSON, _ := json.Marshal(device.RawData)
-	lockedFieldsJSON, _ := json.Marshal(device.LockedFields)
-
-	query := `
-		UPDATE devices SET
-			ip = ?, manufacturer = ?, model = ?, hostname = ?, firmware = ?,
-			mac_address = ?, subnet_mask = ?, gateway = ?, dns_servers = ?, dhcp_server = ?,
-			consumables = ?, status_messages = ?,
-			last_seen = ?, is_saved = ?, visible = ?,
-			discovery_method = ?, walk_filename = ?, last_scan_id = ?, raw_data = ?,
-			asset_number = ?, location = ?, description = ?, web_ui_url = ?, locked_fields = ?
-		WHERE serial = ?
-	`
-
-	_, err := ex.ExecContext(ctx, query,
-		device.IP, device.Manufacturer, device.Model, device.Hostname, device.Firmware,
-		device.MACAddress, device.SubnetMask, device.Gateway, string(dnsJSON), device.DHCPServer,
-		string(consumablesJSON), string(statusJSON),
-		device.LastSeen, device.IsSaved, device.Visible,
-		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
-		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON), device.Serial,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to update device: %w", err)
+		return fmt.Errorf("failed to upsert device: %w", err)
 	}
 	return nil
-}
-
-// Upsert creates or updates a device
-func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
-	if device.Serial == "" {
-		return ErrInvalidSerial
-	}
-
-	// Try to get existing device to preserve important fields
-	existing, err := s.Get(ctx, device.Serial)
-	if err == nil {
-		// Device exists, preserve created_at, first_seen, is_saved status, and locked_fields
-		device.CreatedAt = existing.CreatedAt
-		device.FirstSeen = existing.FirstSeen
-		// IMPORTANT: Preserve is_saved - don't overwrite saved devices as unsaved
-		device.IsSaved = existing.IsSaved
-		// IMPORTANT: Preserve locked_fields - don't overwrite field locks
-		device.LockedFields = existing.LockedFields
-		return s.Update(ctx, device)
-	}
-
-	// Device doesn't exist, create new
-	now := time.Now()
-	if device.CreatedAt.IsZero() {
-		device.CreatedAt = now
-	}
-	if device.FirstSeen.IsZero() {
-		device.FirstSeen = now
-	}
-	return s.Create(ctx, device)
 }
 
 // StoreDiscoveryAtomic persists a discovered device update as a single atomic unit:
@@ -1573,16 +1531,6 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 		return ErrInvalidSerial
 	}
 
-	// Preserve important fields by reading existing state (same semantics as Upsert).
-	existing, err := s.Get(ctx, device.Serial)
-	if err == nil {
-		device.CreatedAt = existing.CreatedAt
-		device.FirstSeen = existing.FirstSeen
-		device.IsSaved = existing.IsSaved
-		device.LockedFields = existing.LockedFields
-		return s.updateWithExecer(ctx, ex, device)
-	}
-
 	now := time.Now()
 	if device.CreatedAt.IsZero() {
 		device.CreatedAt = now
@@ -1590,7 +1538,68 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 	if device.FirstSeen.IsZero() {
 		device.FirstSeen = now
 	}
-	return s.createWithExecer(ctx, ex, device)
+	if device.LastSeen.IsZero() {
+		device.LastSeen = now
+	}
+
+	consumablesJSON, _ := json.Marshal(device.Consumables)
+	statusJSON, _ := json.Marshal(device.StatusMessages)
+	dnsJSON, _ := json.Marshal(device.DNSServers)
+	rawJSON, _ := json.Marshal(device.RawData)
+	lockedFieldsJSON, _ := json.Marshal(device.LockedFields)
+
+	// Single-statement UPSERT: insert or update while preserving important fields from the existing row.
+	// On conflict (serial exists), we:
+	// - Keep created_at, first_seen, is_saved, locked_fields from the existing row (devices.*)
+	// - Update all other fields from incoming data (excluded.*)
+	query := `
+		INSERT INTO devices (
+			serial, ip, manufacturer, model, hostname, firmware,
+			mac_address, subnet_mask, gateway, dns_servers, dhcp_server,
+			consumables, status_messages,
+			last_seen, created_at, first_seen, is_saved, visible,
+			discovery_method, walk_filename, last_scan_id, raw_data,
+			asset_number, location, description, web_ui_url, locked_fields
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(serial) DO UPDATE SET
+			ip = excluded.ip,
+			manufacturer = excluded.manufacturer,
+			model = excluded.model,
+			hostname = excluded.hostname,
+			firmware = excluded.firmware,
+			mac_address = excluded.mac_address,
+			subnet_mask = excluded.subnet_mask,
+			gateway = excluded.gateway,
+			dns_servers = excluded.dns_servers,
+			dhcp_server = excluded.dhcp_server,
+			consumables = excluded.consumables,
+			status_messages = excluded.status_messages,
+			last_seen = excluded.last_seen,
+			visible = excluded.visible,
+			discovery_method = excluded.discovery_method,
+			walk_filename = excluded.walk_filename,
+			last_scan_id = excluded.last_scan_id,
+			raw_data = excluded.raw_data,
+			asset_number = excluded.asset_number,
+			location = excluded.location,
+			description = excluded.description,
+			web_ui_url = excluded.web_ui_url
+			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields are NOT updated (preserved from existing row)
+	`
+
+	_, err := ex.ExecContext(ctx, query,
+		device.Serial, device.IP, device.Manufacturer, device.Model,
+		device.Hostname, device.Firmware, device.MACAddress, device.SubnetMask,
+		device.Gateway, string(dnsJSON), device.DHCPServer,
+		string(consumablesJSON), string(statusJSON),
+		device.LastSeen, device.CreatedAt, device.FirstSeen, device.IsSaved, device.Visible,
+		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
+		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to upsert device: %w", err)
+	}
+	return nil
 }
 
 // GetMetricsHistory retrieves metrics history for a device within a time range
