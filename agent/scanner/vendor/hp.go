@@ -117,27 +117,29 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		logger.Global.TraceTag("vendor_parse", "Parsing HP vendor PDUs", "pdu_count", len(pdus))
 	}
 
+	idx := newPDUIndex(pdus)
+
 	// Extract HP enterprise counters
-	colorPages := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.7.0")
-	monoPages := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.8.0")
-	copyPages := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.3.0")
-	adfScans := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.0")
-	flatbedScans := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.1.0")
-	faxSent := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.1.0")
-	faxReceived := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.2.0")
-	duplexSheets := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.6.0")
-	jamEvents := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.0")
+	colorPages := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.7.0")
+	monoPages := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.8.0")
+	copyPages := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.3.0")
+	adfScans := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.0")
+	flatbedScans := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.1.0")
+	faxSent := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.1.0")
+	faxReceived := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.2.2.0")
+	duplexSheets := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.6.0")
+	jamEvents := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.0")
 
 	// Extended metrics
-	jamEventsTotal := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.34.0")
-	adfScansToHost := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.45.0")
-	flatbedScansToHost := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.73.0")
-	faxAdfScans := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.31.0")
-	faxFlatbedScans := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.36.0")
-	faxImpressions := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.32.0")
-	adfImagesScanned := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.44.0")
-	flatbedImagesScanned := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.74.0")
-	scannerJamEvents := getOIDInt(pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.43.0")
+	jamEventsTotal := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.2.34.0")
+	adfScansToHost := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.45.0")
+	flatbedScansToHost := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.73.0")
+	faxAdfScans := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.31.0")
+	faxFlatbedScans := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.36.0")
+	faxImpressions := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.3.7.1.32.0")
+	adfImagesScanned := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.44.0")
+	flatbedImagesScanned := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.74.0")
+	scannerJamEvents := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.43.0")
 
 	// Color/Mono breakdown
 	if colorPages > 0 {
@@ -236,7 +238,7 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Fallback to standard Printer-MIB if enterprise OIDs failed
 	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
+		if pageCount := getOIDIntIndexed(idx, pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
 			result["page_count"] = pageCount
 			result["total_pages"] = pageCount
 		}

@@ -109,18 +109,20 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		logger.Global.TraceTag("vendor_parse", "Parsing Kyocera vendor PDUs", "pdu_count", len(pdus))
 	}
 
+	idx := newPDUIndex(pdus)
+
 	// Extract Kyocera enterprise counters
-	printerBW := getOIDInt(pdus, oids.KyoceraPrintBW)
-	printerColor := getOIDInt(pdus, oids.KyoceraPrintColor)
-	copyBW := getOIDInt(pdus, oids.KyoceraCopyBW)
-	copyColor := getOIDInt(pdus, oids.KyoceraCopyColor)
-	faxBW := getOIDInt(pdus, oids.KyoceraFaxBW)
+	printerBW := getOIDIntIndexed(idx, pdus, oids.KyoceraPrintBW)
+	printerColor := getOIDIntIndexed(idx, pdus, oids.KyoceraPrintColor)
+	copyBW := getOIDIntIndexed(idx, pdus, oids.KyoceraCopyBW)
+	copyColor := getOIDIntIndexed(idx, pdus, oids.KyoceraCopyColor)
+	faxBW := getOIDIntIndexed(idx, pdus, oids.KyoceraFaxBW)
 
-	copyScan := getOIDInt(pdus, oids.KyoceraCopyScans)
-	faxScan := getOIDInt(pdus, oids.KyoceraFaxScans)
-	otherScan := getOIDInt(pdus, oids.KyoceraOtherScans)
+	copyScan := getOIDIntIndexed(idx, pdus, oids.KyoceraCopyScans)
+	faxScan := getOIDIntIndexed(idx, pdus, oids.KyoceraFaxScans)
+	otherScan := getOIDIntIndexed(idx, pdus, oids.KyoceraOtherScans)
 
-	totalPrinted := getOIDInt(pdus, oids.KyoceraTotalPrinted)
+	totalPrinted := getOIDIntIndexed(idx, pdus, oids.KyoceraTotalPrinted)
 
 	// Print function counters
 	if printerBW > 0 {
@@ -152,7 +154,7 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	if totalPrinted > 0 {
 		result["page_count"] = totalPrinted
 		result["total_pages"] = totalPrinted
-	} else if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
+	} else if pageCount := getOIDIntIndexed(idx, pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
 		result["page_count"] = pageCount
 		result["total_pages"] = pageCount
 	} else if monoTotal > 0 || colorTotal > 0 {

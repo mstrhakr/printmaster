@@ -123,16 +123,18 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		logger.Global.TraceTag("vendor_parse", "Parsing Epson vendor PDUs", "pdu_count", len(pdus))
 	}
 
+	idx := newPDUIndex(pdus)
+
 	// Extract Epson enterprise summary counters
 	// Try ICE OIDs first, fall back to legacy if not found
-	totalPages := getOIDInt(pdus, oids.EpsonTotalPages)
+	totalPages := getOIDIntIndexed(idx, pdus, oids.EpsonTotalPages)
 	if totalPages == 0 {
-		totalPages = getOIDInt(pdus, oids.EpsonTotalPagesLegacy)
+		totalPages = getOIDIntIndexed(idx, pdus, oids.EpsonTotalPagesLegacy)
 	}
-	colorPages := getOIDInt(pdus, oids.EpsonColorPages)
-	monoPages := getOIDInt(pdus, oids.EpsonMonoPages)
+	colorPages := getOIDIntIndexed(idx, pdus, oids.EpsonColorPages)
+	monoPages := getOIDIntIndexed(idx, pdus, oids.EpsonMonoPages)
 	if monoPages == 0 {
-		monoPages = getOIDInt(pdus, oids.EpsonMonoPagesLegacy)
+		monoPages = getOIDIntIndexed(idx, pdus, oids.EpsonMonoPagesLegacy)
 	}
 
 	// Page count totals
@@ -151,9 +153,9 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Parse function counters (ICE-style)
 	// Print function (1)
-	printTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".1")
-	printColor := getOIDInt(pdus, oids.EpsonFunctionColorCount+".1")
-	printBW := getOIDInt(pdus, oids.EpsonFunctionBWCount+".1")
+	printTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".1")
+	printColor := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionColorCount+".1")
+	printBW := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionBWCount+".1")
 	if printTotal > 0 {
 		result["print_pages"] = printTotal
 	}
@@ -170,9 +172,9 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	}
 
 	// Copy function (2)
-	copyTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".2")
-	copyColor := getOIDInt(pdus, oids.EpsonFunctionColorCount+".2")
-	copyBW := getOIDInt(pdus, oids.EpsonFunctionBWCount+".2")
+	copyTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".2")
+	copyColor := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionColorCount+".2")
+	copyBW := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionBWCount+".2")
 	if copyTotal > 0 {
 		result["copy_pages"] = copyTotal
 	}
@@ -188,8 +190,8 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	}
 
 	// Fax function (3)
-	faxTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".3")
-	faxBW := getOIDInt(pdus, oids.EpsonFunctionBWCount+".3")
+	faxTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".3")
+	faxBW := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionBWCount+".3")
 	if faxTotal > 0 {
 		result["fax_pages"] = faxTotal
 	}
@@ -198,7 +200,7 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	}
 
 	// Scan function (4)
-	scanTotal := getOIDInt(pdus, oids.EpsonFunctionTotalCount+".4")
+	scanTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".4")
 	if scanTotal > 0 {
 		result["scan_count"] = scanTotal
 	}
@@ -220,7 +222,7 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	// Fallback to standard Printer-MIB if enterprise OIDs failed
 	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
+		if pageCount := getOIDIntIndexed(idx, pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
 			result["page_count"] = pageCount
 			result["total_pages"] = pageCount
 		}

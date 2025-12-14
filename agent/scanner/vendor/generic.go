@@ -13,6 +13,18 @@ import (
 	"github.com/gosnmp/gosnmp"
 )
 
+type pduIndex struct {
+	byOID map[string]gosnmp.SnmpPDU
+}
+
+func newPDUIndex(pdus []gosnmp.SnmpPDU) *pduIndex {
+	idx := &pduIndex{byOID: make(map[string]gosnmp.SnmpPDU, len(pdus))}
+	for _, pdu := range pdus {
+		idx.byOID[normalizeOID(pdu.Name)] = pdu
+	}
+	return idx
+}
+
 // GenericVendor is the fallback module for devices without vendor-specific support.
 // Uses standard Printer-MIB (RFC 3805) OIDs only.
 type GenericVendor struct{}
@@ -72,8 +84,10 @@ func (v *GenericVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		logger.Global.TraceTag("vendor_parse", "Parsing Generic vendor PDUs", "pdu_count", len(pdus))
 	}
 
+	idx := newPDUIndex(pdus)
+
 	// Parse basic page count
-	if pageCount := getOIDInt(pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
+	if pageCount := getOIDIntIndexed(idx, pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
 		result["total_pages"] = pageCount
 		result["page_count"] = pageCount
 	}
@@ -88,6 +102,16 @@ func (v *GenericVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	}
 
 	return result
+}
+
+func getOIDIntIndexed(idx *pduIndex, pdus []gosnmp.SnmpPDU, oid string) int {
+	oid = normalizeOID(oid)
+	if idx != nil {
+		if pdu, ok := idx.byOID[oid]; ok {
+			return coerceToInt(pdu.Value)
+		}
+	}
+	return getOIDInt(pdus, oid)
 }
 
 // parseSuppliesTable walks prtMarkerSuppliesTable and extracts toner/ink levels.
