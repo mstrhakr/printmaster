@@ -29,7 +29,7 @@ func (d *MonoDetector) Detect(evidence *DetectionEvidence) float64 {
 
 	colorants := []string{}
 	for _, oid := range colorantOIDs {
-		value := GetOIDString(evidence.PDUs, oid)
+		value := GetOIDStringIn(evidence, oid)
 		if value != "" {
 			colorants = append(colorants, strings.ToLower(value))
 		}

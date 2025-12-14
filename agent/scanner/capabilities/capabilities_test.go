@@ -60,6 +60,27 @@ func TestGetRelevantMetrics_MonoPrinter(t *testing.T) {
 	}
 }
 
+func TestEvidenceIndexedOIDHelpers(t *testing.T) {
+	t.Parallel()
+
+	pdus := []gosnmp.SnmpPDU{
+		{Name: ".1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("Test Device")},
+		{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 123},
+	}
+
+	evidence := &DetectionEvidence{PDUs: pdus}
+
+	if !HasOIDIn(evidence, "1.3.6.1.2.1.1.1.0") {
+		t.Fatal("expected HasOIDIn to find OID")
+	}
+	if got := GetOIDStringIn(evidence, "1.3.6.1.2.1.1.1.0"); got != "Test Device" {
+		t.Fatalf("GetOIDStringIn mismatch: got %q", got)
+	}
+	if got := GetOIDValueIn(evidence, "1.3.6.1.2.1.43.10.2.1.4.1.1"); got != 123 {
+		t.Fatalf("GetOIDValueIn mismatch: got %d", got)
+	}
+}
+
 func TestGetRelevantMetrics_ColorMFP(t *testing.T) {
 	t.Parallel()
 

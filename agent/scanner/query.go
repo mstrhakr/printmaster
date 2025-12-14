@@ -444,14 +444,20 @@ func enterprisePrefixFromSysObjectID(sysObjectID string) string {
 // detectCapabilities analyzes SNMP PDUs to determine device capabilities.
 // This is called during QueryFull to populate the Capabilities field.
 func detectCapabilities(pdus []gosnmp.SnmpPDU, vendorHint string) capabilities.DeviceCapabilities {
+	idx := make(map[string]gosnmp.SnmpPDU, len(pdus))
+	for _, pdu := range pdus {
+		idx[normalizeOID(pdu.Name)] = pdu
+	}
+
 	// Extract basic device info from PDUs for capability detection
 	evidence := &capabilities.DetectionEvidence{
 		PDUs:     pdus,
+		PDUByOID: idx,
 		Vendor:   vendorHint,
-		SysDescr: extractOIDString(pdus, oids.SysDescr),
-		SysOID:   extractOIDString(pdus, oids.SysObjectID),
-		Model:    extractOIDString(pdus, oids.HrDeviceDescr),          // hrDeviceDescr
-		Serial:   extractOIDString(pdus, oids.PrtGeneralSerialNumber), // prtGeneralSerialNumber
+		SysDescr: extractOIDStringFromIndex(idx, oids.SysDescr),
+		SysOID:   extractOIDStringFromIndex(idx, oids.SysObjectID),
+		Model:    extractOIDStringFromIndex(idx, oids.HrDeviceDescr),          // hrDeviceDescr
+		Serial:   extractOIDStringFromIndex(idx, oids.PrtGeneralSerialNumber), // prtGeneralSerialNumber
 	}
 
 	// If model is empty, try to extract from sysDescr
@@ -465,17 +471,14 @@ func detectCapabilities(pdus []gosnmp.SnmpPDU, vendorHint string) capabilities.D
 	return registry.DetectAll(evidence)
 }
 
-// extractOIDString extracts a string value from PDUs for the given OID.
-func extractOIDString(pdus []gosnmp.SnmpPDU, oid string) string {
+func extractOIDStringFromIndex(idx map[string]gosnmp.SnmpPDU, oid string) string {
 	oid = normalizeOID(oid)
-	for _, pdu := range pdus {
-		if normalizeOID(pdu.Name) == oid {
-			if bytes, ok := pdu.Value.([]byte); ok {
-				return string(bytes)
-			}
-			if str, ok := pdu.Value.(string); ok {
-				return str
-			}
+	if pdu, ok := idx[oid]; ok {
+		if bytes, ok := pdu.Value.([]byte); ok {
+			return string(bytes)
+		}
+		if str, ok := pdu.Value.(string); ok {
+			return str
 		}
 	}
 	return ""

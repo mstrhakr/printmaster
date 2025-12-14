@@ -25,9 +25,9 @@ func (d *FaxDetector) Detect(evidence *DetectionEvidence) float64 {
 	maxFaxPages := int64(0)
 	hasFaxCounter := false
 	for _, oid := range faxPageOIDs {
-		if HasOID(evidence.PDUs, oid) {
+		if HasOIDIn(evidence, oid) {
 			hasFaxCounter = true
-			faxPages := GetOIDValue(evidence.PDUs, oid)
+			faxPages := GetOIDValueIn(evidence, oid)
 			if faxPages > maxFaxPages {
 				maxFaxPages = faxPages
 			}
@@ -45,7 +45,7 @@ func (d *FaxDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.2.1.0", // HP fax ADF scans
 		"1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.2.2.0", // HP fax flatbed scans
 	}
-	if HasAnyOID(evidence.PDUs, faxScanOIDs) {
+	if HasAnyOIDIn(evidence, faxScanOIDs) {
 		score += 0.5
 	}
 
@@ -61,7 +61,7 @@ func (d *FaxDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.2.1.2.2.1.2", // ifDescr
 	}
 	for _, oid := range ifaceOIDs {
-		value := GetOIDString(evidence.PDUs, oid)
+		value := GetOIDStringIn(evidence, oid)
 		if ContainsAny(value, []string{"fax", "modem", "pstn"}) {
 			score += 0.3
 			break

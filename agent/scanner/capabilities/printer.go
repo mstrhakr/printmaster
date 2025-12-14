@@ -25,7 +25,7 @@ func (d *PrinterDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.2.1.43.10.2.1.4.1.1", // prtMarkerLifeCount
 		"1.3.6.1.2.1.25.3.2.1.3.1",    // hrDeviceDescr
 	}
-	if HasAnyOID(evidence.PDUs, printerOIDs) {
+	if HasAnyOIDIn(evidence, printerOIDs) {
 		score += 0.3
 	}
 

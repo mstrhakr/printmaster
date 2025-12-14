@@ -26,8 +26,8 @@ func (d *CopierDetector) Detect(evidence *DetectionEvidence) float64 {
 	}
 
 	for _, oid := range copyPageOIDs {
-		if HasOID(evidence.PDUs, oid) {
-			copyPages := GetOIDValue(evidence.PDUs, oid)
+		if HasOIDIn(evidence, oid) {
+			copyPages := GetOIDValueIn(evidence, oid)
 			if copyPages > 0 {
 				score += 0.9
 				break
@@ -45,13 +45,13 @@ func (d *CopierDetector) Detect(evidence *DetectionEvidence) float64 {
 		if strings.Contains(oidName, "1.3.6.1.4.1") {
 			// Check if this looks like a copy counter (copy in path or high value suggesting page count)
 			if strings.Contains(oidName, ".27.6.1.") && pdu.Value != nil { // Epson function counters
-				if val := GetOIDValue(evidence.PDUs, pdu.Name); val > 0 {
+				if val := pduValueToInt64(pdu.Value); val > 0 {
 					score += 0.8
 					break
 				}
 			}
 			if strings.Contains(oidName, ".42.3.1.1.1.2") { // Kyocera copy total
-				if val := GetOIDValue(evidence.PDUs, pdu.Name); val > 0 {
+				if val := pduValueToInt64(pdu.Value); val > 0 {
 					score += 0.8
 					break
 				}
@@ -65,7 +65,7 @@ func (d *CopierDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.4.1.11.2.3.9.4.2.1.3.9.1.1.0", // HP ADF scans
 		"1.3.6.1.4.1.1602.1.1.1.4.1.1.0",       // Canon scan counter
 	}
-	if HasAnyOID(evidence.PDUs, scanCounterOIDs) {
+	if HasAnyOIDIn(evidence, scanCounterOIDs) {
 		score += 0.5
 	}
 
@@ -110,7 +110,7 @@ func (d *CopierDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.2.1.43.8.2.1.2", // prtInputType
 	}
 	for _, oid := range adfOIDs {
-		value := GetOIDString(evidence.PDUs, oid)
+		value := GetOIDStringIn(evidence, oid)
 		if ContainsAny(value, []string{"auto", "adf", "feeder"}) {
 			score += 0.3
 			break

@@ -367,67 +367,77 @@ This section covers how discovery results are persisted via `agent.UpsertDiscove
 
 ### P0 (Correctness / scale breakers)
 
-1) **Fix tiered metrics history query to be range-bounded in SQL**
+- [x] 1) **Fix tiered metrics history query to be range-bounded in SQL**
   - **Problem**: `GetTieredMetricsHistory` fetches all rows per tier per serial, then filters in Go.
   - **Why P0**: long-lived agents will accumulate large tier tables; this turns UI/API reads into unbounded scans.
   - **Change**: add `BETWEEN` bounds on the bucket timestamp columns and ensure indexes exist.
   - **Files**: `agent/storage/downsample.go` (`GetTieredMetricsHistory`).
   - **Tests**: add storage tests validating queries return only in-range rows and tier selection returns monotonic timestamps.
+  - **Status**: ✅ Already implemented — queries use `WHERE serial = ? AND timestamp >= ? AND timestamp <= ?` bounds. Test exists in `downsample_test.go`.
 
-2) **Stop walking `1.3.6.1.4.1` by default in full scans**
+- [x] 2) **Stop walking `1.3.6.1.4.1` by default in full scans**
   - **Problem**: broad enterprise walks are unpredictable and can be huge.
   - **Why P0**: network storms, timeouts, and memory blowups on some devices.
   - **Change**: constrain enterprise walks to vendor-specific roots only; prefer targeted GETs for known OIDs.
   - **Files**: `agent/scanner/query.go` (`QueryFull`), vendor OID sets.
   - **Tests**: scanner tests that ensure full scans never include the enterprise root unless explicitly enabled.
+  - **Status**: ✅ Already implemented — `QueryFull` walks `1.3.6.1.2.1` (System MIB), `1.3.6.1.2.1.43` (Printer-MIB), and vendor-specific subtree from `enterprisePrefixFromSysObjectID()`.
 
-3) **Use request contexts in handlers and long DB operations**
+- [x] 3) **Use request contexts in handlers and long DB operations**
   - **Problem**: endpoints use `context.Background()` so cancellations/timeouts are ignored.
   - **Why P0**: under load, slow DB queries can accumulate and degrade responsiveness.
   - **Change**: use `r.Context()` and add timeouts where needed.
   - **Files**: `agent/main.go` metrics endpoints; consider similar patterns elsewhere.
   - **Tests**: handler-level tests with canceled contexts (where feasible) or store methods that respect context.
+  - **Status**: ✅ Already implemented for metrics endpoints — handlers use `context.WithTimeout(r.Context(), ...)`. Other handlers still use `context.Background()` but those are lower priority.
 
 ### P1 (High leverage perf / maintainability)
 
-4) **Increase SNMP GET batch size and reduce repeated PDU scans**
+- [x] 4) **Increase SNMP GET batch size and reduce repeated PDU scans**
   - **Problem**: `defaultOIDBatchSize=3` is extremely small; many parsers do repeated O(n*m) loops.
   - **Impact**: excessive round-trips and CPU churn.
   - **Change**: raise batch size (empirically tune), build OID→PDU maps once per response.
   - **Files**: `agent/scanner/snmp_batch.go`, vendor parsers in `agent/scanner/vendor/*`.
   - **Tests**: microbenchmarks for parsing; unit tests for vendor OID mapping.
+  - **Status**: ✅ Done — `defaultOIDBatchSize` is 15, and capability detection now builds a single OID→PDU index per response (removing repeated scans).
 
-5) **Make discovery persistence transactional (device upsert + scan history + metrics)**
+- [x] 5) **Make discovery persistence transactional (device upsert + scan history + metrics)**
   - **Problem**: discovery path performs multiple writes without a transaction.
   - **Impact**: partial writes on crash; amplification.
   - **Change**: wrap per-device persistence in a transaction, or design a single “store discovery result” method.
   - **Files**: `agent/main.go` storage adapter + `agent/storage/sqlite.go`.
   - **Tests**: transaction rollback tests; invariants like “scan_history row implies device exists”.
 
-6) **Replace `GROUP_CONCAT(JSON)` toner averaging with streaming aggregation**
+  - **Status**: ✅ Already implemented — `StoreDiscoveryAtomic()` wraps device upsert + scan history + metrics in a single transaction.
+
+- [x] 6) **Replace `GROUP_CONCAT(JSON)` toner averaging with streaming aggregation**
   - **Problem**: concatenating many JSON strings into one huge string is memory-heavy and brittle.
   - **Change**: scan rows and average in Go, or normalize toner levels.
   - **Files**: `agent/storage/downsample.go` (`averageTonerLevels`).
   - **Tests**: parsing robustness tests (quotes/braces), large-volume tests to prevent regressions.
 
-7) **Retire legacy IP-based device details code paths in UI**
+  - **Status**: ✅ Implemented 2025-12-14 — Rewrote `averageTonerLevels()` with streaming-friendly parser. Added test cases in `downsample_test.go`.
+
+- [x] 7) **Retire legacy IP-based device details code paths in UI**
   - **Problem**: shared UI is serial-based; legacy IP-based modal logic still exists and causes drift.
   - **Change**: standardize on serial everywhere; keep IP only as display field.
   - **Files**: `agent/web/app.js`, `common/web/shared.js`, `common/web/cards.js`.
 
+  - **Status**: ✅ Implemented 2025-12-14 — `showPrinterDetails(ip, source)` deprecated (with console warning) and redirects to serial-based lookup.
+
 ### P2 (Quality improvements / future-proofing)
 
-8) **Clarify and document API schemas (device vs metrics “current state”)**
+- [ ] 8) **Clarify and document API schemas (device vs metrics “current state”)**
   - **Problem**: `/devices/get` synthesizes toner levels from multiple sources; compatibility wrappers persist.
   - **Change**: document a canonical schema and migrate consumers to it.
   - **Files**: `docs/API.md` and relevant handlers.
 
-9) **Downsampler idempotency and transactional safety**
+- [ ] 9) **Downsampler idempotency and transactional safety**
   - **Problem**: `INSERT OR REPLACE` can be heavier than `ON CONFLICT DO UPDATE`; rollup runs can be partially applied.
   - **Change**: transaction-wrap rollups and use upserts.
   - **Files**: `agent/storage/downsample.go`.
 
-10) **UI guardrails for large metrics ranges**
+- [ ] 10) **UI guardrails for large metrics ranges**
   - **Problem**: metrics modal can render a large table; repeated fetches for bounds + range.
   - **Change**: endpoint for bounds only, UI paging, max points/decimation.
   - **Files**: `common/web/metrics.js`, metrics API handler.

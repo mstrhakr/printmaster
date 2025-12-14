@@ -26,9 +26,9 @@ func (d *DuplexDetector) Detect(evidence *DetectionEvidence) float64 {
 	maxDuplexCount := int64(0)
 	hasDuplexCounter := false
 	for _, oid := range duplexCounterOIDs {
-		if HasOID(evidence.PDUs, oid) {
+		if HasOIDIn(evidence, oid) {
 			hasDuplexCounter = true
-			duplexCount := GetOIDValue(evidence.PDUs, oid)
+			duplexCount := GetOIDValueIn(evidence, oid)
 			if duplexCount > maxDuplexCount {
 				maxDuplexCount = duplexCount
 			}
@@ -48,7 +48,7 @@ func (d *DuplexDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.2.1.43.8.2.1.13", // prtInputCapacityUnit
 	}
 	for _, oid := range capacityOIDs {
-		value := GetOIDString(evidence.PDUs, oid)
+		value := GetOIDStringIn(evidence, oid)
 		if ContainsAny(value, []string{"duplex", "2-sided", "two-sided"}) {
 			score += 0.7
 			break

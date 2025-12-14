@@ -24,6 +24,7 @@ type CapabilityDetector interface {
 type DetectionEvidence struct {
 	// SNMP data
 	PDUs     []gosnmp.SnmpPDU
+	PDUByOID map[string]gosnmp.SnmpPDU
 	SysDescr string
 	SysOID   string
 
@@ -93,6 +94,8 @@ func (r *CapabilityRegistry) DetectAll(evidence *DetectionEvidence) DeviceCapabi
 		Scores: make(map[string]float64),
 	}
 
+	ensurePDUIndex(evidence)
+
 	// Initialize capabilities map in evidence for cross-referencing
 	if evidence.Capabilities == nil {
 		evidence.Capabilities = make(map[string]float64)
@@ -134,6 +137,25 @@ func (r *CapabilityRegistry) DetectAll(evidence *DetectionEvidence) DeviceCapabi
 	caps.DeviceType = classifyDeviceType(caps)
 
 	return caps
+}
+
+func ensurePDUIndex(evidence *DetectionEvidence) {
+	if evidence == nil {
+		return
+	}
+	if evidence.PDUByOID != nil {
+		return
+	}
+	if len(evidence.PDUs) == 0 {
+		evidence.PDUByOID = map[string]gosnmp.SnmpPDU{}
+		return
+	}
+
+	idx := make(map[string]gosnmp.SnmpPDU, len(evidence.PDUs))
+	for _, pdu := range evidence.PDUs {
+		idx[normalizeOID(pdu.Name)] = pdu
+	}
+	evidence.PDUByOID = idx
 }
 
 // classifyDeviceType determines device type based on capabilities
@@ -180,10 +202,31 @@ func HasOID(pdus []gosnmp.SnmpPDU, oid string) bool {
 	return false
 }
 
+// HasOIDIn checks if a specific OID exists, using the evidence index when available.
+func HasOIDIn(evidence *DetectionEvidence, oid string) bool {
+	if evidence == nil {
+		return false
+	}
+	ensurePDUIndex(evidence)
+	oid = normalizeOID(oid)
+	_, ok := evidence.PDUByOID[oid]
+	return ok
+}
+
 // HasAnyOID checks if any of the specified OIDs exist
 func HasAnyOID(pdus []gosnmp.SnmpPDU, oids []string) bool {
 	for _, oid := range oids {
 		if HasOID(pdus, oid) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAnyOIDIn checks if any of the specified OIDs exist, using the evidence index when available.
+func HasAnyOIDIn(evidence *DetectionEvidence, oids []string) bool {
+	for _, oid := range oids {
+		if HasOIDIn(evidence, oid) {
 			return true
 		}
 	}
@@ -201,6 +244,19 @@ func GetOIDValue(pdus []gosnmp.SnmpPDU, oid string) int64 {
 	return 0
 }
 
+// GetOIDValueIn retrieves the integer value of an OID, using the evidence index when available.
+func GetOIDValueIn(evidence *DetectionEvidence, oid string) int64 {
+	if evidence == nil {
+		return 0
+	}
+	ensurePDUIndex(evidence)
+	oid = normalizeOID(oid)
+	if pdu, ok := evidence.PDUByOID[oid]; ok {
+		return pduValueToInt64(pdu.Value)
+	}
+	return 0
+}
+
 // GetOIDString retrieves the string value of an OID
 func GetOIDString(pdus []gosnmp.SnmpPDU, oid string) string {
 	oid = normalizeOID(oid)
@@ -211,6 +267,25 @@ func GetOIDString(pdus []gosnmp.SnmpPDU, oid string) string {
 			}
 			return ""
 		}
+	}
+	return ""
+}
+
+// GetOIDStringIn retrieves the string value of an OID, using the evidence index when available.
+func GetOIDStringIn(evidence *DetectionEvidence, oid string) string {
+	if evidence == nil {
+		return ""
+	}
+	ensurePDUIndex(evidence)
+	oid = normalizeOID(oid)
+	if pdu, ok := evidence.PDUByOID[oid]; ok {
+		if bytes, ok := pdu.Value.([]byte); ok {
+			return string(bytes)
+		}
+		if s, ok := pdu.Value.(string); ok {
+			return s
+		}
+		return ""
 	}
 	return ""
 }

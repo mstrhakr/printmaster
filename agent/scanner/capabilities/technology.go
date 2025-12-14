@@ -20,7 +20,13 @@ func (d *LaserDetector) Detect(evidence *DetectionEvidence) float64 {
 	// Strong evidence: Consumable descriptions containing "toner" = laser
 	for _, pdu := range evidence.PDUs {
 		if strings.Contains(pdu.Name, "1.3.6.1.2.1.43.11.1.1.6.1") { // prtMarkerSuppliesDescription
-			desc := GetOIDString(evidence.PDUs, pdu.Name)
+			desc := ""
+			switch v := pdu.Value.(type) {
+			case []byte:
+				desc = string(v)
+			case string:
+				desc = v
+			}
 			descLower := strings.ToLower(desc)
 
 			// Toner/drum = laser technology
@@ -161,7 +167,13 @@ func (d *InkjetDetector) Detect(evidence *DetectionEvidence) float64 {
 	// Strong evidence: Consumable descriptions containing "ink" = inkjet
 	for _, pdu := range evidence.PDUs {
 		if strings.Contains(pdu.Name, "1.3.6.1.2.1.43.11.1.1.6.1") { // prtMarkerSuppliesDescription
-			desc := GetOIDString(evidence.PDUs, pdu.Name)
+			desc := ""
+			switch v := pdu.Value.(type) {
+			case []byte:
+				desc = string(v)
+			case string:
+				desc = v
+			}
 			descLower := strings.ToLower(desc)
 
 			// Ink/inkjet = inkjet technology

@@ -27,9 +27,9 @@ func (d *ScannerDetector) Detect(evidence *DetectionEvidence) float64 {
 	maxScanCount := int64(0)
 	hasScanner := false
 	for _, oid := range scanCounterOIDs {
-		if HasOID(evidence.PDUs, oid) {
+		if HasOIDIn(evidence, oid) {
 			hasScanner = true
-			scanCount := GetOIDValue(evidence.PDUs, oid)
+			scanCount := GetOIDValueIn(evidence, oid)
 			if scanCount > maxScanCount {
 				maxScanCount = scanCount
 			}
@@ -74,7 +74,7 @@ func (d *ScannerDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.2.1.43.8.2.1.2", // prtInputType
 	}
 	for _, oid := range adfOIDs {
-		value := GetOIDString(evidence.PDUs, oid)
+		value := GetOIDStringIn(evidence, oid)
 		if ContainsAny(value, []string{"auto", "adf", "feeder"}) {
 			score += 0.2
 			break

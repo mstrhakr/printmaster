@@ -28,8 +28,9 @@ func (d *ColorDetector) Detect(evidence *DetectionEvidence) float64 {
 	hasMagenta := false
 	hasYellow := false
 
+	// Use evidence-indexed OID lookups
 	for _, oid := range colorantOIDs {
-		value := GetOIDString(evidence.PDUs, oid)
+		value := GetOIDStringIn(evidence, oid)
 		valueLower := strings.ToLower(value)
 		if strings.Contains(valueLower, "cyan") {
 			hasCyan = true
@@ -57,8 +58,8 @@ func (d *ColorDetector) Detect(evidence *DetectionEvidence) float64 {
 		"1.3.6.1.4.1.1347.42.3.1.2.1.1.1.3",       // Kyocera printer color
 	}
 	for _, oid := range colorPageOIDs {
-		if HasOID(evidence.PDUs, oid) {
-			colorPages := GetOIDValue(evidence.PDUs, oid)
+		if HasOIDIn(evidence, oid) {
+			colorPages := GetOIDValueIn(evidence, oid)
 			if colorPages > 0 {
 				score += 0.8
 				break
@@ -75,7 +76,13 @@ func (d *ColorDetector) Detect(evidence *DetectionEvidence) float64 {
 	for _, pdu := range evidence.PDUs {
 		// Check supply descriptions
 		if strings.Contains(pdu.Name, "1.3.6.1.2.1.43.11.1.1.6.1") {
-			desc := GetOIDString(evidence.PDUs, pdu.Name)
+			desc := ""
+			switch v := pdu.Value.(type) {
+			case []byte:
+				desc = string(v)
+			case string:
+				desc = v
+			}
 			descLower := strings.ToLower(desc)
 			if ContainsAny(descLower, consumableKeywords) {
 				score += 0.7
