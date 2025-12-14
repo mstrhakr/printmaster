@@ -32,6 +32,12 @@ type AggregatedMetrics struct {
 // DownsampleRawToHourly aggregates raw 5-minute metrics into hourly buckets
 // Returns the number of buckets created and any error
 func (s *SQLiteStore) DownsampleRawToHourly(ctx context.Context, olderThan time.Time) (int, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction for hourly aggregation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	// Query raw metrics grouped by serial and hour
 	query := `
 		SELECT 
@@ -59,11 +65,43 @@ func (s *SQLiteStore) DownsampleRawToHourly(ctx context.Context, olderThan time.
 
 	// Use RFC3339Nano UTC string for time parameter to match stored timestamp format
 	olderStr := olderThan.UTC().Format(time.RFC3339Nano)
-	rows, err := s.db.QueryContext(ctx, query, olderStr)
+	rows, err := tx.QueryContext(ctx, query, olderStr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query raw metrics for hourly aggregation: %w", err)
 	}
 	defer rows.Close()
+
+	insertQuery := `
+		INSERT INTO metrics_hourly (
+			serial, hour_start, sample_count,
+			page_count_min, page_count_max, page_count_avg,
+			color_pages_min, color_pages_max, color_pages_avg,
+			mono_pages_min, mono_pages_max, mono_pages_avg,
+			scan_count_min, scan_count_max, scan_count_avg,
+			toner_levels_avg
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(serial, hour_start) DO UPDATE SET
+			sample_count=excluded.sample_count,
+			page_count_min=excluded.page_count_min,
+			page_count_max=excluded.page_count_max,
+			page_count_avg=excluded.page_count_avg,
+			color_pages_min=excluded.color_pages_min,
+			color_pages_max=excluded.color_pages_max,
+			color_pages_avg=excluded.color_pages_avg,
+			mono_pages_min=excluded.mono_pages_min,
+			mono_pages_max=excluded.mono_pages_max,
+			mono_pages_avg=excluded.mono_pages_avg,
+			scan_count_min=excluded.scan_count_min,
+			scan_count_max=excluded.scan_count_max,
+			scan_count_avg=excluded.scan_count_avg,
+			toner_levels_avg=excluded.toner_levels_avg
+	`
+
+	stmt, err := tx.PrepareContext(ctx, insertQuery)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare hourly upsert: %w", err)
+	}
+	defer stmt.Close()
 
 	count := 0
 	for rows.Next() {
@@ -80,38 +118,20 @@ func (s *SQLiteStore) DownsampleRawToHourly(ctx context.Context, olderThan time.
 			&tonerSamplesStr,
 		)
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to scan hourly aggregate row", "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to scan hourly aggregate row: %w", err)
 		}
 
 		// Parse hour_start timestamp
 		hourStart, err := time.Parse("2006-01-02 15:04:05", hourStartStr)
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to parse hour_start", "hour_start", hourStartStr, "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to parse hour_start %q: %w", hourStartStr, err)
 		}
 
 		// Average toner levels across samples
 		tonerAvg := averageTonerLevels(tonerSamplesStr)
 		tonerJSON, _ := json.Marshal(tonerAvg)
 
-		// Insert into metrics_hourly (using INSERT OR REPLACE for idempotency)
-		insertQuery := `
-			INSERT OR REPLACE INTO metrics_hourly (
-				serial, hour_start, sample_count,
-				page_count_min, page_count_max, page_count_avg,
-				color_pages_min, color_pages_max, color_pages_avg,
-				mono_pages_min, mono_pages_max, mono_pages_avg,
-				scan_count_min, scan_count_max, scan_count_avg,
-				toner_levels_avg
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`
-
-		_, err = s.db.ExecContext(ctx, insertQuery,
+		_, err = stmt.ExecContext(ctx,
 			serial, hourStart.Format(time.RFC3339Nano), sampleCount,
 			pageMin, pageMax, pageAvg,
 			colorMin, colorMax, colorAvg,
@@ -121,13 +141,17 @@ func (s *SQLiteStore) DownsampleRawToHourly(ctx context.Context, olderThan time.
 		)
 
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to insert hourly aggregate", "serial", serial, "hour", hourStartStr, "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to upsert hourly aggregate (serial=%s hour=%s): %w", serial, hourStartStr, err)
 		}
 
 		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("hourly aggregation row iteration failed: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit hourly aggregation: %w", err)
 	}
 
 	if storageLogger != nil && count > 0 {
@@ -139,6 +163,12 @@ func (s *SQLiteStore) DownsampleRawToHourly(ctx context.Context, olderThan time.
 
 // DownsampleHourlyToDaily aggregates hourly metrics into daily buckets
 func (s *SQLiteStore) DownsampleHourlyToDaily(ctx context.Context, olderThan time.Time) (int, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction for daily aggregation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	query := `
 		SELECT 
 			serial,
@@ -164,11 +194,43 @@ func (s *SQLiteStore) DownsampleHourlyToDaily(ctx context.Context, olderThan tim
 	`
 
 	olderStr := olderThan.UTC().Format(time.RFC3339Nano)
-	rows, err := s.db.QueryContext(ctx, query, olderStr)
+	rows, err := tx.QueryContext(ctx, query, olderStr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query hourly metrics for daily aggregation: %w", err)
 	}
 	defer rows.Close()
+
+	insertQuery := `
+		INSERT INTO metrics_daily (
+			serial, day_start, sample_count,
+			page_count_min, page_count_max, page_count_avg,
+			color_pages_min, color_pages_max, color_pages_avg,
+			mono_pages_min, mono_pages_max, mono_pages_avg,
+			scan_count_min, scan_count_max, scan_count_avg,
+			toner_levels_avg
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(serial, day_start) DO UPDATE SET
+			sample_count=excluded.sample_count,
+			page_count_min=excluded.page_count_min,
+			page_count_max=excluded.page_count_max,
+			page_count_avg=excluded.page_count_avg,
+			color_pages_min=excluded.color_pages_min,
+			color_pages_max=excluded.color_pages_max,
+			color_pages_avg=excluded.color_pages_avg,
+			mono_pages_min=excluded.mono_pages_min,
+			mono_pages_max=excluded.mono_pages_max,
+			mono_pages_avg=excluded.mono_pages_avg,
+			scan_count_min=excluded.scan_count_min,
+			scan_count_max=excluded.scan_count_max,
+			scan_count_avg=excluded.scan_count_avg,
+			toner_levels_avg=excluded.toner_levels_avg
+	`
+
+	stmt, err := tx.PrepareContext(ctx, insertQuery)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare daily upsert: %w", err)
+	}
+	defer stmt.Close()
 
 	count := 0
 	for rows.Next() {
@@ -185,35 +247,18 @@ func (s *SQLiteStore) DownsampleHourlyToDaily(ctx context.Context, olderThan tim
 			&tonerSamplesStr,
 		)
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to scan daily aggregate row", "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to scan daily aggregate row: %w", err)
 		}
 
 		dayStart, err := time.Parse("2006-01-02 15:04:05", dayStartStr)
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to parse day_start", "day_start", dayStartStr, "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to parse day_start %q: %w", dayStartStr, err)
 		}
 
 		tonerAvg := averageTonerLevels(tonerSamplesStr)
 		tonerJSON, _ := json.Marshal(tonerAvg)
 
-		insertQuery := `
-			INSERT OR REPLACE INTO metrics_daily (
-				serial, day_start, sample_count,
-				page_count_min, page_count_max, page_count_avg,
-				color_pages_min, color_pages_max, color_pages_avg,
-				mono_pages_min, mono_pages_max, mono_pages_avg,
-				scan_count_min, scan_count_max, scan_count_avg,
-				toner_levels_avg
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`
-
-		_, err = s.db.ExecContext(ctx, insertQuery,
+		_, err = stmt.ExecContext(ctx,
 			serial, dayStart.Format(time.RFC3339Nano), sampleCount,
 			pageMin, pageMax, pageAvg,
 			colorMin, colorMax, colorAvg,
@@ -223,13 +268,17 @@ func (s *SQLiteStore) DownsampleHourlyToDaily(ctx context.Context, olderThan tim
 		)
 
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to insert daily aggregate", "serial", serial, "day", dayStartStr, "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to upsert daily aggregate (serial=%s day=%s): %w", serial, dayStartStr, err)
 		}
 
 		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("daily aggregation row iteration failed: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit daily aggregation: %w", err)
 	}
 
 	if storageLogger != nil && count > 0 {
@@ -241,6 +290,12 @@ func (s *SQLiteStore) DownsampleHourlyToDaily(ctx context.Context, olderThan tim
 
 // DownsampleDailyToMonthly aggregates daily metrics into monthly buckets
 func (s *SQLiteStore) DownsampleDailyToMonthly(ctx context.Context, olderThan time.Time) (int, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin transaction for monthly aggregation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	query := `
 		SELECT 
 			serial,
@@ -266,11 +321,43 @@ func (s *SQLiteStore) DownsampleDailyToMonthly(ctx context.Context, olderThan ti
 	`
 
 	olderStr := olderThan.UTC().Format(time.RFC3339Nano)
-	rows, err := s.db.QueryContext(ctx, query, olderStr)
+	rows, err := tx.QueryContext(ctx, query, olderStr)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query daily metrics for monthly aggregation: %w", err)
 	}
 	defer rows.Close()
+
+	insertQuery := `
+		INSERT INTO metrics_monthly (
+			serial, month_start, sample_count,
+			page_count_min, page_count_max, page_count_avg,
+			color_pages_min, color_pages_max, color_pages_avg,
+			mono_pages_min, mono_pages_max, mono_pages_avg,
+			scan_count_min, scan_count_max, scan_count_avg,
+			toner_levels_avg
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(serial, month_start) DO UPDATE SET
+			sample_count=excluded.sample_count,
+			page_count_min=excluded.page_count_min,
+			page_count_max=excluded.page_count_max,
+			page_count_avg=excluded.page_count_avg,
+			color_pages_min=excluded.color_pages_min,
+			color_pages_max=excluded.color_pages_max,
+			color_pages_avg=excluded.color_pages_avg,
+			mono_pages_min=excluded.mono_pages_min,
+			mono_pages_max=excluded.mono_pages_max,
+			mono_pages_avg=excluded.mono_pages_avg,
+			scan_count_min=excluded.scan_count_min,
+			scan_count_max=excluded.scan_count_max,
+			scan_count_avg=excluded.scan_count_avg,
+			toner_levels_avg=excluded.toner_levels_avg
+	`
+
+	stmt, err := tx.PrepareContext(ctx, insertQuery)
+	if err != nil {
+		return 0, fmt.Errorf("failed to prepare monthly upsert: %w", err)
+	}
+	defer stmt.Close()
 
 	count := 0
 	for rows.Next() {
@@ -287,35 +374,18 @@ func (s *SQLiteStore) DownsampleDailyToMonthly(ctx context.Context, olderThan ti
 			&tonerSamplesStr,
 		)
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to scan monthly aggregate row", "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to scan monthly aggregate row: %w", err)
 		}
 
 		monthStart, err := time.Parse("2006-01-02 15:04:05", monthStartStr)
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to parse month_start", "month_start", monthStartStr, "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to parse month_start %q: %w", monthStartStr, err)
 		}
 
 		tonerAvg := averageTonerLevels(tonerSamplesStr)
 		tonerJSON, _ := json.Marshal(tonerAvg)
 
-		insertQuery := `
-			INSERT OR REPLACE INTO metrics_monthly (
-				serial, month_start, sample_count,
-				page_count_min, page_count_max, page_count_avg,
-				color_pages_min, color_pages_max, color_pages_avg,
-				mono_pages_min, mono_pages_max, mono_pages_avg,
-				scan_count_min, scan_count_max, scan_count_avg,
-				toner_levels_avg
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`
-
-		_, err = s.db.ExecContext(ctx, insertQuery,
+		_, err = stmt.ExecContext(ctx,
 			serial, monthStart.Format(time.RFC3339Nano), sampleCount,
 			pageMin, pageMax, pageAvg,
 			colorMin, colorMax, colorAvg,
@@ -325,13 +395,17 @@ func (s *SQLiteStore) DownsampleDailyToMonthly(ctx context.Context, olderThan ti
 		)
 
 		if err != nil {
-			if storageLogger != nil {
-				storageLogger.Error("Failed to insert monthly aggregate", "serial", serial, "month", monthStartStr, "error", err)
-			}
-			continue
+			return 0, fmt.Errorf("failed to upsert monthly aggregate (serial=%s month=%s): %w", serial, monthStartStr, err)
 		}
 
 		count++
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("monthly aggregation row iteration failed: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("failed to commit monthly aggregation: %w", err)
 	}
 
 	if storageLogger != nil && count > 0 {
@@ -527,6 +601,52 @@ func accumulateTonerSample(jsonStr string, totals map[string]float64, counts map
 			counts[color]++
 		}
 	}
+}
+
+// GetTieredMetricsBounds returns the overall min/max timestamps and total point count
+// across all metric tiers for a device.
+func (s *SQLiteStore) GetTieredMetricsBounds(ctx context.Context, serial string) (time.Time, time.Time, int, error) {
+	if serial == "" {
+		return time.Time{}, time.Time{}, 0, ErrInvalidSerial
+	}
+
+	query := `
+		SELECT
+			MIN(min_ts) AS min_ts,
+			MAX(max_ts) AS max_ts,
+			SUM(cnt)    AS total_cnt
+		FROM (
+			SELECT MIN(timestamp) AS min_ts, MAX(timestamp) AS max_ts, COUNT(*) AS cnt FROM metrics_raw WHERE serial = ?
+			UNION ALL
+			SELECT MIN(hour_start) AS min_ts, MAX(hour_start) AS max_ts, COUNT(*) AS cnt FROM metrics_hourly WHERE serial = ?
+			UNION ALL
+			SELECT MIN(day_start) AS min_ts, MAX(day_start) AS max_ts, COUNT(*) AS cnt FROM metrics_daily WHERE serial = ?
+			UNION ALL
+			SELECT MIN(month_start) AS min_ts, MAX(month_start) AS max_ts, COUNT(*) AS cnt FROM metrics_monthly WHERE serial = ?
+		)
+	`
+
+	var minStr sql.NullString
+	var maxStr sql.NullString
+	var total sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, query, serial, serial, serial, serial).Scan(&minStr, &maxStr, &total); err != nil {
+		return time.Time{}, time.Time{}, 0, fmt.Errorf("failed to query metrics bounds: %w", err)
+	}
+
+	if !total.Valid || total.Int64 == 0 || !minStr.Valid || !maxStr.Valid || minStr.String == "" || maxStr.String == "" {
+		return time.Time{}, time.Time{}, 0, ErrNotFound
+	}
+
+	minTS, err := time.Parse(time.RFC3339Nano, minStr.String)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, fmt.Errorf("failed to parse metrics min timestamp %q: %w", minStr.String, err)
+	}
+	maxTS, err := time.Parse(time.RFC3339Nano, maxStr.String)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, fmt.Errorf("failed to parse metrics max timestamp %q: %w", maxStr.String, err)
+	}
+
+	return minTS, maxTS, int(total.Int64), nil
 }
 
 // GetTieredMetricsHistory retrieves metrics from appropriate tiers based on time range

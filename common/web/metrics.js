@@ -247,20 +247,23 @@ async function loadDeviceMetrics(serial, targetId) {
 async function initializeCustomDatetimePicker(serial, contentElOverride) {
     try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] (shared) initializeCustomDatetimePicker called'); } catch (e) {}
     try {
-        // Fetch all available metrics to determine data range
-        const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&period=year';
-    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Fetching:', url); } catch (e) {}
+        // Fetch only bounds to determine available data range (fast, small payload)
+        const url = '/api/devices/metrics/bounds?serial=' + encodeURIComponent(serial);
+        try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Fetching bounds:', url); } catch (e) {}
         const res = await fetch(url);
         if (!res.ok) {
             try { window.__pm_shared && window.__pm_shared.error && window.__pm_shared.error('[Metrics] API returned status:', res.status); } catch (e) {}
             return;
         }
 
-        const history = await res.json();
-    try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Received', history?.length || 0, 'data points'); } catch (e) {}
+        const bounds = await res.json();
+        try { window.__pm_shared && window.__pm_shared.debug && window.__pm_shared.debug('[Metrics] Bounds:', bounds); } catch (e) {}
         // Use provided content element or fall back to global
         const contentEl = contentElOverride || document.getElementById('metrics_content');
-        if (!history || history.length === 0) {
+
+        const minTime = bounds && bounds.min_timestamp ? new Date(bounds.min_timestamp) : null;
+        const maxTime = bounds && bounds.max_timestamp ? new Date(bounds.max_timestamp) : null;
+        if (!minTime || !maxTime || isNaN(minTime.getTime()) || isNaN(maxTime.getTime())) {
             try { window.__pm_shared && window.__pm_shared.warn && window.__pm_shared.warn('[Metrics] No history data available'); } catch (e) {}
             if (contentEl) {
                 const startEl = contentEl.querySelector('#metrics_data_range_start');
@@ -278,9 +281,6 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
             }
             return;
         }
-
-        const minTime = new Date(history[0].timestamp);
-        const maxTime = new Date(history[history.length - 1].timestamp);
 
         // Store data range globally
         window.metricsDataRange.min = minTime;
@@ -576,8 +576,48 @@ async function refreshMetricsChart(serial) {
 
         // Render a horizontally-scrollable metrics table showing each snapshot and a delete button
         try {
+            const pageSize = 200;
+            const totalRows = history.length;
+            const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+            const buildRowsHtmlForPage = (pageIndex) => {
+                const start = pageIndex * pageSize;
+                const end = Math.min(totalRows, start + pageSize);
+                let rowsHtml = '';
+                for (let i = start; i < end; i++) {
+                    const item = history[i];
+                    const ts = new Date(item.timestamp).toLocaleString();
+                    rowsHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
+                    rowsHtml += '<td style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">';
+                    rowsHtml += '<span>' + ts + ' <span style="color:var(--muted);font-size:11px;margin-left:6px">(' + (item.tier || 'raw') + ')</span></span>';
+                    rowsHtml += '<span style="margin-left:12px">';
+                    rowsHtml += '<button class="trash-btn" data-id="' + (item.id || '') + '" data-tier="' + (item.tier || '') + '" title="Delete this metrics row"></button>';
+                    rowsHtml += '</span>';
+                    rowsHtml += '</td>';
+                    rowsHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.page_count||0).toLocaleString()) + '</td>';
+                    rowsHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.color_pages||0).toLocaleString()) + '</td>';
+                    rowsHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.mono_pages||0).toLocaleString()) + '</td>';
+                    rowsHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.scan_count||0).toLocaleString()) + '</td>';
+                    rowsHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.fax_pages||0).toLocaleString()) + '</td>';
+                    rowsHtml += '</tr>';
+                }
+                return rowsHtml;
+            };
+
             const tableContainerId = 'metrics_table_container';
             let tableHtml = '<div id="' + tableContainerId + '" class="metrics-table-container" style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.05);border-radius:6px;overflow-x:auto">';
+
+            if (totalPages > 1) {
+                tableHtml += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">';
+                tableHtml += '<div style="color:var(--muted);font-size:12px">';
+                tableHtml += '<span id="metrics_rows_pager_info"></span>';
+                tableHtml += '</div>';
+                tableHtml += '<div style="display:flex;gap:6px">';
+                tableHtml += '<button class="btn small metrics-page-btn" data-action="metrics-page" data-dir="prev">Prev</button>';
+                tableHtml += '<button class="btn small metrics-page-btn" data-action="metrics-page" data-dir="next">Next</button>';
+                tableHtml += '</div>';
+                tableHtml += '</div>';
+            }
+
             tableHtml += '<table class="metrics-table" style="border-collapse:collapse;min-width:800px;font-size:13px">';
             tableHtml += '<thead><tr style="border-bottom:2px solid rgba(255,255,255,0.06)">';
             tableHtml += '<th style="padding:8px 12px;text-align:left">Timestamp</th>';
@@ -586,26 +626,8 @@ async function refreshMetricsChart(serial) {
             tableHtml += '<th style="padding:8px 12px;text-align:right">Mono</th>';
             tableHtml += '<th style="padding:8px 12px;text-align:right">Scans</th>';
             tableHtml += '<th style="padding:8px 12px;text-align:right">Fax</th>';
-            tableHtml += '</tr></thead><tbody>';
-
-            history.forEach(item => {
-                const ts = new Date(item.timestamp).toLocaleString();
-                tableHtml += '<tr style="border-bottom:1px solid rgba(255,255,255,0.03)">';
-                tableHtml += '<td style="padding:8px 12px;display:flex;align-items:center;justify-content:space-between">';
-                tableHtml += '<span>' + ts + ' <span style="color:var(--muted);font-size:11px;margin-left:6px">(' + (item.tier || 'raw') + ')</span></span>';
-                tableHtml += '<span style="margin-left:12px">';
-                tableHtml += '<button class="trash-btn" data-id="' + (item.id || '') + '" data-tier="' + (item.tier || '') + '" title="Delete this metrics row"></button>';
-                tableHtml += '</span>';
-                tableHtml += '</td>';
-                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.page_count||0).toLocaleString()) + '</td>';
-                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.color_pages||0).toLocaleString()) + '</td>';
-                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.mono_pages||0).toLocaleString()) + '</td>';
-                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.scan_count||0).toLocaleString()) + '</td>';
-                tableHtml += '<td style="padding:8px 12px;text-align:right">' + ((item.fax_pages||0).toLocaleString()) + '</td>';
-                tableHtml += '</tr>';
-            });
-
-            tableHtml += '</tbody></table></div>';
+            tableHtml += '</tr></thead><tbody id="metrics_rows_tbody"></tbody>';
+            tableHtml += '</table></div>';
             const panelId = 'metrics_rows_panel';
             const panelHtml = '<div class="panel" id="' + panelId + '"><h4 style="margin-top:0;color:var(--highlight)">Metrics Rows</h4>' + tableHtml + '</div>';
 
@@ -623,6 +645,33 @@ async function refreshMetricsChart(serial) {
                 canvas.insertAdjacentHTML('afterend', panelHtml);
             }
 
+            // Initialize paging (or single-page render)
+            const panelEl = document.getElementById(panelId);
+            if (panelEl) {
+                const tbody = panelEl.querySelector('#metrics_rows_tbody');
+                if (tbody) tbody.innerHTML = buildRowsHtmlForPage(0);
+                panelEl._pmMetricsRowsState = {
+                    currentPage: 0,
+                    totalPages,
+                    totalRows,
+                    pageSize
+                };
+                const infoEl = panelEl.querySelector('#metrics_rows_pager_info');
+                const prevBtn = panelEl.querySelector('.metrics-page-btn[data-dir="prev"]');
+                const nextBtn = panelEl.querySelector('.metrics-page-btn[data-dir="next"]');
+                const updatePager = () => {
+                    const state = panelEl._pmMetricsRowsState;
+                    if (!state) return;
+                    const start = state.currentPage * pageSize + 1;
+                    const end = Math.min(totalRows, (state.currentPage + 1) * pageSize);
+                    if (infoEl) infoEl.textContent = 'Rows ' + start.toLocaleString() + '–' + end.toLocaleString() + ' of ' + totalRows.toLocaleString() + ' (Page ' + (state.currentPage + 1) + '/' + totalPages + ')';
+                    if (prevBtn) prevBtn.disabled = state.currentPage <= 0;
+                    if (nextBtn) nextBtn.disabled = state.currentPage >= totalPages - 1;
+                };
+                panelEl._pmMetricsRowsUpdatePager = updatePager;
+                updatePager();
+            }
+
             const metricsContainerForEvents = document.getElementById('metrics_modal_body') || document.getElementById('metrics_content');
             if (metricsContainerForEvents) {
                 if (metricsContainerForEvents._metricsDeleteHandler) {
@@ -631,6 +680,20 @@ async function refreshMetricsChart(serial) {
                 }
 
                 const handler = async (e) => {
+                    const pageBtn = e.target.closest('[data-action="metrics-page"]');
+                    if (pageBtn) {
+                        const dir = pageBtn.getAttribute('data-dir') || '';
+                        const panelEl = document.getElementById(panelId);
+                        const state = panelEl && panelEl._pmMetricsRowsState;
+                        if (!panelEl || !state) return;
+                        if (dir === 'prev' && state.currentPage > 0) state.currentPage--;
+                        if (dir === 'next' && state.currentPage < state.totalPages - 1) state.currentPage++;
+                        const tbody = panelEl.querySelector('#metrics_rows_tbody');
+                        if (tbody) tbody.innerHTML = buildRowsHtmlForPage(state.currentPage);
+                        if (panelEl._pmMetricsRowsUpdatePager) panelEl._pmMetricsRowsUpdatePager();
+                        return;
+                    }
+
                     const btn = e.target.closest('.trash-btn');
                     if (!btn) return;
                     const id = btn.getAttribute('data-id');

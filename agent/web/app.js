@@ -1009,10 +1009,11 @@ async function showSavedDeviceDetails(serial) {
         if (window.__pm_shared && typeof window.__pm_shared.showPrinterDetails === 'function') {
             window.__pm_shared.showPrinterDetails(serial, 'saved');
         } else {
-            // Fallback: try agent-local endpoint directly
-            const r = await fetch('/devices/get?serial=' + encodeURIComponent(serial));
+            // Fallback: try agent-local canonical profile endpoint directly
+            const r = await fetch('/api/devices/profile?serial=' + encodeURIComponent(serial));
             if (!r.ok) throw new Error('Device not found');
-            const device = await r.json();
+            const profile = await r.json();
+            const device = (profile && profile.device) ? profile.device : profile;
             window.__pm_shared_cards.showPrinterDetailsData(device, 'saved');
         }
     } catch (e) {
@@ -1961,20 +1962,23 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
     }
     window.__pm_shared.log('[Metrics] initializeCustomDatetimePicker called');
     try {
-        // Fetch all available metrics to determine data range
-        const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&period=year';
-        window.__pm_shared.log('[Metrics] Fetching:', url);
+        // Fetch only bounds to determine data range (fast, small payload)
+        const url = '/api/devices/metrics/bounds?serial=' + encodeURIComponent(serial);
+        window.__pm_shared.log('[Metrics] Fetching bounds:', url);
         const res = await fetch(url);
         if (!res.ok) {
             window.__pm_shared.error('[Metrics] API returned status:', res.status);
             return;
         }
 
-        const history = await res.json();
-        window.__pm_shared.log('[Metrics] Received', history?.length || 0, 'data points');
+        const bounds = await res.json();
+        window.__pm_shared.log('[Metrics] Bounds:', bounds);
         // Use provided content element or fall back to global
         const contentEl = contentElOverride || document.getElementById('metrics_content');
-        if (!history || history.length === 0) {
+
+        const minTime = bounds && bounds.min_timestamp ? new Date(bounds.min_timestamp) : null;
+        const maxTime = bounds && bounds.max_timestamp ? new Date(bounds.max_timestamp) : null;
+        if (!minTime || !maxTime || isNaN(minTime.getTime()) || isNaN(maxTime.getTime())) {
             window.__pm_shared.warn('[Metrics] No history data available');
             if (contentEl) {
                 const startEl = contentEl.querySelector('#metrics_data_range_start');
@@ -1992,9 +1996,6 @@ async function initializeCustomDatetimePicker(serial, contentElOverride) {
             }
             return;
         }
-
-        const minTime = new Date(history[0].timestamp);
-        const maxTime = new Date(history[history.length - 1].timestamp);
 
         // Store data range globally
         window.metricsDataRange.min = minTime;
@@ -3907,11 +3908,11 @@ function refreshMibWalks() {
 function viewDevice(serial) {
     const meta = document.getElementById('mib_results_meta'); const tbody = document.getElementById('mib_results_tbody');
     meta.style.display = 'block'; meta.textContent = 'Loading device ' + serial + '...'; tbody.innerHTML = '';
-    fetch('/devices/get?serial=' + encodeURIComponent(serial)).then(async r => {
+    fetch('/api/devices/profile?serial=' + encodeURIComponent(serial)).then(async r => {
         if (!r.ok) { meta.textContent = 'Not found'; return; }
         const j = await r.json();
-        // Direct device format (compatibility wrapper removed)
-        let deviceData = j;
+        // Canonical response: { device, latest_metrics }
+        let deviceData = (j && j.device) ? j.device : j;
         if (deviceData) {
             renderPrinterInfo(deviceData);
             // add a refresh button to meta so user can refresh this device

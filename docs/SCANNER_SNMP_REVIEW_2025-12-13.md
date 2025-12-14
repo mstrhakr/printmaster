@@ -427,20 +427,26 @@ This section covers how discovery results are persisted via `agent.UpsertDiscove
 
 ### P2 (Quality improvements / future-proofing)
 
-- [ ] 8) **Clarify and document API schemas (device vs metrics “current state”)**
+- [x] 8) **Clarify and document API schemas (device vs metrics “current state”)**
   - **Problem**: `/devices/get` synthesizes toner levels from multiple sources; compatibility wrappers persist.
   - **Change**: document a canonical schema and migrate consumers to it.
   - **Files**: `docs/API.md` and relevant handlers.
 
-- [ ] 9) **Downsampler idempotency and transactional safety**
+  - **Status**: ✅ Implemented 2025-12-14 — Added canonical `GET /api/devices/profile?serial=...` (device metadata + latest metrics) and documented it in `docs/API.md`. Migrated agent UI callers off legacy `/devices/get` where applicable.
+
+- [x] 9) **Downsampler idempotency and transactional safety**
   - **Problem**: `INSERT OR REPLACE` can be heavier than `ON CONFLICT DO UPDATE`; rollup runs can be partially applied.
   - **Change**: transaction-wrap rollups and use upserts.
   - **Files**: `agent/storage/downsample.go`.
 
-- [ ] 10) **UI guardrails for large metrics ranges**
+  - **Status**: ✅ Implemented 2025-12-14 — Replaced `INSERT OR REPLACE` with `ON CONFLICT ... DO UPDATE` UPSERTs and wrapped each rollup (`DownsampleRawToHourly`, `DownsampleHourlyToDaily`, `DownsampleDailyToMonthly`) in a transaction. Added tests in `agent/storage/downsample_test.go` to verify rerun id stability and rollback on insert failure.
+
+- [x] 10) **UI guardrails for large metrics ranges**
   - **Problem**: metrics modal can render a large table; repeated fetches for bounds + range.
   - **Change**: endpoint for bounds only, UI paging, max points/decimation.
   - **Files**: `common/web/metrics.js`, metrics API handler.
+
+  - **Status**: ✅ Implemented 2025-12-14 — Added `GET /api/devices/metrics/bounds?serial=...` for lightweight min/max range discovery, updated `common/web/metrics.js` to use it (no more `period=year` history fetch just to learn bounds), added simple paging for the “Metrics Rows” table, and added server-side max-points decimation in `/api/devices/metrics/history` to cap large result sets.
 
 ---
 

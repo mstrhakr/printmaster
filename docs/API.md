@@ -59,10 +59,17 @@ List all saved devices.
 - Filter: `is_saved=true`
 - Returns: Array of `Device` objects with full metadata
 
-#### `GET /devices/get?serial={serial}`
-Get single device by serial number.
+#### `GET /api/devices/profile?serial={serial}`
+Get canonical device profile by serial.
 - Query param: `serial` (required)
-- Returns: Single `Device` object
+- Returns: `{ "device": Device, "latest_metrics": MetricsSnapshot | null }`
+- Error: `404` if not found
+
+#### `GET /devices/get?serial={serial}`
+Get single device by serial number (**legacy/compat**).
+- Query param: `serial` (required)
+- Returns: A merged/compat object (may synthesize fields like `page_count`/`toner_levels`)
+- Prefer `GET /api/devices/profile` + `GET /api/devices/metrics/latest`
 - Error: `404` if not found
 
 #### `POST /devices/save`
@@ -139,6 +146,31 @@ Manually trigger metrics collection for a device.
 - Queries SNMP for page counts, toner levels, scan counts
 - Stores snapshot in `metrics_raw` table
 - Returns: Latest metrics snapshot
+
+#### `GET /api/devices/metrics/latest?serial={serial}`
+Get the latest metrics snapshot for a device.
+- Query param: `serial` (required)
+- Returns: `MetricsSnapshot` JSON
+- Error: `404` if no metrics exist
+
+#### `GET /api/devices/metrics/history?serial={serial}&since={iso}&until={iso}`
+Get metrics snapshots for a device in a time range.
+- Query params: `serial`, `since` (RFC3339), `until` (RFC3339)
+- Returns: Array of `MetricsSnapshot`
+- Note: large result sets may be server-decimated to cap payload size
+
+#### `GET /api/devices/metrics/bounds?serial={serial}`
+Get the overall available metrics time bounds for a device.
+- Query param: `serial` (required)
+- Returns:
+```json
+{
+  "serial": "JPBCD12345",
+  "min_timestamp": "2025-12-01T00:00:00Z",
+  "max_timestamp": "2025-12-14T12:34:56Z",
+  "points": 12345
+}
+```
 
 ---
 

@@ -194,3 +194,125 @@ func TestAverageTonerLevels(t *testing.T) {
 		})
 	}
 }
+
+func TestSQLiteStore_DownsampleRawToHourly_UpsertPreservesRowID(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	serial := "TEST_DOWNSAMPLE_UPSERT"
+
+	dev := newFullTestDevice(serial, "192.168.1.210", "HP", "LaserJet", true, true)
+	if err := store.Create(ctx, dev); err != nil {
+		t.Fatalf("Failed to create device: %v", err)
+	}
+
+	base := time.Date(2025, 1, 1, 0, 5, 0, 0, time.UTC)
+	insertRaw := func(ts time.Time, pages int) {
+		t.Helper()
+		_, err := store.db.ExecContext(ctx,
+			`INSERT INTO metrics_raw (serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			serial, ts.Format(time.RFC3339Nano), pages, 0, 0, 0, `{"black":50}`,
+		)
+		if err != nil {
+			t.Fatalf("Failed to insert raw: %v", err)
+		}
+	}
+	insertRaw(base, 10)
+	insertRaw(base.Add(5*time.Minute), 20)
+
+	olderThan := base.Add(2 * time.Hour)
+	if _, err := store.DownsampleRawToHourly(ctx, olderThan); err != nil {
+		t.Fatalf("DownsampleRawToHourly returned error: %v", err)
+	}
+
+	var id1 int64
+	if err := store.db.QueryRowContext(ctx, `SELECT id FROM metrics_hourly WHERE serial = ?`, serial).Scan(&id1); err != nil {
+		t.Fatalf("Failed to query hourly row id: %v", err)
+	}
+
+	if _, err := store.DownsampleRawToHourly(ctx, olderThan); err != nil {
+		t.Fatalf("DownsampleRawToHourly (rerun) returned error: %v", err)
+	}
+
+	var id2 int64
+	if err := store.db.QueryRowContext(ctx, `SELECT id FROM metrics_hourly WHERE serial = ?`, serial).Scan(&id2); err != nil {
+		t.Fatalf("Failed to query hourly row id after rerun: %v", err)
+	}
+
+	if id1 != id2 {
+		t.Fatalf("expected hourly row id to be stable across reruns (UPSERT), got %d then %d", id1, id2)
+	}
+
+	var rows int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM metrics_hourly WHERE serial = ?`, serial).Scan(&rows); err != nil {
+		t.Fatalf("Failed to query hourly row count: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("expected exactly 1 hourly row, got %d", rows)
+	}
+}
+
+func TestSQLiteStore_DownsampleRawToHourly_RollsBackOnInsertFailure(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	serialA := "TEST_DOWNSAMPLE_TX_A"
+	serialB := "TEST_DOWNSAMPLE_TX_B"
+
+	if err := store.Create(ctx, newFullTestDevice(serialA, "192.168.1.211", "HP", "LaserJet", true, true)); err != nil {
+		t.Fatalf("Failed to create device A: %v", err)
+	}
+	if err := store.Create(ctx, newFullTestDevice(serialB, "192.168.1.212", "HP", "LaserJet", true, true)); err != nil {
+		t.Fatalf("Failed to create device B: %v", err)
+	}
+
+	base := time.Date(2025, 1, 1, 0, 5, 0, 0, time.UTC)
+	insertRaw := func(serial string, ts time.Time, pages int) {
+		t.Helper()
+		_, err := store.db.ExecContext(ctx,
+			`INSERT INTO metrics_raw (serial, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			serial, ts.Format(time.RFC3339Nano), pages, 0, 0, 0, `{}`,
+		)
+		if err != nil {
+			t.Fatalf("Failed to insert raw for %s: %v", serial, err)
+		}
+	}
+	insertRaw(serialA, base, 10)
+	insertRaw(serialB, base, 20)
+
+	_, err = store.db.ExecContext(ctx, `
+		CREATE TRIGGER abort_on_b
+		BEFORE INSERT ON metrics_hourly
+		WHEN NEW.serial = 'TEST_DOWNSAMPLE_TX_B'
+		BEGIN
+			SELECT RAISE(ABORT, 'boom');
+		END;
+	`)
+	if err != nil {
+		t.Fatalf("Failed to create trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.db.ExecContext(ctx, `DROP TRIGGER IF EXISTS abort_on_b`)
+	})
+
+	olderThan := base.Add(2 * time.Hour)
+	if _, err := store.DownsampleRawToHourly(ctx, olderThan); err == nil {
+		t.Fatalf("expected DownsampleRawToHourly to fail due to trigger, but got nil")
+	}
+
+	var rows int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM metrics_hourly`).Scan(&rows); err != nil {
+		t.Fatalf("Failed to query hourly row count: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("expected transaction rollback (0 hourly rows), got %d", rows)
+	}
+}

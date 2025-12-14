@@ -5535,6 +5535,49 @@ window.top.location.href = '/proxy/%s/';
 		http.Error(w, "not found", http.StatusNotFound)
 	})
 
+	// Canonical device profile endpoint (device metadata + latest metrics).
+	// GET /api/devices/profile?serial=SERIAL
+	// This avoids compatibility/merged fields in legacy /devices/get.
+	http.HandleFunc("/api/devices/profile", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		serial := r.URL.Query().Get("serial")
+		if serial == "" {
+			http.Error(w, "serial parameter required", http.StatusBadRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		device, err := deviceStore.Get(ctx, serial)
+		if err != nil {
+			if err == storage.ErrNotFound {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to get device: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var snapshot *storage.MetricsSnapshot
+		if s, err := deviceStore.GetLatestMetrics(ctx, serial); err == nil {
+			snapshot = s
+		} else if err != storage.ErrNotFound {
+			http.Error(w, "failed to get latest metrics: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"device":         device,
+			"latest_metrics": snapshot,
+		})
+	})
+
 	// Save a device by marking it as saved. POST { serial: "SERIAL" }
 	http.HandleFunc("/devices/save", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -5896,6 +5939,48 @@ window.top.location.href = '/proxy/%s/';
 		json.NewEncoder(w).Encode(snapshot)
 	})
 
+	// GET /api/devices/metrics/bounds?serial=SERIAL
+	// Returns min/max timestamps (across all tiers) without fetching the full series.
+	http.HandleFunc("/api/devices/metrics/bounds", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		serial := r.URL.Query().Get("serial")
+		if serial == "" {
+			http.Error(w, "serial parameter required", http.StatusBadRequest)
+			return
+		}
+
+		store, ok := deviceStore.(*storage.SQLiteStore)
+		if !ok || store == nil {
+			http.Error(w, "storage unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		minTS, maxTS, total, err := store.GetTieredMetricsBounds(ctx, serial)
+		if err != nil {
+			if err == storage.ErrNotFound {
+				http.Error(w, "no metrics found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "failed to get metrics bounds: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"serial":        serial,
+			"min_timestamp": minTS.UTC().Format(time.RFC3339Nano),
+			"max_timestamp": maxTS.UTC().Format(time.RFC3339Nano),
+			"points":        total,
+		})
+	})
+
 	http.HandleFunc("/api/devices/metrics/history", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -5961,6 +6046,22 @@ window.top.location.href = '/proxy/%s/';
 			agent.Error(fmt.Sprintf("Failed to get metrics history: serial=%s error=%v", serial, err))
 			http.Error(w, "failed to get metrics history: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+
+		// Guardrail: cap the number of points returned to keep the UI responsive.
+		// This is a simple pre-decimation (uniform sampling) to avoid returning tens
+		// of thousands of points on very large ranges.
+		const maxPoints = 2000
+		if len(snapshots) > maxPoints {
+			step := (len(snapshots) + maxPoints - 1) / maxPoints
+			decimated := make([]*storage.MetricsSnapshot, 0, maxPoints+1)
+			for i := 0; i < len(snapshots); i += step {
+				decimated = append(decimated, snapshots[i])
+			}
+			if last := snapshots[len(snapshots)-1]; len(decimated) == 0 || decimated[len(decimated)-1] != last {
+				decimated = append(decimated, last)
+			}
+			snapshots = decimated
 		}
 
 		if agent.DebugEnabled {
