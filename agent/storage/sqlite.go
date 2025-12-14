@@ -35,6 +35,10 @@ type SQLiteStore struct {
 	dbPath string // Store path for backup operations
 }
 
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+}
+
 // NewSQLiteStore creates a new SQLite-based device store
 // If dbPath is empty, uses in-memory database (:memory:)
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
@@ -883,6 +887,96 @@ func (s *SQLiteStore) Update(ctx context.Context, device *Device) error {
 	return nil
 }
 
+func (s *SQLiteStore) createWithExecer(ctx context.Context, ex execer, device *Device) error {
+	if device.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	now := time.Now()
+	if device.CreatedAt.IsZero() {
+		device.CreatedAt = now
+	}
+	if device.FirstSeen.IsZero() {
+		device.FirstSeen = now
+	}
+	if device.LastSeen.IsZero() {
+		device.LastSeen = now
+	}
+
+	consumablesJSON, _ := json.Marshal(device.Consumables)
+	statusJSON, _ := json.Marshal(device.StatusMessages)
+	dnsJSON, _ := json.Marshal(device.DNSServers)
+	rawJSON, _ := json.Marshal(device.RawData)
+	lockedFieldsJSON, _ := json.Marshal(device.LockedFields)
+
+	query := `
+		INSERT INTO devices (
+			serial, ip, manufacturer, model, hostname, firmware,
+			mac_address, subnet_mask, gateway, dns_servers, dhcp_server,
+			consumables, status_messages,
+			last_seen, created_at, first_seen, is_saved, visible,
+			discovery_method, walk_filename, last_scan_id, raw_data,
+			asset_number, location, description, web_ui_url, locked_fields
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+
+	_, err := ex.ExecContext(ctx, query,
+		device.Serial, device.IP, device.Manufacturer, device.Model,
+		device.Hostname, device.Firmware, device.MACAddress, device.SubnetMask,
+		device.Gateway, string(dnsJSON), device.DHCPServer,
+		string(consumablesJSON), string(statusJSON),
+		device.LastSeen, device.CreatedAt, device.FirstSeen, device.IsSaved, device.Visible,
+		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
+		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return ErrDuplicate
+		}
+		return fmt.Errorf("failed to create device: %w", err)
+	}
+
+	return nil
+}
+
+func (s *SQLiteStore) updateWithExecer(ctx context.Context, ex execer, device *Device) error {
+	if device.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	device.LastSeen = time.Now()
+
+	consumablesJSON, _ := json.Marshal(device.Consumables)
+	statusJSON, _ := json.Marshal(device.StatusMessages)
+	dnsJSON, _ := json.Marshal(device.DNSServers)
+	rawJSON, _ := json.Marshal(device.RawData)
+	lockedFieldsJSON, _ := json.Marshal(device.LockedFields)
+
+	query := `
+		UPDATE devices SET
+			ip = ?, manufacturer = ?, model = ?, hostname = ?, firmware = ?,
+			mac_address = ?, subnet_mask = ?, gateway = ?, dns_servers = ?, dhcp_server = ?,
+			consumables = ?, status_messages = ?,
+			last_seen = ?, is_saved = ?, visible = ?,
+			discovery_method = ?, walk_filename = ?, last_scan_id = ?, raw_data = ?,
+			asset_number = ?, location = ?, description = ?, web_ui_url = ?, locked_fields = ?
+		WHERE serial = ?
+	`
+
+	_, err := ex.ExecContext(ctx, query,
+		device.IP, device.Manufacturer, device.Model, device.Hostname, device.Firmware,
+		device.MACAddress, device.SubnetMask, device.Gateway, string(dnsJSON), device.DHCPServer,
+		string(consumablesJSON), string(statusJSON),
+		device.LastSeen, device.IsSaved, device.Visible,
+		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
+		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON), device.Serial,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update device: %w", err)
+	}
+	return nil
+}
+
 // Upsert creates or updates a device
 func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 	if device.Serial == "" {
@@ -911,6 +1005,56 @@ func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 		device.FirstSeen = now
 	}
 	return s.Create(ctx, device)
+}
+
+// StoreDiscoveryAtomic persists a discovered device update as a single atomic unit:
+// - upsert device row
+// - append scan history snapshot
+// - save metrics snapshot
+// If any step fails, no partial writes are committed.
+func (s *SQLiteStore) StoreDiscoveryAtomic(ctx context.Context, device *Device, scan *ScanSnapshot, metrics *MetricsSnapshot) error {
+	if device == nil {
+		return fmt.Errorf("device is nil")
+	}
+	if scan == nil {
+		return fmt.Errorf("scan is nil")
+	}
+	if metrics == nil {
+		return fmt.Errorf("metrics is nil")
+	}
+	if device.Serial == "" || scan.Serial == "" || metrics.Serial == "" {
+		return ErrInvalidSerial
+	}
+	if device.Serial != scan.Serial || device.Serial != metrics.Serial {
+		return fmt.Errorf("serial mismatch between device/scan/metrics")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if err := s.upsertWithExecer(ctx, tx, device); err != nil {
+		return err
+	}
+	if err := s.addScanHistoryWithExecer(ctx, tx, scan); err != nil {
+		return err
+	}
+	if err := s.saveMetricsSnapshotWithExecer(ctx, tx, metrics); err != nil {
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit tx: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 // Delete removes a device by serial
@@ -1149,6 +1293,10 @@ func (s *SQLiteStore) Close() error {
 // Note: This tracks device state changes (IP, hostname, firmware) for audit purposes.
 // Metrics data (page counts, toner levels) should be stored using SaveMetricsSnapshot instead.
 func (s *SQLiteStore) AddScanHistory(ctx context.Context, scan *ScanSnapshot) error {
+	return s.addScanHistoryWithExecer(ctx, s.db, scan)
+}
+
+func (s *SQLiteStore) addScanHistoryWithExecer(ctx context.Context, ex execer, scan *ScanSnapshot) error {
 	if scan.Serial == "" {
 		return ErrInvalidSerial
 	}
@@ -1165,7 +1313,7 @@ func (s *SQLiteStore) AddScanHistory(ctx context.Context, scan *ScanSnapshot) er
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
-	result, err := s.db.ExecContext(ctx, query,
+	result, err := ex.ExecContext(ctx, query,
 		scan.Serial,
 		scan.CreatedAt,
 		scan.IP,
@@ -1183,7 +1331,7 @@ func (s *SQLiteStore) AddScanHistory(ctx context.Context, scan *ScanSnapshot) er
 
 	// Update device's last_scan_id
 	lastInsertID, _ := result.LastInsertId()
-	_, err = s.db.ExecContext(ctx,
+	_, err = ex.ExecContext(ctx,
 		"UPDATE devices SET last_scan_id = ? WHERE serial = ?",
 		lastInsertID, scan.Serial)
 
@@ -1317,6 +1465,10 @@ type MetricsSnapshot struct {
 
 // SaveMetricsSnapshot stores a metrics snapshot for a device
 func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *MetricsSnapshot) error {
+	return s.saveMetricsSnapshotWithExecer(ctx, s.db, snapshot)
+}
+
+func (s *SQLiteStore) saveMetricsSnapshotWithExecer(ctx context.Context, ex execer, snapshot *MetricsSnapshot) error {
 	if snapshot.Serial == "" {
 		return ErrInvalidSerial
 	}
@@ -1388,7 +1540,7 @@ func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *Metrics
 	// Store timestamp as RFC3339Nano UTC string to ensure consistent lexicographic
 	// ordering and comparability inside SQLite.
 	tsStr := snapshot.Timestamp.Format(time.RFC3339Nano)
-	result, err := s.db.ExecContext(ctx, query,
+	result, err := ex.ExecContext(ctx, query,
 		snapshot.Serial, tsStr, snapshot.PageCount,
 		snapshot.ColorPages, snapshot.MonoPages, snapshot.ScanCount,
 		string(tonerJSON),
@@ -1414,6 +1566,31 @@ func (s *SQLiteStore) SaveMetricsSnapshot(ctx context.Context, snapshot *Metrics
 	}
 
 	return nil
+}
+
+func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *Device) error {
+	if device.Serial == "" {
+		return ErrInvalidSerial
+	}
+
+	// Preserve important fields by reading existing state (same semantics as Upsert).
+	existing, err := s.Get(ctx, device.Serial)
+	if err == nil {
+		device.CreatedAt = existing.CreatedAt
+		device.FirstSeen = existing.FirstSeen
+		device.IsSaved = existing.IsSaved
+		device.LockedFields = existing.LockedFields
+		return s.updateWithExecer(ctx, ex, device)
+	}
+
+	now := time.Now()
+	if device.CreatedAt.IsZero() {
+		device.CreatedAt = now
+	}
+	if device.FirstSeen.IsZero() {
+		device.FirstSeen = now
+	}
+	return s.createWithExecer(ctx, ex, device)
 }
 
 // GetMetricsHistory retrieves metrics history for a device within a time range

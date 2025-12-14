@@ -1076,21 +1076,10 @@ func (a *deviceStorageAdapter) StoreDiscoveredDevice(ctx context.Context, pi age
 	device := storage.PrinterInfoToDevice(pi, false)
 	device.Visible = true
 
-	// Upsert device to database
-	if err := a.store.Upsert(ctx, device); err != nil {
-		return fmt.Errorf("failed to upsert device: %w", err)
-	}
-
-	// Add scan history snapshot (device state changes for audit trail)
 	snapshot := storage.PrinterInfoToScanSnapshot(pi)
-	if err := a.store.AddScanHistory(ctx, snapshot); err != nil {
-		return fmt.Errorf("failed to add scan history: %w", err)
-	}
-
-	// Save metrics snapshot (page counts, toner levels for time-series analysis)
 	metrics := storage.PrinterInfoToMetricsSnapshot(pi)
-	if err := a.store.SaveMetricsSnapshot(ctx, metrics); err != nil {
-		return fmt.Errorf("failed to save metrics snapshot: %w", err)
+	if err := a.store.StoreDiscoveryAtomic(ctx, device, snapshot, metrics); err != nil {
+		return fmt.Errorf("failed to persist discovery atomically: %w", err)
 	}
 
 	// Broadcast device update via SSE

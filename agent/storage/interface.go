@@ -48,6 +48,10 @@ type DeviceStore interface {
 	// Upsert creates or updates a device (insert or update)
 	Upsert(ctx context.Context, device *Device) error
 
+	// StoreDiscoveryAtomic persists a discovery update (device upsert + scan history + metrics snapshot)
+	// as a single atomic unit.
+	StoreDiscoveryAtomic(ctx context.Context, device *Device, scan *ScanSnapshot, metrics *MetricsSnapshot) error
+
 	// Delete removes a device by serial. Returns ErrNotFound if not found.
 	Delete(ctx context.Context, serial string) error
 

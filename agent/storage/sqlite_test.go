@@ -109,6 +109,55 @@ func TestSQLiteStore_InMemory(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_StoreDiscoveryAtomic_RollsBackOnError(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create in-memory store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	device := newFullTestDevice("ROLLBACK001", "192.168.1.250", "HP", "LaserJet", false, true)
+	device.Visible = true
+
+	scan := &ScanSnapshot{
+		Serial:          device.Serial,
+		CreatedAt:       time.Now(),
+		IP:              device.IP,
+		Hostname:        device.Hostname,
+		Firmware:        device.Firmware,
+		DiscoveryMethod: "test",
+	}
+
+	metrics := newTestMetrics(device.Serial, 123)
+	metrics.Serial = "" // force SaveMetricsSnapshot to fail
+
+	err = store.StoreDiscoveryAtomic(ctx, device, scan, metrics)
+	if err == nil {
+		t.Fatalf("Expected error, got nil")
+	}
+
+	// No device row should exist
+	if _, err := store.Get(ctx, device.Serial); err != ErrNotFound {
+		t.Fatalf("Expected ErrNotFound after rollback, got %v", err)
+	}
+
+	// No scan history rows should exist
+	history, err := store.GetScanHistory(ctx, device.Serial, 10)
+	if err != nil {
+		t.Fatalf("GetScanHistory returned error: %v", err)
+	}
+	if len(history) != 0 {
+		t.Fatalf("Expected no scan history after rollback, got %d", len(history))
+	}
+
+	// No metrics rows should exist
+	if _, err := store.GetLatestMetrics(ctx, device.Serial); err != ErrNotFound {
+		t.Fatalf("Expected no metrics after rollback (ErrNotFound), got %v", err)
+	}
+}
+
 func TestSQLiteStore_Upsert(t *testing.T) {
 	store, err := NewSQLiteStore(":memory:")
 	if err != nil {
