@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -208,6 +209,10 @@ func applyEnvOverrides(cfg *Config, tracker *ConfigSourceTracker) {
 		cfg.Server.BehindProxy = val == "true" || val == "1"
 		tracker.EnvKeys["server.behind_proxy"] = true
 	}
+	if val := os.Getenv("TRUSTED_PROXIES"); val != "" {
+		cfg.Server.TrustedProxies = parseStringListEnv(val)
+		tracker.EnvKeys["server.trusted_proxies"] = true
+	}
 	if val := os.Getenv("PROXY_USE_HTTPS"); val != "" {
 		cfg.Server.ProxyUseHTTPS = val == "true" || val == "1"
 		tracker.EnvKeys["server.proxy_use_https"] = true
@@ -328,6 +333,39 @@ func applyEnvOverrides(cfg *Config, tracker *ConfigSourceTracker) {
 
 	// Apply common environment variable overrides for database (component-specific prefixed env var supported)
 	config.ApplyDatabaseEnvOverrides(&cfg.Database, "SERVER")
+}
+
+func parseStringListEnv(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	// Support JSON arrays like ["nginx", "172.16.0.0/12"]
+	if strings.HasPrefix(raw, "[") {
+		var arr []string
+		if err := json.Unmarshal([]byte(raw), &arr); err == nil {
+			out := make([]string, 0, len(arr))
+			for _, v := range arr {
+				v = strings.TrimSpace(v)
+				if v != "" {
+					out = append(out, v)
+				}
+			}
+			return out
+		}
+	}
+
+	// Fallback: comma-separated list (optionally with spaces)
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ToTLSConfig converts YAML TLS config to TLSConfig

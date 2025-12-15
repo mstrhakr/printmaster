@@ -216,6 +216,52 @@ level = "debug"
 	})
 }
 
+func TestLoadConfig_TrustedProxiesEnvOverride(t *testing.T) {
+	// NOTE: Do not run in parallel; environment variables are process-wide.
+	configPath := filepath.Join(t.TempDir(), "nonexistent.toml")
+
+	t.Run("comma-separated", func(t *testing.T) {
+		t.Setenv("BEHIND_PROXY", "true")
+		t.Setenv("TRUSTED_PROXIES", "nginx_proxy_manager, 172.16.0.0/12")
+
+		cfg, _, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() failed: %v", err)
+		}
+		if !cfg.Server.BehindProxy {
+			t.Fatalf("BehindProxy should be true")
+		}
+		if len(cfg.Server.TrustedProxies) != 2 {
+			t.Fatalf("TrustedProxies length = %d, want 2", len(cfg.Server.TrustedProxies))
+		}
+		if cfg.Server.TrustedProxies[0] != "nginx_proxy_manager" {
+			t.Fatalf("TrustedProxies[0] = %q, want %q", cfg.Server.TrustedProxies[0], "nginx_proxy_manager")
+		}
+		if cfg.Server.TrustedProxies[1] != "172.16.0.0/12" {
+			t.Fatalf("TrustedProxies[1] = %q, want %q", cfg.Server.TrustedProxies[1], "172.16.0.0/12")
+		}
+	})
+
+	t.Run("json-array", func(t *testing.T) {
+		t.Setenv("BEHIND_PROXY", "true")
+		t.Setenv("TRUSTED_PROXIES", "[\"nginx_proxy_manager\", \"172.16.0.0/12\"]")
+
+		cfg, _, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() failed: %v", err)
+		}
+		if len(cfg.Server.TrustedProxies) != 2 {
+			t.Fatalf("TrustedProxies length = %d, want 2", len(cfg.Server.TrustedProxies))
+		}
+		if cfg.Server.TrustedProxies[0] != "nginx_proxy_manager" {
+			t.Fatalf("TrustedProxies[0] = %q, want %q", cfg.Server.TrustedProxies[0], "nginx_proxy_manager")
+		}
+		if cfg.Server.TrustedProxies[1] != "172.16.0.0/12" {
+			t.Fatalf("TrustedProxies[1] = %q, want %q", cfg.Server.TrustedProxies[1], "172.16.0.0/12")
+		}
+	})
+}
+
 func TestDefaultConfig(t *testing.T) {
 	t.Parallel()
 

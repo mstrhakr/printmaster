@@ -106,7 +106,13 @@ These variables work with component prefixes or as generic fallbacks.
 | `SERVER_HTTPS_PORT` | HTTPS port for server | Integer | `9443` |
 | `BIND_ADDRESS` | Network interface to bind to | IP address | `127.0.0.1` |
 | `BEHIND_PROXY` | Running behind a reverse proxy | `true`, `1` | `false` |
+| `TRUSTED_PROXIES` | Trusted proxies for `X-Forwarded-*` / `Forwarded` headers | CSV list or JSON array of CIDRs/IPs/hostnames | Private ranges (Docker-friendly) |
 | `PROXY_USE_HTTPS` | Proxy terminates HTTPS | `true`, `1` | `false` |
+
+`TRUSTED_PROXIES` examples:
+
+- CSV: `TRUSTED_PROXIES=nginx_proxy_manager,172.16.0.0/12`
+- JSON array: `TRUSTED_PROXIES=["nginx_proxy_manager","172.16.0.0/12"]`
 
 ### Agent Management
 
