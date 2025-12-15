@@ -246,6 +246,8 @@ func (s *Scheduler) calculateTimeRange(report *storage.ReportDefinition) (time.T
 	endTime := now
 
 	switch report.TimeRangeType {
+	case "current":
+		return now, endTime
 	case "last_24h":
 		return now.Add(-24 * time.Hour), endTime
 	case "last_7d":

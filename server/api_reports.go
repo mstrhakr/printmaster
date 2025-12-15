@@ -25,6 +25,10 @@ func (rs *ReportStore) GetLatestMetrics(ctx context.Context, serial string) (*st
 	return rs.store.GetLatestMetrics(ctx, serial)
 }
 
+func (rs *ReportStore) GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*storage.MetricsSnapshot, error) {
+	return rs.store.GetMetricsAtOrBefore(ctx, serial, at)
+}
+
 func (rs *ReportStore) GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*storage.MetricsSnapshot, error) {
 	return rs.store.GetMetricsHistory(ctx, serial, since)
 }

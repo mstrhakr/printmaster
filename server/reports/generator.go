@@ -15,6 +15,7 @@ type GeneratorStore interface {
 	// Devices
 	ListAllDevices(ctx context.Context) ([]*storage.Device, error)
 	GetLatestMetrics(ctx context.Context, serial string) (*storage.MetricsSnapshot, error)
+	GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*storage.MetricsSnapshot, error)
 	GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*storage.MetricsSnapshot, error)
 
 	// Agents
@@ -291,44 +292,136 @@ func (g *Generator) generateUsageSummary(ctx context.Context, params GeneratePar
 
 	devices = g.filterDevices(devices, params.Report)
 
-	var totalPages, colorPages, monoPages, scanPages int64
+	includeDeltas := params.Report != nil && params.Report.TimeRangeType != "current"
+
+	columns := []string{
+		"serial", "model", "manufacturer", "location", "agent_id", "last_seen",
+		"page_count_current", "color_pages_current", "mono_pages_current", "scan_count_current",
+	}
+	if includeDeltas {
+		columns = append(columns,
+			"baseline_at",
+			"page_count_then", "color_pages_then", "mono_pages_then", "scan_count_then",
+			"page_count_delta", "color_pages_delta", "mono_pages_delta", "scan_count_delta",
+		)
+	}
+
+	rows := make([]map[string]any, 0, len(devices))
+
 	var deviceCount int
+	var totalPages, totalColor, totalMono, totalScan int64
+	var totalDeltaPages, totalDeltaColor, totalDeltaMono, totalDeltaScan int64
 
 	for _, d := range devices {
-		metrics, err := g.store.GetLatestMetrics(ctx, d.Serial)
-		if err != nil || metrics == nil {
+		if d == nil || d.Serial == "" {
 			continue
 		}
+		current, err := g.store.GetLatestMetrics(ctx, d.Serial)
+		if err != nil || current == nil {
+			continue
+		}
+
 		deviceCount++
-		totalPages += int64(metrics.PageCount)
-		colorPages += int64(metrics.ColorPages)
-		monoPages += int64(metrics.MonoPages)
-		scanPages += int64(metrics.ScanCount)
+		totalPages += int64(current.PageCount)
+		totalColor += int64(current.ColorPages)
+		totalMono += int64(current.MonoPages)
+		totalScan += int64(current.ScanCount)
+
+		row := map[string]any{
+			"serial":              d.Serial,
+			"model":               d.Model,
+			"manufacturer":        d.Manufacturer,
+			"location":            d.Location,
+			"agent_id":            d.AgentID,
+			"last_seen":           d.LastSeen,
+			"page_count_current":  current.PageCount,
+			"color_pages_current": current.ColorPages,
+			"mono_pages_current":  current.MonoPages,
+			"scan_count_current":  current.ScanCount,
+		}
+
+		if includeDeltas {
+			baseline := current
+			baselineAt := current.Timestamp
+
+			if b, err := g.store.GetMetricsAtOrBefore(ctx, d.Serial, params.StartTime); err == nil && b != nil {
+				baseline = b
+				baselineAt = b.Timestamp
+			} else {
+				// Fallback for stores that only support "since" queries: use the earliest snapshot after start.
+				hist, err := g.store.GetMetricsHistory(ctx, d.Serial, params.StartTime)
+				if err == nil {
+					for _, snap := range hist {
+						if snap != nil {
+							baseline = snap
+							baselineAt = snap.Timestamp
+							break
+						}
+					}
+				}
+			}
+
+			dPage := int64(current.PageCount - baseline.PageCount)
+			dColor := int64(current.ColorPages - baseline.ColorPages)
+			dMono := int64(current.MonoPages - baseline.MonoPages)
+			dScan := int64(current.ScanCount - baseline.ScanCount)
+
+			totalDeltaPages += dPage
+			totalDeltaColor += dColor
+			totalDeltaMono += dMono
+			totalDeltaScan += dScan
+
+			row["baseline_at"] = baselineAt
+			row["page_count_then"] = baseline.PageCount
+			row["color_pages_then"] = baseline.ColorPages
+			row["mono_pages_then"] = baseline.MonoPages
+			row["scan_count_then"] = baseline.ScanCount
+			row["page_count_delta"] = dPage
+			row["color_pages_delta"] = dColor
+			row["mono_pages_delta"] = dMono
+			row["scan_count_delta"] = dScan
+		}
+
+		rows = append(rows, row)
+	}
+
+	// Keep output stable and useful: sort by most pages (or most delta if in delta mode)
+	sort.Slice(rows, func(i, j int) bool {
+		if includeDeltas {
+			pi, _ := rows[i]["page_count_delta"].(int64)
+			pj, _ := rows[j]["page_count_delta"].(int64)
+			return pi > pj
+		}
+		pi, _ := rows[i]["page_count_current"].(int)
+		pj, _ := rows[j]["page_count_current"].(int)
+		return pi > pj
+	})
+
+	if params.Report != nil && params.Report.Limit > 0 && len(rows) > params.Report.Limit {
+		rows = rows[:params.Report.Limit]
 	}
 
 	summary := map[string]any{
-		"period_start":     params.StartTime,
-		"period_end":       params.EndTime,
-		"total_devices":    deviceCount,
-		"total_page_count": totalPages,
-		"color_pages":      colorPages,
-		"mono_pages":       monoPages,
-		"scan_count":       scanPages,
-		"avg_pages_device": 0,
-		"color_percentage": 0.0,
+		"period_start":              params.StartTime,
+		"period_end":                params.EndTime,
+		"total_devices":             deviceCount,
+		"page_count_current_total":  totalPages,
+		"color_pages_current_total": totalColor,
+		"mono_pages_current_total":  totalMono,
+		"scan_count_current_total":  totalScan,
 	}
-
-	if deviceCount > 0 {
-		summary["avg_pages_device"] = totalPages / int64(deviceCount)
-	}
-	if totalPages > 0 {
-		summary["color_percentage"] = float64(colorPages) / float64(totalPages) * 100
+	if includeDeltas {
+		summary["page_count_delta_total"] = totalDeltaPages
+		summary["color_pages_delta_total"] = totalDeltaColor
+		summary["mono_pages_delta_total"] = totalDeltaMono
+		summary["scan_count_delta_total"] = totalDeltaScan
 	}
 
 	return &GenerateResult{
-		Data:     summary,
+		Rows:     rows,
+		Columns:  columns,
+		RowCount: len(rows),
 		Summary:  summary,
-		RowCount: 1,
 		Metadata: map[string]string{
 			"report_type": string(params.Report.Type),
 			"generated":   time.Now().UTC().Format(time.RFC3339),

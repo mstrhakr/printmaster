@@ -1215,9 +1215,18 @@
                                 <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" style="vertical-align:middle;margin-right:8px;">
                                     <path d="M1 11a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1v-3zm5-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V7zm5-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V2z"/>
                                 </svg>
-                                Usage Summary
+                                Usage Audit
                             </h4>
                             <p class="muted-text">Page counts, print volumes, and usage trends by device.</p>
+                            <div style="display:flex;gap:8px;align-items:center;margin:8px 0 12px;">
+                                <label class="muted-text" style="font-size:12px;">Range</label>
+                                <select id="usage_report_range" style="flex:1;min-width:0;">
+                                    <option value="current">Current</option>
+                                    <option value="last_7d">Last week</option>
+                                    <option value="last_30d" selected>Last month</option>
+                                    <option value="custom_365d">Last year</option>
+                                </select>
+                            </div>
                             <button class="btn-outline" id="generate_usage_report_btn">Generate Report</button>
                         </div>
                         <div class="panel report-card">

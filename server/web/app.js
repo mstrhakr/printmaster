@@ -1588,7 +1588,7 @@ async function loadRecentReports() {
         'device_inventory': 'Device Inventory',
         'agent_inventory': 'Agent Inventory',
         'site_inventory': 'Site Inventory',
-        'usage_summary': 'Usage Summary',
+        'usage_summary': 'Usage Audit',
         'usage_by_device': 'Usage By Device',
         'usage_by_agent': 'Usage By Agent',
         'usage_by_site': 'Usage By Site',
@@ -1790,6 +1790,20 @@ async function generateReport(type) {
         'alert': 'alert_summary'
     };
     const reportType = typeMap[type] || type;
+
+    // Optional time range selector for usage audit
+    let timeRangeType;
+    let timeRangeDays;
+    if (type === 'usage') {
+        const rangeEl = document.getElementById('usage_report_range');
+        const selected = rangeEl?.value || 'last_30d';
+        if (selected === 'custom_365d') {
+            timeRangeType = 'custom';
+            timeRangeDays = 365;
+        } else {
+            timeRangeType = selected;
+        }
+    }
     
     window.__pm_shared.showToast(`Generating ${type} report...`, 'info');
     
@@ -1801,7 +1815,9 @@ async function generateReport(type) {
             body: JSON.stringify({
                 name: `${type.charAt(0).toUpperCase() + type.slice(1)} Report - ${new Date().toLocaleDateString()}`,
                 type: reportType,
-                format: 'json'
+                format: 'json',
+                ...(timeRangeType ? { time_range_type: timeRangeType } : {}),
+                ...(timeRangeDays ? { time_range_days: timeRangeDays } : {})
             })
         });
         

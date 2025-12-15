@@ -44,8 +44,38 @@ func (m *mockGeneratorStore) GetLatestMetrics(ctx context.Context, serial string
 	return m.metrics[serial], nil
 }
 
+func (m *mockGeneratorStore) GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*storage.MetricsSnapshot, error) {
+	h := m.metricsHist[serial]
+	var best *storage.MetricsSnapshot
+	for _, snap := range h {
+		if snap == nil {
+			continue
+		}
+		if snap.Timestamp.After(at) {
+			continue
+		}
+		if best == nil || snap.Timestamp.After(best.Timestamp) {
+			best = snap
+		}
+	}
+	return best, nil
+}
+
 func (m *mockGeneratorStore) GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*storage.MetricsSnapshot, error) {
-	return m.metricsHist[serial], nil
+	h := m.metricsHist[serial]
+	if len(h) == 0 {
+		return h, nil
+	}
+	filtered := make([]*storage.MetricsSnapshot, 0, len(h))
+	for _, snap := range h {
+		if snap == nil {
+			continue
+		}
+		if !snap.Timestamp.Before(since) {
+			filtered = append(filtered, snap)
+		}
+	}
+	return filtered, nil
 }
 
 func (m *mockGeneratorStore) ListAgents(ctx context.Context) ([]*storage.Agent, error) {
@@ -272,6 +302,133 @@ func TestGenerator_AlertSummary(t *testing.T) {
 	// Alert summary should have summary data
 	if result.Summary == nil {
 		t.Error("expected summary to be populated")
+	}
+}
+
+func TestGenerator_UsageSummary_AsUsageAuditWithDeltas(t *testing.T) {
+	t.Parallel()
+
+	store := newMockGeneratorStore()
+	store.devices = []*storage.Device{
+		newTestDevice("SN001", "HP LaserJet Pro", "192.168.1.10", "agent-1"),
+	}
+
+	baselineAt := time.Now().Add(-10 * 24 * time.Hour)
+	currentAt := time.Now()
+	store.metrics["SN001"] = &storage.MetricsSnapshot{
+		Serial:     "SN001",
+		Timestamp:  currentAt,
+		PageCount:  200,
+		ColorPages: 50,
+		MonoPages:  150,
+		ScanCount:  20,
+	}
+	store.metricsHist["SN001"] = []*storage.MetricsSnapshot{
+		{
+			Serial:     "SN001",
+			Timestamp:  baselineAt,
+			PageCount:  120,
+			ColorPages: 30,
+			MonoPages:  90,
+			ScanCount:  10,
+		},
+	}
+
+	gen := NewGenerator(store)
+
+	result, err := gen.Generate(context.Background(), GenerateParams{
+		Report: &storage.ReportDefinition{
+			Type:          storage.ReportTypeUsageSummary,
+			TimeRangeType: "last_30d",
+		},
+		StartTime: time.Now().Add(-30 * 24 * time.Hour),
+		EndTime:   time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	if result == nil || len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+
+	row := result.Rows[0]
+	if row["serial"] != "SN001" {
+		t.Errorf("expected serial SN001, got %v", row["serial"])
+	}
+
+	// Current values
+	if row["page_count_current"] != 200 {
+		t.Errorf("expected page_count_current 200, got %v", row["page_count_current"])
+	}
+
+	// Baseline + delta values
+	if row["page_count_then"] != 120 {
+		t.Errorf("expected page_count_then 120, got %v", row["page_count_then"])
+	}
+	if row["page_count_delta"].(int64) != 80 {
+		t.Errorf("expected page_count_delta 80, got %v", row["page_count_delta"])
+	}
+}
+
+func TestGenerator_UsageSummary_UsesBaselineAtOrBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	store := newMockGeneratorStore()
+	store.devices = []*storage.Device{
+		newTestDevice("SN001", "HP LaserJet Pro", "192.168.1.10", "agent-1"),
+	}
+
+	start := time.Now().Add(-30 * 24 * time.Hour)
+	baselineBefore := start.Add(-10 * 24 * time.Hour)
+	baselineAfter := start.Add(10 * 24 * time.Hour)
+	currentAt := time.Now()
+
+	store.metrics["SN001"] = &storage.MetricsSnapshot{
+		Serial:     "SN001",
+		Timestamp:  currentAt,
+		PageCount:  200,
+		ColorPages: 50,
+		MonoPages:  150,
+		ScanCount:  20,
+	}
+	store.metricsHist["SN001"] = []*storage.MetricsSnapshot{
+		{
+			Serial:    "SN001",
+			Timestamp: baselineBefore,
+			PageCount: 100,
+		},
+		{
+			Serial:    "SN001",
+			Timestamp: baselineAfter,
+			PageCount: 150,
+		},
+	}
+
+	gen := NewGenerator(store)
+
+	result, err := gen.Generate(context.Background(), GenerateParams{
+		Report: &storage.ReportDefinition{
+			Type:          storage.ReportTypeUsageSummary,
+			TimeRangeType: "last_30d",
+		},
+		StartTime: start,
+		EndTime:   time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	if result == nil || len(result.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(result.Rows))
+	}
+
+	row := result.Rows[0]
+	if row["page_count_then"] != 100 {
+		t.Errorf("expected page_count_then 100 (baseline before start), got %v", row["page_count_then"])
+	}
+	if row["page_count_delta"].(int64) != 100 {
+		t.Errorf("expected page_count_delta 100, got %v", row["page_count_delta"])
 	}
 }
 

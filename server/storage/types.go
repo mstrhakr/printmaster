@@ -642,6 +642,8 @@ type Store interface {
 	SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) error
 	GetLatestMetrics(ctx context.Context, serial string) (*MetricsSnapshot, error)
 	GetLatestMetricsBatch(ctx context.Context, serials []string) (map[string]*MetricsSnapshot, error)
+	// GetMetricsAtOrBefore returns the latest snapshot with timestamp <= at, or nil if none.
+	GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*MetricsSnapshot, error)
 	GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error)
 	GetAggregatedMetrics(ctx context.Context, since time.Time, tenantIDs []string) (*AggregatedMetrics, error)
 	GetDatabaseStats(ctx context.Context) (*DatabaseStats, error)

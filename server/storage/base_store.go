@@ -759,6 +759,38 @@ func (s *BaseStore) GetMetricsHistory(ctx context.Context, serial string, since 
 	return metrics, rows.Err()
 }
 
+// GetMetricsAtOrBefore retrieves the latest metrics snapshot for a device at or before a given time.
+// Returns nil if no snapshot exists at or before that time.
+func (s *BaseStore) GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*MetricsSnapshot, error) {
+	query := `
+		SELECT id, serial, agent_id, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
+		FROM metrics_history
+		WHERE serial = ? AND timestamp <= ?
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`
+
+	var m MetricsSnapshot
+	var tonerJSON sql.NullString
+
+	err := s.queryRowContext(ctx, query, serial, at).Scan(
+		&m.ID, &m.Serial, &m.AgentID, &m.Timestamp,
+		&m.PageCount, &m.ColorPages, &m.MonoPages, &m.ScanCount, &tonerJSON)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if tonerJSON.Valid {
+		json.Unmarshal([]byte(tonerJSON.String), &m.TonerLevels)
+	}
+
+	return &m, nil
+}
+
 // ============================================================================
 // Tenant Management Methods
 // ============================================================================
