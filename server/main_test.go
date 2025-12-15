@@ -430,7 +430,7 @@ func TestHeartbeatReturnsSettingsSnapshotWhenVersionDiffers(t *testing.T) {
 		t.Fatalf("failed to persist global settings: %v", err)
 	}
 
-	snapshot, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, agent.TenantID)
+	snapshot, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, agent.TenantID, agent.AgentID)
 	if err != nil {
 		t.Fatalf("build snapshot failed: %v", err)
 	}

@@ -402,6 +402,16 @@ func (s *SQLiteStore) initSchema() error {
 		FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 	);
 
+	-- Agent settings overrides (per-agent override patches)
+	CREATE TABLE IF NOT EXISTS settings_agent_override (
+		agent_id TEXT PRIMARY KEY,
+		schema_version TEXT NOT NULL,
+		payload TEXT NOT NULL,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_by TEXT,
+		FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
+	);
+
 	-- Fleet update policy table (per-tenant auto-update configuration)
 	CREATE TABLE IF NOT EXISTS fleet_update_policies (
 		tenant_id TEXT PRIMARY KEY,

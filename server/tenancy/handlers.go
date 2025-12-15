@@ -89,7 +89,7 @@ func SetEnabled(enabled bool) {
 // updates (e.g., via SSE) to the UI without this package importing higher layers.
 var agentEventSink func(eventType string, data map[string]interface{})
 
-var agentSettingsBuilder func(context.Context, string) (string, interface{}, error)
+var agentSettingsBuilder func(context.Context, string, string) (string, interface{}, error)
 
 var auditLogger func(*http.Request, *storage.AuditEntry)
 
@@ -104,7 +104,7 @@ func SetAgentEventSink(sink func(eventType string, data map[string]interface{}))
 }
 
 // SetAgentSettingsBuilder wires the callback that produces resolved settings snapshots for agents.
-func SetAgentSettingsBuilder(builder func(context.Context, string) (string, interface{}, error)) {
+func SetAgentSettingsBuilder(builder func(context.Context, string, string) (string, interface{}, error)) {
 	agentSettingsBuilder = builder
 }
 
@@ -145,11 +145,11 @@ func tenantAuditMetadata(name, description, contactName, contactEmail, contactPh
 	}
 }
 
-func attachAgentSettings(resp map[string]interface{}, ctx context.Context, tenantID string) {
+func attachAgentSettings(resp map[string]interface{}, ctx context.Context, tenantID string, agentID string) {
 	if agentSettingsBuilder == nil || resp == nil {
 		return
 	}
-	version, snapshot, err := agentSettingsBuilder(ctx, tenantID)
+	version, snapshot, err := agentSettingsBuilder(ctx, tenantID, agentID)
 	if err != nil || version == "" || snapshot == nil {
 		return
 	}
@@ -1125,7 +1125,7 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 			"tenant_id":   jt.TenantID,
 			"agent_token": token,
 		}
-		attachAgentSettings(resp, r.Context(), jt.TenantID)
+		attachAgentSettings(resp, r.Context(), jt.TenantID, in.AgentID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 		recordAudit(r, &storage.AuditEntry{
@@ -1205,7 +1205,7 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		"tenant_id":   jt.TenantID,
 		"agent_token": placeholder,
 	}
-	attachAgentSettings(resp, r.Context(), jt.TenantID)
+	attachAgentSettings(resp, r.Context(), jt.TenantID, in.AgentID)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 	recordAudit(r, &storage.AuditEntry{

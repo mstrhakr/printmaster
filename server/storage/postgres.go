@@ -380,6 +380,16 @@ func (s *PostgresStore) initSchema() error {
 		CONSTRAINT fk_settings_tenant FOREIGN KEY(tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 	);
 
+	-- Agent settings overrides (per-agent override patches)
+	CREATE TABLE IF NOT EXISTS settings_agent_override (
+		agent_id TEXT PRIMARY KEY,
+		schema_version TEXT NOT NULL,
+		payload TEXT NOT NULL,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_by TEXT,
+		CONSTRAINT fk_settings_agent_override FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
+	);
+
 	-- Fleet update policies
 	CREATE TABLE IF NOT EXISTS fleet_update_policies (
 		tenant_id TEXT PRIMARY KEY,

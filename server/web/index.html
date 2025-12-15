@@ -492,6 +492,7 @@
                                 <div class="settings-scope-buttons">
                                     <button class="settings-scope-btn active" data-scope="global">Global Defaults</button>
                                     <button class="settings-scope-btn" data-scope="tenant">Tenant Overrides</button>
+                                    <button class="settings-scope-btn" data-scope="agent">Agent Overrides</button>
                                 </div>
                                 <div class="settings-tenant-controls hidden" id="settings_tenant_controls">
                                     <label>
@@ -499,6 +500,13 @@
                                         <select id="settings_tenant_select"></select>
                                     </label>
                                     <button id="settings_reset_overrides_btn" class="ghost-btn">Clear Overrides</button>
+                                </div>
+                                <div class="settings-tenant-controls hidden" id="settings_agent_controls">
+                                    <label>
+                                        <span>Agent</span>
+                                        <select id="settings_agent_select"></select>
+                                    </label>
+                                    <button id="settings_reset_agent_overrides_btn" class="ghost-btn">Clear Overrides</button>
                                 </div>
                                 <div class="settings-updated" id="settings_last_updated"></div>
                             </div>

@@ -20,6 +20,19 @@ type TenantSnapshot struct {
 	Snapshot
 	Overrides          map[string]interface{} `json:"overrides"`
 	OverridePaths      []string               `json:"override_paths"`
+	EnforcedSections   []string               `json:"enforced_sections,omitempty"`
+	OverridesUpdatedAt time.Time              `json:"overrides_updated_at,omitempty"`
+	OverridesUpdatedBy string                 `json:"overrides_updated_by,omitempty"`
+}
+
+// AgentSettingsSnapshot extends Snapshot with agent-specific override metadata.
+type AgentSettingsSnapshot struct {
+	AgentID  string `json:"agent_id"`
+	TenantID string `json:"tenant_id,omitempty"`
+	Snapshot
+	Overrides          map[string]interface{} `json:"overrides"`
+	OverridePaths      []string               `json:"override_paths"`
+	EnforcedSections   []string               `json:"enforced_sections,omitempty"`
 	OverridesUpdatedAt time.Time              `json:"overrides_updated_at,omitempty"`
 	OverridesUpdatedBy string                 `json:"overrides_updated_by,omitempty"`
 }

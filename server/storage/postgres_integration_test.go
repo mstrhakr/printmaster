@@ -607,7 +607,7 @@ func TestPostgresStore_FreshDatabaseInitialization(t *testing.T) {
 				"tenants", "sites", "agent_sites", "join_tokens",
 				"users", "user_tenants", "sessions", "password_resets",
 				"user_invitations", "oidc_providers", "oidc_sessions", "oidc_links",
-				"settings_global", "settings_tenant",
+				"settings_global", "settings_tenant", "settings_agent_override",
 				"fleet_update_policies", "fleet_update_policy_global",
 				"release_artifacts", "signing_keys", "release_manifests",
 				"installer_bundles", "self_update_runs",

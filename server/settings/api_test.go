@@ -19,6 +19,8 @@ type fakeStore struct {
 	global        *storage.SettingsRecord
 	tenants       map[string]*storage.Tenant
 	tenantRecords map[string]*storage.TenantSettingsRecord
+	agents        map[string]*storage.Agent
+	agentRecords  map[string]*storage.AgentSettingsRecord
 	lastGlobal    *storage.SettingsRecord
 	lastTenant    *storage.TenantSettingsRecord
 	deleteCalls   []string
@@ -28,6 +30,8 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{
 		tenants:       make(map[string]*storage.Tenant),
 		tenantRecords: make(map[string]*storage.TenantSettingsRecord),
+		agents:        make(map[string]*storage.Agent),
+		agentRecords:  make(map[string]*storage.AgentSettingsRecord),
 	}
 }
 
@@ -77,6 +81,35 @@ func (s *fakeStore) GetTenant(ctx context.Context, tenantID string) (*storage.Te
 		return &copy, nil
 	}
 	return nil, sql.ErrNoRows
+}
+
+func (s *fakeStore) GetAgent(ctx context.Context, agentID string) (*storage.Agent, error) {
+	if agent, ok := s.agents[agentID]; ok {
+		copy := *agent
+		return &copy, nil
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (s *fakeStore) GetAgentSettings(ctx context.Context, agentID string) (*storage.AgentSettingsRecord, error) {
+	if rec, ok := s.agentRecords[agentID]; ok {
+		copy := *rec
+		copy.Overrides = cloneMap(rec.Overrides)
+		return &copy, nil
+	}
+	return nil, nil
+}
+
+func (s *fakeStore) UpsertAgentSettings(ctx context.Context, rec *storage.AgentSettingsRecord) error {
+	copy := *rec
+	copy.Overrides = cloneMap(rec.Overrides)
+	s.agentRecords[rec.AgentID] = &copy
+	return nil
+}
+
+func (s *fakeStore) DeleteAgentSettings(ctx context.Context, agentID string) error {
+	delete(s.agentRecords, agentID)
+	return nil
 }
 
 func allowAllAuthorizer(_ *http.Request, _ authz.Action, _ authz.ResourceRef) error {

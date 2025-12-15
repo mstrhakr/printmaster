@@ -80,6 +80,7 @@ func (api *API) RegisterRoutes(cfg RouteConfig) {
 	mux.HandleFunc("/api/v1/settings/schema", wrap(api.handleSchema))
 	mux.HandleFunc("/api/v1/settings/global", wrap(api.handleGlobal))
 	mux.HandleFunc("/api/v1/settings/tenants/", wrap(api.handleTenantSettingsRoute))
+	mux.HandleFunc("/api/v1/settings/agents/", wrap(api.handleAgentSettingsRoute))
 
 	if cfg.RegisterTenantAlias {
 		tenancy.RegisterTenantSubresource("settings", api.tenantSubresourceHandler())
@@ -254,6 +255,16 @@ func (api *API) handleTenantSettingsRoute(w http.ResponseWriter, r *http.Request
 	api.handleTenantSettings(w, r, tenantID)
 }
 
+func (api *API) handleAgentSettingsRoute(w http.ResponseWriter, r *http.Request) {
+	agentID := strings.TrimPrefix(r.URL.Path, "/api/v1/settings/agents/")
+	agentID = strings.Trim(agentID, "/")
+	if agentID == "" || strings.Contains(agentID, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	api.handleAgentSettings(w, r, agentID)
+}
+
 func (api *API) tenantSubresourceHandler() tenancy.TenantSubresourceHandler {
 	return func(w http.ResponseWriter, r *http.Request, tenantID string, rest string) {
 		if strings.Trim(rest, "/") != "" {
@@ -306,6 +317,67 @@ func (api *API) handleTenantSettings(w http.ResponseWriter, r *http.Request, ten
 	}
 }
 
+func (api *API) handleAgentSettings(w http.ResponseWriter, r *http.Request, agentID string) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, "agent id required")
+		return
+	}
+	agent, err := api.store.GetAgent(r.Context(), agentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "agent not found")
+			return
+		}
+		writeStoreError(w, err)
+		return
+	}
+	resource := authz.ResourceRef{}
+	if strings.TrimSpace(agent.TenantID) != "" {
+		resource = authz.ResourceRef{TenantIDs: []string{agent.TenantID}}
+	}
+	switch r.Method {
+	case http.MethodGet:
+		if !api.authorize(w, r, authz.ActionSettingsRead, resource) {
+			return
+		}
+		snap, err := api.resolver.ResolveForAgent(r.Context(), agentID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, snap)
+	case http.MethodPut:
+		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+			return
+		}
+		api.saveAgentOverrides(w, r, agent)
+	case http.MethodDelete:
+		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+			return
+		}
+		if err := api.store.DeleteAgentSettings(r.Context(), agentID); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		api.audit(r, &storage.AuditEntry{
+			Action:     "settings.agent.reset",
+			TargetType: "settings",
+			TargetID:   agentID,
+			TenantID:   agent.TenantID,
+			Details:    fmt.Sprintf("Cleared overrides for agent %s", agentID),
+		})
+		snap, err := api.resolver.ResolveForAgent(r.Context(), agentID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, snap)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (api *API) writeTenantSnapshot(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if err := api.ensureTenantExists(r.Context(), tenantID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -332,14 +404,34 @@ func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tena
 		writeStoreError(w, err)
 		return
 	}
-	var patch map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+	var body map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if len(patch) == 0 {
+	if len(body) == 0 {
 		writeError(w, http.StatusBadRequest, "payload required")
 		return
+	}
+	// Back-compat: older clients send the overrides map directly.
+	patch := body
+	var enforcedSections []string
+	var hasEnforced bool
+	if raw, ok := body["overrides"]; ok {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid overrides")
+			return
+		}
+		patch = m
+		if es, ok := body["enforced_sections"]; ok {
+			enforcedSections = parseStringSlice(es)
+			hasEnforced = true
+		}
+	} else if es, ok := body["enforced_sections"]; ok {
+		enforcedSections = parseStringSlice(es)
+		hasEnforced = true
+		patch = map[string]interface{}{}
 	}
 	globalSnap, err := api.resolver.ResolveGlobal(r.Context())
 	if err != nil {
@@ -352,8 +444,13 @@ func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tena
 		return
 	}
 	var existing map[string]interface{}
+	var existingEnforced []string
 	if existingRec != nil {
 		existing = existingRec.Overrides
+		existingEnforced = existingRec.EnforcedSections
+	}
+	if !hasEnforced {
+		enforcedSections = existingEnforced
 	}
 	merged := MergeOverrideMaps(existing, patch)
 	cleaned, err := CleanOverrides(globalSnap.Settings, merged)
@@ -375,7 +472,8 @@ func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tena
 	}
 	actor := api.actorLabel(r)
 	keys := collectOverrideKeys(cleaned)
-	if len(cleaned) == 0 {
+	enforcedSections = normalizeSectionList(enforcedSections)
+	if len(cleaned) == 0 && len(enforcedSections) == 0 {
 		if err := api.store.DeleteTenantSettings(r.Context(), tenantID); err != nil {
 			writeStoreError(w, err)
 			return
@@ -389,10 +487,11 @@ func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tena
 		})
 	} else {
 		rec := &storage.TenantSettingsRecord{
-			TenantID:      tenantID,
-			SchemaVersion: pmsettings.SchemaVersion,
-			Overrides:     cleaned,
-			UpdatedBy:     actor,
+			TenantID:         tenantID,
+			SchemaVersion:    pmsettings.SchemaVersion,
+			Overrides:        cleaned,
+			EnforcedSections: enforcedSections,
+			UpdatedBy:        actor,
 		}
 		if err := api.store.UpsertTenantSettings(r.Context(), rec); err != nil {
 			writeStoreError(w, err)
@@ -411,6 +510,146 @@ func (api *API) saveTenantOverrides(w http.ResponseWriter, r *http.Request, tena
 		})
 	}
 	snap, err := api.resolver.ResolveForTenant(r.Context(), tenantID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
+}
+
+func (api *API) saveAgentOverrides(w http.ResponseWriter, r *http.Request, agent *storage.Agent) {
+	if agent == nil {
+		writeError(w, http.StatusBadRequest, "agent required")
+		return
+	}
+	agentID := strings.TrimSpace(agent.AgentID)
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, "agent id required")
+		return
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if len(body) == 0 {
+		writeError(w, http.StatusBadRequest, "payload required")
+		return
+	}
+	patch := body
+	if raw, ok := body["overrides"]; ok {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid overrides")
+			return
+		}
+		patch = m
+	}
+	if len(patch) == 0 {
+		writeError(w, http.StatusBadRequest, "payload required")
+		return
+	}
+
+	// Determine base layer (global or tenant-resolved).
+	var baseSnap Snapshot
+	var enforced []string
+	if strings.TrimSpace(agent.TenantID) == "" {
+		gs, err := api.resolver.ResolveGlobal(r.Context())
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		baseSnap = gs
+	} else {
+		ts, err := api.resolver.ResolveForTenant(r.Context(), agent.TenantID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		baseSnap = ts.Snapshot
+		enforced = ts.EnforcedSections
+	}
+
+	allowed := allowedAgentOverrideSections(baseSnap.ManagedSections, enforced)
+	filtered, blocked := filterOverrideSections(patch, allowed)
+	if len(blocked) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{
+			"error":            "cannot override blocked sections",
+			"blocked_sections": blocked,
+		})
+		return
+	}
+
+	existingRec, err := api.store.GetAgentSettings(r.Context(), agentID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	var existing map[string]interface{}
+	if existingRec != nil {
+		existing = existingRec.Overrides
+	}
+	merged := MergeOverrideMaps(existing, filtered)
+	merged, _ = filterOverrideSections(merged, allowed)
+
+	cleaned, err := CleanOverrides(baseSnap.Settings, merged)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	effective, err := ApplyPatch(baseSnap.Settings, cleaned)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if issues := pmsettings.Validate(effective); len(issues) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"error":             "invalid settings",
+			"validation_errors": issues,
+		})
+		return
+	}
+
+	actor := api.actorLabel(r)
+	keys := collectOverrideKeys(cleaned)
+	if len(cleaned) == 0 {
+		if err := api.store.DeleteAgentSettings(r.Context(), agentID); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		api.audit(r, &storage.AuditEntry{
+			Action:     "settings.agent.reset",
+			TargetType: "settings",
+			TargetID:   agentID,
+			TenantID:   agent.TenantID,
+			Details:    fmt.Sprintf("Cleared overrides for agent %s", agentID),
+		})
+	} else {
+		rec := &storage.AgentSettingsRecord{
+			AgentID:       agentID,
+			SchemaVersion: pmsettings.SchemaVersion,
+			Overrides:     cleaned,
+			UpdatedBy:     actor,
+		}
+		if err := api.store.UpsertAgentSettings(r.Context(), rec); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		api.audit(r, &storage.AuditEntry{
+			Action:     "settings.agent.update",
+			TargetType: "settings",
+			TargetID:   agentID,
+			TenantID:   agent.TenantID,
+			Details:    fmt.Sprintf("Updated %d override(s) for agent %s", len(keys), agentID),
+			Metadata: map[string]interface{}{
+				"override_keys":  keys,
+				"schema_version": pmsettings.SchemaVersion,
+			},
+		})
+	}
+
+	snap, err := api.resolver.ResolveForAgent(r.Context(), agentID)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -465,6 +704,32 @@ func collectOverrideKeys(m map[string]interface{}) []string {
 	walk(m, "")
 	sort.Strings(keys)
 	return keys
+}
+
+func parseStringSlice(raw interface{}) []string {
+	if raw == nil {
+		return nil
+	}
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	seen := make(map[string]bool)
+	for _, item := range arr {
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ValidManagedSections are the sections that can be server-managed.

@@ -2427,18 +2427,26 @@ func (s *BaseStore) GetGlobalSettings(ctx context.Context) (*SettingsRecord, err
 		return nil, err
 	}
 
-	settingsPayload := pmsettings.DefaultSettings()
+	// Payload is stored as a flat object containing the Settings fields plus optional managed_sections.
+	// This keeps wire format compatible with the server web UI, which sends:
+	// { discovery: {...}, snmp: {...}, features: {...}, logging: {...}, web: {...}, managed_sections: [...] }
+	type globalPayload struct {
+		pmsettings.Settings
+		ManagedSections []string `json:"managed_sections,omitempty"`
+	}
+	gp := globalPayload{Settings: pmsettings.DefaultSettings()}
 	if payload.Valid && payload.String != "" {
-		if err := json.Unmarshal([]byte(payload.String), &settingsPayload); err != nil {
+		if err := json.Unmarshal([]byte(payload.String), &gp); err != nil {
 			return nil, fmt.Errorf("failed to decode global settings: %w", err)
 		}
 	}
-	pmsettings.Sanitize(&settingsPayload)
+	pmsettings.Sanitize(&gp.Settings)
 
 	rec := &SettingsRecord{
-		SchemaVersion: schemaVersion,
-		Settings:      settingsPayload,
-		UpdatedBy:     updatedBy,
+		SchemaVersion:   schemaVersion,
+		Settings:        gp.Settings,
+		ManagedSections: gp.ManagedSections,
+		UpdatedBy:       updatedBy,
 	}
 	if updatedAt.Valid {
 		rec.UpdatedAt = updatedAt.Time
@@ -2452,7 +2460,12 @@ func (s *BaseStore) UpsertGlobalSettings(ctx context.Context, rec *SettingsRecor
 		return fmt.Errorf("settings record required")
 	}
 	pmsettings.Sanitize(&rec.Settings)
-	payload, err := json.Marshal(rec.Settings)
+	// Persist as a flat object containing Settings fields plus managed_sections.
+	type globalPayload struct {
+		pmsettings.Settings
+		ManagedSections []string `json:"managed_sections,omitempty"`
+	}
+	payload, err := json.Marshal(globalPayload{Settings: rec.Settings, ManagedSections: rec.ManagedSections})
 	if err != nil {
 		return fmt.Errorf("failed to encode settings: %w", err)
 	}
@@ -2497,18 +2510,32 @@ func (s *BaseStore) GetTenantSettings(ctx context.Context, tenantID string) (*Te
 		return nil, err
 	}
 
+	var enforcedSections []string
 	overrides := map[string]interface{}{}
 	if payload.Valid && payload.String != "" {
-		if err := json.Unmarshal([]byte(payload.String), &overrides); err != nil {
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(payload.String), &raw); err != nil {
 			return nil, fmt.Errorf("failed to decode tenant settings: %w", err)
+		}
+		// Back-compat: older rows store overrides map directly.
+		if ov, ok := raw["overrides"]; ok {
+			if ovMap, ok := ov.(map[string]interface{}); ok {
+				overrides = ovMap
+			}
+			if es, ok := raw["enforced_sections"]; ok {
+				enforcedSections = parseStringSlice(es)
+			}
+		} else {
+			overrides = raw
 		}
 	}
 
 	rec := &TenantSettingsRecord{
-		TenantID:      id,
-		SchemaVersion: schemaVersion,
-		Overrides:     overrides,
-		UpdatedBy:     updatedBy,
+		TenantID:         id,
+		SchemaVersion:    schemaVersion,
+		Overrides:        overrides,
+		EnforcedSections: enforcedSections,
+		UpdatedBy:        updatedBy,
 	}
 	if updatedAt.Valid {
 		rec.UpdatedAt = updatedAt.Time
@@ -2527,8 +2554,12 @@ func (s *BaseStore) UpsertTenantSettings(ctx context.Context, rec *TenantSetting
 	if rec.Overrides == nil {
 		rec.Overrides = map[string]interface{}{}
 	}
-
-	payload, err := json.Marshal(rec.Overrides)
+	// Persist tenant settings as wrapper containing overrides + enforcement metadata.
+	payloadObj := map[string]interface{}{
+		"overrides":         rec.Overrides,
+		"enforced_sections": rec.EnforcedSections,
+	}
+	payload, err := json.Marshal(payloadObj)
 	if err != nil {
 		return fmt.Errorf("failed to encode overrides: %w", err)
 	}
@@ -2580,18 +2611,31 @@ func (s *BaseStore) ListTenantSettings(ctx context.Context) ([]*TenantSettingsRe
 			return nil, err
 		}
 
+		var enforcedSections []string
 		overrides := map[string]interface{}{}
 		if payload.Valid && payload.String != "" {
-			if err := json.Unmarshal([]byte(payload.String), &overrides); err != nil {
+			var raw map[string]interface{}
+			if err := json.Unmarshal([]byte(payload.String), &raw); err != nil {
 				return nil, fmt.Errorf("failed to decode tenant settings: %w", err)
+			}
+			if ov, ok := raw["overrides"]; ok {
+				if ovMap, ok := ov.(map[string]interface{}); ok {
+					overrides = ovMap
+				}
+				if es, ok := raw["enforced_sections"]; ok {
+					enforcedSections = parseStringSlice(es)
+				}
+			} else {
+				overrides = raw
 			}
 		}
 
 		rec := &TenantSettingsRecord{
-			TenantID:      tenantID,
-			SchemaVersion: schemaVersion,
-			Overrides:     overrides,
-			UpdatedBy:     updatedBy,
+			TenantID:         tenantID,
+			SchemaVersion:    schemaVersion,
+			Overrides:        overrides,
+			EnforcedSections: enforcedSections,
+			UpdatedBy:        updatedBy,
 		}
 		if updatedAt.Valid {
 			rec.UpdatedAt = updatedAt.Time
@@ -2599,6 +2643,116 @@ func (s *BaseStore) ListTenantSettings(ctx context.Context) ([]*TenantSettingsRe
 		records = append(records, rec)
 	}
 	return records, rows.Err()
+}
+
+func parseStringSlice(raw interface{}) []string {
+	if raw == nil {
+		return nil
+	}
+	arr, ok := raw.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	seen := make(map[string]bool)
+	for _, item := range arr {
+		s, ok := item.(string)
+		if !ok {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// GetAgentSettings returns agent-specific overrides (if any)
+func (s *BaseStore) GetAgentSettings(ctx context.Context, agentID string) (*AgentSettingsRecord, error) {
+	if strings.TrimSpace(agentID) == "" {
+		return nil, fmt.Errorf("agent id required")
+	}
+	query := `SELECT agent_id, schema_version, payload, updated_at, COALESCE(updated_by, '') FROM settings_agent_override WHERE agent_id = ?`
+
+	var id, schemaVersion string
+	var payload sql.NullString
+	var updatedAt sql.NullTime
+	var updatedBy string
+
+	err := s.queryRowContext(ctx, query, agentID).Scan(&id, &schemaVersion, &payload, &updatedAt, &updatedBy)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	overrides := map[string]interface{}{}
+	if payload.Valid && payload.String != "" {
+		if err := json.Unmarshal([]byte(payload.String), &overrides); err != nil {
+			return nil, fmt.Errorf("failed to decode agent settings: %w", err)
+		}
+	}
+
+	rec := &AgentSettingsRecord{
+		AgentID:       id,
+		SchemaVersion: schemaVersion,
+		Overrides:     overrides,
+		UpdatedBy:     updatedBy,
+	}
+	if updatedAt.Valid {
+		rec.UpdatedAt = updatedAt.Time
+	}
+	return rec, nil
+}
+
+// UpsertAgentSettings stores agent override patches
+func (s *BaseStore) UpsertAgentSettings(ctx context.Context, rec *AgentSettingsRecord) error {
+	if rec == nil {
+		return fmt.Errorf("agent settings record required")
+	}
+	if strings.TrimSpace(rec.AgentID) == "" {
+		return fmt.Errorf("agent id required")
+	}
+	if rec.Overrides == nil {
+		rec.Overrides = map[string]interface{}{}
+	}
+
+	payload, err := json.Marshal(rec.Overrides)
+	if err != nil {
+		return fmt.Errorf("failed to encode overrides: %w", err)
+	}
+	if rec.SchemaVersion == "" {
+		rec.SchemaVersion = pmsettings.SchemaVersion
+	}
+	if rec.UpdatedBy == "" {
+		rec.UpdatedBy = "system"
+	}
+
+	query := `
+		INSERT INTO settings_agent_override (agent_id, schema_version, payload, updated_at, updated_by)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(agent_id) DO UPDATE SET
+			schema_version = excluded.schema_version,
+			payload = excluded.payload,
+			updated_at = excluded.updated_at,
+			updated_by = excluded.updated_by
+	`
+	_, err = s.execContext(ctx, query, rec.AgentID, rec.SchemaVersion, string(payload), time.Now().UTC(), rec.UpdatedBy)
+	return err
+}
+
+// DeleteAgentSettings removes overrides for an agent
+func (s *BaseStore) DeleteAgentSettings(ctx context.Context, agentID string) error {
+	if strings.TrimSpace(agentID) == "" {
+		return fmt.Errorf("agent id required")
+	}
+	_, err := s.execContext(ctx, `DELETE FROM settings_agent_override WHERE agent_id = ?`, agentID)
+	return err
 }
 
 // ============================================================================

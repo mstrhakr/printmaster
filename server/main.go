@@ -636,8 +636,8 @@ func runServer(ctx context.Context, configFlag string) {
 	}
 	defer serverStore.Close()
 	settingsResolver = serversettings.NewResolver(serverStore)
-	tenancy.SetAgentSettingsBuilder(func(ctx context.Context, tenantID string) (string, interface{}, error) {
-		snapshot, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, tenantID)
+	tenancy.SetAgentSettingsBuilder(func(ctx context.Context, tenantID string, agentID string) (string, interface{}, error) {
+		snapshot, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, tenantID, agentID)
 		if err != nil {
 			return "", nil, err
 		}
@@ -3500,7 +3500,7 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 	var snapshot serversettings.AgentSnapshot
 	if settingsResolver != nil {
-		if snap, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, agent.TenantID); err != nil {
+		if snap, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, agent.TenantID, agent.AgentID); err != nil {
 			logWarn("Failed to build settings snapshot", "agent_id", agent.AgentID, "error", err)
 		} else {
 			snapshot = snap

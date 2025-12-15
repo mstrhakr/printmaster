@@ -1117,6 +1117,35 @@ function ensureAdminViewReady(view) {
     }
 }
 
+async function openFleetSettingsForTenant(tenantId) {
+    if (!tenantId) {
+        window.__pm_shared.showToast('No tenant selected', 'error');
+        return;
+    }
+    switchTab('admin');
+    switchAdminView('fleet');
+    await initSettingsUI();
+    settingsUIState.scope = 'tenant';
+    settingsUIState.selectedTenantId = tenantId;
+    await loadTenantSnapshot(tenantId);
+    renderSettingsUI();
+}
+
+async function openFleetSettingsForAgent(agentId) {
+    if (!agentId) {
+        window.__pm_shared.showToast('No agent selected', 'error');
+        return;
+    }
+    switchTab('admin');
+    switchAdminView('fleet');
+    await initSettingsUI();
+    await loadAgentDirectoryForSettings();
+    settingsUIState.scope = 'agent';
+    settingsUIState.selectedAgentId = agentId;
+    await loadAgentSnapshot(agentId);
+    renderSettingsUI();
+}
+
 function switchTenantsInnerView(view) {
     const normalized = VALID_TENANT_VIEWS.includes(view) ? view : 'directory';
     activeTenantsView = normalized;
@@ -5436,6 +5465,7 @@ function renderTenants(list){
                     <div class="table-actions">
                         <button data-action="create-token" data-tenant="${idAttr}">Create Token</button>
                         <button data-action="view-tokens" data-tenant="${idAttr}">Tokens</button>
+                        <button data-action="tenant-settings" data-tenant="${idAttr}">Settings</button>
                         <button data-action="edit-tenant" data-tenant="${idAttr}">Edit</button>
                     </div>
                 </td>
@@ -5486,6 +5516,12 @@ function renderTenants(list){
         b.addEventListener('click', async ()=>{
             const tenant = b.getAttribute('data-tenant');
             await showTokensList(tenant);
+        });
+    });
+    el.querySelectorAll('button[data-action="tenant-settings"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const tenantId = b.getAttribute('data-tenant') || '';
+            await openFleetSettingsForTenant(tenantId);
         });
     });
     el.querySelectorAll('button[data-action="edit-tenant"]').forEach(b=>{
@@ -6998,6 +7034,7 @@ function renderAgentTable(agents) {
                 <td class="actions-col">
                     <div class="table-actions">
                         <button data-action="view-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}">Details</button>
+                        <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
                         <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
                         <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
                     </div>
@@ -7066,6 +7103,7 @@ function renderAgentCard(agent) {
             </div>
             <div class="device-card-actions">
                 <button data-action="view-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}">View Details</button>
+                <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
                 <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
                 <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
             </div>
@@ -8060,6 +8098,8 @@ try {
     // Always override device helpers so cards and shared UI use the server proxy endpoint
     window.__pm_shared.openDeviceUI = openDeviceUI;
     window.__pm_shared.openDeviceMetrics = window.__pm_shared.openDeviceMetrics || openDeviceMetrics;
+    window.__pm_shared.openFleetSettingsForTenant = openFleetSettingsForTenant;
+    window.__pm_shared.openFleetSettingsForAgent = openFleetSettingsForAgent;
 } catch (e) { console.warn('Failed to expose server UI helpers to shared namespace', e); }
 
 // ====== Delete Agent ======
@@ -9513,8 +9553,22 @@ const settingsUIState = {
     tenantSnapshot: null,
     tenantDraft: null,
     tenantOverridesDraft: {},
+    tenantEnforcedSections: new Set(),
+    originalTenantEnforcedSections: new Set(),
+    tenantEnforcedSectionsDirty: false,
     tenantDirty: false,
     tenantSettingsDirty: false,
+
+    agentList: [],
+    selectedAgentId: '',
+    agentSnapshot: null,
+    agentBaseSnapshot: null,
+    agentDraft: null,
+    agentOverridesDraft: {},
+    agentEnforcedSections: new Set(),
+    agentDirty: false,
+    agentSettingsDirty: false,
+
     saving: false,
     eventsBound: false,
     lockedKeys: new Set(), // Keys locked by environment variables
@@ -9534,6 +9588,24 @@ function normalizeTenantList(list) {
     const normalized = [];
     list.forEach(item => {
         const id = resolveTenantId(item);
+        if (!id) {
+            return;
+        }
+        normalized.push({ ...item, id });
+    });
+    return normalized;
+}
+
+function resolveAgentId(record) {
+    if (!record) return '';
+    return record.agent_id || record.agentId || record.id || '';
+}
+
+function normalizeAgentList(list) {
+    if (!Array.isArray(list)) return [];
+    const normalized = [];
+    list.forEach(item => {
+        const id = resolveAgentId(item);
         if (!id) {
             return;
         }
@@ -9653,7 +9725,8 @@ function syncSettingsDirtyFlags() {
     const tenantPolicyDirty = policy.tenant ? policy.tenant.dirty : false;
     // Include managedSectionsDirty in globalDirty check
     settingsUIState.globalDirty = !!(settingsUIState.globalSettingsDirty || globalPolicyDirty || settingsUIState.managedSectionsDirty);
-    settingsUIState.tenantDirty = !!(settingsUIState.tenantSettingsDirty || tenantPolicyDirty);
+    settingsUIState.tenantDirty = !!(settingsUIState.tenantSettingsDirty || settingsUIState.tenantEnforcedSectionsDirty || tenantPolicyDirty);
+    settingsUIState.agentDirty = !!(settingsUIState.agentSettingsDirty);
 }
 
 function getSettingsPayload(record) {
@@ -9758,6 +9831,7 @@ async function bootstrapSettingsUI() {
     await loadGlobalSettingsSnapshot();
     await loadGlobalUpdatePolicy();
     await loadTenantDirectory();
+    await loadAgentDirectoryForSettings();
     if (settingsUIState.tenantList.length > 0) {
         settingsUIState.selectedTenantId = settingsUIState.tenantList[0].id;
         if (settingsUIState.selectedTenantId) {
@@ -10067,12 +10141,43 @@ async function loadTenantDirectory() {
     }
 }
 
+async function loadAgentDirectoryForSettings() {
+    try {
+        const agents = await fetchJSON('/api/v1/agents/list');
+        const normalized = normalizeAgentList(Array.isArray(agents) ? agents : []);
+        const previousSelection = settingsUIState.selectedAgentId;
+        settingsUIState.agentList = normalized;
+        const selectionStillValid = previousSelection && normalized.some(a => a.id === previousSelection);
+        if (!selectionStillValid) {
+            settingsUIState.selectedAgentId = normalized.length ? normalized[0].id : '';
+        }
+        if (!settingsUIState.selectedAgentId) {
+            settingsUIState.agentSnapshot = null;
+            settingsUIState.agentBaseSnapshot = null;
+            settingsUIState.agentDraft = null;
+            settingsUIState.agentOverridesDraft = {};
+            settingsUIState.agentEnforcedSections = new Set();
+            settingsUIState.agentSettingsDirty = false;
+            syncSettingsDirtyFlags();
+        }
+    } catch (err) {
+        if (err && (err.status === 403 || err.status === 404)) {
+            settingsUIState.agentList = [];
+            return;
+        }
+        throw err;
+    }
+}
+
 async function loadTenantSnapshot(tenantId) {
     if (!tenantId) {
         settingsUIState.tenantSnapshot = null;
         settingsUIState.tenantDraft = null;
         settingsUIState.tenantOverridesDraft = {};
         settingsUIState.tenantSettingsDirty = false;
+        settingsUIState.tenantEnforcedSections = new Set();
+        settingsUIState.originalTenantEnforcedSections = new Set();
+        settingsUIState.tenantEnforcedSectionsDirty = false;
         if (settingsUIState.updatePolicy && settingsUIState.updatePolicy.tenant) {
             settingsUIState.updatePolicy.tenant = createPolicyState();
         }
@@ -10085,9 +10190,51 @@ async function loadTenantSnapshot(tenantId) {
     const tenantSettings = snapshot ? getSettingsPayload(snapshot) : baseline;
     settingsUIState.tenantDraft = cloneSettings(Object.keys(tenantSettings).length ? tenantSettings : baseline);
     settingsUIState.tenantOverridesDraft = cloneSettings(getOverridesPayload(snapshot));
+    const enforcedArr = (snapshot && Array.isArray(snapshot.enforced_sections)) ? snapshot.enforced_sections : [];
+    settingsUIState.tenantEnforcedSections = new Set(enforcedArr);
+    settingsUIState.originalTenantEnforcedSections = new Set(enforcedArr);
+    settingsUIState.tenantEnforcedSectionsDirty = false;
     settingsUIState.tenantSettingsDirty = false;
     syncSettingsDirtyFlags();
     await loadTenantUpdatePolicy(tenantId);
+}
+
+async function loadAgentSnapshot(agentId) {
+    if (!agentId) {
+        settingsUIState.agentSnapshot = null;
+        settingsUIState.agentBaseSnapshot = null;
+        settingsUIState.agentDraft = null;
+        settingsUIState.agentOverridesDraft = {};
+        settingsUIState.agentEnforcedSections = new Set();
+        settingsUIState.agentSettingsDirty = false;
+        syncSettingsDirtyFlags();
+        return;
+    }
+
+    const snapshot = await fetchJSON(`/api/v1/settings/agents/${encodeURIComponent(agentId)}`);
+    settingsUIState.agentSnapshot = snapshot;
+    settingsUIState.agentOverridesDraft = cloneSettings(getOverridesPayload(snapshot));
+
+    const tenantId = (snapshot && (snapshot.tenant_id || snapshot.tenantId)) ? (snapshot.tenant_id || snapshot.tenantId) : '';
+    const enforcedArr = (snapshot && Array.isArray(snapshot.enforced_sections)) ? snapshot.enforced_sections : [];
+    settingsUIState.agentEnforcedSections = new Set(enforcedArr);
+
+    // Base snapshot is the resolved tenant snapshot (no agent overrides), or global when unassigned.
+    if (tenantId) {
+        try {
+            settingsUIState.agentBaseSnapshot = await fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`);
+        } catch (err) {
+            settingsUIState.agentBaseSnapshot = settingsUIState.globalSnapshot;
+        }
+    } else {
+        settingsUIState.agentBaseSnapshot = settingsUIState.globalSnapshot;
+    }
+
+    const baseSettings = getSettingsPayload(settingsUIState.agentBaseSnapshot) || {};
+    const effectiveSettings = snapshot ? getSettingsPayload(snapshot) : baseSettings;
+    settingsUIState.agentDraft = cloneSettings(Object.keys(effectiveSettings).length ? effectiveSettings : baseSettings);
+    settingsUIState.agentSettingsDirty = false;
+    syncSettingsDirtyFlags();
 }
 
 async function loadTenantUpdatePolicy(tenantId) {
@@ -10114,6 +10261,7 @@ function renderSettingsUI() {
     bindSettingsEvents();
     renderScopeButtons();
     updateTenantSelect();
+    updateAgentSelect();
     renderSettingsForm();
     renderOverrideSummary();
     updateActionButtons();
@@ -10158,11 +10306,18 @@ function bindSettingsEvents() {
     if (discardBtn) discardBtn.addEventListener('click', handleDiscardChanges);
     const resetBtn = document.getElementById('settings_reset_overrides_btn');
     if (resetBtn) resetBtn.addEventListener('click', resetTenantOverrides);
+
+    const resetAgentBtn = document.getElementById('settings_reset_agent_overrides_btn');
+    if (resetAgentBtn) resetAgentBtn.addEventListener('click', resetAgentOverrides);
+
     document.querySelectorAll('.settings-scope-btn').forEach(btn => {
         btn.addEventListener('click', () => handleSettingsScopeChange(btn.dataset.scope));
     });
     const tenantSelect = document.getElementById('settings_tenant_select');
     if (tenantSelect) tenantSelect.addEventListener('change', handleTenantSelect);
+
+    const agentSelect = document.getElementById('settings_agent_select');
+    if (agentSelect) agentSelect.addEventListener('change', handleAgentSelect);
     settingsUIState.eventsBound = true;
 }
 
@@ -10198,6 +10353,32 @@ function updateTenantSelect() {
     });
 }
 
+function updateAgentSelect() {
+    const select = document.getElementById('settings_agent_select');
+    if (!select) return;
+    select.innerHTML = '';
+    if (!settingsUIState.agentList.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No agents available';
+        select.appendChild(opt);
+        select.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    settingsUIState.agentList.forEach(agent => {
+        const opt = document.createElement('option');
+        const agentId = resolveAgentId(agent);
+        const label = agent.name || agent.hostname || agentId;
+        opt.value = agentId;
+        opt.textContent = label;
+        if (agentId === settingsUIState.selectedAgentId) {
+            opt.selected = true;
+        }
+        select.appendChild(opt);
+    });
+}
+
 function renderSettingsForm() {
     const root = document.getElementById('settings_form_root');
     if (!root) return;
@@ -10206,9 +10387,15 @@ function renderSettingsForm() {
         return;
     }
     const scope = settingsUIState.scope;
-    const draft = scope === 'global'
-        ? settingsUIState.globalDraft
-        : (settingsUIState.tenantDraft || settingsUIState.globalDraft);
+    let draft;
+    if (scope === 'global') {
+        draft = settingsUIState.globalDraft;
+    } else if (scope === 'tenant') {
+        draft = settingsUIState.tenantDraft || settingsUIState.globalDraft;
+    } else {
+        const base = getSettingsPayload(settingsUIState.agentBaseSnapshot || settingsUIState.globalSnapshot) || {};
+        draft = settingsUIState.agentDraft || cloneSettings(Object.keys(base).length ? base : settingsUIState.globalDraft);
+    }
     root.innerHTML = '';
 
     // Add section management controls at top when in global scope
@@ -10216,6 +10403,11 @@ function renderSettingsForm() {
         const controlPanel = renderManagedSectionsPanel();
         if (controlPanel) {
             root.appendChild(controlPanel);
+        }
+    } else if (scope === 'tenant') {
+        const enforcementPanel = renderTenantEnforcementPanel();
+        if (enforcementPanel) {
+            root.appendChild(enforcementPanel);
         }
     }
 
@@ -10226,17 +10418,24 @@ function renderSettingsForm() {
         }
         // Check if this section is managed (only relevant for global scope)
         const isSectionManaged = settingsUIState.managedSections.has(sectionKey);
+        const isSectionEnforced = scope === 'agent' && settingsUIState.agentEnforcedSections && settingsUIState.agentEnforcedSections.has(sectionKey);
         
         const sectionEl = document.createElement('div');
         sectionEl.className = 'settings-section-panel';
         if (scope === 'global' && !isSectionManaged) {
             sectionEl.classList.add('section-disabled');
         }
+        if (scope === 'agent' && (!isSectionManaged || isSectionEnforced)) {
+            sectionEl.classList.add('section-disabled');
+        }
         const header = document.createElement('div');
         header.className = 'settings-section-header';
-        const managedBadge = (scope === 'global' && !isSectionManaged)
-            ? '<span class="section-status-badge agent-controlled">Agent Controlled</span>'
-            : '';
+        let managedBadge = '';
+        if ((scope === 'global' || scope === 'agent') && !isSectionManaged) {
+            managedBadge = '<span class="section-status-badge agent-controlled">Agent Controlled</span>';
+        } else if (scope === 'agent' && isSectionEnforced) {
+            managedBadge = '<span class="section-status-badge agent-controlled">Tenant Enforced</span>';
+        }
         header.innerHTML = `<h4>${escapeHtml(SETTINGS_SECTION_LABELS[sectionKey] || sectionKey)}</h4>${managedBadge}`;
         sectionEl.appendChild(header);
 
@@ -10245,11 +10444,11 @@ function renderSettingsForm() {
         
         // Use subsections for discovery, otherwise render flat list
         if (sectionKey === 'discovery') {
-            renderDiscoveryWithSubsections(list, fields, draft, scope, isSectionManaged);
+            renderDiscoveryWithSubsections(list, fields, draft, scope, isSectionManaged, isSectionEnforced);
         } else {
             fields.forEach(field => {
                 const value = getValueByPath(draft, field.path);
-                const row = renderSettingsFieldRow(field, value, scope, isSectionManaged);
+                const row = renderSettingsFieldRow(field, value, scope, isSectionManaged, isSectionEnforced);
                 if (row) {
                     list.appendChild(row);
                 }
@@ -10261,7 +10460,9 @@ function renderSettingsForm() {
     if (!root.children.length) {
         root.innerHTML = '<div class="muted-text">No server-managed settings are available in this build.</div>';
     }
-    refreshPolicyPanel();
+    if (scope === 'global' || scope === 'tenant') {
+        refreshPolicyPanel();
+    }
 }
 
 /**
@@ -10288,6 +10489,73 @@ function renderManagedSectionsPanel() {
         });
     });
     return panel;
+}
+
+function renderTenantEnforcementPanel() {
+    const panel = document.createElement('div');
+    panel.className = 'managed-sections-panel';
+    const canEdit = userCan('settings.write');
+    const hasTenant = !!settingsUIState.selectedTenantId;
+    panel.innerHTML = `
+        <div class="managed-sections-header">
+            <h4>Agent Override Locks</h4>
+            <span class="managed-sections-hint">Lock a category so agents in this tenant cannot override it.</span>
+        </div>
+        <div class="managed-sections-toggles">
+            ${renderTenantEnforcementToggle('discovery', 'Discovery', 'Prevent per-agent changes to discovery behavior')}
+            ${renderTenantEnforcementToggle('snmp', 'SNMP', 'Prevent per-agent changes to SNMP settings')}
+            ${renderTenantEnforcementToggle('features', 'Features', 'Prevent per-agent changes to feature flags')}
+        </div>
+    `;
+    panel.querySelectorAll('.tenant-enforcement-toggle input').forEach(input => {
+        input.addEventListener('change', (e) => {
+            handleTenantEnforcementToggle(e.target.dataset.section, e.target.checked);
+        });
+        input.disabled = !canEdit || !hasTenant;
+    });
+    if (!hasTenant) {
+        panel.classList.add('section-disabled');
+    }
+    return panel;
+}
+
+function renderTenantEnforcementToggle(sectionKey, label, description) {
+    const isEnforced = settingsUIState.tenantEnforcedSections && settingsUIState.tenantEnforcedSections.has(sectionKey);
+    return `
+        <label class="managed-section-toggle tenant-enforcement-toggle ${isEnforced ? 'active' : ''}">
+            <div class="toggle-content">
+                <span class="toggle-label">${escapeHtml(label)}</span>
+                <span class="toggle-description">${escapeHtml(description)}</span>
+            </div>
+            <div class="toggle-switch">
+                <input type="checkbox" data-section="${sectionKey}" ${isEnforced ? 'checked' : ''}>
+                <span class="toggle-slider"></span>
+            </div>
+        </label>
+    `;
+}
+
+function handleTenantEnforcementToggle(sectionKey, isEnforced) {
+    if (!settingsUIState.selectedTenantId) {
+        return;
+    }
+    if (!settingsUIState.tenantEnforcedSections) {
+        settingsUIState.tenantEnforcedSections = new Set();
+    }
+    if (isEnforced) {
+        settingsUIState.tenantEnforcedSections.add(sectionKey);
+    } else {
+        settingsUIState.tenantEnforcedSections.delete(sectionKey);
+    }
+    const originalSet = settingsUIState.originalTenantEnforcedSections || new Set();
+    const currentSet = settingsUIState.tenantEnforcedSections;
+    const changed = originalSet.size !== currentSet.size ||
+        [...originalSet].some(s => !currentSet.has(s)) ||
+        [...currentSet].some(s => !originalSet.has(s));
+    settingsUIState.tenantEnforcedSectionsDirty = changed;
+    syncSettingsDirtyFlags();
+    renderOverrideSummary();
+    updateActionButtons();
 }
 
 function renderManagedSectionToggle(sectionKey, label, description) {
@@ -10329,7 +10597,7 @@ function handleManagedSectionToggle(sectionKey, isManaged) {
 /**
  * Render discovery fields organized into logical subsections
  */
-function renderDiscoveryWithSubsections(container, fields, draft, scope, isSectionManaged = true) {
+function renderDiscoveryWithSubsections(container, fields, draft, scope, isSectionManaged = true, isSectionEnforced = false) {
     const fieldMap = {};
     fields.forEach(f => { fieldMap[f.path] = f; });
     const rendered = new Set();
@@ -10351,7 +10619,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
         subsectionFields.forEach(field => {
             rendered.add(field.path);
             const value = getValueByPath(draft, field.path);
-            const row = renderSettingsFieldRow(field, value, scope, isSectionManaged);
+            const row = renderSettingsFieldRow(field, value, scope, isSectionManaged, isSectionEnforced);
             if (row) {
                 container.appendChild(row);
             }
@@ -10368,7 +10636,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
         
         remaining.forEach(field => {
             const value = getValueByPath(draft, field.path);
-            const row = renderSettingsFieldRow(field, value, scope, isSectionManaged);
+            const row = renderSettingsFieldRow(field, value, scope, isSectionManaged, isSectionEnforced);
             if (row) {
                 container.appendChild(row);
             }
@@ -10376,7 +10644,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
     }
 }
 
-function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
+function renderSettingsFieldRow(field, value, scope, isSectionManaged = true, isSectionEnforced = false) {
     const row = document.createElement('div');
     row.className = 'settings-field-row';
     row.dataset.fieldType = (field.type || 'text').toLowerCase();
@@ -10384,7 +10652,8 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
     // Check if this field is locked by environment variable
     const isLocked = settingsUIState.lockedKeys.has(field.path);
     // Section not managed means fields are read-only indicators
-    const sectionNotManaged = scope === 'global' && !isSectionManaged;
+    const sectionNotManaged = (scope === 'global' || scope === 'agent') && !isSectionManaged;
+    const sectionTenantEnforced = scope === 'agent' && !!isSectionEnforced;
     
     // For locked fields, use the effective runtime value instead of DB value
     let displayValue = value;
@@ -10408,7 +10677,12 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
     const { input, element } = inputFragment;
     const canEdit = userCan('settings.write');
     // Disable input if user can't edit, no tenant selected (for tenant scope), locked by env, OR section not managed
-    input.disabled = !canEdit || (scope === 'tenant' && !settingsUIState.selectedTenantId) || isLocked || sectionNotManaged;
+    input.disabled = !canEdit ||
+        (scope === 'tenant' && !settingsUIState.selectedTenantId) ||
+        (scope === 'agent' && !settingsUIState.selectedAgentId) ||
+        isLocked ||
+        sectionNotManaged ||
+        sectionTenantEnforced;
     control.appendChild(element);
 
     // Show lock badge if locked by environment variable
@@ -10420,13 +10694,13 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true) {
         control.appendChild(lockBadge);
     }
 
-    if (scope === 'tenant') {
+    if (scope === 'tenant' || scope === 'agent') {
         const isOverride = hasOverride(pathToArray(field.path));
         const badge = document.createElement('span');
         badge.className = `settings-badge ${isOverride ? 'override' : 'inherited'}`;
         badge.textContent = isOverride ? 'Override' : 'Inherited';
         control.appendChild(badge);
-        if (isOverride && canEdit && !isLocked) {
+        if (isOverride && canEdit && !isLocked && !sectionNotManaged && !sectionTenantEnforced) {
             const inheritBtn = document.createElement('button');
             inheritBtn.type = 'button';
             inheritBtn.className = 'ghost-btn inherit-btn';
@@ -10838,8 +11112,10 @@ function handleSettingsFieldChange(event) {
     const newValue = readInputValue(target, fieldType);
     if (settingsUIState.scope === 'global') {
         updateGlobalDraft(path, newValue);
-    } else {
+    } else if (settingsUIState.scope === 'tenant') {
         updateTenantDraft(path, newValue);
+    } else {
+        updateAgentDraft(path, newValue);
     }
 }
 
@@ -10847,7 +11123,11 @@ function handleSettingsFieldClick(event) {
     const target = event.target;
     if (target && target.dataset && target.dataset.inheritPath) {
         event.preventDefault();
-        clearTenantOverride(target.dataset.inheritPath);
+        if (settingsUIState.scope === 'tenant') {
+            clearTenantOverride(target.dataset.inheritPath);
+        } else if (settingsUIState.scope === 'agent') {
+            clearAgentOverride(target.dataset.inheritPath);
+        }
     }
 }
 
@@ -10888,13 +11168,45 @@ function updateTenantDraft(path, value) {
     updateActionButtons();
 }
 
+function updateAgentDraft(path, value) {
+    if (!settingsUIState.agentDraft) {
+        const baseSettings = getSettingsPayload(settingsUIState.agentBaseSnapshot) || {};
+        settingsUIState.agentDraft = cloneSettings(baseSettings);
+    }
+    setNestedValue(settingsUIState.agentDraft, path, value);
+    const baseValue = getValueByPath(getSettingsPayload(settingsUIState.agentBaseSnapshot), path);
+    if (valuesEqual(value, baseValue)) {
+        deleteNestedValue(settingsUIState.agentOverridesDraft, path);
+    } else {
+        setNestedValue(settingsUIState.agentOverridesDraft, path, value);
+    }
+    const originalOverrides = getOverridesPayload(settingsUIState.agentSnapshot);
+    settingsUIState.agentSettingsDirty = !deepEqual(settingsUIState.agentOverridesDraft, originalOverrides);
+    renderOverrideSummary();
+    syncSettingsDirtyFlags();
+    updateActionButtons();
+}
+
 function clearTenantOverride(path) {
     if (!settingsUIState.tenantDraft) return;
     deleteNestedValue(settingsUIState.tenantOverridesDraft, path);
     const baseValue = getValueByPath(getSettingsPayload(settingsUIState.globalSnapshot), path);
     setNestedValue(settingsUIState.tenantDraft, path, baseValue);
     const originalOverrides = getOverridesPayload(settingsUIState.tenantSnapshot);
-    settingsUIState.tenantDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
+    settingsUIState.tenantSettingsDirty = !deepEqual(settingsUIState.tenantOverridesDraft, originalOverrides);
+    renderSettingsForm();
+    renderOverrideSummary();
+    updateActionButtons();
+}
+
+function clearAgentOverride(path) {
+    if (!settingsUIState.agentDraft) return;
+    deleteNestedValue(settingsUIState.agentOverridesDraft, path);
+    const baseValue = getValueByPath(getSettingsPayload(settingsUIState.agentBaseSnapshot), path);
+    setNestedValue(settingsUIState.agentDraft, path, baseValue);
+    const originalOverrides = getOverridesPayload(settingsUIState.agentSnapshot);
+    settingsUIState.agentSettingsDirty = !deepEqual(settingsUIState.agentOverridesDraft, originalOverrides);
+    syncSettingsDirtyFlags();
     renderSettingsForm();
     renderOverrideSummary();
     updateActionButtons();
@@ -10906,6 +11218,22 @@ function handleSettingsScopeChange(scope) {
     }
     settingsUIState.scope = scope;
     renderSettingsUI();
+
+    if (scope === 'tenant' && settingsUIState.selectedTenantId && !settingsUIState.tenantSnapshot) {
+        loadTenantSnapshot(settingsUIState.selectedTenantId).then(() => {
+            renderSettingsUI();
+        }).catch(err => {
+            reportSettingsError('Failed to load tenant settings', err);
+        });
+    }
+
+    if (scope === 'agent' && settingsUIState.selectedAgentId && !settingsUIState.agentSnapshot) {
+        loadAgentSnapshot(settingsUIState.selectedAgentId).then(() => {
+            renderSettingsUI();
+        }).catch(err => {
+            reportSettingsError('Failed to load agent overrides', err);
+        });
+    }
 }
 
 function handleTenantSelect(event) {
@@ -10915,6 +11243,16 @@ function handleTenantSelect(event) {
         renderSettingsUI();
     }).catch(err => {
         reportSettingsError('Failed to load tenant settings', err);
+    });
+}
+
+function handleAgentSelect(event) {
+    const agentId = event.target.value;
+    settingsUIState.selectedAgentId = agentId;
+    loadAgentSnapshot(agentId).then(() => {
+        renderSettingsUI();
+    }).catch(err => {
+        reportSettingsError('Failed to load agent overrides', err);
     });
 }
 
@@ -10929,8 +11267,10 @@ async function handleSettingsSave(event) {
     try {
         if (settingsUIState.scope === 'global') {
             await saveGlobalSettings();
-        } else {
+        } else if (settingsUIState.scope === 'tenant') {
             await saveTenantSettings();
+        } else {
+            await saveAgentSettings();
         }
     } catch (err) {
         reportSettingsError('Failed to save settings', err);
@@ -10993,17 +11333,21 @@ async function saveTenantSettings() {
     }
     const pending = [];
     const settingsChanged = !!settingsUIState.tenantSettingsDirty;
+    const enforcementChanged = !!settingsUIState.tenantEnforcedSectionsDirty;
     const policyState = getPolicyState('tenant');
     const policyChanged = !!(policyState && policyState.dirty);
-    if (settingsChanged) {
+    if (settingsChanged || enforcementChanged) {
         const overrides = cloneSettings(settingsUIState.tenantOverridesDraft);
-        if (flattenOverrides(overrides).length === 0) {
+        const enforced_sections = Array.from(settingsUIState.tenantEnforcedSections || []);
+        const hasOverrides = flattenOverrides(overrides).length > 0;
+        const hasEnforcement = enforced_sections.length > 0;
+        if (!hasOverrides && !hasEnforcement) {
             pending.push(fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, { method: 'DELETE' }));
         } else {
             pending.push(fetchJSON(`/api/v1/settings/tenants/${encodeURIComponent(tenantId)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(overrides)
+                body: JSON.stringify({ overrides, enforced_sections })
             }));
         }
     }
@@ -11017,6 +11361,37 @@ async function saveTenantSettings() {
     await loadTenantSnapshot(tenantId);
     renderSettingsUI();
     window.__pm_shared.showToast('Tenant configuration saved', 'success');
+}
+
+async function saveAgentSettings() {
+    if (!settingsUIState.selectedAgentId) {
+        window.__pm_shared.showToast('Select an agent to edit overrides', 'error');
+        return;
+    }
+    const agentId = settingsUIState.selectedAgentId;
+    if (!settingsUIState.agentDirty) {
+        return;
+    }
+    const overrides = cloneSettings(settingsUIState.agentOverridesDraft);
+    const hasOverrides = flattenOverrides(overrides).length > 0;
+    if (!hasOverrides) {
+        try {
+            await fetchJSON(`/api/v1/settings/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+        } catch (err) {
+            if (!err || err.status !== 404) {
+                throw err;
+            }
+        }
+    } else {
+        await fetchJSON(`/api/v1/settings/agents/${encodeURIComponent(agentId)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(overrides)
+        });
+    }
+    await loadAgentSnapshot(agentId);
+    renderSettingsUI();
+    window.__pm_shared.showToast('Agent overrides saved', 'success');
 }
 
 async function savePolicyChanges(scope, tenantId) {
@@ -11054,17 +11429,44 @@ function handleDiscardChanges(event) {
         settingsUIState.globalDraft = cloneSettings(getSettingsPayload(settingsUIState.globalSnapshot));
         settingsUIState.globalSettingsDirty = false;
         resetPolicyDraft('global');
-    } else {
+    } else if (settingsUIState.scope === 'tenant') {
         const tenantSettings = settingsUIState.tenantSnapshot
             ? getSettingsPayload(settingsUIState.tenantSnapshot)
             : getSettingsPayload(settingsUIState.globalSnapshot);
         settingsUIState.tenantDraft = cloneSettings(tenantSettings);
         settingsUIState.tenantOverridesDraft = cloneSettings(getOverridesPayload(settingsUIState.tenantSnapshot));
         settingsUIState.tenantSettingsDirty = false;
+        settingsUIState.tenantEnforcedSections = new Set(settingsUIState.originalTenantEnforcedSections || []);
+        settingsUIState.tenantEnforcedSectionsDirty = false;
         resetPolicyDraft('tenant');
+    } else {
+        const agentSettings = settingsUIState.agentSnapshot
+            ? getSettingsPayload(settingsUIState.agentSnapshot)
+            : getSettingsPayload(settingsUIState.agentBaseSnapshot);
+        settingsUIState.agentDraft = cloneSettings(agentSettings);
+        settingsUIState.agentOverridesDraft = cloneSettings(getOverridesPayload(settingsUIState.agentSnapshot));
+        settingsUIState.agentSettingsDirty = false;
     }
     syncSettingsDirtyFlags();
     renderSettingsUI();
+}
+
+async function resetAgentOverrides(event) {
+    event.preventDefault();
+    if (!settingsUIState.selectedAgentId) {
+        return;
+    }
+    if (!confirm('Clear all overrides for this agent?')) {
+        return;
+    }
+    try {
+        await fetchJSON(`/api/v1/settings/agents/${encodeURIComponent(settingsUIState.selectedAgentId)}`, { method: 'DELETE' });
+        await loadAgentSnapshot(settingsUIState.selectedAgentId);
+        renderSettingsUI();
+        window.__pm_shared.showToast('Agent now inherits tenant defaults', 'success');
+    } catch (err) {
+        reportSettingsError('Failed to clear agent overrides', err);
+    }
 }
 
 async function resetTenantOverrides(event) {
@@ -11122,15 +11524,22 @@ function renderOverrideSummary() {
         return;
     }
     
-    // Tenant scope: show override details
+    // Tenant/Agent scope: show override details
     titleEl.textContent = 'Override Summary';
-    if (!settingsUIState.selectedTenantId) {
+    const scope = settingsUIState.scope;
+    if (scope === 'tenant' && !settingsUIState.selectedTenantId) {
         container.innerHTML = '<div class="override-summary-empty"><span>Select a tenant to view override details.</span></div>';
         return;
     }
-    const overrides = flattenOverrides(settingsUIState.tenantOverridesDraft);
+    if (scope === 'agent' && !settingsUIState.selectedAgentId) {
+        container.innerHTML = '<div class="override-summary-empty"><span>Select an agent to view override details.</span></div>';
+        return;
+    }
+    const overrides = flattenOverrides(scope === 'agent' ? settingsUIState.agentOverridesDraft : settingsUIState.tenantOverridesDraft);
     if (!overrides.length) {
-        container.innerHTML = '<div class="override-summary-empty"><span>No overrides. This tenant inherits all global defaults.</span></div>';
+        container.innerHTML = scope === 'agent'
+            ? '<div class="override-summary-empty"><span>No overrides. This agent inherits tenant defaults.</span></div>'
+            : '<div class="override-summary-empty"><span>No overrides. This tenant inherits all global defaults.</span></div>';
         return;
     }
     
@@ -11172,9 +11581,12 @@ function updateActionButtons() {
     const saveBtn = document.getElementById('settings_save_btn');
     const discardBtn = document.getElementById('settings_discard_btn');
     const resetBtn = document.getElementById('settings_reset_overrides_btn');
+    const resetAgentBtn = document.getElementById('settings_reset_agent_overrides_btn');
     const status = document.getElementById('settings_status');
     const canEdit = userCan('settings.write');
-    const dirty = settingsUIState.scope === 'global' ? settingsUIState.globalDirty : settingsUIState.tenantDirty;
+    const dirty = settingsUIState.scope === 'global'
+        ? settingsUIState.globalDirty
+        : (settingsUIState.scope === 'tenant' ? settingsUIState.tenantDirty : settingsUIState.agentDirty);
     if (saveBtn) {
         saveBtn.disabled = !canEdit || settingsUIState.saving || !dirty;
     }
@@ -11186,9 +11598,17 @@ function updateActionButtons() {
         resetBtn.classList.toggle('hidden', settingsUIState.scope !== 'tenant');
         resetBtn.disabled = !canEdit || !hasOverrides || settingsUIState.saving;
     }
+    if (resetAgentBtn) {
+        const hasAgentOverrides = flattenOverrides(settingsUIState.agentOverridesDraft).length > 0;
+        resetAgentBtn.disabled = !canEdit || settingsUIState.saving || !hasAgentOverrides;
+    }
     const tenantControls = document.getElementById('settings_tenant_controls');
     if (tenantControls) {
         tenantControls.classList.toggle('hidden', settingsUIState.scope !== 'tenant' || settingsUIState.tenantList.length === 0);
+    }
+    const agentControls = document.getElementById('settings_agent_controls');
+    if (agentControls) {
+        agentControls.classList.toggle('hidden', settingsUIState.scope !== 'agent' || settingsUIState.agentList.length === 0);
     }
     if (status) {
         if (settingsUIState.saving) {
@@ -11219,6 +11639,14 @@ function updateLastUpdatedMeta() {
         } else {
             text = 'Inheriting global defaults';
         }
+    } else if (settingsUIState.scope === 'agent' && settingsUIState.agentSnapshot) {
+        const snap = settingsUIState.agentSnapshot;
+        const overridesUpdatedAt = getOverridesUpdatedAt(snap);
+        if (overridesUpdatedAt) {
+            text = `Overrides updated ${formatRelativeTime(overridesUpdatedAt)} by ${escapeHtml(getOverridesUpdatedBy(snap) || 'system')}`;
+        } else {
+            text = 'Inheriting tenant defaults';
+        }
     }
     el.textContent = text;
 }
@@ -11240,7 +11668,7 @@ function flattenOverrides(overrides, prefix = '', acc = []) {
 }
 
 function hasOverride(pathParts) {
-    let cursor = settingsUIState.tenantOverridesDraft;
+    let cursor = settingsUIState.scope === 'agent' ? settingsUIState.agentOverridesDraft : settingsUIState.tenantOverridesDraft;
     for (let i = 0; i < pathParts.length; i++) {
         const part = pathParts[i];
         if (!cursor || typeof cursor !== 'object' || !(part in cursor)) {

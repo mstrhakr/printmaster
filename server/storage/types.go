@@ -745,6 +745,9 @@ type Store interface {
 	UpsertTenantSettings(ctx context.Context, rec *TenantSettingsRecord) error
 	DeleteTenantSettings(ctx context.Context, tenantID string) error
 	ListTenantSettings(ctx context.Context) ([]*TenantSettingsRecord, error)
+	GetAgentSettings(ctx context.Context, agentID string) (*AgentSettingsRecord, error)
+	UpsertAgentSettings(ctx context.Context, rec *AgentSettingsRecord) error
+	DeleteAgentSettings(ctx context.Context, agentID string) error
 
 	// Fleet update policy management
 	GetFleetUpdatePolicy(ctx context.Context, tenantID string) (*FleetUpdatePolicy, error)
@@ -866,7 +869,18 @@ type SettingsRecord struct {
 
 // TenantSettingsRecord stores tenant-specific override patches (partial payloads).
 type TenantSettingsRecord struct {
-	TenantID      string                 `json:"tenant_id"`
+	TenantID         string                 `json:"tenant_id"`
+	SchemaVersion    string                 `json:"schema_version"`
+	Overrides        map[string]interface{} `json:"overrides"`
+	EnforcedSections []string               `json:"enforced_sections,omitempty"` // Sections that cannot be overridden per-agent
+	UpdatedAt        time.Time              `json:"updated_at"`
+	UpdatedBy        string                 `json:"updated_by,omitempty"`
+}
+
+// AgentSettingsRecord stores agent-specific override patches (partial payloads).
+// Overrides are applied after tenant settings, subject to global managed sections and tenant enforcement.
+type AgentSettingsRecord struct {
+	AgentID       string                 `json:"agent_id"`
 	SchemaVersion string                 `json:"schema_version"`
 	Overrides     map[string]interface{} `json:"overrides"`
 	UpdatedAt     time.Time              `json:"updated_at"`

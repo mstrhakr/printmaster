@@ -21,7 +21,7 @@ type AgentSnapshot struct {
 // BuildAgentSnapshot resolves the appropriate settings for an agent and rewrites the
 // payload so agent-local fields are reset to defaults. Tenants receive their overrides,
 // while standalone agents fall back to the global snapshot.
-func BuildAgentSnapshot(ctx context.Context, resolver *Resolver, tenantID string) (AgentSnapshot, error) {
+func BuildAgentSnapshot(ctx context.Context, resolver *Resolver, tenantID string, agentID string) (AgentSnapshot, error) {
 	if resolver == nil {
 		return AgentSnapshot{}, fmt.Errorf("resolver required")
 	}
@@ -29,7 +29,21 @@ func BuildAgentSnapshot(ctx context.Context, resolver *Resolver, tenantID string
 		snapshot Snapshot
 		err      error
 	)
-	if strings.TrimSpace(tenantID) == "" {
+	agentID = strings.TrimSpace(agentID)
+	if agentID != "" {
+		if agentSnap, aerr := resolver.ResolveForAgent(ctx, agentID); aerr == nil {
+			snapshot = agentSnap.Snapshot
+		} else {
+			// Fall back to the tenant/global resolution path (e.g., during in-memory join-token flows)
+			if strings.TrimSpace(tenantID) == "" {
+				snapshot, err = resolver.ResolveGlobal(ctx)
+			} else {
+				var tenantSnap TenantSnapshot
+				tenantSnap, err = resolver.ResolveForTenant(ctx, tenantID)
+				snapshot = tenantSnap.Snapshot
+			}
+		}
+	} else if strings.TrimSpace(tenantID) == "" {
 		snapshot, err = resolver.ResolveGlobal(ctx)
 	} else {
 		var tenantSnap TenantSnapshot

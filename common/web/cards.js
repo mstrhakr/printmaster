@@ -508,6 +508,14 @@
                 return;
             }
 
+            if (action === 'agent-settings') {
+                const agentId = btn.getAttribute('data-agent-id');
+                if (window.__pm_shared.openFleetSettingsForAgent) {
+                    window.__pm_shared.openFleetSettingsForAgent(agentId);
+                }
+                return;
+            }
+
             if (action === 'open-agent') {
                 const agentId = btn.getAttribute('data-agent-id');
                 window.__pm_shared.openAgentUI(agentId);
