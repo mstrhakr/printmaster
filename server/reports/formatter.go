@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const tonerLevelsColumn = "toner_levels"
+
 // Formatter formats report results into various output formats.
 type Formatter struct{}
 
@@ -51,14 +53,21 @@ func (f *Formatter) FormatCSV(result *GenerateResult) ([]byte, error) {
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
 
-	// Write header
+	// Expand certain structured columns (e.g., toner_levels) into native CSV columns.
+	rows := result.Rows
 	columns := result.Columns
-	if len(columns) == 0 && len(result.Rows) > 0 {
+	rows, columns = expandMapColumn(rows, columns, tonerLevelsColumn, "toner_")
+
+	// Write header
+	if len(columns) == 0 && len(rows) > 0 {
 		// Extract columns from first row
-		for key := range result.Rows[0] {
+		for key := range rows[0] {
 			columns = append(columns, key)
 		}
 		sort.Strings(columns) // Consistent ordering
+
+		// If columns were inferred, re-expand after inference as well.
+		rows, columns = expandMapColumn(rows, columns, tonerLevelsColumn, "toner_")
 	}
 
 	if err := writer.Write(columns); err != nil {
@@ -66,7 +75,7 @@ func (f *Formatter) FormatCSV(result *GenerateResult) ([]byte, error) {
 	}
 
 	// Write data rows
-	for _, row := range result.Rows {
+	for _, row := range rows {
 		record := make([]string, len(columns))
 		for i, col := range columns {
 			record[i] = formatValue(row[col])
@@ -82,6 +91,97 @@ func (f *Formatter) FormatCSV(result *GenerateResult) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func expandMapColumn(rows []map[string]any, columns []string, columnName string, prefix string) ([]map[string]any, []string) {
+	if len(rows) == 0 {
+		return rows, columns
+	}
+
+	// Check if the column exists (either in explicit columns or in row data)
+	colIdx := -1
+	for i, c := range columns {
+		if c == columnName {
+			colIdx = i
+			break
+		}
+	}
+	if colIdx == -1 {
+		// If columns are empty (or don't include it), see if any row has the field
+		found := false
+		for _, r := range rows {
+			if r != nil {
+				if _, ok := r[columnName]; ok {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			return rows, columns
+		}
+	}
+
+	// Collect union of keys across rows.
+	keySet := map[string]struct{}{}
+	for _, r := range rows {
+		if r == nil {
+			continue
+		}
+		m, ok := r[columnName].(map[string]interface{})
+		if !ok || len(m) == 0 {
+			continue
+		}
+		for k := range m {
+			if k == "" {
+				continue
+			}
+			keySet[k] = struct{}{}
+		}
+	}
+	if len(keySet) == 0 {
+		return rows, columns
+	}
+
+	keys := make([]string, 0, len(keySet))
+	for k := range keySet {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Build new columns: replace the map column with expanded columns.
+	expandedCols := make([]string, 0, len(columns)+len(keys))
+	if len(columns) > 0 {
+		for _, c := range columns {
+			if c == columnName {
+				for _, k := range keys {
+					expandedCols = append(expandedCols, prefix+k)
+				}
+				continue
+			}
+			expandedCols = append(expandedCols, c)
+		}
+	} else {
+		// If columns are not provided, keep them empty and only mutate row maps;
+		// caller will infer columns later.
+		expandedCols = columns
+	}
+
+	// Expand row data.
+	for _, r := range rows {
+		if r == nil {
+			continue
+		}
+		m, ok := r[columnName].(map[string]interface{})
+		if ok {
+			for _, k := range keys {
+				r[prefix+k] = m[k]
+			}
+			delete(r, columnName)
+		}
+	}
+
+	return rows, expandedCols
 }
 
 // formatSummaryAsCSV formats a summary map as a simple CSV.

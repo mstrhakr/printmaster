@@ -95,6 +95,58 @@ func TestFormatter_FormatCSV_SpecialCharacters(t *testing.T) {
 	}
 }
 
+func TestFormatter_FormatCSV_ExpandsTonerLevels(t *testing.T) {
+	t.Parallel()
+
+	f := NewFormatter()
+
+	result := &GenerateResult{
+		Columns: []string{"serial", "toner_levels", "min_level"},
+		Rows: []map[string]any{
+			{
+				"serial": "SN001",
+				"toner_levels": map[string]interface{}{
+					"black":  12,
+					"yellow": 34,
+				},
+				"min_level": 12,
+			},
+			{
+				"serial": "SN002",
+				"toner_levels": map[string]interface{}{
+					"black": 99,
+					"cyan":  88,
+				},
+				"min_level": 88,
+			},
+		},
+		RowCount: 2,
+	}
+
+	csvBytes, err := f.FormatCSV(result)
+	if err != nil {
+		t.Fatalf("FormatCSV failed: %v", err)
+	}
+
+	csv := string(csvBytes)
+
+	// Expanded columns should exist
+	if !strings.Contains(csv, "toner_black") {
+		t.Error("CSV should contain toner_black column")
+	}
+	if !strings.Contains(csv, "toner_cyan") {
+		t.Error("CSV should contain toner_cyan column")
+	}
+	if !strings.Contains(csv, "toner_yellow") {
+		t.Error("CSV should contain toner_yellow column")
+	}
+
+	// Original blob column should not exist
+	if strings.Contains(csv, "toner_levels") {
+		t.Error("CSV should not contain toner_levels column")
+	}
+}
+
 func TestFormatter_FormatJSON(t *testing.T) {
 	t.Parallel()
 

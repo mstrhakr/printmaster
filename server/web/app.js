@@ -1669,26 +1669,97 @@ async function downloadReportRun(runId, format) {
             return;
         }
         
+        function csvEscape(value) {
+            const str = String(value ?? '');
+            // Quote if it contains commas, quotes, or newlines
+            if (/[\r\n,"]/.test(str)) {
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+        }
+
+        function csvFormatValue(val) {
+            if (val === null || val === undefined) return '';
+            if (typeof val === 'string') return val;
+            if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+            // Arrays/objects -> JSON to avoid "[object Object]"
+            try {
+                return JSON.stringify(val);
+            } catch (_) {
+                return String(val);
+            }
+        }
+
+        function resultToCSV(result) {
+            // Expected shape (from server formatter JSON):
+            // { columns, rows, summary, metadata, row_count }
+            if (result && Array.isArray(result.rows) && Array.isArray(result.columns) && result.columns.length > 0) {
+                // Expand toner_levels into toner_* columns (replace the blob column)
+                let columns = [...result.columns];
+                if (columns.includes('toner_levels')) {
+                    const keySet = new Set();
+                    for (const row of result.rows) {
+                        const m = row?.toner_levels;
+                        if (m && typeof m === 'object' && !Array.isArray(m)) {
+                            for (const k of Object.keys(m)) {
+                                if (k) keySet.add(k);
+                            }
+                        }
+                    }
+                    const keys = Array.from(keySet).sort();
+                    const expanded = keys.map(k => `toner_${k}`);
+                    columns = columns.flatMap(c => c === 'toner_levels' ? expanded : [c]);
+                }
+
+                const header = columns.map(csvEscape).join(',');
+                const rows = result.rows.map(row => {
+                    return columns.map(col => {
+                        if (col.startsWith('toner_')) {
+                            const k = col.slice('toner_'.length);
+                            return csvEscape(csvFormatValue(row?.toner_levels?.[k]));
+                        }
+                        return csvEscape(csvFormatValue(row?.[col]));
+                    }).join(',');
+                }).join('\n');
+                return header + (rows ? `\n${rows}` : '');
+            }
+
+            // Summary-only reports: output as single-row CSV
+            const summary = (result && (result.summary || result.data)) || null;
+            if (summary && typeof summary === 'object') {
+                const keys = Object.keys(summary).sort();
+                const header = keys.map(csvEscape).join(',');
+                const values = keys.map(k => csvEscape(csvFormatValue(summary[k]))).join(',');
+                return header + `\n${values}`;
+            }
+
+            // Fallback
+            return '';
+        }
+
         let content, filename, mimeType;
         if (format === 'csv') {
-            // Convert result to CSV
-            const result = typeof run.result_data === 'string' ? JSON.parse(run.result_data) : run.result_data;
-            if (result.rows && result.columns) {
-                const header = result.columns.join(',');
-                const rows = result.rows.map(row => result.columns.map(col => {
-                    const val = row[col];
-                    if (val === null || val === undefined) return '';
-                    const str = String(val);
-                    return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
-                }).join(',')).join('\n');
-                content = header + '\n' + rows;
+            // If the run itself was generated as CSV, don't try to parse/convert.
+            if ((run.format || '').toLowerCase() === 'csv') {
+                content = run.result_data;
             } else {
-                content = JSON.stringify(result, null, 2);
+                // Convert JSON-formatted run.result_data to CSV
+                const result = typeof run.result_data === 'string' ? JSON.parse(run.result_data) : run.result_data;
+                content = resultToCSV(result);
+                if (!content) {
+                    // As a last resort, include JSON so the user doesn't get an empty file
+                    content = JSON.stringify(result, null, 2);
+                }
             }
             filename = `report-${runId}.csv`;
             mimeType = 'text/csv';
         } else {
-            content = typeof run.result_data === 'string' ? run.result_data : JSON.stringify(run.result_data, null, 2);
+            // JSON download: if the run was generated as JSON already, use it; otherwise warn and return raw.
+            if ((run.format || '').toLowerCase() === 'json') {
+                content = typeof run.result_data === 'string' ? run.result_data : JSON.stringify(run.result_data, null, 2);
+            } else {
+                content = typeof run.result_data === 'string' ? run.result_data : JSON.stringify(run.result_data, null, 2);
+            }
             filename = `report-${runId}.json`;
             mimeType = 'application/json';
         }
