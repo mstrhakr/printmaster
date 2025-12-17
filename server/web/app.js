@@ -10122,7 +10122,7 @@ async function loadAgentUpdatePolicyForUpdatesTab() {
 }
 
 function renderAgentUpdatePolicyInUpdatesTab(root, enabled, policy) {
-    const canEdit = userCan('settings.write');
+    const canEdit = userCan('settings.fleet.write');
     
     let html = `
         <div class="settings-section-panel auto-update-policy" style="margin-bottom:0;">
@@ -10708,7 +10708,7 @@ function renderManagedSectionsPanel() {
 function renderTenantEnforcementPanel() {
     const panel = document.createElement('div');
     panel.className = 'managed-sections-panel';
-    const canEdit = userCan('settings.write');
+    const canEdit = userCan('settings.fleet.write');
     const hasTenant = !!settingsUIState.selectedTenantId;
     panel.innerHTML = `
         <div class="managed-sections-header">
@@ -10774,7 +10774,7 @@ function handleTenantEnforcementToggle(sectionKey, isEnforced) {
 
 function renderManagedSectionToggle(sectionKey, label, description) {
     const isManaged = settingsUIState.managedSections.has(sectionKey);
-    const canEdit = userCan('settings.write');
+    const canEdit = userCan('settings.fleet.write');
     return `
         <label class="managed-section-toggle ${isManaged ? 'active' : ''}">
             <div class="toggle-content">
@@ -10889,7 +10889,7 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true, is
         return null;
     }
     const { input, element } = inputFragment;
-    const canEdit = userCan('settings.write');
+    const canEdit = userCan('settings.fleet.write');
     // Disable input if user can't edit, no tenant selected (for tenant scope), locked by env, OR section not managed
     input.disabled = !canEdit ||
         (scope === 'tenant' && !settingsUIState.selectedTenantId) ||
@@ -10954,7 +10954,7 @@ function renderUpdatePolicySection(root) {
     body.className = 'settings-field-list auto-update-field-list';
     const scope = settingsUIState.scope;
     const policyState = getPolicyState(scope);
-    const canEdit = userCan('settings.write');
+    const canEdit = userCan('settings.fleet.write');
 
     if (scope === 'tenant' && !settingsUIState.selectedTenantId) {
         body.innerHTML = '<div class="muted-text">Select a customer to manage auto-update overrides.</div>';
@@ -11478,7 +11478,7 @@ function handleAgentSelect(event) {
 
 async function handleSettingsSave(event) {
     event.preventDefault();
-    if (!userCan('settings.write')) {
+    if (!userCan('settings.fleet.write')) {
         window.__pm_shared.showToast('You do not have permission to update settings', 'error');
         return;
     }
@@ -11803,7 +11803,7 @@ function updateActionButtons() {
     const resetBtn = document.getElementById('settings_reset_overrides_btn');
     const resetAgentBtn = document.getElementById('settings_reset_agent_overrides_btn');
     const status = document.getElementById('settings_status');
-    const canEdit = userCan('settings.write');
+    const canEdit = userCan('settings.fleet.write');
     const dirty = settingsUIState.scope === 'global'
         ? settingsUIState.globalDirty
         : (settingsUIState.scope === 'tenant' ? settingsUIState.tenantDirty : settingsUIState.agentDirty);

@@ -114,7 +114,7 @@ async function loadApp(page, apiHandler) {
   // Base tabs (agents, devices, etc) are always present, check for those first
   await page.waitForSelector('#desktop_tabs .tab[data-target="agents"]', { timeout: 10000 });
   // For admin users (tests use adminUser), wait specifically for the admin tab
-  // Note: admin tab is only visible if user.role='admin' AND userCan('settings.read')
+  // Note: admin tab is only visible if user.role='admin'
   await page.waitForSelector('#desktop_tabs .tab[data-target="admin"]', { timeout: 10000 });
 }
 

@@ -1812,7 +1812,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	switch r.Method {
 	case http.MethodGet:
-		if !authorizeOrReject(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		if !authorizeOrReject(w, r, authz.ActionSettingsServerRead, authz.ResourceRef{}) {
 			return
 		}
 		if !authorizeOrReject(w, r, authz.ActionUsersRead, authz.ResourceRef{}) {
@@ -1828,7 +1828,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(users)
 		return
 	case http.MethodPost:
-		if !authorizeOrReject(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+		if !authorizeOrReject(w, r, authz.ActionSettingsServerWrite, authz.ResourceRef{}) {
 			return
 		}
 		if !authorizeOrReject(w, r, authz.ActionUsersWrite, authz.ResourceRef{}) {
@@ -5459,7 +5459,7 @@ func handleSelfUpdateStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
 		return
 	}
-	if !authorizeOrReject(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !authorizeOrReject(w, r, authz.ActionSettingsServerRead, authz.ResourceRef{}) {
 		return
 	}
 	var status selfupdate.Status
@@ -5481,7 +5481,7 @@ func handleSelfUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
-	if !authorizeOrReject(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !authorizeOrReject(w, r, authz.ActionSettingsServerWrite, authz.ResourceRef{}) {
 		return
 	}
 	if selfUpdateManager == nil {
@@ -5743,14 +5743,14 @@ type serverSettingsUpdateResult struct {
 func handleServerSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		if !authorizeOrReject(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		if !authorizeOrReject(w, r, authz.ActionSettingsServerRead, authz.ResourceRef{}) {
 			return
 		}
 		resp := buildServerSettingsResponse(serverConfig)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
 	case http.MethodPut:
-		if !authorizeOrReject(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+		if !authorizeOrReject(w, r, authz.ActionSettingsServerWrite, authz.ResourceRef{}) {
 			return
 		}
 		var req serverSettingsRequest

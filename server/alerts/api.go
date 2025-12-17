@@ -189,7 +189,7 @@ func (api *API) handleAlertSummary(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -218,7 +218,7 @@ func (api *API) handleAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -259,7 +259,7 @@ func (api *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleCreateAlert(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -342,7 +342,7 @@ func (api *API) handleAlertRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleGetAlert(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -360,7 +360,7 @@ func (api *API) handleGetAlert(w http.ResponseWriter, r *http.Request, id int64)
 }
 
 func (api *API) handleDeleteAlert(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -385,7 +385,7 @@ func (api *API) handleAcknowledgeAlert(w http.ResponseWriter, r *http.Request, i
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -410,7 +410,7 @@ func (api *API) handleResolveAlert(w http.ResponseWriter, r *http.Request, id in
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -445,7 +445,7 @@ func (api *API) handleAlertRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleListAlertRules(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -478,7 +478,7 @@ func (api *API) handleListAlertRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleCreateAlertRule(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -550,7 +550,7 @@ func (api *API) handleAlertRuleRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleGetAlertRule(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -568,7 +568,7 @@ func (api *API) handleGetAlertRule(w http.ResponseWriter, r *http.Request, id in
 }
 
 func (api *API) handleUpdateAlertRule(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -595,7 +595,7 @@ func (api *API) handleUpdateAlertRule(w http.ResponseWriter, r *http.Request, id
 }
 
 func (api *API) handleDeleteAlertRule(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -630,7 +630,7 @@ func (api *API) handleNotificationChannels(w http.ResponseWriter, r *http.Reques
 }
 
 func (api *API) handleListNotificationChannels(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -647,7 +647,7 @@ func (api *API) handleListNotificationChannels(w http.ResponseWriter, r *http.Re
 }
 
 func (api *API) handleCreateNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -711,7 +711,7 @@ func (api *API) handleNotificationChannelRoute(w http.ResponseWriter, r *http.Re
 }
 
 func (api *API) handleGetNotificationChannel(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -725,7 +725,7 @@ func (api *API) handleGetNotificationChannel(w http.ResponseWriter, r *http.Requ
 }
 
 func (api *API) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -753,7 +753,7 @@ func (api *API) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.R
 }
 
 func (api *API) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -788,7 +788,7 @@ func (api *API) handleEscalationPolicies(w http.ResponseWriter, r *http.Request)
 }
 
 func (api *API) handleListEscalationPolicies(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -805,7 +805,7 @@ func (api *API) handleListEscalationPolicies(w http.ResponseWriter, r *http.Requ
 }
 
 func (api *API) handleCreateEscalationPolicy(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -865,7 +865,7 @@ func (api *API) handleEscalationPolicyRoute(w http.ResponseWriter, r *http.Reque
 }
 
 func (api *API) handleGetEscalationPolicy(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -879,7 +879,7 @@ func (api *API) handleGetEscalationPolicy(w http.ResponseWriter, r *http.Request
 }
 
 func (api *API) handleUpdateEscalationPolicy(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -907,7 +907,7 @@ func (api *API) handleUpdateEscalationPolicy(w http.ResponseWriter, r *http.Requ
 }
 
 func (api *API) handleDeleteEscalationPolicy(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -942,7 +942,7 @@ func (api *API) handleMaintenanceWindows(w http.ResponseWriter, r *http.Request)
 }
 
 func (api *API) handleListMaintenanceWindows(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -970,7 +970,7 @@ func (api *API) handleListMaintenanceWindows(w http.ResponseWriter, r *http.Requ
 }
 
 func (api *API) handleCreateMaintenanceWindow(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -1044,7 +1044,7 @@ func (api *API) handleMaintenanceWindowRoute(w http.ResponseWriter, r *http.Requ
 }
 
 func (api *API) handleGetMaintenanceWindow(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -1058,7 +1058,7 @@ func (api *API) handleGetMaintenanceWindow(w http.ResponseWriter, r *http.Reques
 }
 
 func (api *API) handleUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -1086,7 +1086,7 @@ func (api *API) handleUpdateMaintenanceWindow(w http.ResponseWriter, r *http.Req
 }
 
 func (api *API) handleDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Request, id int64) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 
@@ -1121,7 +1121,7 @@ func (api *API) handleAlertSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleGetAlertSettings(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsRead, authz.ResourceRef{}) {
 		return
 	}
 
@@ -1135,7 +1135,7 @@ func (api *API) handleGetAlertSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) handleSaveAlertSettings(w http.ResponseWriter, r *http.Request) {
-	if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
 		return
 	}
 

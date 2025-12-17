@@ -35,9 +35,20 @@
         'metrics.history.read': 'viewer',
         'proxy.agent': 'operator',
         'proxy.device': 'operator',
-        'settings.read': 'viewer',   // Viewers+ can read settings (tenant-scoped if not admin)
-        'settings.write': 'operator', // Operators+ can write settings (tenant-scoped if not admin)
-        'settings.test_email': 'admin',
+
+        // Granular settings permissions
+        // Server settings (SMTP, branding, ports, self-update) - admin only
+        'settings.server.read': 'admin',
+        'settings.server.write': 'admin',
+
+        // Fleet settings (discovery, snmp, features) - tenant-scoped for operators+
+        'settings.fleet.read': 'viewer',   // Viewers+ can read fleet settings (tenant-scoped)
+        'settings.fleet.write': 'operator', // Operators+ can write fleet settings (tenant-scoped)
+
+        // Alert settings (rules, channels, policies) - tenant-scoped for operators+
+        'settings.alerts.read': 'viewer',   // Viewers+ can read alert config (tenant-scoped)
+        'settings.alerts.write': 'operator', // Operators+ can write alert config (tenant-scoped)
+
         'logs.read': 'viewer',
         'audit.logs.read': 'admin',
     });

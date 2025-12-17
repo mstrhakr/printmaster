@@ -47,9 +47,18 @@ const (
 	ActionProxyAgentConnect  Action = "proxy.agent"
 	ActionProxyDeviceConnect Action = "proxy.device"
 
-	ActionSettingsRead      Action = "settings.read"
-	ActionSettingsWrite     Action = "settings.write"
-	ActionSettingsTestEmail Action = "settings.test_email"
+	// Granular settings permissions
+	// Server settings (SMTP, branding, ports, self-update) - admin only
+	ActionSettingsServerRead  Action = "settings.server.read"
+	ActionSettingsServerWrite Action = "settings.server.write"
+
+	// Fleet settings (discovery, snmp, features) - tenant-scoped for operators+
+	ActionSettingsFleetRead  Action = "settings.fleet.read"
+	ActionSettingsFleetWrite Action = "settings.fleet.write"
+
+	// Alert settings (rules, channels, policies) - tenant-scoped for operators+
+	ActionSettingsAlertsRead  Action = "settings.alerts.read"
+	ActionSettingsAlertsWrite Action = "settings.alerts.write"
 
 	ActionLogsRead      Action = "logs.read"
 	ActionAuditLogsRead Action = "audit.logs.read"
@@ -109,8 +118,11 @@ var rolePolicies = map[storage.Role][]string{
 		"proxy.agent",
 		"proxy.device",
 		"logs.read",
-		"settings.read",  // Allow operators to read fleet settings (scoped to their tenants)
-		"settings.write", // Allow operators to write fleet settings (scoped to their tenants)
+		// Granular settings permissions (tenant-scoped via ResourceRef)
+		"settings.fleet.read",   // Read fleet settings (discovery, snmp, features)
+		"settings.fleet.write",  // Write fleet settings
+		"settings.alerts.read",  // Read alert rules/channels
+		"settings.alerts.write", // Write alert rules/channels
 	},
 	storage.RoleViewer: {
 		"config.read",
@@ -121,7 +133,9 @@ var rolePolicies = map[storage.Role][]string{
 		"metrics.summary.read",
 		"metrics.history.read",
 		"logs.read",
-		"settings.read", // Allow viewers to read fleet settings (scoped to their tenants)
+		// Granular settings permissions (read-only, tenant-scoped)
+		"settings.fleet.read",  // Read fleet settings
+		"settings.alerts.read", // Read alert rules
 	},
 }
 

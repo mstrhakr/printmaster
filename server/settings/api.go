@@ -154,7 +154,7 @@ func (api *API) handleSchema(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+	if !api.authorize(w, r, authz.ActionSettingsFleetRead, authz.ResourceRef{}) {
 		return
 	}
 	writeJSON(w, http.StatusOK, pmsettings.DefaultSchema())
@@ -163,7 +163,7 @@ func (api *API) handleSchema(w http.ResponseWriter, r *http.Request) {
 func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		if !api.authorize(w, r, authz.ActionSettingsRead, authz.ResourceRef{}) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetRead, authz.ResourceRef{}) {
 			return
 		}
 		snap, err := api.resolver.ResolveGlobal(r.Context())
@@ -173,7 +173,7 @@ func (api *API) handleGlobal(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, snap)
 	case http.MethodPut:
-		if !api.authorize(w, r, authz.ActionSettingsWrite, authz.ResourceRef{}) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetWrite, authz.ResourceRef{}) {
 			return
 		}
 		// Decode wrapper struct that includes both settings and managed_sections
@@ -287,17 +287,17 @@ func (api *API) handleTenantSettings(w http.ResponseWriter, r *http.Request, ten
 	resource := authz.ResourceRef{TenantIDs: []string{tenantID}}
 	switch r.Method {
 	case http.MethodGet:
-		if !api.authorize(w, r, authz.ActionSettingsRead, resource) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetRead, resource) {
 			return
 		}
 		api.writeTenantSnapshot(w, r, tenantID)
 	case http.MethodPut:
-		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetWrite, resource) {
 			return
 		}
 		api.saveTenantOverrides(w, r, tenantID)
 	case http.MethodDelete:
-		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetWrite, resource) {
 			return
 		}
 		if err := api.store.DeleteTenantSettings(r.Context(), tenantID); err != nil {
@@ -338,7 +338,7 @@ func (api *API) handleAgentSettings(w http.ResponseWriter, r *http.Request, agen
 	}
 	switch r.Method {
 	case http.MethodGet:
-		if !api.authorize(w, r, authz.ActionSettingsRead, resource) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetRead, resource) {
 			return
 		}
 		snap, err := api.resolver.ResolveForAgent(r.Context(), agentID)
@@ -348,12 +348,12 @@ func (api *API) handleAgentSettings(w http.ResponseWriter, r *http.Request, agen
 		}
 		writeJSON(w, http.StatusOK, snap)
 	case http.MethodPut:
-		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetWrite, resource) {
 			return
 		}
 		api.saveAgentOverrides(w, r, agent)
 	case http.MethodDelete:
-		if !api.authorize(w, r, authz.ActionSettingsWrite, resource) {
+		if !api.authorize(w, r, authz.ActionSettingsFleetWrite, resource) {
 			return
 		}
 		if err := api.store.DeleteAgentSettings(r.Context(), agentID); err != nil {
