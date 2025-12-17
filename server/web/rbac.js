@@ -35,8 +35,8 @@
         'metrics.history.read': 'viewer',
         'proxy.agent': 'operator',
         'proxy.device': 'operator',
-        'settings.read': 'admin',
-        'settings.write': 'admin',
+        'settings.read': 'viewer',   // Viewers+ can read settings (tenant-scoped if not admin)
+        'settings.write': 'operator', // Operators+ can write settings (tenant-scoped if not admin)
         'settings.test_email': 'admin',
         'logs.read': 'viewer',
         'audit.logs.read': 'admin',

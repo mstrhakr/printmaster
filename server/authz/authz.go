@@ -109,6 +109,8 @@ var rolePolicies = map[storage.Role][]string{
 		"proxy.agent",
 		"proxy.device",
 		"logs.read",
+		"settings.read",  // Allow operators to read fleet settings (scoped to their tenants)
+		"settings.write", // Allow operators to write fleet settings (scoped to their tenants)
 	},
 	storage.RoleViewer: {
 		"config.read",
@@ -119,6 +121,7 @@ var rolePolicies = map[storage.Role][]string{
 		"metrics.summary.read",
 		"metrics.history.read",
 		"logs.read",
+		"settings.read", // Allow viewers to read fleet settings (scoped to their tenants)
 	},
 }
 

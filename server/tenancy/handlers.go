@@ -441,105 +441,139 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 	if !requireTenancyEnabled(w, r) {
 		return
 	}
-	if r.Method != http.MethodPut {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/")
+	id = strings.Trim(id, "/")
+	// Remove any subpath if present
+	if idx := strings.Index(id, "/"); idx > 0 {
+		id = id[:idx]
+	}
 	if id == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(`{"error":"tenant id required"}`))
 		return
 	}
-	if !authorizeOrReject(w, r, authz.ActionTenantsWrite, authz.ResourceRef{TenantIDs: []string{id}}) {
-		return
-	}
-	var in tenantPayload
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"invalid json"}`))
-		return
-	}
-	if strings.TrimSpace(in.Name) == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"name required"}`))
-		return
-	}
-	if dbStore != nil {
-		tn, err := dbStore.GetTenant(r.Context(), id)
-		if err != nil {
+	
+	switch r.Method {
+	case http.MethodGet:
+		// Allow tenant-scoped users to read their own tenant details
+		if !authorizeOrReject(w, r, authz.ActionTenantsRead, authz.ResourceRef{TenantIDs: []string{id}}) {
+			return
+		}
+		if dbStore != nil {
+			tn, err := dbStore.GetTenant(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error":"tenant not found"}`))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(tn)
+			return
+		}
+		existing, ok := store.tenants[id]
+		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(`{"error":"tenant not found"}`))
 			return
 		}
-		before := *tn
-		tn.Name = in.Name
-		tn.Description = in.Description
-		tn.ContactName = in.ContactName
-		tn.ContactEmail = in.ContactEmail
-		tn.ContactPhone = in.ContactPhone
-		tn.BusinessUnit = in.BusinessUnit
-		tn.BillingCode = in.BillingCode
-		tn.Address = in.Address
-		tn.LoginDomain = storage.NormalizeTenantDomain(in.LoginDomain)
-		if err := dbStore.UpdateTenant(r.Context(), tn); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(existing)
+		return
+		
+	case http.MethodPut:
+		if !authorizeOrReject(w, r, authz.ActionTenantsWrite, authz.ResourceRef{TenantIDs: []string{id}}) {
+			return
+		}
+		var in tenantPayload
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"invalid json"}`))
+			return
+		}
+		if strings.TrimSpace(in.Name) == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":"name required"}`))
+			return
+		}
+		if dbStore != nil {
+			tn, err := dbStore.GetTenant(r.Context(), id)
+			if err != nil {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(`{"error":"tenant not found"}`))
+				return
+			}
+			before := *tn
+			tn.Name = in.Name
+			tn.Description = in.Description
+			tn.ContactName = in.ContactName
+			tn.ContactEmail = in.ContactEmail
+			tn.ContactPhone = in.ContactPhone
+			tn.BusinessUnit = in.BusinessUnit
+			tn.BillingCode = in.BillingCode
+			tn.Address = in.Address
+			tn.LoginDomain = storage.NormalizeTenantDomain(in.LoginDomain)
+			if err := dbStore.UpdateTenant(r.Context(), tn); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(`{"error":"failed to update tenant"}`))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(tn)
+			recordAudit(r, &storage.AuditEntry{
+				Action:     "tenant.update",
+				TargetType: "tenant",
+				TargetID:   tn.ID,
+				TenantID:   tn.ID,
+				Details:    fmt.Sprintf("Updated tenant %s", tn.Name),
+				Metadata: map[string]interface{}{
+					"before": tenantAuditMetadata(before.Name, before.Description, before.ContactName, before.ContactEmail, before.ContactPhone, before.BusinessUnit, before.BillingCode, before.Address, before.LoginDomain),
+					"after":  tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address, tn.LoginDomain),
+				},
+			})
+			return
+		}
+		existing, ok := store.tenants[id]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":"tenant not found"}`))
+			return
+		}
+		updated := Tenant{
+			ID:           existing.ID,
+			Name:         in.Name,
+			Description:  in.Description,
+			ContactName:  in.ContactName,
+			ContactEmail: in.ContactEmail,
+			ContactPhone: in.ContactPhone,
+			BusinessUnit: in.BusinessUnit,
+			BillingCode:  in.BillingCode,
+			Address:      in.Address,
+			LoginDomain:  storage.NormalizeTenantDomain(in.LoginDomain),
+			CreatedAt:    existing.CreatedAt,
+		}
+		res, err := store.UpdateTenant(updated)
+		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to update tenant"}`))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tn)
+		json.NewEncoder(w).Encode(res)
 		recordAudit(r, &storage.AuditEntry{
 			Action:     "tenant.update",
 			TargetType: "tenant",
-			TargetID:   tn.ID,
-			TenantID:   tn.ID,
-			Details:    fmt.Sprintf("Updated tenant %s", tn.Name),
+			TargetID:   res.ID,
+			TenantID:   res.ID,
+			Details:    fmt.Sprintf("Updated tenant %s", res.Name),
 			Metadata: map[string]interface{}{
-				"before": tenantAuditMetadata(before.Name, before.Description, before.ContactName, before.ContactEmail, before.ContactPhone, before.BusinessUnit, before.BillingCode, before.Address, before.LoginDomain),
-				"after":  tenantAuditMetadata(tn.Name, tn.Description, tn.ContactName, tn.ContactEmail, tn.ContactPhone, tn.BusinessUnit, tn.BillingCode, tn.Address, tn.LoginDomain),
+				"before": tenantAuditMetadata(existing.Name, existing.Description, existing.ContactName, existing.ContactEmail, existing.ContactPhone, existing.BusinessUnit, existing.BillingCode, existing.Address, existing.LoginDomain),
+				"after":  tenantAuditMetadata(res.Name, res.Description, res.ContactName, res.ContactEmail, res.ContactPhone, res.BusinessUnit, res.BillingCode, res.Address, res.LoginDomain),
 			},
 		})
-		return
+		
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-	existing, ok := store.tenants[id]
-	if !ok {
-		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"error":"tenant not found"}`))
-		return
-	}
-	updated := Tenant{
-		ID:           existing.ID,
-		Name:         in.Name,
-		Description:  in.Description,
-		ContactName:  in.ContactName,
-		ContactEmail: in.ContactEmail,
-		ContactPhone: in.ContactPhone,
-		BusinessUnit: in.BusinessUnit,
-		BillingCode:  in.BillingCode,
-		Address:      in.Address,
-		LoginDomain:  storage.NormalizeTenantDomain(in.LoginDomain),
-		CreatedAt:    existing.CreatedAt,
-	}
-	res, err := store.UpdateTenant(updated)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error":"failed to update tenant"}`))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(res)
-	recordAudit(r, &storage.AuditEntry{
-		Action:     "tenant.update",
-		TargetType: "tenant",
-		TargetID:   res.ID,
-		TenantID:   res.ID,
-		Details:    fmt.Sprintf("Updated tenant %s", res.Name),
-		Metadata: map[string]interface{}{
-			"before": tenantAuditMetadata(existing.Name, existing.Description, existing.ContactName, existing.ContactEmail, existing.ContactPhone, existing.BusinessUnit, existing.BillingCode, existing.Address, existing.LoginDomain),
-			"after":  tenantAuditMetadata(res.Name, res.Description, res.ContactName, res.ContactEmail, res.ContactPhone, res.BusinessUnit, res.BillingCode, res.Address, res.LoginDomain),
-		},
-	})
 }
 
 func handleTenantBundlesSubresource(w http.ResponseWriter, r *http.Request, tenantID, rest string) {

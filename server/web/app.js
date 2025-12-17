@@ -18,7 +18,8 @@ const TAB_DEFINITIONS = {
     },
     admin: {
         label: 'Admin',
-        requiredAction: 'settings.read', // Admin-level access required
+        // Allow operators+ to see Admin tab - specific subtabs are gated by applyAdminSubtabVisibility()
+        minRole: 'operator',
         templateId: 'tab-template-admin',
         onMount: () => initAdminTab()
     }
@@ -82,6 +83,36 @@ function persistUIState(key, value) {
 
 let currentUser = null;
 const mountedTabs = new Set();
+
+/**
+ * Check if the current user is scoped to specific tenants (not a global admin).
+ * Tenant-scoped users have tenant_ids populated and should not see global-level settings.
+ */
+function isTenantScopedUser() {
+    if (!currentUser) return false;
+    // Admins are never tenant-scoped
+    if (normalizeRole(currentUser.role) === 'admin') return false;
+    // Check if user has specific tenant assignments
+    const tenantIds = currentUser.tenant_ids;
+    return Array.isArray(tenantIds) && tenantIds.length > 0;
+}
+
+/**
+ * Get the tenant IDs the current user is allowed to access.
+ * Returns empty array for global admins (they can access all).
+ */
+function getUserTenantIds() {
+    if (!currentUser) return [];
+    const tenantIds = currentUser.tenant_ids;
+    return Array.isArray(tenantIds) ? tenantIds : [];
+}
+
+/**
+ * Check if user is a global admin (not tenant-scoped).
+ */
+function isGlobalAdmin() {
+    return currentUser && normalizeRole(currentUser.role) === 'admin';
+}
 let usersUIInitialized = false;
 let tenantsUIInitialized = false;
 let tenantModalInitialized = false;
@@ -1034,7 +1065,49 @@ function switchLogView(view) {
 
 function initAdminTab() {
     initAdminSubTabs();
-    switchAdminView(activeAdminView, true);
+    applyAdminSubtabVisibility();
+    // Pick a valid starting view for the user
+    const validView = getValidAdminViewForUser(activeAdminView);
+    switchAdminView(validView, true);
+}
+
+/**
+ * Get a valid admin view for the current user.
+ * If the requested view is not accessible, return the first accessible one.
+ */
+function getValidAdminViewForUser(preferredView) {
+    const accessibleViews = getAccessibleAdminViews();
+    if (accessibleViews.includes(preferredView)) {
+        return preferredView;
+    }
+    return accessibleViews[0] || 'fleet';
+}
+
+/**
+ * Get list of admin sub-views the current user can access.
+ * - Global admins: All views
+ * - Tenant-scoped users (any role): Only fleet and alertsconfig for their tenants
+ * - Global operators: Same as tenant-scoped (fleet/alertsconfig) since they can't manage users/tenants anyway
+ */
+function getAccessibleAdminViews() {
+    if (isGlobalAdmin()) {
+        return VALID_ADMIN_VIEWS;
+    }
+    // Non-admin users (including tenant-scoped) can only access fleet and alertsconfig
+    // Even global operators can't manage users, tenants, access, server, or audit
+    return ['fleet', 'alertsconfig'];
+}
+
+/**
+ * Apply visibility rules to admin subtabs based on user's tenant scope.
+ */
+function applyAdminSubtabVisibility() {
+    const accessibleViews = getAccessibleAdminViews();
+    document.querySelectorAll('.admin-subtab').forEach(btn => {
+        const target = btn.dataset.adminview || 'users';
+        const canAccess = accessibleViews.includes(target);
+        btn.style.display = canAccess ? '' : 'none';
+    });
 }
 
 function initAdminSubTabs() {
@@ -9894,12 +9967,20 @@ async function initSettingsUI() {
         return settingsUIState.loadingPromise;
     }
     if (settingsUIState.initialized) {
+        // For tenant-scoped users, always start on tenant scope (not global)
+        if (isTenantScopedUser() && settingsUIState.scope === 'global') {
+            settingsUIState.scope = 'tenant';
+        }
         renderSettingsUI();
         return;
     }
     settingsUIState.loading = true;
     settingsUIState.loadingPromise = (async () => {
         try {
+            // For tenant-scoped users, default to tenant scope
+            if (isTenantScopedUser()) {
+                settingsUIState.scope = 'tenant';
+            }
             await bootstrapSettingsUI();
             settingsUIState.initialized = true;
             renderSettingsUI();
@@ -10217,10 +10298,42 @@ async function saveAgentUpdatePolicyFromUpdatesTab() {
 
 async function loadTenantDirectory() {
     try {
+        // For tenant-scoped users, they can't access /api/v1/tenants
+        // Instead, use their tenant_ids from auth and fetch individual tenant details
+        if (isTenantScopedUser()) {
+            const userTenantIds = getUserTenantIds();
+            if (userTenantIds.length === 0) {
+                settingsUIState.tenantList = [];
+                return;
+            }
+            // Build tenant list from user's allowed tenants
+            // We only need id and name for the dropdown
+            const tenantList = [];
+            for (const tid of userTenantIds) {
+                try {
+                    // Try to fetch tenant details - may not work for all tenant-scoped users
+                    const tenant = await fetchJSON(`/api/v1/tenants/${tid}`);
+                    tenantList.push(tenant);
+                } catch (fetchErr) {
+                    // If we can't fetch details, create a basic entry with just the ID
+                    tenantList.push({ id: tid, name: tid });
+                }
+            }
+            updateSettingsTenantDirectory(tenantList);
+            return;
+        }
+        
         const tenants = await fetchJSON('/api/v1/tenants');
         updateSettingsTenantDirectory(tenants);
     } catch (err) {
         if (err && (err.status === 403 || err.status === 404)) {
+            // For 403, try to use user's tenant_ids as fallback
+            if (isTenantScopedUser()) {
+                const userTenantIds = getUserTenantIds();
+                const fallbackList = userTenantIds.map(tid => ({ id: tid, name: tid }));
+                updateSettingsTenantDirectory(fallbackList);
+                return;
+            }
             settingsUIState.tenantList = [];
             return;
         }
@@ -10409,8 +10522,22 @@ function bindSettingsEvents() {
 }
 
 function renderScopeButtons() {
+    const tenantScoped = isTenantScopedUser();
     document.querySelectorAll('.settings-scope-btn').forEach(btn => {
         const scope = btn.dataset.scope || 'global';
+        
+        // Hide Global scope button for tenant-scoped users
+        if (scope === 'global' && tenantScoped) {
+            btn.style.display = 'none';
+            return;
+        }
+        btn.style.display = '';
+        
+        // Update button text for tenant-scoped users
+        if (scope === 'tenant' && tenantScoped) {
+            btn.textContent = 'Defaults';
+        }
+        
         btn.classList.toggle('active', scope === settingsUIState.scope);
     });
 }
@@ -11303,6 +11430,12 @@ function handleSettingsScopeChange(scope) {
     if (!scope || scope === settingsUIState.scope) {
         return;
     }
+    
+    // Prevent tenant-scoped users from accessing global scope
+    if (scope === 'global' && isTenantScopedUser()) {
+        return;
+    }
+    
     settingsUIState.scope = scope;
     renderSettingsUI();
 
@@ -11691,7 +11824,19 @@ function updateActionButtons() {
     }
     const tenantControls = document.getElementById('settings_tenant_controls');
     if (tenantControls) {
-        tenantControls.classList.toggle('hidden', settingsUIState.scope !== 'tenant' || settingsUIState.tenantList.length === 0);
+        const showTenantControls = settingsUIState.scope === 'tenant' && settingsUIState.tenantList.length > 0;
+        const tenantScoped = isTenantScopedUser();
+        tenantControls.classList.toggle('hidden', !showTenantControls);
+        
+        // For tenant-scoped users with only one tenant, hide the dropdown but show controls
+        const tenantSelect = document.getElementById('settings_tenant_select');
+        const tenantSelectLabel = tenantSelect?.parentElement;
+        if (tenantSelectLabel && tenantScoped && settingsUIState.tenantList.length === 1) {
+            // Replace dropdown with static tenant name display
+            tenantSelectLabel.style.display = 'none';
+        } else if (tenantSelectLabel) {
+            tenantSelectLabel.style.display = '';
+        }
     }
     const agentControls = document.getElementById('settings_agent_controls');
     if (agentControls) {
