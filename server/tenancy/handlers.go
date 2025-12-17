@@ -452,7 +452,7 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"tenant id required"}`))
 		return
 	}
-	
+
 	switch r.Method {
 	case http.MethodGet:
 		// Allow tenant-scoped users to read their own tenant details
@@ -479,7 +479,7 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(existing)
 		return
-		
+
 	case http.MethodPut:
 		if !authorizeOrReject(w, r, authz.ActionTenantsWrite, authz.ResourceRef{TenantIDs: []string{id}}) {
 			return
@@ -570,7 +570,7 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 				"after":  tenantAuditMetadata(res.Name, res.Description, res.ContactName, res.ContactEmail, res.ContactPhone, res.BusinessUnit, res.BillingCode, res.Address, res.LoginDomain),
 			},
 		})
-		
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
