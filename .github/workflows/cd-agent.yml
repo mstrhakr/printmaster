@@ -22,7 +22,7 @@ jobs:
       id: wait-for-ci
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-        checkName: Test E2E
+        checkName: CI Passed
         ref: ${{ github.sha }}
         timeoutSeconds: 900
         intervalSeconds: 15
@@ -30,7 +30,7 @@ jobs:
     - name: Fail if CI did not pass
       if: steps.wait-for-ci.outputs.conclusion != 'success'
       run: |
-        echo "CI check 'Test E2E' did not pass (conclusion: ${{ steps.wait-for-ci.outputs.conclusion }})"
+        echo "CI check 'CI Passed' did not pass (conclusion: ${{ steps.wait-for-ci.outputs.conclusion }})"
         exit 1
 
   build-agent:

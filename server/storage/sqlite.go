@@ -20,7 +20,7 @@ type SQLiteStore struct {
 	*BaseStore // Embed BaseStore for common operations
 }
 
-const schemaVersion = 8
+const schemaVersion = 9
 
 // NewSQLiteStore creates a new SQLite-backed store
 func NewSQLiteStore(dbPath string) (*SQLiteStore, error) {
@@ -409,7 +409,7 @@ func (s *SQLiteStore) initSchema() error {
 		payload TEXT NOT NULL,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_by TEXT,
-		FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
+		FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
 	);
 
 	-- Fleet update policy table (per-tenant auto-update configuration)
@@ -866,6 +866,9 @@ func (s *SQLiteStore) runMigrations() error {
 	// Data migrations
 	s.backfillUserTenantMappings()
 	s.migrateLegacyRoles()
+	if err := s.migrateSettingsAgentOverrideFK(); err != nil {
+		logWarn("SQLite migration failed (settings_agent_override foreign key)", "error", err)
+	}
 
 	// Update schema version
 	var currentVersion int
@@ -895,6 +898,88 @@ func (s *SQLiteStore) runMigrations() error {
 		}
 	}
 
+	return nil
+}
+
+func (s *SQLiteStore) migrateSettingsAgentOverrideFK() error {
+	// Ensure settings_agent_override.agent_id references agents.agent_id (stable UUID), not agents.id.
+	// SQLite can't alter foreign key constraints in-place, so rebuild the table if needed.
+	var tableExists int
+	err := s.db.QueryRow(`SELECT COALESCE(COUNT(1), 0) FROM sqlite_master WHERE type='table' AND name='settings_agent_override'`).Scan(&tableExists)
+	if err != nil {
+		return fmt.Errorf("failed to check settings_agent_override existence: %w", err)
+	}
+	if tableExists == 0 {
+		return nil
+	}
+
+	var fkToAgentsID int
+	err = s.db.QueryRow(`SELECT COALESCE(COUNT(1),0) FROM pragma_foreign_key_list('settings_agent_override') WHERE "table" = 'agents' AND "to" = 'id'`).Scan(&fkToAgentsID)
+	if err != nil {
+		return fmt.Errorf("failed to inspect settings_agent_override foreign keys: %w", err)
+	}
+	if fkToAgentsID == 0 {
+		return nil
+	}
+
+	if _, err := s.db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		return fmt.Errorf("failed to disable foreign keys for migration: %w", err)
+	}
+	defer s.db.Exec("PRAGMA foreign_keys=ON")
+
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin migration transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DROP TABLE IF EXISTS settings_agent_override_new"); err != nil {
+		return fmt.Errorf("failed to drop settings_agent_override_new: %w", err)
+	}
+
+	create := `
+		CREATE TABLE settings_agent_override_new (
+			agent_id TEXT PRIMARY KEY,
+			schema_version TEXT NOT NULL,
+			payload TEXT NOT NULL,
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_by TEXT,
+			FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
+		);
+	`
+	if _, err := tx.Exec(create); err != nil {
+		return fmt.Errorf("failed to create settings_agent_override_new: %w", err)
+	}
+
+	// Preserve data and normalize any legacy numeric values that referenced agents.id.
+	copy := `
+		INSERT OR REPLACE INTO settings_agent_override_new (agent_id, schema_version, payload, updated_at, updated_by)
+		SELECT
+			COALESCE(a1.agent_id, a2.agent_id, o.agent_id) AS agent_id,
+			o.schema_version,
+			o.payload,
+			o.updated_at,
+			o.updated_by
+		FROM settings_agent_override o
+		LEFT JOIN agents a1 ON a1.agent_id = o.agent_id
+		LEFT JOIN agents a2 ON (o.agent_id NOT GLOB '*[^0-9]*' AND a2.id = CAST(o.agent_id AS INTEGER));
+	`
+	if _, err := tx.Exec(copy); err != nil {
+		return fmt.Errorf("failed to copy settings_agent_override data: %w", err)
+	}
+
+	if _, err := tx.Exec("DROP TABLE settings_agent_override"); err != nil {
+		return fmt.Errorf("failed to drop old settings_agent_override: %w", err)
+	}
+	if _, err := tx.Exec("ALTER TABLE settings_agent_override_new RENAME TO settings_agent_override"); err != nil {
+		return fmt.Errorf("failed to rename settings_agent_override_new: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit settings_agent_override migration: %w", err)
+	}
+
+	logInfo("SQLite migrated settings_agent_override foreign key")
 	return nil
 }
 

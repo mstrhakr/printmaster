@@ -19,7 +19,7 @@ type PostgresStore struct {
 	BaseStore
 }
 
-const pgSchemaVersion = 8
+const pgSchemaVersion = 9
 
 // NewPostgresStore creates a new PostgreSQL store.
 func NewPostgresStore(cfg *config.DatabaseConfig) (*PostgresStore, error) {
@@ -387,7 +387,7 @@ func (s *PostgresStore) initSchema() error {
 		payload TEXT NOT NULL,
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_by TEXT,
-		CONSTRAINT fk_settings_agent_override FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
+		CONSTRAINT fk_settings_agent_override FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
 	);
 
 	-- Fleet update policies
@@ -789,6 +789,28 @@ func (s *PostgresStore) initSchema() error {
 
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("failed to create schema: %w", err)
+	}
+
+	// Fix up settings_agent_override FK for upgraded databases.
+	// Historical versions referenced agents(id) (BIGSERIAL) while storing a TEXT agent UUID.
+	// Normalize any numeric legacy values to the stable agents.agent_id and recreate the FK.
+	if _, err := s.db.Exec(`
+		UPDATE settings_agent_override sao
+		SET agent_id = a.agent_id
+		FROM agents a
+		WHERE sao.agent_id ~ '^[0-9]+$'
+		  AND a.id = sao.agent_id::bigint
+	`); err != nil {
+		return fmt.Errorf("failed to normalize settings_agent_override agent_id: %w", err)
+	}
+	if _, err := s.db.Exec(`
+		ALTER TABLE settings_agent_override
+		DROP CONSTRAINT IF EXISTS fk_settings_agent_override;
+		ALTER TABLE settings_agent_override
+		ADD CONSTRAINT fk_settings_agent_override
+		FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE;
+	`); err != nil {
+		return fmt.Errorf("failed to update settings_agent_override foreign key: %w", err)
 	}
 
 	// Seed global settings if not present
