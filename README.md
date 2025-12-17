@@ -26,7 +26,6 @@ PrintMaster is a cross-platform printer/copier fleet management system built for
 
 - **Managed Service Providers (MSPs)** - Monitor client print infrastructure across multiple sites
 - **Managed Print Services (MPS)** - Track usage, supplies, and service needs proactively  
-- **Print Solutions Providers / Copier Dealers** - Monitor devices under maintenance agreements, integrate with PaperCut, provide tier-2 support
 - **IT Departments** - Manage corporate print fleets with automated discovery and reporting
 
 ## Components
