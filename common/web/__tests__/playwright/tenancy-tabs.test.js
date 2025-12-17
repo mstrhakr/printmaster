@@ -110,8 +110,8 @@ async function loadApp(page, user) {
   // Wait for auth to complete and dynamic tabs to be rendered
   // Base tabs (agents, devices, etc) are always present, check for those first
   await page.waitForSelector('#desktop_tabs .tab[data-target="agents"]', { timeout: 10000 });
-  // For admin users, wait specifically for the admin tab to appear
-  if (user && user.role === 'admin') {
+  // For admin and operator users, wait specifically for the admin tab to appear
+  if (user && (user.role === 'admin' || user.role === 'operator')) {
     await page.waitForSelector('#desktop_tabs .tab[data-target="admin"]', { timeout: 10000 });
   }
 }
@@ -150,9 +150,25 @@ test('admin sees tenants in admin tab', async ({ page }) => {
   await expect(page.locator('#new_tenant_btn')).toBeVisible();
 });
 
-test('operator cannot see admin tab', async ({ page }) => {
+test('operator can see admin tab but only fleet and alerts subtabs', async ({ page }) => {
   await loadApp(page, operatorUser);
-  await expect(page.locator('[data-target="admin"]')).toHaveCount(0);
+  await page.waitForLoadState('networkidle');
+  
+  // Operators CAN see the admin tab (with granular settings permissions)
+  const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
+  await expect(adminTab).toBeVisible({ timeout: 10000 });
+  await adminTab.click();
+  
+  // Operators should see Fleet and Alerts Config subtabs
+  await expect(page.locator('.admin-subtab[data-adminview="fleet"]')).toBeVisible();
+  await expect(page.locator('.admin-subtab[data-adminview="alertsconfig"]')).toBeVisible();
+  
+  // Operators should NOT see admin-only subtabs (users, access, tenants, server, audit)
+  await expect(page.locator('.admin-subtab[data-adminview="users"]')).toBeHidden();
+  await expect(page.locator('.admin-subtab[data-adminview="access"]')).toBeHidden();
+  await expect(page.locator('.admin-subtab[data-adminview="tenants"]')).toBeHidden();
+  await expect(page.locator('.admin-subtab[data-adminview="server"]')).toBeHidden();
+  await expect(page.locator('.admin-subtab[data-adminview="audit"]')).toBeHidden();
 });
 
 test('viewer cannot see add agent button', async ({ page }) => {
