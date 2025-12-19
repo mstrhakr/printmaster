@@ -3094,6 +3094,9 @@ func setupRoutes(cfg *Config) {
 	// is `week` when nothing is supplied.
 	http.HandleFunc("/api/devices/metrics/history", requireWebAuth(handleMetricsHistory))
 
+	// Returns min/max timestamps and point count for a device's metrics (lightweight bounds query)
+	http.HandleFunc("/api/devices/metrics/bounds", requireWebAuth(handleMetricsBounds))
+
 	// Minimal settings & logs endpoints for the UI (placeholders)
 	http.HandleFunc("/api/logs", requireWebAuth(handleLogs))
 	http.HandleFunc("/api/logs/clear", requireWebAuth(handleLogsClear))
@@ -5139,6 +5142,71 @@ func attachServerStats(ctx context.Context, agg *storage.AggregatedMetrics) {
 		stats.Database = dbStats
 	}
 	agg.Server = stats
+}
+
+// handleMetricsBounds returns min/max timestamps and total point count for a device's metrics.
+// Query params: serial (required)
+func handleMetricsBounds(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionMetricsHistoryRead, authz.ResourceRef{}) {
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	serial := r.URL.Query().Get("serial")
+	if serial == "" {
+		http.Error(w, "serial parameter required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+	if scope != nil {
+		device, err := serverStore.GetDevice(ctx, serial)
+		if err != nil || device == nil || device.AgentID == "" {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
+		agent, err := serverStore.GetAgent(ctx, device.AgentID)
+		if err != nil {
+			http.Error(w, "device not found", http.StatusNotFound)
+			return
+		}
+		if !tenantAllowed(scope, agent.TenantID) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		if !authorizeOrReject(w, r, authz.ActionMetricsHistoryRead, authz.ResourceRef{TenantIDs: []string{agent.TenantID}}) {
+			return
+		}
+	}
+
+	minTS, maxTS, count, err := serverStore.GetMetricsBounds(ctx, serial)
+	if err != nil {
+		logError("Failed to get metrics bounds", "serial", serial, "error", err)
+		http.Error(w, "no metrics found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"serial":        serial,
+		"min_timestamp": minTS.UTC().Format(time.RFC3339Nano),
+		"max_timestamp": maxTS.UTC().Format(time.RFC3339Nano),
+		"points":        count,
+	})
 }
 
 // handleMetricsHistory returns metrics history for a device from server store.

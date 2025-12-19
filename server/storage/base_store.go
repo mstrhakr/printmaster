@@ -759,6 +759,29 @@ func (s *BaseStore) GetMetricsHistory(ctx context.Context, serial string, since 
 	return metrics, rows.Err()
 }
 
+// GetMetricsBounds returns the min/max timestamps and total point count for a device's metrics.
+func (s *BaseStore) GetMetricsBounds(ctx context.Context, serial string) (minTS, maxTS time.Time, count int64, err error) {
+	query := `
+		SELECT MIN(timestamp), MAX(timestamp), COUNT(*)
+		FROM metrics_history
+		WHERE serial = ?
+	`
+
+	var minNullable, maxNullable sql.NullTime
+	var cnt int64
+
+	err = s.queryRowContext(ctx, query, serial).Scan(&minNullable, &maxNullable, &cnt)
+	if err != nil {
+		return time.Time{}, time.Time{}, 0, err
+	}
+
+	if cnt == 0 || !minNullable.Valid || !maxNullable.Valid {
+		return time.Time{}, time.Time{}, 0, sql.ErrNoRows
+	}
+
+	return minNullable.Time, maxNullable.Time, cnt, nil
+}
+
 // GetMetricsAtOrBefore retrieves the latest metrics snapshot for a device at or before a given time.
 // Returns nil if no snapshot exists at or before that time.
 func (s *BaseStore) GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*MetricsSnapshot, error) {

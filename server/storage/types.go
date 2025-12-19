@@ -645,6 +645,8 @@ type Store interface {
 	// GetMetricsAtOrBefore returns the latest snapshot with timestamp <= at, or nil if none.
 	GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*MetricsSnapshot, error)
 	GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error)
+	// GetMetricsBounds returns the min/max timestamps and total point count for a device's metrics.
+	GetMetricsBounds(ctx context.Context, serial string) (minTS, maxTS time.Time, count int64, err error)
 	GetAggregatedMetrics(ctx context.Context, since time.Time, tenantIDs []string) (*AggregatedMetrics, error)
 	GetDatabaseStats(ctx context.Context) (*DatabaseStats, error)
 
