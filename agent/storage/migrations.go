@@ -11,7 +11,7 @@ import (
 	_ "modernc.org/sqlite" // Ensure driver is imported for BackupAndReset
 )
 
-const targetSchemaVersion = 8
+const targetSchemaVersion = 9
 
 // expectedSchema defines the target schema structure for auto-migration
 var expectedSchema = map[string][]string{
@@ -106,6 +106,46 @@ var expectedSchema = map[string][]string{
 		"walk_filename TEXT",
 		"raw_data TEXT",
 	},
+	// Local printers discovered via Windows print spooler (USB, LPT, etc.)
+	"local_printers": {
+		"name TEXT PRIMARY KEY",         // Windows printer name
+		"port_name TEXT NOT NULL",       // USB001, LPT1, etc.
+		"driver_name TEXT",              // Driver name
+		"printer_type TEXT NOT NULL",    // usb, local, network, virtual
+		"is_default BOOLEAN DEFAULT 0",  // Is default printer
+		"is_shared BOOLEAN DEFAULT 0",   // Is shared
+		"manufacturer TEXT",             // Parsed from driver or manual
+		"model TEXT",                    // Parsed from driver or manual
+		"serial_number TEXT",            // If available
+		"status TEXT DEFAULT 'unknown'", // ready, offline, error, etc.
+		"first_seen DATETIME NOT NULL",
+		"last_seen DATETIME NOT NULL",
+		"total_pages INTEGER DEFAULT 0",       // Tracked from jobs
+		"total_color_pages INTEGER DEFAULT 0", // Color pages tracked
+		"total_mono_pages INTEGER DEFAULT 0",  // Mono pages tracked
+		"baseline_pages INTEGER DEFAULT 0",    // User-set baseline
+		"last_page_update DATETIME",
+		"tracking_enabled BOOLEAN DEFAULT 0", // Whether to track this printer
+		"asset_number TEXT",                  // User-defined asset tag
+		"location TEXT",                      // Physical location
+		"description TEXT",                   // Notes
+	},
+	// Print job history for local printers
+	"local_print_jobs": {
+		"id INTEGER PRIMARY KEY AUTOINCREMENT",
+		"printer_name TEXT NOT NULL",
+		"job_id INTEGER NOT NULL", // Windows job ID
+		"document_name TEXT",
+		"user_name TEXT",
+		"machine_name TEXT",
+		"total_pages INTEGER DEFAULT 0",
+		"pages_printed INTEGER DEFAULT 0",
+		"is_color BOOLEAN DEFAULT 0",
+		"size_bytes INTEGER DEFAULT 0",
+		"submitted_at DATETIME NOT NULL",
+		"completed_at DATETIME",
+		"status TEXT DEFAULT 'completed'",
+	},
 }
 
 // autoMigrate performs intelligent schema migration with backup
@@ -193,8 +233,10 @@ func (s *SQLiteStore) detectAndFixSchema() error {
 		}
 
 		if needsRecreation {
-			storageLogger.Info("Table needs recreation to remove columns",
-				"table", tableName, "columns", columnsToRemove)
+			if storageLogger != nil {
+				storageLogger.Info("Table needs recreation to remove columns",
+					"table", tableName, "columns", columnsToRemove)
+			}
 			if err := s.recreateTable(tableName, expectedCols, actualCols); err != nil {
 				return fmt.Errorf("failed to recreate %s: %w", tableName, err)
 			}
@@ -211,7 +253,9 @@ func (s *SQLiteStore) detectAndFixSchema() error {
 						}
 					}
 					if colDef != "" {
-						storageLogger.Info("Adding missing column", "table", tableName, "column", colName)
+						if storageLogger != nil {
+							storageLogger.Info("Adding missing column", "table", tableName, "column", colName)
+						}
 						_, err := s.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s`, tableName, colDef))
 						if err != nil && !strings.Contains(err.Error(), "duplicate column") {
 							return fmt.Errorf("failed to add column %s to %s: %w", colName, tableName, err)

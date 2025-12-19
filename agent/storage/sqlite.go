@@ -291,6 +291,55 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_metrics_monthly_serial ON metrics_monthly(serial);
 	CREATE INDEX IF NOT EXISTS idx_metrics_monthly_month_start ON metrics_monthly(month_start);
 	CREATE INDEX IF NOT EXISTS idx_metrics_monthly_serial_month ON metrics_monthly(serial, month_start);
+
+	-- Local printers discovered via Windows print spooler
+	CREATE TABLE IF NOT EXISTS local_printers (
+		name TEXT PRIMARY KEY,
+		port_name TEXT NOT NULL,
+		driver_name TEXT,
+		printer_type TEXT NOT NULL,
+		is_default BOOLEAN DEFAULT 0,
+		is_shared BOOLEAN DEFAULT 0,
+		manufacturer TEXT,
+		model TEXT,
+		serial_number TEXT,
+		status TEXT DEFAULT 'unknown',
+		first_seen DATETIME NOT NULL,
+		last_seen DATETIME NOT NULL,
+		total_pages INTEGER DEFAULT 0,
+		total_color_pages INTEGER DEFAULT 0,
+		total_mono_pages INTEGER DEFAULT 0,
+		baseline_pages INTEGER DEFAULT 0,
+		last_page_update DATETIME,
+		tracking_enabled BOOLEAN DEFAULT 0,
+		asset_number TEXT,
+		location TEXT,
+		description TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_local_printers_type ON local_printers(printer_type);
+	CREATE INDEX IF NOT EXISTS idx_local_printers_tracking ON local_printers(tracking_enabled);
+
+	-- Print job history for local printers
+	CREATE TABLE IF NOT EXISTS local_print_jobs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		printer_name TEXT NOT NULL,
+		job_id INTEGER NOT NULL,
+		document_name TEXT,
+		user_name TEXT,
+		machine_name TEXT,
+		total_pages INTEGER DEFAULT 0,
+		pages_printed INTEGER DEFAULT 0,
+		is_color BOOLEAN DEFAULT 0,
+		size_bytes INTEGER DEFAULT 0,
+		submitted_at DATETIME NOT NULL,
+		completed_at DATETIME,
+		status TEXT DEFAULT 'completed',
+		FOREIGN KEY (printer_name) REFERENCES local_printers(name) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_local_print_jobs_printer ON local_print_jobs(printer_name);
+	CREATE INDEX IF NOT EXISTS idx_local_print_jobs_submitted ON local_print_jobs(submitted_at);
 	`
 
 	_, err := s.db.Exec(schema)

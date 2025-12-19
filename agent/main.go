@@ -6739,6 +6739,33 @@ window.top.location.href = '/proxy/%s/';
 		})
 	})
 
+	// Register local printer (spooler) API handlers
+	// Type assert to get LocalPrinterStore interface (SQLiteStore implements both DeviceStore and LocalPrinterStore)
+	if localPrinterStore, ok := deviceStore.(storage.LocalPrinterStore); ok {
+		RegisterSpoolerHandlers(localPrinterStore)
+
+		// Start spooler worker for USB/local printer tracking (Windows only)
+		// Check if spooler tracking is enabled in settings
+		spoolerEnabled := true // Default enabled
+		if agentConfigStore != nil {
+			var spoolerSettings map[string]interface{}
+			if err := agentConfigStore.GetConfigValue("spooler_settings", &spoolerSettings); err == nil && spoolerSettings != nil {
+				if v, ok := spoolerSettings["enabled"].(bool); ok {
+					spoolerEnabled = v
+				}
+			}
+		}
+		if spoolerEnabled {
+			if err := StartSpoolerWorker(localPrinterStore, DefaultSpoolerWorkerConfig(), appLogger); err != nil {
+				appLogger.Warn("Failed to start spooler worker", "error", err)
+			}
+		}
+		// Ensure spooler worker is stopped on shutdown
+		defer StopSpoolerWorker()
+	} else {
+		appLogger.Warn("Device store does not support local printer operations, spooler tracking disabled")
+	}
+
 	// Get HTTP/HTTPS settings
 	enableHTTP := true
 	enableHTTPS := true
