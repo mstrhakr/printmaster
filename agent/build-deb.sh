@@ -103,10 +103,9 @@ Description: PrintMaster Agent - Network printer fleet management
  and optional central server integration with WebSocket.
 EOF
 
-# Create conffiles (list of config files that shouldn't be overwritten on upgrade)
-cat > "$PKG_DIR/DEBIAN/conffiles" << EOF
-/etc/printmaster/agent.toml
-EOF
+# Note: We don't create a conffiles entry because agent.toml is created
+# by postinst from agent.toml.example, not shipped directly in the package.
+# This allows dpkg to not track it as a conffile, giving users full control.
 
 # Create postinst script
 cat > "$PKG_DIR/DEBIAN/postinst" << 'POSTINST'

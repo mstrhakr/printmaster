@@ -7,12 +7,17 @@ on:
   # Manual trigger for rebuilding the repo
   workflow_dispatch: {}
 
+# Prevent running on push - only release and manual triggers
+# This workflow should NOT run on regular commits
+
 jobs:
   update-apt-repo:
     name: Update APT Repository
     runs-on: ubuntu-latest
-    # Only run for agent releases or manual trigger
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'agent-v')
+    # Only run for agent releases or manual trigger - skip all other events
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'release' && startsWith(github.event.release.tag_name, 'agent-v'))
     
     permissions:
       contents: write
