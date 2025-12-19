@@ -1927,13 +1927,38 @@ const unixBootstrapScript = `#!/bin/sh
 SERVER="%s"
 TOKEN="%s"
 set -e
-echo "Downloading agent..."
-curl -fsSL "$SERVER/api/v1/agents/download/latest?proxy=1" -o /usr/local/bin/pm-agent || exit 1
+
+# Check for root privileges
+if [ "$(id -u)" -ne 0 ]; then
+	echo "Error: This installer must be run as root." >&2
+	echo "Usage: sudo sh -c \"\$(curl -fsSL '<URL>')\"" >&2
+	exit 1
+fi
+
+# Detect architecture
+ARCH="$(uname -m)"
+case "$ARCH" in
+	x86_64)  ARCH="amd64" ;;
+	aarch64) ARCH="arm64" ;;
+	armv7l)  ARCH="armv7" ;;
+esac
+
+echo "Downloading agent (linux/$ARCH)..."
+curl -fsSL "$SERVER/api/v1/agents/download/latest?platform=linux&arch=$ARCH&proxy=1" -o /usr/local/bin/pm-agent || exit 1
 chmod +x /usr/local/bin/pm-agent
+
 mkdir -p /etc/printmaster
-cat > /etc/printmaster/pm-config.json <<EOF
-{"server_url":"$SERVER","join_token":"$TOKEN"}
+AGENT_NAME="$(hostname 2>/dev/null || echo 'linux-agent')"
+cat > /etc/printmaster/config.toml <<EOF
+[server]
+enabled = true
+url = "$SERVER"
+name = "$AGENT_NAME"
+token = "$TOKEN"
+insecure_skip_verify = true
 EOF
+chmod 600 /etc/printmaster/config.toml
+
 # Try to install systemd unit if available (best-effort)
 if command -v systemctl >/dev/null 2>&1; then
 	cat >/etc/systemd/system/printmaster-agent.service <<EOL
@@ -1942,16 +1967,21 @@ Description=PrintMaster Agent
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/pm-agent --config /etc/printmaster/pm-config.json
+ExecStart=/usr/local/bin/pm-agent --config /etc/printmaster/config.toml
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOL
 	systemctl daemon-reload || true
 	systemctl enable --now printmaster-agent || true
+	echo "PrintMaster Agent service installed and started."
+	echo "Configuration: /etc/printmaster/config.toml"
+	echo "Check status: systemctl status printmaster-agent"
 else
-	/usr/local/bin/pm-agent --config /etc/printmaster/pm-config.json &
+	echo "systemd not found. Starting agent manually..."
+	/usr/local/bin/pm-agent --config /etc/printmaster/config.toml &
 fi
 `
 
