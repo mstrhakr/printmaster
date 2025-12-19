@@ -67,8 +67,17 @@ function startFixtureServer() {
   });
 }
 
+let activeConnections = new Set();
+
 test.beforeAll(async () => {
   server = startFixtureServer();
+  
+  // Track connections for graceful shutdown
+  server.on('connection', (conn) => {
+    activeConnections.add(conn);
+    conn.on('close', () => activeConnections.delete(conn));
+  });
+  
   await new Promise(resolve => server.listen(0, resolve));
   const address = server.address();
   baseURL = `http://127.0.0.1:${address.port}`;
@@ -76,6 +85,16 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (!server) return;
+  
+  // Give a brief moment for any in-flight requests to complete
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Close all active connections gracefully
+  for (const conn of activeConnections) {
+    conn.destroy();
+  }
+  activeConnections.clear();
+  
   await new Promise(resolve => server.close(resolve));
 });
 
