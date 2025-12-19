@@ -506,7 +506,7 @@ func (w *Watcher) refreshJobs() {
 			continue
 		}
 
-		printerJobs, _ := w.jobs[printerName]
+		printerJobs := w.jobs[printerName]
 		existingJob, jobExists := printerJobs[jobID]
 
 		if !jobExists {
