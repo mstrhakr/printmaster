@@ -1,0 +1,52 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create printmaster user and group if they don't exist
+        if ! getent group printmaster >/dev/null 2>&1; then
+            groupadd --system printmaster
+        fi
+        if ! getent passwd printmaster >/dev/null 2>&1; then
+            useradd --system --gid printmaster --home-dir /var/lib/printmaster \
+                --shell /usr/sbin/nologin --comment "PrintMaster Agent" printmaster
+        fi
+
+        # Set ownership of data directories
+        chown -R printmaster:printmaster /var/lib/printmaster
+        chown -R printmaster:printmaster /var/log/printmaster
+        chmod 750 /var/lib/printmaster
+        chmod 750 /var/log/printmaster
+
+        # Create default config from example if not exists
+        if [ ! -f /etc/printmaster/agent.toml ]; then
+            cp /etc/printmaster/agent.toml.example /etc/printmaster/agent.toml
+            chown root:printmaster /etc/printmaster/agent.toml
+            chmod 640 /etc/printmaster/agent.toml
+        fi
+
+        # Reload systemd and enable service
+        systemctl daemon-reload
+        systemctl enable printmaster-agent.service || true
+        
+        echo ""
+        echo "PrintMaster Agent installed successfully!"
+        echo ""
+        echo "To start the service:"
+        echo "  sudo systemctl start printmaster-agent"
+        echo ""
+        echo "Configuration file: /etc/printmaster/agent.toml"
+        echo "Web UI: http://localhost:8000"
+        echo ""
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,269 @@
+name: Update APT Repository
+
+on:
+  # Trigger when agent release is published
+  release:
+    types: [published]
+  # Manual trigger for rebuilding the repo
+  workflow_dispatch: {}
+
+jobs:
+  update-apt-repo:
+    name: Update APT Repository
+    runs-on: ubuntu-latest
+    # Only run for agent releases or manual trigger
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'agent-v')
+    
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: gh-pages
+        fetch-depth: 0
+      continue-on-error: true
+
+    - name: Initialize gh-pages branch if needed
+      run: |
+        if ! git rev-parse --verify gh-pages >/dev/null 2>&1; then
+          echo "Creating gh-pages branch..."
+          git checkout --orphan gh-pages
+          git rm -rf . || true
+          echo "# PrintMaster APT Repository" > README.md
+          git add README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Initialize gh-pages branch"
+          git push origin gh-pages
+        fi
+
+    - name: Checkout gh-pages
+      uses: actions/checkout@v4
+      with:
+        ref: gh-pages
+        path: apt-repo
+
+    - name: Install APT repo tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+    - name: Import GPG key
+      if: ${{ vars.APT_GPG_PRIVATE_KEY != '' }}
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+      run: |
+        echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+        echo "GPG key imported"
+
+    - name: Download release assets
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        mkdir -p downloads
+        
+        # Get all agent releases and download .deb files
+        gh release list --repo ${{ github.repository }} --limit 10 | \
+          grep "^agent-v" | cut -f1 | while read tag; do
+            echo "Checking release: $tag"
+            gh release download "$tag" --repo ${{ github.repository }} \
+              --pattern "*.deb" --dir downloads --clobber || true
+          done
+        
+        echo "Downloaded packages:"
+        ls -la downloads/ || echo "No packages found"
+
+    - name: Setup APT repository structure
+      run: |
+        cd apt-repo
+        
+        # Create directory structure
+        mkdir -p pool/main
+        mkdir -p dists/stable/main/binary-amd64
+        mkdir -p dists/stable/main/binary-arm64
+        
+        # Copy new .deb files to pool
+        if ls ../downloads/*.deb 1>/dev/null 2>&1; then
+          cp ../downloads/*.deb pool/main/
+          echo "Copied packages to pool"
+        else
+          echo "No .deb packages to add"
+        fi
+        
+        ls -la pool/main/ || true
+
+    - name: Generate APT repository metadata
+      run: |
+        cd apt-repo
+        
+        # Check if we have any packages
+        if ! ls pool/main/*.deb 1>/dev/null 2>&1; then
+          echo "No packages in pool, skipping metadata generation"
+          exit 0
+        fi
+        
+        # Generate Packages files for each architecture
+        for arch in amd64 arm64; do
+          echo "Generating Packages for $arch..."
+          
+          # Find packages for this architecture
+          mkdir -p dists/stable/main/binary-$arch
+          
+          # Generate Packages file
+          (cd pool/main && dpkg-scanpackages --arch $arch . /dev/null) > dists/stable/main/binary-$arch/Packages 2>/dev/null || true
+          
+          # Compress
+          gzip -9c dists/stable/main/binary-$arch/Packages > dists/stable/main/binary-$arch/Packages.gz
+          
+          echo "Packages for $arch:"
+          cat dists/stable/main/binary-$arch/Packages || true
+        done
+
+    - name: Generate Release file
+      run: |
+        cd apt-repo
+        
+        # Check if we have packages
+        if ! ls pool/main/*.deb 1>/dev/null 2>&1; then
+          echo "No packages, skipping Release generation"
+          exit 0
+        fi
+        
+        cd dists/stable
+        
+        # Generate Release file
+        cat > Release << EOF
+        Origin: PrintMaster
+        Label: PrintMaster
+        Suite: stable
+        Codename: stable
+        Architectures: amd64 arm64
+        Components: main
+        Description: PrintMaster Agent APT Repository
+        Date: $(date -Ru)
+        EOF
+        
+        # Add checksums
+        {
+          echo "MD5Sum:"
+          find main -type f \( -name "Packages" -o -name "Packages.gz" \) -exec sh -c 'echo " $(md5sum "$1" | cut -d" " -f1) $(stat -c%s "$1") $1"' _ {} \;
+          echo "SHA256:"
+          find main -type f \( -name "Packages" -o -name "Packages.gz" \) -exec sh -c 'echo " $(sha256sum "$1" | cut -d" " -f1) $(stat -c%s "$1") $1"' _ {} \;
+        } >> Release
+        
+        echo "Release file:"
+        cat Release
+
+    - name: Sign Release file (if GPG key available)
+      if: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
+      env:
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+      run: |
+        cd apt-repo/dists/stable
+        
+        # Sign Release file
+        gpg --batch --yes --pinentry-mode loopback \
+          --passphrase "$GPG_PASSPHRASE" \
+          --armor --detach-sign --output Release.gpg Release
+        
+        gpg --batch --yes --pinentry-mode loopback \
+          --passphrase "$GPG_PASSPHRASE" \
+          --armor --clearsign --output InRelease Release
+        
+        echo "Release signed"
+
+    - name: Create index page
+      run: |
+        cd apt-repo
+        
+        cat > index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>PrintMaster APT Repository</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+            h1 { color: #333; }
+            pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
+            code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+            .note { background: #fff3cd; border: 1px solid #ffc107; padding: 10px; border-radius: 5px; margin: 15px 0; }
+          </style>
+        </head>
+        <body>
+          <h1>🖨️ PrintMaster APT Repository</h1>
+          
+          <p>This is the official APT repository for <a href="https://github.com/mstrhakr/printmaster">PrintMaster Agent</a>.</p>
+          
+          <h2>Quick Install</h2>
+          <pre><code># Add repository
+        echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
+
+        # Update and install
+        sudo apt-get update
+        sudo apt-get install printmaster-agent</code></pre>
+
+          <h2>With GPG Verification (Recommended)</h2>
+          <pre><code># Download and add GPG key
+        curl -fsSL https://mstrhakr.github.io/printmaster/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/printmaster.gpg
+
+        # Add repository with signed-by
+        echo "deb [signed-by=/usr/share/keyrings/printmaster.gpg] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
+
+        # Update and install
+        sudo apt-get update
+        sudo apt-get install printmaster-agent</code></pre>
+
+          <h2>After Installation</h2>
+          <pre><code># Start the service
+        sudo systemctl start printmaster-agent
+
+        # Enable on boot
+        sudo systemctl enable printmaster-agent
+
+        # Check status
+        sudo systemctl status printmaster-agent</code></pre>
+          
+          <p>Web UI available at: <code>http://localhost:8000</code></p>
+          
+          <h2>Configuration</h2>
+          <p>Edit <code>/etc/printmaster/agent.toml</code> to configure the agent.</p>
+          
+          <h2>Links</h2>
+          <ul>
+            <li><a href="https://github.com/mstrhakr/printmaster">GitHub Repository</a></li>
+            <li><a href="https://github.com/mstrhakr/printmaster/releases">All Releases</a></li>
+            <li><a href="https://github.com/mstrhakr/printmaster/tree/main/docs">Documentation</a></li>
+          </ul>
+        </body>
+        </html>
+        EOF
+
+    - name: Commit and push changes
+      run: |
+        cd apt-repo
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git add -A
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update APT repository - $(date -u +%Y-%m-%d)"
+          git push origin gh-pages
+        fi
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: apt-repo
+
+    - name: Deploy to GitHub Pages
+      uses: actions/deploy-pages@v4

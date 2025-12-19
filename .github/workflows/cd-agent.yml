@@ -96,6 +96,22 @@ jobs:
       run: |
         go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.agent_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
 
+    - name: Build Debian Package (Linux)
+      if: matrix.goos == 'linux'
+      working-directory: ./agent
+      run: |
+        # Copy binary to expected location for build script
+        cp "printmaster-agent-v${{ steps.version.outputs.agent_version }}-linux-${{ matrix.goarch }}" "printmaster-agent"
+        chmod +x build-deb.sh
+        ./build-deb.sh "${{ steps.version.outputs.agent_version }}" "${{ matrix.goarch }}"
+
+    - name: Upload Debian Package
+      if: matrix.goos == 'linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: agent-deb-${{ matrix.goarch }}
+        path: agent/dist/*.deb
+
     - name: Install WiX Toolset (Windows)
       if: matrix.os == 'windows-latest'
       shell: pwsh
@@ -301,6 +317,16 @@ jobs:
           
           ### 📦 Installation
           
+          #### Debian/Ubuntu (.deb)
+          ```bash
+          # Download and install
+          wget https://github.com/mstrhakr/printmaster/releases/download/agent-v${{ steps.version.outputs.version }}/printmaster-agent_${{ steps.version.outputs.version }}_amd64.deb
+          sudo dpkg -i printmaster-agent_${{ steps.version.outputs.version }}_amd64.deb
+          
+          # Start the service
+          sudo systemctl start printmaster-agent
+          ```
+          
           #### Binary Installation
           1. Download the appropriate binary for your platform from the Assets section below
           2. Extract the archive
@@ -309,7 +335,7 @@ jobs:
           #### Windows MSI Installer
           Download `printmaster-agent-v${{ steps.version.outputs.version }}-windows-amd64.msi` for easy installation on Windows.
           
-          #### Docker Installation (Recommended)
+          #### Docker Installation
           ```bash
           docker pull ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
           docker run -d \
@@ -321,9 +347,9 @@ jobs:
           See `docker-compose.yml` in the repository for a complete multi-service example.
           
           **Supported Platforms:**
+          - Debian/Ubuntu (amd64, arm64) - .deb package with systemd service
           - Windows (amd64) - EXE and MSI installer
-          - Linux (amd64) - Docker container (official image)
-          - Linux (arm64, armv7) - Native binaries available
+          - Linux (all) - Docker container
           - macOS (amd64, arm64) - Binary
           
           ### ⏱️ Build Information

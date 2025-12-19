@@ -1,0 +1,3 @@
+usr/bin/printmaster-agent
+lib/systemd/system/printmaster-agent.service
+etc/printmaster/agent.toml.example

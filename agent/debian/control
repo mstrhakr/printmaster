@@ -1,0 +1,25 @@
+Source: printmaster-agent
+Section: admin
+Priority: optional
+Maintainer: PrintMaster Team <printmaster@example.com>
+Build-Depends: debhelper-compat (= 13), golang-go (>= 1.21)
+Standards-Version: 4.6.2
+Homepage: https://github.com/mstrhakr/printmaster
+Vcs-Git: https://github.com/mstrhakr/printmaster.git
+Vcs-Browser: https://github.com/mstrhakr/printmaster
+Rules-Requires-Root: no
+
+Package: printmaster-agent
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: PrintMaster Agent - Network printer fleet management agent
+ PrintMaster Agent discovers and monitors network printers via SNMP,
+ collects metrics (page counts, toner levels, status), and optionally
+ reports to a central PrintMaster Server for multi-site fleet management.
+ .
+ Features:
+  - Auto-discovery via SNMP, mDNS, and WS-Discovery
+  - Real-time printer status monitoring
+  - Supply level tracking (toner, drums, maintenance kits)
+  - Built-in web UI for local management
+  - Optional central server integration with WebSocket

@@ -1,0 +1,24 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+# Skip standard Go build - we use pre-built binary
+override_dh_auto_build:
+	@echo "Using pre-built binary"
+
+override_dh_auto_install:
+	install -D -m 0755 printmaster-agent debian/printmaster-agent/usr/bin/printmaster-agent
+	install -D -m 0644 printmaster-agent.service debian/printmaster-agent/lib/systemd/system/printmaster-agent.service
+	install -D -m 0644 config.example.toml debian/printmaster-agent/etc/printmaster/agent.toml.example
+
+override_dh_auto_test:
+	@echo "Skipping tests for pre-built binary"
+
+override_dh_dwz:
+	@echo "Skipping dwz for Go binary"
+
+override_dh_strip:
+	@echo "Skipping strip for Go binary"

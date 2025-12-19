@@ -1,0 +1,9 @@
+printmaster-agent (0.16.0-1) unstable; urgency=medium
+
+  * Initial Debian package release
+  * Network printer discovery via SNMP/mDNS/WS-Discovery
+  * Real-time monitoring and metrics collection
+  * Built-in web UI on port 8000
+  * Optional central server integration
+
+ -- PrintMaster Team <printmaster@example.com>  Thu, 19 Dec 2024 12:00:00 +0000

@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        # Remove data directories and user on purge
+        rm -rf /var/lib/printmaster
+        rm -rf /var/log/printmaster
+        rm -rf /etc/printmaster
+        
+        # Remove user and group
+        if getent passwd printmaster >/dev/null 2>&1; then
+            userdel printmaster || true
+        fi
+        if getent group printmaster >/dev/null 2>&1; then
+            groupdel printmaster || true
+        fi
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -150,11 +150,27 @@ cd agent
 
 | Method | Best For | Documentation |
 |--------|----------|---------------|
+| **APT Repository** | Debian/Ubuntu servers | [APT_REPOSITORY.md](docs/APT_REPOSITORY.md) |
 | **Docker** | Production deployments | [DOCKER_DEPLOYMENT.md](docs/DOCKER_DEPLOYMENT.md) |
 | **Unraid** | Home lab, small business | [UNRAID_DEPLOYMENT.md](docs/UNRAID_DEPLOYMENT.md) |
 | **Windows Service** | Windows servers | [SERVICE_DEPLOYMENT.md](docs/SERVICE_DEPLOYMENT.md) |
+| **Windows MSI** | Windows desktops | [GitHub Releases](https://github.com/mstrhakr/printmaster/releases) |
 | **Linux Service** | Linux servers | [agent/printmaster-agent.service](agent/printmaster-agent.service) |
 | **Standalone Binary** | Testing, development | Build with `build.ps1` |
+
+### Debian/Ubuntu Quick Install
+
+```bash
+# Add repository and install
+echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
+sudo apt-get update
+sudo apt-get install printmaster-agent
+
+# Start service
+sudo systemctl start printmaster-agent
+```
+
+Web UI at http://localhost:8000
 
 ## Architecture
 
