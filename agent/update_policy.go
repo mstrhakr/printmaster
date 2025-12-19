@@ -23,7 +23,7 @@ func defaultAutoUpdateConfig() AutoUpdateConfig {
 func defaultLocalPolicySpec() updatepolicy.PolicySpec {
 	return updatepolicy.PolicySpec{
 		UpdateCheckDays:    7,
-		VersionPinStrategy: updatepolicy.VersionPinMinor,
+		VersionPinStrategy: updatepolicy.VersionPinMajor, // Allow minor/patch updates by default
 		AllowMajorUpgrade:  false,
 		TargetVersion:      "",
 		MaintenanceWindow: updatepolicy.MaintenanceWindow{
