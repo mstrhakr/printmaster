@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -13,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"printmaster/common/logger"
@@ -704,8 +706,33 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 		return fmt.Errorf("failed to set executable permission: %w", err)
 	}
 
-	// Rename the staging file to replace the current binary
+	// Try to rename the staging file to replace the current binary.
+	// This is the fastest approach when both paths are on the same filesystem.
 	if err := os.Rename(stagingPath, m.binaryPath); err != nil {
+		// Check if this is a cross-device link error (EXDEV).
+		// This happens when staging dir and binary path are on different filesystems
+		// (e.g., staging on /var/lib/... and binary on /usr/bin).
+		var linkErr *os.LinkError
+		if errors.As(err, &linkErr) && errors.Is(linkErr.Err, syscall.EXDEV) {
+			// Fall back to copy + delete for cross-filesystem updates
+			m.logInfo("Cross-filesystem update detected, using copy instead of rename",
+				"staging", stagingPath, "target", m.binaryPath)
+
+			// Copy the staged file to the target location
+			if copyErr := copyFile(stagingPath, m.binaryPath); copyErr != nil {
+				return fmt.Errorf("failed to copy binary across filesystems: %w", copyErr)
+			}
+
+			// Set executable permissions on the copied file
+			if chmodErr := os.Chmod(m.binaryPath, 0o755); chmodErr != nil {
+				return fmt.Errorf("failed to set executable permission after copy: %w", chmodErr)
+			}
+
+			// Remove the staging file
+			_ = os.Remove(stagingPath) // Best effort cleanup
+
+			return nil
+		}
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 

@@ -553,7 +553,14 @@ func sendProxyRequest(agentID string, requestID string, targetURL string, method
 // handleWSUpdateProgress processes update progress messages from agents
 // and broadcasts them to connected UI clients via SSE
 func handleWSUpdateProgress(agent *storage.Agent, msg wscommon.Message) {
-	logDebug("Update progress received", "agent_id", agent.AgentID, "data", msg.Data)
+	// Check status to determine log level - failures should be logged as errors
+	status, _ := msg.Data["status"].(string)
+	if status == "failed" {
+		errorMsg, _ := msg.Data["error"].(string)
+		logError("Agent update failed", "agent_id", agent.AgentID, "error", errorMsg, "data", msg.Data)
+	} else {
+		logDebug("Update progress received", "agent_id", agent.AgentID, "data", msg.Data)
+	}
 
 	// Add agent_id to the data for UI routing
 	msg.Data["agent_id"] = agent.AgentID
