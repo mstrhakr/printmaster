@@ -869,6 +869,7 @@ func (s *SQLiteStore) runMigrations() error {
 	if err := s.migrateSettingsAgentOverrideFK(); err != nil {
 		logWarn("SQLite migration failed (settings_agent_override foreign key)", "error", err)
 	}
+	s.migrateAlertRuleTypes()
 
 	// Update schema version
 	var currentVersion int
@@ -1038,6 +1039,56 @@ func (s *SQLiteStore) migrateLegacyRoles() {
 	// "viewer" -> "viewer" (unchanged)
 	// Empty or NULL -> "user"
 	_, _ = s.db.Exec(`UPDATE users SET role = 'user' WHERE role IS NULL OR role = ''`)
+}
+
+// migrateAlertRuleTypes updates legacy alert rule types and scopes to match
+// what the evaluator expects. Old rules used generic types like "threshold"
+// and scope "all" which the evaluator doesn't recognize.
+func (s *SQLiteStore) migrateAlertRuleTypes() {
+	// Check if alert_rules table exists
+	var tableExists int
+	err := s.db.QueryRow(`SELECT COALESCE(COUNT(1), 0) FROM sqlite_master WHERE type='table' AND name='alert_rules'`).Scan(&tableExists)
+	if err != nil || tableExists == 0 {
+		return
+	}
+
+	migrations := []struct {
+		desc     string
+		oldType  string
+		oldScope string
+		newType  string
+		newScope string
+		where    string
+	}{
+		// "threshold" type with warning severity -> supply_low
+		{"Low Toner Warning", "threshold", "all", "supply_low", "device",
+			"type = 'threshold' AND severity = 'warning' AND scope = 'all'"},
+		// "threshold" type with critical severity -> supply_critical
+		{"Critical Toner Level", "threshold", "all", "supply_critical", "device",
+			"type = 'threshold' AND severity = 'critical' AND scope = 'all'"},
+		// "offline" type -> device_offline
+		{"Printer Offline", "offline", "all", "device_offline", "device",
+			"type = 'offline' AND scope = 'all'"},
+		// "status" type -> device_error
+		{"Status Alerts", "status", "all", "device_error", "device",
+			"type = 'status' AND scope = 'all'"},
+		// agent_offline with scope all -> agent scope
+		{"Agent Disconnected", "agent_offline", "all", "agent_offline", "agent",
+			"type = 'agent_offline' AND scope = 'all'"},
+	}
+
+	for _, m := range migrations {
+		result, err := s.db.Exec(
+			`UPDATE alert_rules SET type = ?, scope = ? WHERE `+m.where,
+			m.newType, m.newScope)
+		if err != nil {
+			logDebug("migrateAlertRuleTypes: failed to update", "desc", m.desc, "error", err)
+			continue
+		}
+		if affected, _ := result.RowsAffected(); affected > 0 {
+			logInfo("Migrated alert rules", "desc", m.desc, "count", affected, "oldType", m.oldType, "newType", m.newType)
+		}
+	}
 }
 
 // isSQLiteDuplicateColumnErr returns true when the provided error indicates an

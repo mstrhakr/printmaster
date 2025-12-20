@@ -823,6 +823,9 @@ func (s *PostgresStore) initSchema() error {
 		return err
 	}
 
+	// Migrate legacy alert rule types
+	s.migrateAlertRuleTypes()
+
 	// Update schema version
 	var currentVersion int
 	err := s.db.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_version").Scan(&currentVersion)
@@ -859,6 +862,47 @@ func (s *PostgresStore) ensureGlobalSettingsSeed() error {
 	`
 	_, err = s.db.Exec(stmt, pmsettings.SchemaVersion, string(payload))
 	return err
+}
+
+// migrateAlertRuleTypes updates legacy alert rule types and scopes to match
+// what the evaluator expects. Old rules used generic types like "threshold"
+// and scope "all" which the evaluator doesn't recognize.
+func (s *PostgresStore) migrateAlertRuleTypes() {
+	migrations := []struct {
+		desc     string
+		newType  string
+		newScope string
+		where    string
+	}{
+		// "threshold" type with warning severity -> supply_low
+		{"Low Toner Warning", "supply_low", "device",
+			"type = 'threshold' AND severity = 'warning' AND scope = 'all'"},
+		// "threshold" type with critical severity -> supply_critical
+		{"Critical Toner Level", "supply_critical", "device",
+			"type = 'threshold' AND severity = 'critical' AND scope = 'all'"},
+		// "offline" type -> device_offline
+		{"Printer Offline", "device_offline", "device",
+			"type = 'offline' AND scope = 'all'"},
+		// "status" type -> device_error
+		{"Status Alerts", "device_error", "device",
+			"type = 'status' AND scope = 'all'"},
+		// agent_offline with scope all -> agent scope
+		{"Agent Disconnected", "agent_offline", "agent",
+			"type = 'agent_offline' AND scope = 'all'"},
+	}
+
+	for _, m := range migrations {
+		result, err := s.db.Exec(
+			`UPDATE alert_rules SET type = $1, scope = $2 WHERE `+m.where,
+			m.newType, m.newScope)
+		if err != nil {
+			logDebug("migrateAlertRuleTypes: failed to update", "desc", m.desc, "error", err)
+			continue
+		}
+		if affected, _ := result.RowsAffected(); affected > 0 {
+			logInfo("Migrated alert rules", "desc", m.desc, "count", affected, "newType", m.newType)
+		}
+	}
 }
 
 // Close closes the database connection.
