@@ -363,3 +363,256 @@ jobs:
         fail_on_unmatched_files: false
         draft: false
         prerelease: false
+
+  update-apt-repo:
+    name: Update APT Repository
+    needs: [build-agent]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    
+    steps:
+    - name: Checkout gh-pages
+      uses: actions/checkout@v4
+      with:
+        ref: gh-pages
+        path: apt-repo
+      continue-on-error: true
+
+    - name: Initialize gh-pages if needed
+      run: |
+        if [ ! -d "apt-repo/.git" ]; then
+          echo "Creating gh-pages branch..."
+          mkdir -p apt-repo
+          cd apt-repo
+          git init
+          git remote add origin https://github.com/${{ github.repository }}.git
+          git checkout -b gh-pages
+          echo "# PrintMaster APT Repository" > README.md
+        fi
+
+    - name: Download deb artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: agent-deb-*
+        path: downloads
+        merge-multiple: true
+
+    - name: Get version
+      id: version
+      run: |
+        echo "version=$(cat apt-repo/../agent/VERSION 2>/dev/null || echo 'unknown')" >> $GITHUB_OUTPUT
+      continue-on-error: true
+
+    - name: Checkout main for version
+      uses: actions/checkout@v4
+      with:
+        path: main-repo
+        sparse-checkout: agent/VERSION
+
+    - name: Get version from main
+      id: main_version
+      run: |
+        echo "version=$(cat main-repo/agent/VERSION)" >> $GITHUB_OUTPUT
+
+    - name: Install APT repo tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y dpkg-dev apt-utils gnupg
+
+    - name: Import GPG key
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+      run: |
+        if [ -n "$GPG_PRIVATE_KEY" ]; then
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "GPG key imported"
+        else
+          echo "No GPG key configured, skipping import"
+        fi
+
+    - name: Setup APT repository structure
+      run: |
+        cd apt-repo
+        
+        # Create directory structure
+        mkdir -p pool/main
+        mkdir -p dists/stable/main/binary-amd64
+        mkdir -p dists/stable/main/binary-arm64
+        
+        # Copy new .deb files to pool
+        if ls ../downloads/*.deb 1>/dev/null 2>&1; then
+          cp ../downloads/*.deb pool/main/
+          echo "Copied packages to pool:"
+          ls -la pool/main/
+        else
+          echo "No .deb packages found in downloads"
+          ls -la ../downloads/ || true
+        fi
+
+    - name: Generate APT repository metadata
+      run: |
+        cd apt-repo
+        
+        # Check if we have any packages
+        if ! ls pool/main/*.deb 1>/dev/null 2>&1; then
+          echo "No packages in pool, skipping metadata generation"
+          exit 0
+        fi
+        
+        # Generate Packages files for each architecture
+        for arch in amd64 arm64; do
+          echo "Generating Packages for $arch..."
+          mkdir -p dists/stable/main/binary-$arch
+          
+          # Generate Packages file
+          (cd pool/main && dpkg-scanpackages --arch $arch . /dev/null) > dists/stable/main/binary-$arch/Packages 2>/dev/null || true
+          
+          # Compress
+          gzip -9c dists/stable/main/binary-$arch/Packages > dists/stable/main/binary-$arch/Packages.gz
+          
+          echo "Packages for $arch:"
+          cat dists/stable/main/binary-$arch/Packages || true
+        done
+
+    - name: Generate Release file
+      run: |
+        cd apt-repo
+        
+        # Check if we have packages
+        if ! ls pool/main/*.deb 1>/dev/null 2>&1; then
+          echo "No packages, skipping Release generation"
+          exit 0
+        fi
+        
+        cd dists/stable
+        
+        # Generate Release file
+        cat > Release << EOF
+        Origin: PrintMaster
+        Label: PrintMaster
+        Suite: stable
+        Codename: stable
+        Architectures: amd64 arm64
+        Components: main
+        Description: PrintMaster Agent APT Repository
+        Date: $(date -Ru)
+        EOF
+        
+        # Add checksums
+        {
+          echo "MD5Sum:"
+          find main -type f \( -name "Packages" -o -name "Packages.gz" \) -exec sh -c 'echo " $(md5sum "$1" | cut -d" " -f1) $(stat -c%s "$1") $1"' _ {} \;
+          echo "SHA256:"
+          find main -type f \( -name "Packages" -o -name "Packages.gz" \) -exec sh -c 'echo " $(sha256sum "$1" | cut -d" " -f1) $(stat -c%s "$1") $1"' _ {} \;
+        } >> Release
+        
+        echo "Release file:"
+        cat Release
+
+    - name: Sign Release file
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+      run: |
+        if [ -z "$GPG_PRIVATE_KEY" ]; then
+          echo "No GPG key configured, skipping signing"
+          exit 0
+        fi
+        
+        cd apt-repo/dists/stable
+        
+        # Sign Release file
+        gpg --batch --yes --pinentry-mode loopback \
+          --passphrase "$GPG_PASSPHRASE" \
+          --armor --detach-sign --output Release.gpg Release
+        
+        gpg --batch --yes --pinentry-mode loopback \
+          --passphrase "$GPG_PASSPHRASE" \
+          --armor --clearsign --output InRelease Release
+        
+        echo "Release signed"
+
+    - name: Create index page
+      run: |
+        cd apt-repo
+        
+        cat > index.html << 'EOF'
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>PrintMaster APT Repository</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+            h1 { color: #333; }
+            pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
+            code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+          </style>
+        </head>
+        <body>
+          <h1>🖨️ PrintMaster APT Repository</h1>
+          
+          <p>Official APT repository for <a href="https://github.com/mstrhakr/printmaster">PrintMaster Agent</a>.</p>
+          
+          <h2>Quick Install</h2>
+          <pre><code># Add repository
+        echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
+
+        # Update and install
+        sudo apt-get update
+        sudo apt-get install printmaster-agent</code></pre>
+
+          <h2>With GPG Verification (Recommended)</h2>
+          <pre><code># Download and add GPG key
+        curl -fsSL https://mstrhakr.github.io/printmaster/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/printmaster.gpg
+
+        # Add repository with signed-by
+        echo "deb [signed-by=/usr/share/keyrings/printmaster.gpg] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
+
+        # Update and install
+        sudo apt-get update
+        sudo apt-get install printmaster-agent</code></pre>
+
+          <h2>After Installation</h2>
+          <pre><code># Start the service
+        sudo systemctl start printmaster-agent
+        sudo systemctl enable printmaster-agent</code></pre>
+          
+          <p>Web UI: <code>http://localhost:8000</code></p>
+          
+          <h2>Links</h2>
+          <ul>
+            <li><a href="https://github.com/mstrhakr/printmaster">GitHub Repository</a></li>
+            <li><a href="https://github.com/mstrhakr/printmaster/releases">Releases</a></li>
+          </ul>
+        </body>
+        </html>
+        EOF
+
+    - name: Commit and push changes
+      run: |
+        cd apt-repo
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        git add -A
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "Update APT repository - v${{ steps.main_version.outputs.version }}"
+          git push origin gh-pages
+        fi
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: apt-repo
+
+    - name: Deploy to GitHub Pages
+      uses: actions/deploy-pages@v4
