@@ -9629,7 +9629,7 @@ const DISCOVERY_SUBSECTIONS = [
     {
         key: 'ip_scanning',
         label: 'IP Scanning',
-        fields: ['discovery.ip_scanning_enabled', 'discovery.subnet_scan', 'discovery.manual_ranges', 'discovery.concurrency']
+        fields: ['discovery.ip_scanning_enabled', 'discovery.subnet_scan', 'discovery.manual_ranges', 'discovery.ranges_text', 'discovery.concurrency']
     },
     {
         key: 'probe_methods',
@@ -10859,12 +10859,43 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
             }
         });
     }
+    
+    // After rendering, update visibility of dependent fields
+    updateDependentFieldVisibility(container);
+}
+
+/**
+ * Show/hide fields that depend on another field's boolean value.
+ * Fields with data-depends-on are hidden when the dependency field is unchecked.
+ */
+function updateDependentFieldVisibility(container) {
+    if (!container) container = document.getElementById('settings_form_root');
+    if (!container) return;
+    
+    const dependentRows = container.querySelectorAll('[data-depends-on]');
+    dependentRows.forEach(row => {
+        const dependsOnPath = row.dataset.dependsOn;
+        // Find the input for the dependency field
+        const depInput = container.querySelector(`input[data-settings-path="${dependsOnPath}"]`);
+        if (depInput && depInput.type === 'checkbox') {
+            row.style.display = depInput.checked ? '' : 'none';
+        }
+    });
 }
 
 function renderSettingsFieldRow(field, value, scope, isSectionManaged = true, isSectionEnforced = false) {
     const row = document.createElement('div');
     row.className = 'settings-field-row';
     row.dataset.fieldType = (field.type || 'text').toLowerCase();
+    row.dataset.settingsPath = field.path;
+    
+    // Field dependencies: show/hide based on another field's value
+    const FIELD_DEPENDENCIES = {
+        'discovery.ranges_text': 'discovery.manual_ranges'
+    };
+    if (FIELD_DEPENDENCIES[field.path]) {
+        row.dataset.dependsOn = FIELD_DEPENDENCIES[field.path];
+    }
     
     // Check if this field is locked by environment variable
     const isLocked = settingsUIState.lockedKeys.has(field.path);
@@ -11308,6 +11339,13 @@ function createInputForField(field, value) {
             input.appendChild(opt);
         });
         element = input;
+    } else if (type === 'textarea') {
+        input = document.createElement('textarea');
+        input.value = resolvedValue === null || resolvedValue === undefined ? '' : resolvedValue;
+        input.rows = 4;
+        input.className = 'settings-textarea';
+        input.placeholder = field.description || '';
+        element = input;
     } else {
         input = document.createElement('input');
         input.type = 'text';
@@ -11333,6 +11371,11 @@ function handleSettingsFieldChange(event) {
         updateTenantDraft(path, newValue);
     } else {
         updateAgentDraft(path, newValue);
+    }
+    
+    // Update visibility of fields that depend on this checkbox
+    if (fieldType === 'bool') {
+        updateDependentFieldVisibility();
     }
 }
 

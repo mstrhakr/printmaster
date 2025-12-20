@@ -4730,6 +4730,20 @@ input[type="checkbox"]:indeterminate::before {
   color: var(--text);
 }
 
+.settings-field-control textarea.settings-textarea {
+  flex: 1;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-family: monospace;
+  font-size: 13px;
+  resize: vertical;
+  min-height: 80px;
+}
+
 .settings-field-control .settings-badge,
 .settings-field-control .inherit-btn {
   order: 1;

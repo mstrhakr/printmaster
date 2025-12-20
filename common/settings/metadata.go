@@ -4,10 +4,11 @@ package settings
 type FieldType string
 
 const (
-	FieldTypeBool   FieldType = "bool"
-	FieldTypeText   FieldType = "text"
-	FieldTypeNumber FieldType = "number"
-	FieldTypeSelect FieldType = "select"
+	FieldTypeBool     FieldType = "bool"
+	FieldTypeText     FieldType = "text"
+	FieldTypeTextarea FieldType = "textarea"
+	FieldTypeNumber   FieldType = "number"
+	FieldTypeSelect   FieldType = "select"
 )
 
 // FieldMeta captures descriptive information about a configuration field for UIs and RBAC.
@@ -52,6 +53,15 @@ func DefaultSchema() Schema {
 			Scope:       ScopeTenant,
 			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
 			Default:     defaults.Discovery.ManualRanges,
+		},
+		{
+			Path:        "discovery.ranges_text",
+			Type:        FieldTypeTextarea,
+			Title:       "IP Ranges",
+			Description: "IP ranges to scan. One per line. Formats: 192.168.1.50, 192.168.1.0/24, 192.168.1.1-50, 192.168.1.x",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.RangesText,
 		},
 		{
 			Path:        "discovery.ip_scanning_enabled",
