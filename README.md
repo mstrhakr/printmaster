@@ -166,11 +166,13 @@ echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | su
 sudo apt-get update
 sudo apt-get install printmaster-agent
 
-# Start service
-sudo systemctl start printmaster-agent
+# Start and enable on boot
+sudo systemctl enable --now printmaster-agent
 ```
 
-Web UI at http://localhost:8000
+Web UI at http://localhost:8000 • Config at `/etc/printmaster/agent.toml`
+
+For GPG-signed installation, see [APT Repository Guide](docs/APT_REPOSITORY.md).
 
 ## Architecture
 
