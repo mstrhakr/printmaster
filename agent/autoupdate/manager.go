@@ -105,6 +105,10 @@ type Manager struct {
 	launchHelperFn   func(helperPath string) error // For testing: allows mocking the helper launch
 	progressCallback ProgressCallback
 
+	// Package manager support (Linux dpkg/apt)
+	usePackageManager bool   // True if binary is managed by apt/dpkg
+	packageName       string // Package name (e.g., "printmaster-agent")
+
 	mu             sync.RWMutex
 	status         Status
 	lastCheck      time.Time
@@ -190,39 +194,51 @@ func NewManager(opts Options) (*Manager, error) {
 		}
 	}
 
-	// Check if binary path is writable (self-update feasibility check)
-	// This catches read-only filesystems, package manager installations, etc.
+	// Check if binary is managed by package manager or if directory is writable
+	var usePackageManager bool
+	var packageName string
 	if opts.Enabled && binaryPath != "" && runtime.GOOS != "windows" {
-		// On Unix, check if we can write to the binary's directory
 		binaryDir := filepath.Dir(binaryPath)
-		if reason := checkBinaryWritable(binaryPath, binaryDir, opts.Log); reason != "" {
+		pkgName, reason := checkBinaryUpdateMethod(binaryPath, binaryDir, opts.Log)
+		if pkgName != "" {
+			// Binary managed by package manager - use apt for updates
+			usePackageManager = true
+			packageName = pkgName
+			if opts.Log != nil {
+				opts.Log.Info("Auto-update will use package manager",
+					"package", pkgName, "method", "apt-get")
+			}
+		} else if reason != "" {
+			// Not writable and not package-managed - disable updates
 			disabledReason = reason
 			opts.Enabled = false
 		}
 	}
 
 	mgr := &Manager{
-		log:              opts.Log,
-		stateDir:         stateDir,
-		enabled:          opts.Enabled,
-		disabledReason:   disabledReason,
-		currentVersion:   opts.CurrentVersion,
-		currentSemver:    currentSemver,
-		platform:         platform,
-		arch:             arch,
-		channel:          channel,
-		binaryPath:       binaryPath,
-		serviceName:      opts.ServiceName,
-		isService:        opts.IsService,
-		minDiskSpace:     minDiskSpace,
-		maxRetries:       maxRetries,
-		clock:            clock,
-		client:           opts.ServerClient,
-		policyProvider:   opts.PolicyProvider,
-		telemetry:        opts.TelemetrySink,
-		progressCallback: opts.ProgressCallback,
-		status:           StatusIdle,
-		stopCh:           make(chan struct{}),
+		log:               opts.Log,
+		stateDir:          stateDir,
+		enabled:           opts.Enabled,
+		disabledReason:    disabledReason,
+		currentVersion:    opts.CurrentVersion,
+		currentSemver:     currentSemver,
+		platform:          platform,
+		arch:              arch,
+		channel:           channel,
+		binaryPath:        binaryPath,
+		serviceName:       opts.ServiceName,
+		isService:         opts.IsService,
+		minDiskSpace:      minDiskSpace,
+		maxRetries:        maxRetries,
+		clock:             clock,
+		client:            opts.ServerClient,
+		policyProvider:    opts.PolicyProvider,
+		telemetry:         opts.TelemetrySink,
+		progressCallback:  opts.ProgressCallback,
+		usePackageManager: usePackageManager,
+		packageName:       packageName,
+		status:            StatusIdle,
+		stopCh:            make(chan struct{}),
 	}
 
 	mgr.restartFn = mgr.restartService
@@ -278,6 +294,8 @@ func (m *Manager) Status() ManagerStatus {
 		Channel:           m.channel,
 		Platform:          m.platform,
 		Arch:              m.arch,
+		UsePackageManager: m.usePackageManager,
+		PackageName:       m.packageName,
 	}
 }
 
@@ -466,6 +484,11 @@ func (m *Manager) performCheck(ctx context.Context) error {
 }
 
 func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) error {
+	// If using package manager, use simplified flow (no download needed)
+	if m.usePackageManager && m.packageName != "" {
+		return m.executeUpdateViaPackageManager(ctx, manifest)
+	}
+
 	run := &UpdateRun{
 		ID:             fmt.Sprintf("run-%d", m.clock().UnixNano()),
 		Status:         StatusDownloading,
@@ -618,6 +641,67 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 	return m.restartService()
 }
 
+// executeUpdateViaPackageManager performs an update using apt-get.
+// This skips download/staging phases since apt handles everything.
+func (m *Manager) executeUpdateViaPackageManager(ctx context.Context, manifest *UpdateManifest) error {
+	run := &UpdateRun{
+		ID:             fmt.Sprintf("run-%d", m.clock().UnixNano()),
+		Status:         StatusApplying,
+		RequestedAt:    m.clock(),
+		CurrentVersion: m.currentVersion,
+		TargetVersion:  manifest.Version,
+		Channel:        m.channel,
+		Platform:       m.platform,
+		Arch:           m.arch,
+	}
+
+	m.mu.Lock()
+	m.currentRun = run
+	m.cancelled = false
+	m.mu.Unlock()
+
+	run.StartedAt = m.clock()
+
+	// Check for cancellation before starting
+	if m.IsCancelled() {
+		run.Status = StatusCancelled
+		run.CompletedAt = m.clock()
+		m.setStatus(StatusCancelled)
+		return fmt.Errorf("update cancelled by user")
+	}
+
+	// Apply phase via apt-get
+	m.setStatusWithProgress(StatusApplying, -1, fmt.Sprintf("Updating via apt-get (%s)...", m.packageName))
+	run.Status = StatusApplying
+	m.reportTelemetry(ctx, StatusApplying, "", "")
+
+	if err := m.applyUpdateViaApt(); err != nil {
+		run.Status = StatusFailed
+		run.ErrorCode = ErrCodeApplyFailed
+		run.ErrorMessage = err.Error()
+		run.CompletedAt = m.clock()
+		m.setStatusWithError(StatusFailed, ErrCodeApplyFailed, err.Error())
+		m.reportTelemetry(ctx, StatusFailed, ErrCodeApplyFailed, err.Error())
+		return err
+	}
+
+	// Success - about to restart
+	run.Status = StatusSucceeded
+	run.CompletedAt = m.clock()
+	m.setStatusWithProgress(StatusRestarting, -1, "Restarting agent...")
+	m.reportTelemetry(ctx, StatusSucceeded, "", "")
+
+	m.logInfo("Update applied successfully via package manager",
+		"from", m.currentVersion, "to", manifest.Version, "package", m.packageName)
+
+	// The package's postinst script should restart the service,
+	// but we explicitly restart to ensure we're running the new version
+	if m.restartFn != nil {
+		return m.restartFn()
+	}
+	return m.restartService()
+}
+
 func (m *Manager) downloadWithRetry(ctx context.Context, manifest *UpdateManifest, destPath string) error {
 	var lastErr error
 	delay := defaultRetryBaseDelay
@@ -701,6 +785,11 @@ func (m *Manager) applyUpdate(stagingPath string) error {
 		return fmt.Errorf("binary path not set")
 	}
 
+	// If using package manager (apt), delegate to apt-get
+	if m.usePackageManager && m.packageName != "" {
+		return m.applyUpdateViaApt()
+	}
+
 	// On Windows, we can't replace a running binary directly.
 	// We need to use a helper process or schedule the replacement.
 	if runtime.GOOS == "windows" {
@@ -747,6 +836,36 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
 
+	return nil
+}
+
+// applyUpdateViaApt uses apt-get to update the package when the binary was installed via dpkg.
+// This is the proper way to update on Debian/Ubuntu systems with package-managed binaries.
+func (m *Manager) applyUpdateViaApt() error {
+	m.logInfo("Updating via package manager", "package", m.packageName)
+
+	// First, update the package lists to get the latest version info
+	m.logDebug("Running apt-get update")
+	updateCmd := exec.Command("apt-get", "update", "-qq")
+	updateCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	if output, err := updateCmd.CombinedOutput(); err != nil {
+		m.logWarn("apt-get update failed (continuing anyway)", "error", err, "output", string(output))
+		// Don't fail here - the package might already be in cache
+	}
+
+	// Now upgrade the specific package
+	m.logInfo("Running apt-get install", "package", m.packageName)
+	installCmd := exec.Command("apt-get", "install", "-y", "-qq", "--only-upgrade", m.packageName)
+	installCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	output, err := installCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("apt-get install failed: %w (output: %s)", err, string(output))
+	}
+
+	m.logInfo("Package updated successfully via apt-get", "package", m.packageName, "output", strings.TrimSpace(string(output)))
+
+	// The service should be restarted by the package's postinst script,
+	// but we trigger a restart anyway to ensure we're running the new version
 	return nil
 }
 
@@ -1183,11 +1302,11 @@ func (m *Manager) logError(msg string, args ...interface{}) {
 	}
 }
 
-// checkBinaryWritable verifies that self-update is feasible by checking:
-// 1. If the binary is managed by a package manager (dpkg on Debian/Ubuntu)
-// 2. If the binary directory is writable
-// Returns empty string if writable, otherwise returns the reason self-update is disabled.
-func checkBinaryWritable(binaryPath, binaryDir string, log *logger.Logger) string {
+// checkBinaryUpdateMethod determines how the agent can be updated:
+// - Returns (packageName, "") if managed by dpkg and apt-get can be used
+// - Returns ("", "") if directory is writable and direct update is possible
+// - Returns ("", reason) if update is not possible (read-only, no permissions)
+func checkBinaryUpdateMethod(binaryPath, binaryDir string, log *logger.Logger) (packageName string, disabledReason string) {
 	// On Linux, check if dpkg manages this binary (installed via apt/deb)
 	if runtime.GOOS == "linux" {
 		if dpkgPath, err := exec.LookPath("dpkg-query"); err == nil {
@@ -1198,11 +1317,20 @@ func checkBinaryWritable(binaryPath, binaryDir string, log *logger.Logger) strin
 				pkgInfo := strings.TrimSpace(string(output))
 				if pkgInfo != "" && !strings.Contains(pkgInfo, "no path found") {
 					pkgName := strings.Split(pkgInfo, ":")[0]
+					// Verify apt-get is available
+					if _, aptErr := exec.LookPath("apt-get"); aptErr == nil {
+						if log != nil {
+							log.Info("Binary managed by package manager, will use apt-get for updates",
+								"package", pkgName, "path", binaryPath)
+						}
+						return pkgName, ""
+					}
+					// dpkg but no apt-get - can't update
 					if log != nil {
-						log.Info("Binary managed by package manager, self-update disabled",
+						log.Info("Binary managed by dpkg but apt-get not available",
 							"package", pkgName, "path", binaryPath)
 					}
-					return fmt.Sprintf("binary managed by package %s (use 'apt upgrade' to update)", pkgName)
+					return "", fmt.Sprintf("binary managed by package %s but apt-get not available", pkgName)
 				}
 			}
 		}
@@ -1217,27 +1345,27 @@ func checkBinaryWritable(binaryPath, binaryDir string, log *logger.Logger) strin
 				log.Info("Binary directory not writable (permission denied), self-update disabled",
 					"dir", binaryDir, "error", err)
 			}
-			return "binary directory not writable: permission denied (use package manager or run with elevated privileges)"
+			return "", "binary directory not writable: permission denied (run with elevated privileges)"
 		}
 		if strings.Contains(err.Error(), "read-only file system") {
 			if log != nil {
 				log.Info("Binary directory on read-only filesystem, self-update disabled",
 					"dir", binaryDir, "error", err)
 			}
-			return "binary on read-only filesystem (use package manager to update)"
+			return "", "binary on read-only filesystem"
 		}
 		// Other errors - log but don't disable (might be transient)
 		if log != nil {
 			log.Warn("Could not verify binary directory writability",
 				"dir", binaryDir, "error", err)
 		}
-		return ""
+		return "", ""
 	}
 	// Clean up test file
 	f.Close()
 	os.Remove(testFile)
 
-	return ""
+	return "", ""
 }
 
 // copyFile copies a file from src to dst.

@@ -60,6 +60,8 @@ type ManagerStatus struct {
 	Channel           string     `json:"channel"`
 	Platform          string     `json:"platform"`
 	Arch              string     `json:"arch"`
+	UsePackageManager bool       `json:"use_package_manager,omitempty"` // True if updates use apt-get
+	PackageName       string     `json:"package_name,omitempty"`        // Package name (e.g., "printmaster-agent")
 }
 
 // UpdateManifest mirrors the server's signed manifest payload.
