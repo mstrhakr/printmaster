@@ -3818,7 +3818,9 @@ function switchTab(targetTab) {
     // Load data for specific tabs
     if (targetTab === 'agents') {
         initAgentsUI();
+        initPendingRegistrationsUI();
         loadAgents();
+        loadPendingRegistrations();
     } else if (targetTab === 'devices') {
         initDevicesUI();
         loadDevices();
@@ -4235,12 +4237,249 @@ async function loadServerStatus() {
         const el = document.getElementById('server_status');
         if (el) el.innerHTML = `<span style="color:var(--success);">● Online</span> v${data.version}`;
         else window.__pm_shared.warn('server_status element not found in DOM');
+        
+        // Store tenancy_enabled flag globally for other UI components
+        window.__pm_tenancy_enabled = Boolean(data.tenancy_enabled);
     } catch (error) {
         window.__pm_shared.error('Failed to load server status:', error);
         const errEl = document.getElementById('server_status');
         if (errEl) errEl.innerHTML = '<span style="color:var(--error);">● Error loading status</span>';
         else window.__pm_shared.warn('server_status element not found in DOM while handling error');
     }
+}
+
+// ====== Pending Agent Registrations ======
+const pendingRegistrationsVM = {
+    items: [],
+    loading: false,
+    error: null,
+    expanded: false,
+    uiInitialized: false,
+};
+
+function initPendingRegistrationsUI() {
+    if (pendingRegistrationsVM.uiInitialized) return;
+    pendingRegistrationsVM.uiInitialized = true;
+
+    const toggleBtn = document.getElementById('pending_registrations_toggle');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            pendingRegistrationsVM.expanded = !pendingRegistrationsVM.expanded;
+            const body = document.getElementById('pending_registrations_body');
+            if (body) {
+                body.classList.toggle('hidden', !pendingRegistrationsVM.expanded);
+            }
+            toggleBtn.textContent = pendingRegistrationsVM.expanded ? 'Hide Details' : 'Show Details';
+            toggleBtn.setAttribute('aria-expanded', pendingRegistrationsVM.expanded ? 'true' : 'false');
+        });
+    }
+
+    const refreshBtn = document.getElementById('pending_registrations_refresh');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => loadPendingRegistrations(true));
+    }
+
+    // Attach event delegation for approve/reject buttons
+    const tbody = document.getElementById('pending_registrations_tbody');
+    if (tbody) {
+        tbody.addEventListener('click', handlePendingRegistrationAction);
+    }
+}
+
+async function loadPendingRegistrations(force = false) {
+    // Only load if tenancy is enabled - check from server settings
+    if (!window.__pm_tenancy_enabled) {
+        hidePendingRegistrationsSection();
+        return;
+    }
+
+    if (pendingRegistrationsVM.loading && !force) return;
+    pendingRegistrationsVM.loading = true;
+
+    try {
+        const response = await fetch('/api/v1/pending-registrations?status=pending');
+        if (!response.ok) {
+            if (response.status === 403 || response.status === 401) {
+                // User doesn't have permission - hide the section silently
+                hidePendingRegistrationsSection();
+                return;
+            }
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        pendingRegistrationsVM.items = Array.isArray(data) ? data : [];
+        pendingRegistrationsVM.error = null;
+
+        if (pendingRegistrationsVM.items.length > 0) {
+            showPendingRegistrationsSection();
+            renderPendingRegistrations();
+        } else {
+            hidePendingRegistrationsSection();
+        }
+    } catch (error) {
+        pendingRegistrationsVM.error = error;
+        // On error, hide the section to not confuse users
+        hidePendingRegistrationsSection();
+        if (window.__pm_shared && typeof window.__pm_shared.warn === 'function') {
+            window.__pm_shared.warn('Failed to load pending registrations', error);
+        }
+    } finally {
+        pendingRegistrationsVM.loading = false;
+    }
+}
+
+function showPendingRegistrationsSection() {
+    const section = document.getElementById('pending_registrations_section');
+    if (section) {
+        section.classList.remove('hidden');
+    }
+}
+
+function hidePendingRegistrationsSection() {
+    const section = document.getElementById('pending_registrations_section');
+    if (section) {
+        section.classList.add('hidden');
+    }
+}
+
+function renderPendingRegistrations() {
+    const countEl = document.getElementById('pending_registrations_count');
+    if (countEl) {
+        countEl.textContent = pendingRegistrationsVM.items.length;
+    }
+
+    const tbody = document.getElementById('pending_registrations_tbody');
+    if (!tbody) return;
+
+    if (pendingRegistrationsVM.items.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="pending-registrations-empty">No pending registrations</td></tr>';
+        return;
+    }
+
+    const rows = pendingRegistrationsVM.items.map(reg => {
+        const agentName = escapeHtml(reg.name || reg.hostname || reg.agent_id || 'Unknown');
+        const platform = escapeHtml(reg.platform || 'Unknown');
+        const ip = escapeHtml(reg.ip || 'Unknown');
+        const expiredTenant = escapeHtml(reg.expired_tenant_id || 'Unknown');
+        const createdAt = reg.created_at ? formatRelativeTime(new Date(reg.created_at)) : 'Unknown';
+        const statusClass = (reg.status || 'pending').toLowerCase();
+
+        return `
+            <tr data-reg-id="${reg.id}">
+                <td>
+                    <div style="font-weight:500;">${agentName}</div>
+                    <div style="font-size:11px;color:var(--muted);">${escapeHtml(reg.agent_id || '')}</div>
+                </td>
+                <td>${platform}</td>
+                <td>${ip}</td>
+                <td>${expiredTenant}</td>
+                <td title="${reg.created_at ? new Date(reg.created_at).toLocaleString() : ''}">${createdAt}</td>
+                <td><span class="status-badge ${statusClass}">${escapeHtml(reg.status || 'pending')}</span></td>
+                <td class="actions-col">
+                    ${reg.status === 'pending' ? `
+                        <button class="action-btn approve" data-action="approve" data-id="${reg.id}" data-tenant="${escapeHtml(reg.expired_tenant_id || '')}">Approve</button>
+                        <button class="action-btn reject" data-action="reject" data-id="${reg.id}">Reject</button>
+                    ` : '—'}
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    tbody.innerHTML = rows;
+}
+
+async function handlePendingRegistrationAction(event) {
+    const btn = event.target.closest('button[data-action]');
+    if (!btn) return;
+
+    const action = btn.getAttribute('data-action');
+    const id = btn.getAttribute('data-id');
+
+    if (!action || !id) return;
+
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = 'Processing…';
+
+    try {
+        if (action === 'approve') {
+            await approvePendingRegistration(id, btn);
+        } else if (action === 'reject') {
+            await rejectPendingRegistration(id, btn);
+        }
+    } catch (error) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        if (window.__pm_shared && typeof window.__pm_shared.showAlert === 'function') {
+            window.__pm_shared.showAlert(`Failed to ${action} registration: ${error.message}`, 'Error', true, false);
+        }
+    }
+}
+
+async function approvePendingRegistration(id, btn) {
+    // Get the tenant to assign - use the original expired tenant or prompt for selection
+    const tenantId = btn.getAttribute('data-tenant');
+
+    // If no tenant, we need to prompt for one
+    if (!tenantId) {
+        if (window.__pm_shared && typeof window.__pm_shared.showAlert === 'function') {
+            window.__pm_shared.showAlert('Cannot approve: no tenant to assign. The original tenant is not available.', 'Error', true, false);
+        }
+        btn.disabled = false;
+        btn.textContent = 'Approve';
+        return;
+    }
+
+    const response = await fetch(`/api/v1/pending-registrations/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', tenant_id: tenantId }),
+    });
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Show success with token info
+    let message = 'Agent registration approved.';
+    if (data.join_token) {
+        message += ` A new join token has been generated. The agent will need to reconnect with this token:\n\n${data.join_token}`;
+    }
+
+    if (window.__pm_shared && typeof window.__pm_shared.showAlert === 'function') {
+        window.__pm_shared.showAlert(message, 'Success', false, false);
+    }
+
+    // Refresh the list
+    await loadPendingRegistrations(true);
+    // Also refresh agents list in case the agent reconnects
+    loadAgents(true);
+}
+
+async function rejectPendingRegistration(id, btn) {
+    // Optionally prompt for rejection notes
+    const notes = ''; // Could add a prompt here in the future
+
+    const response = await fetch(`/api/v1/pending-registrations/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reject', notes }),
+    });
+
+    if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${response.status}`);
+    }
+
+    if (window.__pm_shared && typeof window.__pm_shared.showAlert === 'function') {
+        window.__pm_shared.showAlert('Agent registration rejected.', 'Info', false, false);
+    }
+
+    // Refresh the list
+    await loadPendingRegistrations(true);
 }
 
 // ====== Agents Management ======

@@ -3382,7 +3382,7 @@ func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
 
 func handleVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]interface{}{
 		"version":          Version,
 		"build_time":       BuildTime,
 		"git_commit":       GitCommit,
@@ -3391,6 +3391,7 @@ func handleVersion(w http.ResponseWriter, r *http.Request) {
 		"go_version":       runtime.Version(),
 		"os":               runtime.GOOS,
 		"arch":             runtime.GOARCH,
+		"tenancy_enabled":  tenancy.IsEnabled(),
 	})
 }
 

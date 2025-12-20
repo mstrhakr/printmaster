@@ -85,6 +85,11 @@ func SetEnabled(enabled bool) {
 	tenancyEnabled = enabled
 }
 
+// IsEnabled returns whether tenancy features are currently enabled.
+func IsEnabled() bool {
+	return tenancyEnabled
+}
+
 // agentEventSink, when configured, receives lifecycle events so the server can fan out
 // updates (e.g., via SSE) to the UI without this package importing higher layers.
 var agentEventSink func(eventType string, data map[string]interface{})

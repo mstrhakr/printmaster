@@ -77,6 +77,44 @@
                 </div>
             </div>
 
+            <!-- Pending Registrations Banner (hidden by default, shown when tenancy enabled and pending regs exist) -->
+            <div id="pending_registrations_section" class="pending-registrations-section hidden">
+                <div class="pending-registrations-header">
+                    <div class="pending-registrations-title">
+                        <span class="pending-registrations-icon">⚠️</span>
+                        <span>Pending Agent Registrations</span>
+                        <span class="pending-registrations-count" id="pending_registrations_count"></span>
+                    </div>
+                    <div class="pending-registrations-actions">
+                        <button class="ghost-btn" id="pending_registrations_refresh">Refresh</button>
+                        <button class="ghost-btn" id="pending_registrations_toggle" aria-expanded="false">Show Details</button>
+                    </div>
+                </div>
+                <div class="pending-registrations-body hidden" id="pending_registrations_body">
+                    <div class="pending-registrations-info">
+                        <p>These agents attempted to connect using expired join tokens. Review and approve them to assign to a tenant, or reject if unauthorized.</p>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="simple-table pending-registrations-table" id="pending_registrations_table">
+                            <thead>
+                                <tr>
+                                    <th>Agent</th>
+                                    <th>Platform</th>
+                                    <th>IP Address</th>
+                                    <th>Original Tenant</th>
+                                    <th>Requested</th>
+                                    <th>Status</th>
+                                    <th class="actions-col">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="pending_registrations_tbody">
+                                <tr><td colspan="7" class="muted-text">Loading…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <div id="agents_overview_metrics" class="metrics-overview-grid compact" style="margin-bottom:16px;">
                 <div class="metric-card loading">Loading agent metrics…</div>
             </div>

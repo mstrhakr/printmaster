@@ -242,7 +242,7 @@ func TestVersionEndpoint(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var result map[string]string
+	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
@@ -252,6 +252,10 @@ func TestVersionEndpoint(t *testing.T) {
 	}
 	if _, ok := result["protocol_version"]; !ok {
 		t.Error("Response missing 'protocol_version' field")
+	}
+	// Check tenancy_enabled is present (added for UI to determine pending registrations visibility)
+	if _, ok := result["tenancy_enabled"]; !ok {
+		t.Error("Response missing 'tenancy_enabled' field")
 	}
 }
 
