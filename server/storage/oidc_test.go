@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 )
 
@@ -242,8 +244,11 @@ func TestOIDCSessionLifecycle(t *testing.T) {
 	}
 
 	got, err = s.GetOIDCSession(ctx, "session-123")
-	if err != nil {
-		t.Fatalf("GetOIDCSession after delete: %v", err)
+	if err == nil {
+		t.Fatal("expected error after delete, got nil")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetOIDCSession after delete: expected sql.ErrNoRows, got %v", err)
 	}
 	if got != nil {
 		t.Error("expected nil after delete")
@@ -333,8 +338,11 @@ func TestOIDCLinkLifecycle(t *testing.T) {
 	}
 
 	got, err = s.GetOIDCLink(ctx, "google-link", "google-subject-12345")
-	if err != nil {
-		t.Fatalf("GetOIDCLink after delete: %v", err)
+	if err == nil {
+		t.Fatal("expected error after delete, got nil")
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetOIDCLink after delete: expected sql.ErrNoRows, got %v", err)
 	}
 	if got != nil {
 		t.Error("expected nil after delete")

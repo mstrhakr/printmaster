@@ -339,10 +339,11 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	oauthConfig := buildOAuthConfig(r, provider, op)
-	serverLogger.Debug("OIDC token exchange starting", "slug", provider.Slug, "redirect_url", oauthConfig.RedirectURL, "token_endpoint", op.Endpoint().TokenURL)
+	secretHint := maskSecret(provider.ClientSecret)
+	serverLogger.Debug("OIDC token exchange starting", "slug", provider.Slug, "redirect_url", oauthConfig.RedirectURL, "token_endpoint", op.Endpoint().TokenURL, "client_id", provider.ClientID, "secret_hint", secretHint)
 	token, err := oauthConfig.Exchange(ctx, code)
 	if err != nil {
-		serverLogger.Error("OIDC token exchange failed", "slug", provider.Slug, "issuer", provider.Issuer, "redirect_url", oauthConfig.RedirectURL, "error", err)
+		serverLogger.Error("OIDC token exchange failed", "slug", provider.Slug, "issuer", provider.Issuer, "redirect_url", oauthConfig.RedirectURL, "client_id", provider.ClientID, "secret_hint", secretHint, "error", err)
 		http.Redirect(w, r, "/login?error=oidc_exchange", http.StatusFound)
 		return
 	}
@@ -695,6 +696,18 @@ func randomURLSafe(n int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// maskSecret returns a hint about a secret for logging (length + first/last 2 chars)
+func maskSecret(s string) string {
+	if s == "" {
+		return "(empty)"
+	}
+	n := len(s)
+	if n <= 4 {
+		return fmt.Sprintf("len=%d", n)
+	}
+	return fmt.Sprintf("len=%d [%s...%s]", n, s[:2], s[n-2:])
 }
 
 func resolveOIDCUser(ctx context.Context, provider *storage.OIDCProvider, claims *oidcClaims) (*storage.User, error) {

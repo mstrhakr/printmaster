@@ -2384,9 +2384,6 @@ func (s *BaseStore) GetOIDCSession(ctx context.Context, id string) (*OIDCSession
 	var sess OIDCSession
 	var tenantID sql.NullString
 	if err := row.Scan(&sess.ID, &sess.ProviderSlug, &tenantID, &sess.Nonce, &sess.State, &sess.RedirectURL, &sess.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
 	sess.TenantID = tenantID.String
@@ -2425,9 +2422,6 @@ func (s *BaseStore) GetOIDCLink(ctx context.Context, providerSlug, subject strin
 
 	var link OIDCLink
 	if err := row.Scan(&link.ID, &link.ProviderSlug, &link.Subject, &link.Email, &link.UserID, &link.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return &link, nil
