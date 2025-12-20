@@ -13662,9 +13662,26 @@ function drawFleetChart(canvas, seriesList, options) {
     const maxTime = Math.max(...points.map(p => p.time));
     const minValue = 0;
     const maxValue = Math.max(...points.map(p => p.value)) || 1;
-    const padding = { top: 20, right: 16, bottom: 26, left: 60 }; // Wider left margin for bytes
+    const padding = { top: 20, right: 16, bottom: 36, left: 60 }; // Increased bottom for time labels
     const width = rect.width - padding.left - padding.right;
     const height = rect.height - padding.top - padding.bottom;
+
+    // Determine appropriate time format based on range
+    const timeRangeMs = maxTime - minTime;
+    const formatTimeLabel = (timestamp) => {
+        const d = new Date(timestamp);
+        if (timeRangeMs <= 24 * 60 * 60 * 1000) {
+            // Within 24 hours: show HH:MM
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        } else if (timeRangeMs <= 7 * 24 * 60 * 60 * 1000) {
+            // Within a week: show day + time
+            return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + 
+                   d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        } else {
+            // Longer: show month/day
+            return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        }
+    };
 
     const mapX = (time) => padding.left + ((time - minTime) / Math.max(1, maxTime - minTime)) * width;
     const mapY = (value) => padding.top + height - ((value - minValue) / Math.max(1, maxValue - minValue)) * height;
@@ -13713,6 +13730,26 @@ function drawFleetChart(canvas, seriesList, options) {
         const y = padding.top + (height / 4) * i;
         ctx.fillText(formatY(value), padding.left - 6, y + 3);
     }
+
+    // X-axis time labels
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    const numTimeLabels = Math.min(6, Math.max(2, Math.floor(width / 80))); // Adaptive label count
+    for (let i = 0; i <= numTimeLabels; i++) {
+        const t = minTime + (maxTime - minTime) * (i / numTimeLabels);
+        const x = mapX(t);
+        const label = formatTimeLabel(t);
+        ctx.fillText(label, x, padding.top + height + 14);
+        
+        // Draw tick mark
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top + height);
+        ctx.lineTo(x, padding.top + height + 4);
+        ctx.stroke();
+    }
 }
 
 /**
@@ -13760,9 +13797,26 @@ function drawFleetChartDualAxis(canvas, rateSeriesList, cumulativeSeriesList, op
     const cumMinAdj = Math.max(0, cumMin - cumRange * 0.05);
     const cumMaxAdj = cumMax + cumRange * 0.05;
 
-    const padding = { top: 20, right: 65, bottom: 26, left: 60 }; // Wider right margin for second axis
+    const padding = { top: 20, right: 65, bottom: 36, left: 60 }; // Increased bottom for time labels
     const width = rect.width - padding.left - padding.right;
     const height = rect.height - padding.top - padding.bottom;
+
+    // Determine appropriate time format based on range
+    const timeRangeMs = maxTime - minTime;
+    const formatTimeLabel = (timestamp) => {
+        const d = new Date(timestamp);
+        if (timeRangeMs <= 24 * 60 * 60 * 1000) {
+            // Within 24 hours: show HH:MM
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        } else if (timeRangeMs <= 7 * 24 * 60 * 60 * 1000) {
+            // Within a week: show day + time
+            return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + 
+                   d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        } else {
+            // Longer: show month/day
+            return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        }
+    };
 
     const mapX = (time) => padding.left + ((time - minTime) / Math.max(1, maxTime - minTime)) * width;
     const mapYRate = (value) => padding.top + height - ((value - rateMin) / Math.max(1, rateMax - rateMin)) * height;
@@ -13847,6 +13901,26 @@ function drawFleetChartDualAxis(canvas, rateSeriesList, cumulativeSeriesList, op
         const value = cumMinAdj + ((cumMaxAdj - cumMinAdj) / 4) * (4 - i);
         const y = padding.top + (height / 4) * i;
         ctx.fillText(formatY(value), padding.left + width + 6, y + 3);
+    }
+
+    // X-axis time labels
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    const numTimeLabels = Math.min(6, Math.max(2, Math.floor(width / 80))); // Adaptive label count
+    for (let i = 0; i <= numTimeLabels; i++) {
+        const t = minTime + (maxTime - minTime) * (i / numTimeLabels);
+        const x = mapX(t);
+        const label = formatTimeLabel(t);
+        ctx.fillText(label, x, padding.top + height + 14);
+        
+        // Draw tick mark
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top + height);
+        ctx.lineTo(x, padding.top + height + 4);
+        ctx.stroke();
     }
 
     // Legend
