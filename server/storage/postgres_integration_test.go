@@ -4,6 +4,8 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -652,9 +654,9 @@ func TestPostgresStore_FreshDatabaseInitialization(t *testing.T) {
 			adminUser := "testadmin"
 			adminPass := "testpassword123"
 
-			// Check if user exists (should return nil, nil for non-existent user)
+			// Check if user exists (should return sql.ErrNoRows for non-existent user)
 			existingUser, err := store.GetUserByUsername(ctx, adminUser)
-			if err != nil {
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				t.Fatalf("GetUserByUsername failed: %v", err)
 			}
 			if existingUser != nil {
