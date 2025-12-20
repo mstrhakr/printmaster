@@ -61,16 +61,16 @@ type ServerSnapshot struct {
 	GCPauseNs    uint64 `json:"gc_pause_ns"` // Last GC pause
 
 	// Database
-	DBSizeBytes      int64 `json:"db_size_bytes"`
-	DBAgents         int64 `json:"db_agents"`
-	DBDevices        int64 `json:"db_devices"`
-	DBMetricsRows    int64 `json:"db_metrics_rows"`
-	DBSessions       int64 `json:"db_sessions"`
-	DBUsers          int64 `json:"db_users"`
-	DBAuditEntries   int64 `json:"db_audit_entries"`
-	DBAlerts         int64 `json:"db_alerts"`
-	DBActiveAlerts   int64 `json:"db_active_alerts"`
-	DBCacheBytes     int64 `json:"db_cache_bytes"` // Release artifacts + installer bundles
+	DBSizeBytes    int64 `json:"db_size_bytes"`
+	DBAgents       int64 `json:"db_agents"`
+	DBDevices      int64 `json:"db_devices"`
+	DBMetricsRows  int64 `json:"db_metrics_rows"`
+	DBSessions     int64 `json:"db_sessions"`
+	DBUsers        int64 `json:"db_users"`
+	DBAuditEntries int64 `json:"db_audit_entries"`
+	DBAlerts       int64 `json:"db_alerts"`
+	DBActiveAlerts int64 `json:"db_active_alerts"`
+	DBCacheBytes   int64 `json:"db_cache_bytes"` // Release artifacts + installer bundles
 
 	// WebSocket
 	WSConnections int `json:"ws_connections"`
@@ -79,11 +79,11 @@ type ServerSnapshot struct {
 
 // ServerMetricsTimeSeries represents a time-series of server metrics for charting.
 type ServerMetricsTimeSeries struct {
-	StartTime   time.Time                   `json:"start_time"`
-	EndTime     time.Time                   `json:"end_time"`
-	Resolution  string                      `json:"resolution"` // "raw", "hourly", "daily"
-	PointCount  int                         `json:"point_count"`
-	Snapshots   []ServerMetricsSnapshot     `json:"snapshots,omitempty"`
+	StartTime   time.Time                    `json:"start_time"`
+	EndTime     time.Time                    `json:"end_time"`
+	Resolution  string                       `json:"resolution"` // "raw", "hourly", "daily"
+	PointCount  int                          `json:"point_count"`
+	Snapshots   []ServerMetricsSnapshot      `json:"snapshots,omitempty"`
 	ChartSeries map[string][]TimeSeriesPoint `json:"chart_series,omitempty"` // Pre-computed series for specific charts
 }
 

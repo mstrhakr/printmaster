@@ -11,8 +11,8 @@ import (
 
 // Server metrics retention policy
 const (
-	ServerMetricsRawRetention    = 7 * 24 * time.Hour  // 7 days
-	ServerMetricsHourlyRetention = 90 * 24 * time.Hour // 90 days
+	ServerMetricsRawRetention    = 7 * 24 * time.Hour   // 7 days
+	ServerMetricsHourlyRetention = 90 * 24 * time.Hour  // 90 days
 	ServerMetricsDailyRetention  = 365 * 24 * time.Hour // 1 year
 )
 
