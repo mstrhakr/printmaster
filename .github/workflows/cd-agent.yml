@@ -468,8 +468,8 @@ jobs:
           echo "Generating Packages for $arch..."
           mkdir -p dists/stable/main/binary-$arch
           
-          # Generate Packages file
-          (cd pool/main && dpkg-scanpackages --arch $arch . /dev/null) > dists/stable/main/binary-$arch/Packages 2>/dev/null || true
+          # Generate Packages file - run from repo root so paths are correct (pool/main/...)
+          dpkg-scanpackages --arch $arch pool/main /dev/null > dists/stable/main/binary-$arch/Packages 2>/dev/null || true
           
           # Compress
           gzip -9c dists/stable/main/binary-$arch/Packages > dists/stable/main/binary-$arch/Packages.gz
