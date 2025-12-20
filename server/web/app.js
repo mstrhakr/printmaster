@@ -12824,9 +12824,9 @@ function renderServerTimeSeriesCharts(timeseries) {
             series: [{ 
                 label: 'Heap Alloc', 
                 color: SERVER_SERIES_COLORS.heap_alloc, 
-                points: chartSeries.heap_alloc || buildSeriesFromSnapshots('heap_alloc', s => s.server?.heap_alloc),
+                points: chartSeries.heap_alloc || buildSeriesFromSnapshots('heap_alloc', s => s.server?.heap_alloc_mb),
             }],
-            formatY: formatBytes,
+            formatY: v => formatBytes(v * 1024 * 1024), // heap_alloc_mb is in MB
         },
         {
             id: 'server_db_chart',
@@ -12834,7 +12834,7 @@ function renderServerTimeSeriesCharts(timeseries) {
             series: [{ 
                 label: 'DB Size', 
                 color: SERVER_SERIES_COLORS.db_size, 
-                points: chartSeries.db_size || buildSeriesFromSnapshots('db_size', s => s.server?.db_size),
+                points: chartSeries.db_size || buildSeriesFromSnapshots('db_size', s => s.server?.db_size_bytes),
             }],
             formatY: formatBytes,
         },
@@ -12960,6 +12960,15 @@ function renderServerPanel(server) {
     `;
 }
 
+// Consumables donut chart colors matching the tier semantics
+const CONSUMABLE_TIER_COLORS = {
+    critical: '#f56565', // Red for critical
+    low: '#ecc94b',      // Yellow/amber for low
+    medium: '#48bb78',   // Green for medium
+    high: '#4299e1',     // Blue for high
+    unknown: '#718096',  // Gray for unknown
+};
+
 function renderConsumables(fleet) {
     const card = document.getElementById('metrics_consumables');
     if (!card) return;
@@ -12970,24 +12979,88 @@ function renderConsumables(fleet) {
     }
     const totals = fleet.totals || {};
     const consumables = fleet.consumables;
-    const totalDevices = Math.max(1, totals.devices || 1);
+    const totalDevices = (consumables.critical || 0) + (consumables.low || 0) + (consumables.medium || 0) + (consumables.high || 0) + (consumables.unknown || 0);
+    
+    if (totalDevices === 0) {
+        card.innerHTML += '<div class="muted-text">No devices with consumable data.</div>';
+        return;
+    }
+
     const tiers = [
-        { key: 'critical', label: 'Critical', value: consumables.critical || 0 },
-        { key: 'low', label: 'Low', value: consumables.low || 0 },
-        { key: 'medium', label: 'Medium', value: consumables.medium || 0 },
-        { key: 'high', label: 'High', value: consumables.high || 0 },
-        { key: 'unknown', label: 'Unknown', value: consumables.unknown || 0 },
+        { key: 'critical', label: 'Critical (<10%)', value: consumables.critical || 0, color: CONSUMABLE_TIER_COLORS.critical },
+        { key: 'low', label: 'Low (10-25%)', value: consumables.low || 0, color: CONSUMABLE_TIER_COLORS.low },
+        { key: 'medium', label: 'Medium (25-50%)', value: consumables.medium || 0, color: CONSUMABLE_TIER_COLORS.medium },
+        { key: 'high', label: 'High (>50%)', value: consumables.high || 0, color: CONSUMABLE_TIER_COLORS.high },
+        { key: 'unknown', label: 'Unknown', value: consumables.unknown || 0, color: CONSUMABLE_TIER_COLORS.unknown },
     ];
-    const bars = tiers.map(tier => {
-        const pct = Math.round((tier.value / totalDevices) * 100);
-        return `
-            <div class="consumable-bar" data-tier="${tier.key}">
-                <label><span>${tier.label}</span><span>${formatNumber(tier.value)} devices</span></label>
-                <progress value="${pct}" max="100"></progress>
+
+    // Build donut chart container with legend
+    card.innerHTML += `
+        <div class="consumables-chart-container" style="display:flex;gap:20px;align-items:center;padding:10px 0;">
+            <canvas id="consumables_donut_chart" width="160" height="160" style="flex-shrink:0;"></canvas>
+            <div class="consumables-legend" style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+                ${tiers.map(tier => `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="width:12px;height:12px;border-radius:2px;background:${tier.color};flex-shrink:0;"></span>
+                        <span style="color:rgba(255,255,255,0.7);">${tier.label}:</span>
+                        <strong>${formatNumber(tier.value)}</strong>
+                        <span style="color:rgba(255,255,255,0.5);">(${Math.round((tier.value / totalDevices) * 100)}%)</span>
+                    </div>
+                `).join('')}
             </div>
-        `;
-    }).join('');
-    card.innerHTML += `<div class="metrics-consumable-bars">${bars}</div>`;
+        </div>
+    `;
+
+    // Draw the donut chart
+    const canvas = document.getElementById('consumables_donut_chart');
+    if (canvas) {
+        drawConsumablesDonut(canvas, tiers, totalDevices);
+    }
+}
+
+function drawConsumablesDonut(canvas, tiers, total) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const size = 160;
+    canvas.width = size * dpr;
+    canvas.height = size * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, size, size);
+
+    const centerX = size / 2;
+    const centerY = size / 2;
+    const outerRadius = 70;
+    const innerRadius = 45;
+
+    let startAngle = -Math.PI / 2; // Start from top
+
+    // Draw segments
+    tiers.forEach(tier => {
+        if (tier.value === 0) return;
+        const sliceAngle = (tier.value / total) * Math.PI * 2;
+        const endAngle = startAngle + sliceAngle;
+
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, outerRadius, startAngle, endAngle);
+        ctx.arc(centerX, centerY, innerRadius, endAngle, startAngle, true);
+        ctx.closePath();
+        ctx.fillStyle = tier.color;
+        ctx.fill();
+
+        startAngle = endAngle;
+    });
+
+    // Draw center text showing total
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(formatNumber(total), centerX, centerY - 6);
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillText('devices', centerX, centerY + 10);
 }
 
 function renderMetricsActivity(aggregated) {
