@@ -479,3 +479,95 @@ func TestGetAggregatedMetrics_WithStatusMessages(t *testing.T) {
 		t.Errorf("expected 1 warning status, got %d", agg.Fleet.Statuses.Warning)
 	}
 }
+
+func TestGetAggregatedMetrics_DeltaHistoryWithPreSeed(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Register agent
+	agent := &Agent{
+		AgentID:         "test-agent",
+		Name:            "Test",
+		Platform:        "linux",
+		Version:         "1.0.0",
+		ProtocolVersion: "1",
+		Status:          "active",
+		Token:           "token",
+	}
+	s.RegisterAgent(ctx, agent)
+
+	// Create device
+	dev := &Device{AgentID: "test-agent"}
+	dev.Serial = "DEV001"
+	dev.IP = "192.168.1.1"
+	s.UpsertDevice(ctx, dev)
+
+	now := time.Now().UTC()
+
+	// Create a metric BEFORE the query window (2 hours ago)
+	// This should be used as the seed value for delta calculation
+	seedMetric := &MetricsSnapshot{
+		Serial:     "DEV001",
+		AgentID:    "test-agent",
+		Timestamp:  now.Add(-2 * time.Hour),
+		PageCount:  1000,
+		ColorPages: 300,
+		MonoPages:  700,
+		ScanCount:  50,
+	}
+	if err := s.SaveMetrics(ctx, seedMetric); err != nil {
+		t.Fatalf("SaveMetrics (seed): %v", err)
+	}
+
+	// Create a metric WITHIN the query window (30 minutes ago)
+	windowMetric := &MetricsSnapshot{
+		Serial:     "DEV001",
+		AgentID:    "test-agent",
+		Timestamp:  now.Add(-30 * time.Minute),
+		PageCount:  1100, // +100 pages
+		ColorPages: 350,  // +50 color
+		MonoPages:  750,  // +50 mono
+		ScanCount:  60,   // +10 scans
+	}
+	if err := s.SaveMetrics(ctx, windowMetric); err != nil {
+		t.Fatalf("SaveMetrics (window): %v", err)
+	}
+
+	// Query for the last hour only - the seed metric is outside this window
+	since := now.Add(-1 * time.Hour)
+
+	agg, err := s.GetAggregatedMetrics(ctx, since, nil)
+	if err != nil {
+		t.Fatalf("GetAggregatedMetrics: %v", err)
+	}
+
+	// The history should contain delta values calculated from the pre-seeded metric
+	// Even though the seed metric is outside the query window
+	if len(agg.Fleet.History.TotalImpressions) == 0 {
+		t.Fatal("expected TotalImpressions history to have data, got empty")
+	}
+
+	// Check that we got the delta (100 pages) in the bucket
+	totalDelta := int64(0)
+	for _, pt := range agg.Fleet.History.TotalImpressions {
+		totalDelta += pt.Value
+	}
+	if totalDelta != 100 {
+		t.Errorf("expected total delta of 100 pages, got %d", totalDelta)
+	}
+
+	// Also verify color delta
+	colorDelta := int64(0)
+	for _, pt := range agg.Fleet.History.ColorImpressions {
+		colorDelta += pt.Value
+	}
+	if colorDelta != 50 {
+		t.Errorf("expected color delta of 50 pages, got %d", colorDelta)
+	}
+}

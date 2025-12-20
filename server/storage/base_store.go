@@ -4257,6 +4257,51 @@ func (s *BaseStore) GetAggregatedMetrics(ctx context.Context, since time.Time, t
 	buckets := make(map[time.Time]*fleetMetricBucket)
 	lastValues := make(map[string]*MetricsSnapshot)
 
+	// Pre-seed lastValues with the most recent metric BEFORE the time window for each device
+	// This allows us to compute deltas for the first metric within the window
+	seedQuery := `
+		SELECT m.serial, m.timestamp, m.page_count, m.color_pages, m.mono_pages, m.scan_count
+		FROM metrics_history m
+		INNER JOIN (
+			SELECT serial, MAX(timestamp) as max_ts
+			FROM metrics_history
+			WHERE timestamp < ?
+			GROUP BY serial
+		) latest ON m.serial = latest.serial AND m.timestamp = latest.max_ts
+	`
+	seedRows, err := s.queryContext(ctx, seedQuery, since.UTC())
+	if err != nil {
+		return nil, err
+	}
+	for seedRows.Next() {
+		var (
+			serial     string
+			tsStr      string
+			pc, cp, mp int64
+			sc         int64
+		)
+		if err := seedRows.Scan(&serial, &tsStr, &pc, &cp, &mp, &sc); err != nil {
+			seedRows.Close()
+			return nil, err
+		}
+		if _, ok := serialMap[serial]; !ok {
+			continue
+		}
+		ts, err := time.Parse(time.RFC3339Nano, tsStr)
+		if err != nil {
+			continue
+		}
+		lastValues[serial] = &MetricsSnapshot{
+			Serial:     serial,
+			Timestamp:  ts,
+			PageCount:  int(pc),
+			ColorPages: int(cp),
+			MonoPages:  int(mp),
+			ScanCount:  int(sc),
+		}
+	}
+	seedRows.Close()
+
 	// Build dynamic query with placeholder conversion
 	query := `
 		SELECT m.timestamp, m.serial, m.agent_id, m.page_count, m.color_pages, m.mono_pages, m.scan_count, m.toner_levels
@@ -4264,7 +4309,7 @@ func (s *BaseStore) GetAggregatedMetrics(ctx context.Context, since time.Time, t
 		JOIN agents a ON m.agent_id = a.agent_id
 		WHERE m.timestamp >= ?
 	`
-	args := []interface{}{since.UTC().Format(time.RFC3339Nano)}
+	args := []interface{}{since.UTC()}
 	if len(tenantIDs) > 0 {
 		query += ` AND a.tenant_id IN (` + s.buildPlaceholderListFrom(len(tenantIDs), 2) + `)`
 		for _, id := range tenantIDs {

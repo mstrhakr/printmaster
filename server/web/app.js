@@ -12982,29 +12982,55 @@ function renderFleetCharts(aggregated) {
     const grid = document.getElementById('metrics_chart_grid');
     if (!grid) return;
     const history = aggregated?.fleet?.history;
+    const totals = aggregated?.fleet?.totals || {};
     if (!history) {
         grid.innerHTML = '<div class="metric-chart-card loading">No fleet history yet.</div>';
         return;
     }
 
+    // Helper to compute cumulative series from rate data
+    // Takes rate points and lifetime total, works backwards to compute cumulative at each point
+    const toCumulativeSeries = (ratePoints, lifetimeTotal) => {
+        if (!Array.isArray(ratePoints) || ratePoints.length === 0) return [];
+        // Sum all deltas to get total printed during this window
+        const windowTotal = ratePoints.reduce((sum, pt) => sum + (pt.value || 0), 0);
+        // Starting cumulative is (lifetime - window total)
+        let cumulative = lifetimeTotal - windowTotal;
+        return ratePoints.map(pt => {
+            cumulative += pt.value || 0;
+            return { time: pt.time, value: cumulative };
+        });
+    };
+
+    const totalRatePoints = toSeriesPoints(history.total_impressions || history.TotalImpressions);
+    const colorRatePoints = toSeriesPoints(history.color_impressions || history.ColorImpressions);
+    const monoRatePoints = toSeriesPoints(history.mono_impressions || history.MonoImpressions);
+    const scanRatePoints = toSeriesPoints(history.scan_volume || history.ScanVolume);
+
     const cards = [
         {
             id: 'fleet_total_chart',
             title: 'Total Impressions',
-            series: [{ label: 'Total', color: FLEET_SERIES_COLORS[0], points: toSeriesPoints(history.total_impressions || history.TotalImpressions) }],
+            rateSeries: [{ label: 'Hourly Rate', color: FLEET_SERIES_COLORS[0], points: totalRatePoints }],
+            cumulativeSeries: [{ label: 'Cumulative', color: '#9f7aea', points: toCumulativeSeries(totalRatePoints, totals.page_count || 0) }],
         },
         {
             id: 'fleet_color_mono_chart',
             title: 'Color vs Mono',
-            series: [
-                { label: 'Color', color: FLEET_SERIES_COLORS[1], points: toSeriesPoints(history.color_impressions || history.ColorImpressions) },
-                { label: 'Mono', color: FLEET_SERIES_COLORS[2], points: toSeriesPoints(history.mono_impressions || history.MonoImpressions) },
+            rateSeries: [
+                { label: 'Color/hr', color: FLEET_SERIES_COLORS[1], points: colorRatePoints },
+                { label: 'Mono/hr', color: FLEET_SERIES_COLORS[2], points: monoRatePoints },
+            ],
+            cumulativeSeries: [
+                { label: 'Color Total', color: '#00bcd4', points: toCumulativeSeries(colorRatePoints, totals.color_pages || 0) },
+                { label: 'Mono Total', color: '#78909c', points: toCumulativeSeries(monoRatePoints, totals.mono_pages || 0) },
             ],
         },
         {
             id: 'fleet_scan_chart',
             title: 'Scan Volume',
-            series: [{ label: 'Scans', color: FLEET_SERIES_COLORS[3], points: toSeriesPoints(history.scan_volume || history.ScanVolume) }],
+            rateSeries: [{ label: 'Scans/hr', color: FLEET_SERIES_COLORS[3], points: scanRatePoints }],
+            cumulativeSeries: [{ label: 'Total Scans', color: '#26a69a', points: toCumulativeSeries(scanRatePoints, totals.scan_count || 0) }],
         },
     ];
 
@@ -13018,7 +13044,7 @@ function renderFleetCharts(aggregated) {
     cards.forEach(card => {
         const canvas = document.getElementById(card.id);
         if (canvas) {
-            drawFleetChart(canvas, card.series, { label: card.title });
+            drawFleetChartDualAxis(canvas, card.rateSeries, card.cumulativeSeries, { label: card.title });
         }
     });
 }
@@ -13686,6 +13712,172 @@ function drawFleetChart(canvas, seriesList, options) {
         const value = minValue + ((maxValue - minValue) / 4) * (4 - i);
         const y = padding.top + (height / 4) * i;
         ctx.fillText(formatY(value), padding.left - 6, y + 3);
+    }
+}
+
+/**
+ * Draw a fleet chart with dual Y-axes: rates on left, cumulative totals on right.
+ * @param {HTMLCanvasElement} canvas - The canvas element to draw on
+ * @param {Array} rateSeriesList - Series for hourly rate data (left Y-axis, solid lines)
+ * @param {Array} cumulativeSeriesList - Series for cumulative totals (right Y-axis, dashed lines)
+ * @param {Object} options - Optional label and formatting options
+ */
+function drawFleetChartDualAxis(canvas, rateSeriesList, cumulativeSeriesList, options) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+
+    const formatY = options?.formatY || ((v) => formatNumber(Math.round(v)));
+
+    const ratePoints = rateSeriesList.flatMap(s => s.points || []);
+    const cumPoints = cumulativeSeriesList.flatMap(s => s.points || []);
+    const allPoints = [...ratePoints, ...cumPoints];
+
+    if (allPoints.length === 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.font = '12px sans-serif';
+        ctx.fillText('No data', 12, rect.height / 2);
+        return;
+    }
+
+    const minTime = Math.min(...allPoints.map(p => p.time));
+    const maxTime = Math.max(...allPoints.map(p => p.time));
+
+    // Rate axis (left) - for hourly deltas
+    const rateMin = 0;
+    const rateMax = Math.max(1, ...ratePoints.map(p => p.value));
+
+    // Cumulative axis (right) - for running totals  
+    const cumMin = cumPoints.length > 0 ? Math.min(...cumPoints.map(p => p.value)) : 0;
+    const cumMax = cumPoints.length > 0 ? Math.max(...cumPoints.map(p => p.value)) : 1;
+    // Add 5% padding to cumulative range for visual clarity
+    const cumRange = cumMax - cumMin || 1;
+    const cumMinAdj = Math.max(0, cumMin - cumRange * 0.05);
+    const cumMaxAdj = cumMax + cumRange * 0.05;
+
+    const padding = { top: 20, right: 65, bottom: 26, left: 60 }; // Wider right margin for second axis
+    const width = rect.width - padding.left - padding.right;
+    const height = rect.height - padding.top - padding.bottom;
+
+    const mapX = (time) => padding.left + ((time - minTime) / Math.max(1, maxTime - minTime)) * width;
+    const mapYRate = (value) => padding.top + height - ((value - rateMin) / Math.max(1, rateMax - rateMin)) * height;
+    const mapYCum = (value) => padding.top + height - ((value - cumMinAdj) / Math.max(1, cumMaxAdj - cumMinAdj)) * height;
+
+    // Draw horizontal grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+        const y = padding.top + (height / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(padding.left + width, y);
+        ctx.stroke();
+    }
+
+    // Draw chart border
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath();
+    ctx.moveTo(padding.left, padding.top);
+    ctx.lineTo(padding.left, padding.top + height);
+    ctx.lineTo(padding.left + width, padding.top + height);
+    ctx.lineTo(padding.left + width, padding.top);
+    ctx.stroke();
+
+    // Draw cumulative series first (dashed lines, behind rate lines)
+    cumulativeSeriesList.forEach((series, idx) => {
+        const color = series.color || '#9f7aea';
+        const pts = (series.points || []).filter(p => Number.isFinite(p.time) && Number.isFinite(p.value));
+        if (pts.length === 0) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        pts.forEach((pt, i) => {
+            const x = mapX(pt.time);
+            const y = mapYCum(pt.value);
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+        ctx.setLineDash([]);
+    });
+
+    // Draw rate series (solid lines, on top)
+    rateSeriesList.forEach((series, idx) => {
+        const color = series.color || FLEET_SERIES_COLORS[idx % FLEET_SERIES_COLORS.length];
+        const pts = (series.points || []).filter(p => Number.isFinite(p.time) && Number.isFinite(p.value));
+        if (pts.length === 0) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        pts.forEach((pt, i) => {
+            const x = mapX(pt.time);
+            const y = mapYRate(pt.value);
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+    });
+
+    // Left Y-axis labels (rate)
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+        const value = rateMin + ((rateMax - rateMin) / 4) * (4 - i);
+        const y = padding.top + (height / 4) * i;
+        ctx.fillText(formatY(value), padding.left - 6, y + 3);
+    }
+
+    // Right Y-axis labels (cumulative)
+    ctx.fillStyle = 'rgba(159, 122, 234, 0.7)'; // Purple tint to match cumulative lines
+    ctx.textAlign = 'left';
+    for (let i = 0; i <= 4; i++) {
+        const value = cumMinAdj + ((cumMaxAdj - cumMinAdj) / 4) * (4 - i);
+        const y = padding.top + (height / 4) * i;
+        ctx.fillText(formatY(value), padding.left + width + 6, y + 3);
+    }
+
+    // Legend
+    const legendY = padding.top - 6;
+    ctx.font = '9px sans-serif';
+    let legendX = padding.left;
+
+    // Rate legend items
+    rateSeriesList.forEach((series, idx) => {
+        if (!series.label) return;
+        const color = series.color || FLEET_SERIES_COLORS[idx % FLEET_SERIES_COLORS.length];
+        ctx.fillStyle = color;
+        ctx.fillRect(legendX, legendY - 6, 12, 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.textAlign = 'left';
+        ctx.fillText(series.label, legendX + 15, legendY);
+        legendX += ctx.measureText(series.label).width + 25;
+    });
+
+    // Cumulative legend item (just one generic indicator)
+    if (cumulativeSeriesList.length > 0 && cumulativeSeriesList.some(s => s.points?.length > 0)) {
+        ctx.strokeStyle = 'rgba(159, 122, 234, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(legendX, legendY - 5);
+        ctx.lineTo(legendX + 12, legendY - 5);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillText('Cumulative →', legendX + 15, legendY);
     }
 }
 
