@@ -1214,9 +1214,6 @@ func (s *BaseStore) GetUserByUsername(ctx context.Context, username string) (*Us
 	var u User
 	var tenantID, email sql.NullString
 	err := s.queryRowContext(ctx, query, username).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenantID, &email, &u.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -1237,9 +1234,6 @@ func (s *BaseStore) GetUserByID(ctx context.Context, id int64) (*User, error) {
 	var u User
 	var tenantID, email sql.NullString
 	err := s.queryRowContext(ctx, query, id).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenantID, &email, &u.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
@@ -1258,9 +1252,6 @@ func (s *BaseStore) GetUserByEmail(ctx context.Context, email string) (*User, er
 	var u User
 	var tenantID, emailVal sql.NullString
 	err := s.queryRowContext(ctx, query, email).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &tenantID, &emailVal, &u.CreatedAt)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}

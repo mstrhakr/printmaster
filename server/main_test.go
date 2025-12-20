@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -1387,8 +1389,8 @@ func TestDisplayNameForAgent(t *testing.T) {
 }
 
 // TestAdminBootstrapLogic verifies the admin user bootstrap pattern from main.go.
-// This test ensures that the logic correctly handles the case where GetUserByUsername
-// returns (nil, nil) for a non-existent user, and creates the admin user only in that case.
+// GetUserByUsername returns sql.ErrNoRows for a non-existent user, which
+// bootstrapAdminUser in main.go handles by creating the admin user.
 func TestAdminBootstrapLogic(t *testing.T) {
 	t.Parallel()
 
@@ -1403,18 +1405,19 @@ func TestAdminBootstrapLogic(t *testing.T) {
 	adminPass := "testpass123"
 
 	t.Run("CreatesAdminWhenNoUserExists", func(t *testing.T) {
-		// Simulate the bootstrap logic from main.go (after fix)
+		// Simulate the bootstrap logic from main.go
 		existingUser, err := store.GetUserByUsername(ctx, adminUser)
-		if err != nil {
-			t.Fatalf("GetUserByUsername failed: %v", err)
+		// sql.ErrNoRows means user doesn't exist - this is expected
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("GetUserByUsername failed with unexpected error: %v", err)
 		}
 
-		// This is the critical check: non-existent users return (nil, nil), not an error
+		// If error is sql.ErrNoRows, existingUser should be nil
 		if existingUser != nil {
 			t.Fatal("Expected nil for non-existent user, got a user")
 		}
 
-		// Since user is nil, create admin
+		// Since user doesn't exist, create admin
 		u := &storage.User{Username: adminUser, Role: storage.RoleAdmin}
 		if err := store.CreateUser(ctx, u, adminPass); err != nil {
 			t.Fatalf("CreateUser failed: %v", err)
@@ -1455,11 +1458,11 @@ func TestAdminBootstrapLogic(t *testing.T) {
 		}
 	})
 
-	t.Run("GetUserByUsernameReturnsNilNotErrorForMissingUser", func(t *testing.T) {
-		// This is the contract that was incorrectly used in the original bug
+	t.Run("GetUserByUsernameReturnsSqlErrNoRowsForMissingUser", func(t *testing.T) {
+		// GetUserByUsername returns sql.ErrNoRows for non-existent users
 		nonExistentUser, err := store.GetUserByUsername(ctx, "nonexistent_user_12345")
-		if err != nil {
-			t.Fatalf("GetUserByUsername should not return error for missing user, got: %v", err)
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Fatalf("GetUserByUsername should return sql.ErrNoRows for missing user, got: %v", err)
 		}
 		if nonExistentUser != nil {
 			t.Error("GetUserByUsername should return nil user for non-existent user")

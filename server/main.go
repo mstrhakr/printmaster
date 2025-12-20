@@ -741,10 +741,11 @@ func runServer(ctx context.Context, configFlag string) {
 	}
 
 	bctx := context.Background()
-	if existingUser, err := serverStore.GetUserByUsername(bctx, adminUser); err != nil {
+	existingUser, err := serverStore.GetUserByUsername(bctx, adminUser)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		logWarn("Failed to check for existing admin user", "user", adminUser, "error", err)
 	} else if existingUser == nil {
-		// create admin user
+		// create admin user (either sql.ErrNoRows or nil user)
 		u := &storage.User{Username: adminUser, Role: storage.RoleAdmin}
 		if err := serverStore.CreateUser(bctx, u, adminPass); err != nil {
 			logWarn("Failed to create initial admin user", "user", adminUser, "error", err)

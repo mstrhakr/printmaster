@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 )
 
@@ -89,8 +91,8 @@ func TestUserLifecycle(t *testing.T) {
 	}
 
 	got, err = s.GetUserByUsername(ctx, "testuser")
-	if err != nil {
-		t.Fatalf("GetUserByUsername after delete: %v", err)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("GetUserByUsername after delete: expected sql.ErrNoRows, got err=%v", err)
 	}
 	if got != nil {
 		t.Error("expected nil after delete")
@@ -107,19 +109,19 @@ func TestUserNotFound(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Get non-existent user by username
+	// Get non-existent user by username should return sql.ErrNoRows
 	got, err := s.GetUserByUsername(ctx, "nonexistent")
-	if err != nil {
-		t.Fatalf("GetUserByUsername: %v", err)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("GetUserByUsername (nonexistent): expected sql.ErrNoRows, got err=%v", err)
 	}
 	if got != nil {
 		t.Error("expected nil for non-existent username")
 	}
 
-	// Get non-existent user by ID
+	// Get non-existent user by ID should return sql.ErrNoRows
 	gotByID, err := s.GetUserByID(ctx, 999999)
-	if err != nil {
-		t.Fatalf("GetUserByID: %v", err)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("GetUserByID (nonexistent): expected sql.ErrNoRows, got err=%v", err)
 	}
 	if gotByID != nil {
 		t.Error("expected nil for non-existent ID")
@@ -333,10 +335,10 @@ func TestGetUserByEmail(t *testing.T) {
 		t.Errorf("username mismatch: got=%q", got.Username)
 	}
 
-	// Non-existent email
+	// Non-existent email should return sql.ErrNoRows
 	got, err = s.GetUserByEmail(ctx, "nonexistent@example.com")
-	if err != nil {
-		t.Fatalf("GetUserByEmail (nonexistent): %v", err)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("GetUserByEmail (nonexistent): expected sql.ErrNoRows, got err=%v", err)
 	}
 	if got != nil {
 		t.Error("expected nil for non-existent email")

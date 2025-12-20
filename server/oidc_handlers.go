@@ -713,9 +713,17 @@ func maskSecret(s string) string {
 func resolveOIDCUser(ctx context.Context, provider *storage.OIDCProvider, claims *oidcClaims) (*storage.User, error) {
 	link, err := serverStore.GetOIDCLink(ctx, provider.Slug, claims.Subject)
 	if err == nil {
-		return serverStore.GetUserByID(ctx, link.UserID)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
+		user, err := serverStore.GetUserByID(ctx, link.UserID)
+		if err == nil {
+			return user, nil
+		}
+		// If user was deleted but link still exists, fall through to create new user
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		// Clean up orphaned link
+		_ = serverStore.DeleteOIDCLink(ctx, provider.Slug, claims.Subject)
+	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 
