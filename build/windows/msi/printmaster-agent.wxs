@@ -28,7 +28,13 @@
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
-    <CustomAction Id="StartService"
+    <CustomAction Id="StartServiceFreshInstall"
+                  FileKey="AgentBinaryFile"
+                  ExeCommand="--service start --quiet"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+    <CustomAction Id="StartServiceAfterUpgrade"
                   FileKey="AgentBinaryFile"
                   ExeCommand="--service start --quiet"
                   Execute="deferred"
@@ -53,9 +59,9 @@
       <Custom Action="StopService" Before="InstallValidate">Installed OR WIX_UPGRADE_DETECTED</Custom>
       <!-- Fresh install: install and start service -->
       <Custom Action="InstallService" After="InstallFiles">NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
-      <Custom Action="StartService" After="InstallService">NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
+      <Custom Action="StartServiceFreshInstall" After="InstallService">NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
       <!-- Upgrade: just start service (it's already installed) -->
-      <Custom Action="StartService" After="InstallFiles">WIX_UPGRADE_DETECTED</Custom>
+      <Custom Action="StartServiceAfterUpgrade" After="InstallFiles">WIX_UPGRADE_DETECTED</Custom>
       <!-- Uninstall: remove service -->
       <Custom Action="UninstallService" Before="RemoveFiles">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
     </InstallExecuteSequence>
