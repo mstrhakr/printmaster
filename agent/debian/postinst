@@ -25,18 +25,21 @@ case "$1" in
             chmod 640 /etc/printmaster/agent.toml
         fi
 
-        # Reload systemd and enable service
+        # Reload systemd, enable and start service
         systemctl daemon-reload
         systemctl enable printmaster-agent.service || true
+        systemctl start printmaster-agent.service || true
         
         echo ""
-        echo "PrintMaster Agent installed successfully!"
-        echo ""
-        echo "To start the service:"
-        echo "  sudo systemctl start printmaster-agent"
+        echo "PrintMaster Agent installed and started successfully!"
         echo ""
         echo "Configuration file: /etc/printmaster/agent.toml"
         echo "Web UI: http://localhost:8000"
+        echo ""
+        echo "Useful commands:"
+        echo "  sudo systemctl status printmaster-agent   # Check status"
+        echo "  sudo systemctl restart printmaster-agent  # Restart service"
+        echo "  journalctl -u printmaster-agent -f        # View logs"
         echo ""
         ;;
     abort-upgrade|abort-remove|abort-deconfigure)

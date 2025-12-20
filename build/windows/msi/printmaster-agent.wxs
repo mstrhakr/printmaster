@@ -28,6 +28,12 @@
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
+    <CustomAction Id="StartService"
+                  FileKey="AgentBinaryFile"
+                  ExeCommand="--service start --quiet"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
     <CustomAction Id="StopService"
                   FileKey="AgentBinaryFile"
                   ExeCommand="--service stop --quiet"
@@ -41,10 +47,17 @@
                   Impersonate="no"
                   Return="ignore" />
 
+    <!-- WIX_UPGRADE_DETECTED is set when upgrading from an older version -->
     <InstallExecuteSequence>
-      <Custom Action="InstallService" After="InstallFiles">NOT Installed</Custom>
-      <Custom Action="StopService" Before="UninstallService">REMOVE~="ALL"</Custom>
-      <Custom Action="UninstallService" Before="RemoveFiles">REMOVE~="ALL"</Custom>
+      <!-- Stop service before upgrade or uninstall -->
+      <Custom Action="StopService" Before="InstallValidate">Installed OR WIX_UPGRADE_DETECTED</Custom>
+      <!-- Fresh install: install and start service -->
+      <Custom Action="InstallService" After="InstallFiles">NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
+      <Custom Action="StartService" After="InstallService">NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
+      <!-- Upgrade: just start service (it's already installed) -->
+      <Custom Action="StartService" After="InstallFiles">WIX_UPGRADE_DETECTED</Custom>
+      <!-- Uninstall: remove service -->
+      <Custom Action="UninstallService" Before="RemoveFiles">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
     </InstallExecuteSequence>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
