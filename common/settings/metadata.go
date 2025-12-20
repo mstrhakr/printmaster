@@ -284,6 +284,43 @@ func DefaultSchema() Schema {
 			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
 			Default:     defaults.Features.AssetIDRegex,
 		},
+		// ========== Spooler / Local Printer Tracking (fleet-managed) ==========
+		{
+			Path:        "spooler.enabled",
+			Type:        FieldTypeBool,
+			Title:       "Enable Local Printer Tracking",
+			Description: "Monitor locally-attached printers (USB, shared) via the OS print spooler.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Spooler.Enabled,
+		},
+		{
+			Path:        "spooler.poll_interval_seconds",
+			Type:        FieldTypeNumber,
+			Title:       "Poll Interval (seconds)",
+			Description: "How often to check for new print jobs from the spooler.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Spooler.PollIntervalSeconds,
+		},
+		{
+			Path:        "spooler.include_network_printers",
+			Type:        FieldTypeBool,
+			Title:       "Include Network Printers",
+			Description: "Track printers with network ports (typically already tracked via SNMP).",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Spooler.IncludeNetworkPrinters,
+		},
+		{
+			Path:        "spooler.include_virtual_printers",
+			Type:        FieldTypeBool,
+			Title:       "Include Virtual Printers",
+			Description: "Track PDF writers and other virtual print drivers.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Spooler.IncludeVirtualPrinters,
+		},
 		// ========== Logging (agent-local) ==========
 		{
 			Path:        "logging.level",

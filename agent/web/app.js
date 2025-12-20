@@ -1,5 +1,5 @@
 // Global settings placeholder so sections can stash the latest snapshot.
-const globalSettings = { discovery: {}, snmp: {}, features: {}, logging: {}, web: {} };
+const globalSettings = { discovery: {}, snmp: {}, features: {}, spooler: {}, logging: {}, web: {} };
 
 // Cached header info for display
 let cachedAgentVersion = null;
@@ -3539,6 +3539,7 @@ function loadSettings() {
         const log = s.logging || {};
         const disc = s.discovery || {};
         const web = s.web || {};
+        const spooler = s.spooler || {};
 
         // Track which sections are server-managed
         serverManagedSections = new Set(s.managed_sections || []);
@@ -3547,6 +3548,7 @@ function loadSettings() {
         // Store web settings globally for use in device modal rendering
         globalSettings.web = web;
         globalSettings.features = feat;
+        globalSettings.spooler = spooler;
 
         // Populate all form fields from settings
         // Logging settings
@@ -3694,6 +3696,29 @@ function loadSettings() {
             if (showSavedCheckbox) {
                 showSavedCheckbox.checked = true;
             }
+        }
+
+        // Populate spooler/local printer tracking settings
+        const spoolerEnabledEl = document.getElementById('spooler_enabled');
+        if (spoolerEnabledEl) {
+            spoolerEnabledEl.checked = spooler.enabled !== false;
+        }
+        const spoolerPollIntervalEl = document.getElementById('spooler_poll_interval');
+        if (spoolerPollIntervalEl) {
+            spoolerPollIntervalEl.value = spooler.poll_interval_seconds || 30;
+        }
+        const spoolerIncludeNetworkEl = document.getElementById('spooler_include_network');
+        if (spoolerIncludeNetworkEl) {
+            spoolerIncludeNetworkEl.checked = spooler.include_network_printers === true;
+        }
+        const spoolerIncludeVirtualEl = document.getElementById('spooler_include_virtual');
+        if (spoolerIncludeVirtualEl) {
+            spoolerIncludeVirtualEl.checked = spooler.include_virtual_printers === true;
+        }
+        // Show/hide spooler options based on enabled state
+        const spoolerOptionsContainer = document.getElementById('spooler_options_container');
+        if (spoolerOptionsContainer) {
+            spoolerOptionsContainer.style.display = spooler.enabled !== false ? 'block' : 'none';
         }
 
         updatePrinters();
@@ -4148,6 +4173,19 @@ function addAutoSaveHandlers() {
     // Remove IP scanning handlers when autosave disabled
     document.getElementById('metrics_rescan_interval')?.addEventListener('change', window.__settingsChangeHandler);
 
+    // Spooler/local printer tracking settings
+    window.__spoolerEnabledHandler = function() {
+        const spoolerOptionsContainer = document.getElementById('spooler_options_container');
+        if (spoolerOptionsContainer) {
+            spoolerOptionsContainer.style.display = this.checked ? 'block' : 'none';
+        }
+        saveAllSettings().then(() => showAutosaveFeedback());
+    };
+    document.getElementById('spooler_enabled')?.addEventListener('change', window.__spoolerEnabledHandler);
+    document.getElementById('spooler_poll_interval')?.addEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('spooler_include_network')?.addEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('spooler_include_virtual')?.addEventListener('change', window.__settingsChangeHandler);
+
     // Developer settings
     document.getElementById('dev_debug_logging')?.addEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_dump_parse_debug')?.addEventListener('change', window.__settingsChangeHandler);
@@ -4193,6 +4231,13 @@ function removeAutoSaveHandlers() {
     document.getElementById('metrics_rescan_enabled')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('ip_scanning_enabled')?.removeEventListener('change', window.__ipScanningHandler);
     document.getElementById('metrics_rescan_interval')?.removeEventListener('change', window.__settingsChangeHandler);
+
+    // Spooler settings
+    const spoolerEnabledEl = document.getElementById('spooler_enabled');
+    if (spoolerEnabledEl && window.__spoolerEnabledHandler) { spoolerEnabledEl.removeEventListener('change', window.__spoolerEnabledHandler); }
+    document.getElementById('spooler_poll_interval')?.removeEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('spooler_include_network')?.removeEventListener('change', window.__settingsChangeHandler);
+    document.getElementById('spooler_include_virtual')?.removeEventListener('change', window.__settingsChangeHandler);
 
     document.getElementById('dev_debug_logging')?.removeEventListener('change', window.__settingsChangeHandler);
     document.getElementById('dev_dump_parse_debug')?.removeEventListener('change', window.__settingsChangeHandler);
@@ -4295,10 +4340,25 @@ async function saveAllSettings(btn) {
             custom_key_path: document.getElementById('custom_key_path')?.value || ''
         };
 
+        // Compose spooler/local printer tracking settings (fleet-managed)
+        const spoolerSettings = {
+            enabled: document.getElementById('spooler_enabled')?.checked ?? true,
+            poll_interval_seconds: (function(){
+                const el = document.getElementById('spooler_poll_interval');
+                let iv = el ? parseInt(el.value, 10) : NaN;
+                if (isNaN(iv)) iv = 30; // default
+                if (iv < 5) iv = 5;
+                if (iv > 300) iv = 300;
+                return iv;
+            })(),
+            include_network_printers: document.getElementById('spooler_include_network')?.checked ?? false,
+            include_virtual_printers: document.getElementById('spooler_include_virtual')?.checked ?? false
+        };
+
         const rUnified = await fetch('/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ discovery: discoverySettings, snmp: snmpSettings, features: featuresSettings, logging: loggingSettings, web: webSettings })
+            body: JSON.stringify({ discovery: discoverySettings, snmp: snmpSettings, features: featuresSettings, spooler: spoolerSettings, logging: loggingSettings, web: webSettings })
         });
         if (!rUnified.ok) {
             const t = await rUnified.text();

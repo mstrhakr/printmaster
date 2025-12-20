@@ -400,6 +400,40 @@
                 </div>
             </div>
 
+            <!-- Local Printer Tracking -->
+            <div class="panel">
+                <h4 style="margin-top:0;color:var(--highlight)">Local Printer Tracking</h4>
+                <div style="color:var(--muted);font-size:12px;margin-bottom:12px;">
+                    Monitor locally-attached printers (USB, shared) via the OS print spooler. Tracks page counts including color vs mono.
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <label style="display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="spooler_enabled" />
+                        <span>Enable Local Printer Tracking</span>
+                    </label>
+                    <div id="spooler_options_container" style="display:none;margin-left:20px;margin-top:4px;">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:120px;">Poll Interval:</span>
+                            <input type="number" id="spooler_poll_interval" min="5" max="300" step="5" value="30"
+                                style="width:80px;" />
+                            <span style="color:var(--muted);font-size:12px;">seconds (5-300)</span>
+                        </label>
+                        <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px;">
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="spooler_include_network" />
+                                <span>Include network printers</span>
+                                <span style="color:var(--muted);font-size:12px;">(typically already tracked via SNMP)</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;">
+                                <input type="checkbox" id="spooler_include_virtual" />
+                                <span>Include virtual printers</span>
+                                <span style="color:var(--muted);font-size:12px;">(PDF writers, XPS, etc.)</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- SNMP Settings -->
             <div class="panel advanced-setting">
                 <h4 style="margin-top:0;color:var(--highlight)">SNMP Settings</h4>

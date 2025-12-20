@@ -9617,10 +9617,11 @@ const SETTINGS_SECTION_LABELS = {
     discovery: 'Discovery',
     snmp: 'SNMP',
     features: 'Features',
+    spooler: 'Local Printer Tracking',
     logging: 'Logging',
     web: 'Web Server'
 };
-const SETTINGS_SECTION_ORDER = ['discovery', 'snmp', 'features', 'logging', 'web'];
+const SETTINGS_SECTION_ORDER = ['discovery', 'snmp', 'features', 'spooler', 'logging', 'web'];
 
 // Subsection groupings for discovery section
 // Fields are grouped in order - any field not listed goes to "Other"
@@ -10694,6 +10695,7 @@ function renderManagedSectionsPanel() {
             ${renderManagedSectionToggle('discovery', 'Discovery', 'IP scanning, probe methods, and auto-discovery behavior')}
             ${renderManagedSectionToggle('snmp', 'SNMP', 'Community strings and SNMP protocol settings')}
             ${renderManagedSectionToggle('features', 'Features', 'Feature flags and optional capabilities')}
+            ${renderManagedSectionToggle('spooler', 'Local Printers', 'USB/local printer tracking via OS spooler')}
         </div>
     `;
     // Bind toggle events
@@ -10719,6 +10721,7 @@ function renderTenantEnforcementPanel() {
             ${renderTenantEnforcementToggle('discovery', 'Discovery', 'Prevent per-agent changes to discovery behavior')}
             ${renderTenantEnforcementToggle('snmp', 'SNMP', 'Prevent per-agent changes to SNMP settings')}
             ${renderTenantEnforcementToggle('features', 'Features', 'Prevent per-agent changes to feature flags')}
+            ${renderTenantEnforcementToggle('spooler', 'Local Printers', 'Prevent per-agent changes to spooler settings')}
         </div>
     `;
     panel.querySelectorAll('.tenant-enforcement-toggle input').forEach(input => {

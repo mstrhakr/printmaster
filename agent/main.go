@@ -103,6 +103,9 @@ var proxySessionCache = proxy.NewSessionCache()
 var agentSessions = newAgentSessionManager()
 var agentAuth *agentAuthManager
 
+// globalLocalPrinterStore holds reference to the local printer store for runtime settings changes
+var globalLocalPrinterStore storage.LocalPrinterStore
+
 // AgentPrincipal represents an authenticated UI context (placeholder for future auth)
 type AgentPrincipal struct {
 	Username  string   `json:"username"`
@@ -1238,6 +1241,56 @@ func applyFeaturesSettingsEffects(feat *pmsettings.FeaturesSettings) {
 	}
 	if appLogger != nil && effective != previous {
 		appLogger.Info("Epson remote mode updated", "enabled", effective, "config_override", configEnabled)
+	}
+}
+
+func applySpoolerSettings(spooler *pmsettings.SpoolerSettings) {
+	if spooler == nil {
+		return
+	}
+	// Stop the current worker if running
+	StopSpoolerWorker()
+
+	if !spooler.Enabled {
+		if appLogger != nil {
+			appLogger.Info("Spooler tracking disabled")
+		}
+		return
+	}
+
+	// Start with new config if enabled and we have a store
+	if globalLocalPrinterStore == nil {
+		if appLogger != nil {
+			appLogger.Warn("Cannot start spooler worker: no local printer store available")
+		}
+		return
+	}
+
+	pollInterval := time.Duration(spooler.PollIntervalSeconds) * time.Second
+	if pollInterval < 5*time.Second {
+		pollInterval = 5 * time.Second
+	}
+	if pollInterval > 5*time.Minute {
+		pollInterval = 5 * time.Minute
+	}
+
+	config := SpoolerWorkerConfig{
+		PollInterval:           pollInterval,
+		IncludeNetworkPrinters: spooler.IncludeNetworkPrinters,
+		IncludeVirtualPrinters: spooler.IncludeVirtualPrinters,
+		AutoTrackUSB:           true,
+		AutoTrackLocal:         false,
+	}
+
+	if err := StartSpoolerWorker(globalLocalPrinterStore, config, appLogger); err != nil {
+		if appLogger != nil {
+			appLogger.Warn("Failed to start spooler worker with new settings", "error", err)
+		}
+	} else if appLogger != nil {
+		appLogger.Info("Spooler worker restarted with new settings",
+			"poll_interval", pollInterval,
+			"include_network", spooler.IncludeNetworkPrinters,
+			"include_virtual", spooler.IncludeVirtualPrinters)
 	}
 }
 
@@ -6284,14 +6337,15 @@ window.top.location.href = '/proxy/%s/';
 				"discovery":        snapshot.Discovery,
 				"snmp":             snapshot.SNMP,
 				"features":         snapshot.Features,
+				"spooler":          snapshot.Spooler,
 				"logging":          snapshot.Logging,
 				"web":              snapshot.Web,
 				"server_managed":   isServerManaged,
 				"managed_sections": []string{},
 			}
 			if isServerManaged {
-				// When server-managed, discovery/snmp/features are locked (logging/web are local)
-				resp["managed_sections"] = []string{"discovery", "snmp", "features"}
+				// When server-managed, discovery/snmp/features/spooler are locked (logging/web are local)
+				resp["managed_sections"] = []string{"discovery", "snmp", "features", "spooler"}
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
@@ -6302,6 +6356,7 @@ window.top.location.href = '/proxy/%s/';
 				Discovery map[string]interface{} `json:"discovery"`
 				SNMP      map[string]interface{} `json:"snmp"`
 				Features  map[string]interface{} `json:"features"`
+				Spooler   map[string]interface{} `json:"spooler"`
 				Logging   map[string]interface{} `json:"logging"`
 				Web       map[string]interface{} `json:"web"`
 				Reset     bool                   `json:"reset"`
@@ -6389,6 +6444,15 @@ window.top.location.href = '/proxy/%s/';
 				mapIntoStruct(req.Features, &updated)
 				envelope["features"] = structToMap(updated)
 				current.Features = updated
+			}
+
+			if req.Spooler != nil {
+				updated := current.Spooler
+				mapIntoStruct(req.Spooler, &updated)
+				envelope["spooler"] = structToMap(updated)
+				current.Spooler = updated
+				// Apply spooler settings immediately (restart worker if needed)
+				applySpoolerSettings(&current.Spooler)
 			}
 
 			if req.Logging != nil {
@@ -6742,21 +6806,26 @@ window.top.location.href = '/proxy/%s/';
 	// Register local printer (spooler) API handlers
 	// Type assert to get LocalPrinterStore interface (SQLiteStore implements both DeviceStore and LocalPrinterStore)
 	if localPrinterStore, ok := deviceStore.(storage.LocalPrinterStore); ok {
+		// Store globally for runtime settings changes
+		globalLocalPrinterStore = localPrinterStore
 		RegisterSpoolerHandlers(localPrinterStore)
 
-		// Start spooler worker for USB/local printer tracking (Windows only)
-		// Check if spooler tracking is enabled in settings
-		spoolerEnabled := true // Default enabled
-		if agentConfigStore != nil {
-			var spoolerSettings map[string]interface{}
-			if err := agentConfigStore.GetConfigValue("spooler_settings", &spoolerSettings); err == nil && spoolerSettings != nil {
-				if v, ok := spoolerSettings["enabled"].(bool); ok {
-					spoolerEnabled = v
-				}
+		// Start spooler worker for USB/local printer tracking (Windows/macOS/Linux via CUPS)
+		// Check if spooler tracking is enabled via unified settings
+		unified := loadUnifiedSettings(agentConfigStore)
+		if unified.Spooler.Enabled {
+			pollInterval := time.Duration(unified.Spooler.PollIntervalSeconds) * time.Second
+			if pollInterval < 5*time.Second {
+				pollInterval = 5 * time.Second
 			}
-		}
-		if spoolerEnabled {
-			if err := StartSpoolerWorker(localPrinterStore, DefaultSpoolerWorkerConfig(), appLogger); err != nil {
+			config := SpoolerWorkerConfig{
+				PollInterval:           pollInterval,
+				IncludeNetworkPrinters: unified.Spooler.IncludeNetworkPrinters,
+				IncludeVirtualPrinters: unified.Spooler.IncludeVirtualPrinters,
+				AutoTrackUSB:           true,
+				AutoTrackLocal:         false,
+			}
+			if err := StartSpoolerWorker(localPrinterStore, config, appLogger); err != nil {
 				appLogger.Warn("Failed to start spooler worker", "error", err)
 			}
 		}

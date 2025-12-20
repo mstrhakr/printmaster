@@ -49,6 +49,12 @@ func DefaultSettings() Settings {
 			CredentialsEnabled:     true,
 			AssetIDRegex:           "",
 		},
+		Spooler: SpoolerSettings{
+			Enabled:                true,
+			PollIntervalSeconds:    30,
+			IncludeNetworkPrinters: false,
+			IncludeVirtualPrinters: false,
+		},
 		Logging: LoggingSettings{
 			Level:          "info",
 			DumpParseDebug: false,

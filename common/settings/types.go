@@ -23,12 +23,13 @@ const (
 )
 
 // Settings captures the canonical configuration surface for PrintMaster agents/tenants.
-// Fleet-managed sections: Discovery, SNMP, Features
+// Fleet-managed sections: Discovery, SNMP, Features, Spooler
 // Agent-local sections: Logging, Web
 type Settings struct {
 	Discovery DiscoverySettings `json:"discovery" toml:"discovery"`
 	SNMP      SNMPSettings      `json:"snmp" toml:"snmp"`
 	Features  FeaturesSettings  `json:"features" toml:"features"`
+	Spooler   SpoolerSettings   `json:"spooler" toml:"spooler"`
 	Logging   LoggingSettings   `json:"logging" toml:"logging"`
 	Web       WebSettings       `json:"web" toml:"web"`
 }
@@ -87,6 +88,14 @@ type FeaturesSettings struct {
 type LoggingSettings struct {
 	Level          string `json:"level"`
 	DumpParseDebug bool   `json:"dump_parse_debug"`
+}
+
+// SpoolerSettings configure local printer tracking via OS print spooler (fleet-managed).
+type SpoolerSettings struct {
+	Enabled                bool `json:"enabled"`
+	PollIntervalSeconds    int  `json:"poll_interval_seconds"`
+	IncludeNetworkPrinters bool `json:"include_network_printers"`
+	IncludeVirtualPrinters bool `json:"include_virtual_printers"`
 }
 
 // WebSettings configure the agent's embedded web server (agent-local).
