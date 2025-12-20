@@ -1,0 +1,23 @@
+Package: printmaster-agent
+Version: 0.16.5
+Architecture: amd64
+Maintainer: PrintMaster Team <printmaster@example.com>
+Installed-Size: 16516
+Depends: libc6
+Filename: ./printmaster-agent_0.16.5_amd64.deb
+Size: 5663416
+MD5sum: 5562ba22004d1b80bc5e3c0ada292138
+SHA1: 94f3f261ab21474e162dff12d7d5623d1d45a5c3
+SHA256: ed4c67b43bec1e082b8383faf8c9051a836e64dce318644d236813083149cb23
+Section: admin
+Priority: optional
+Homepage: https://github.com/mstrhakr/printmaster
+Description: PrintMaster Agent - Network printer fleet management
+ PrintMaster Agent discovers and monitors network printers via SNMP,
+ collects metrics (page counts, toner levels, status), and optionally
+ reports to a central PrintMaster Server for multi-site fleet management.
+ .
+ Features include auto-discovery via SNMP/mDNS/WS-Discovery, real-time
+ printer status monitoring, supply level tracking, built-in web UI,
+ and optional central server integration with WebSocket.
+

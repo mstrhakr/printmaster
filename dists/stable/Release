@@ -1,0 +1,18 @@
+Origin: PrintMaster
+Label: PrintMaster
+Suite: stable
+Codename: stable
+Architectures: amd64 arm64
+Components: main
+Description: PrintMaster Agent APT Repository
+Date: Sat, 20 Dec 2025 03:49:39 +0000
+MD5Sum:
+ 8421059f05dc82025887cf38015da599 940 main/binary-amd64/Packages
+ 6ec09deaf88f70e2cbef55595d8a0c5b 593 main/binary-amd64/Packages.gz
+ 33807c0181bc3444423c701ba71f43dd 940 main/binary-arm64/Packages
+ 7334328aa77f7ff355c9908da0e6b3d2 592 main/binary-arm64/Packages.gz
+SHA256:
+ cd49a0d4318909d6bdd36a0241e24c588c9251649ce80803ee7925ec775431e3 940 main/binary-amd64/Packages
+ 517b45c95310e3d62bf42c640b3fe4cb51274977b5ff2aea00a2ae47783502d3 593 main/binary-amd64/Packages.gz
+ e901288032e9d8212a9e5a7320cc58367ea74e9c5b8db5a951c85469102b6274 940 main/binary-arm64/Packages
+ a220b4e69cfab6d80c26f602c24171a81f3efe40c47d946331efc30c36053666 592 main/binary-arm64/Packages.gz
