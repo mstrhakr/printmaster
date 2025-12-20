@@ -1,4 +1,5 @@
 name: Update APT Repository
+run-name: Update APT Repository - ${{ github.ref_name }} @ ${{ github.sha }}
 
 on:
   # Trigger when agent release is published
