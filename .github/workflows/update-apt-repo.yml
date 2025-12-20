@@ -58,13 +58,16 @@ jobs:
         sudo apt-get install -y dpkg-dev apt-utils gnupg
 
     - name: Import GPG key
-      if: ${{ vars.APT_GPG_PRIVATE_KEY != '' }}
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
       run: |
-        echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-        echo "GPG key imported"
+        if [ -n "$GPG_PRIVATE_KEY" ]; then
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "GPG key imported"
+        else
+          echo "No GPG key configured, skipping import"
+        fi
 
     - name: Download release assets
       env:
@@ -165,10 +168,15 @@ jobs:
         cat Release
 
     - name: Sign Release file (if GPG key available)
-      if: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
       env:
+        GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
       run: |
+        if [ -z "$GPG_PRIVATE_KEY" ]; then
+          echo "No GPG key configured, skipping signing"
+          exit 0
+        fi
+        
         cd apt-repo/dists/stable
         
         # Sign Release file
