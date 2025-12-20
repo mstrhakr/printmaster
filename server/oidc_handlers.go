@@ -310,6 +310,7 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	state := r.URL.Query().Get("state")
 	code := r.URL.Query().Get("code")
 	if state == "" || code == "" {
+		serverLogger.Warn("OIDC callback missing parameters", "has_state", state != "", "has_code", code != "", "error_param", r.URL.Query().Get("error"), "error_description", r.URL.Query().Get("error_description"))
 		http.Redirect(w, r, "/login?error=oidc_invalid", http.StatusFound)
 		return
 	}
@@ -317,6 +318,7 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	sess, err := serverStore.GetOIDCSession(ctx, state)
 	if err != nil {
+		serverLogger.Warn("OIDC session lookup failed", "state", state[:min(len(state), 16)]+"...", "error", err)
 		http.Redirect(w, r, "/login?error=oidc_state", http.StatusFound)
 		return
 	}
@@ -324,25 +326,30 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	provider, err := serverStore.GetOIDCProvider(ctx, sess.ProviderSlug)
 	if err != nil {
+		serverLogger.Error("OIDC provider lookup failed", "slug", sess.ProviderSlug, "error", err)
 		http.Redirect(w, r, "/login?error=oidc_provider", http.StatusFound)
 		return
 	}
 
 	op, err := cachedOIDCProvider(ctx, provider.Issuer)
 	if err != nil {
+		serverLogger.Error("OIDC issuer discovery failed during callback", "slug", provider.Slug, "issuer", provider.Issuer, "error", err)
 		http.Redirect(w, r, "/login?error=oidc_discovery", http.StatusFound)
 		return
 	}
 
 	oauthConfig := buildOAuthConfig(r, provider, op)
+	serverLogger.Debug("OIDC token exchange starting", "slug", provider.Slug, "redirect_url", oauthConfig.RedirectURL, "token_endpoint", op.Endpoint().TokenURL)
 	token, err := oauthConfig.Exchange(ctx, code)
 	if err != nil {
+		serverLogger.Error("OIDC token exchange failed", "slug", provider.Slug, "issuer", provider.Issuer, "redirect_url", oauthConfig.RedirectURL, "error", err)
 		http.Redirect(w, r, "/login?error=oidc_exchange", http.StatusFound)
 		return
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
+		serverLogger.Error("OIDC response missing id_token", "slug", provider.Slug, "token_type", token.TokenType, "has_access_token", token.AccessToken != "")
 		http.Redirect(w, r, "/login?error=oidc_token", http.StatusFound)
 		return
 	}
@@ -350,16 +357,19 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	verifier := op.Verifier(&oidclib.Config{ClientID: provider.ClientID})
 	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
+		serverLogger.Error("OIDC id_token verification failed", "slug", provider.Slug, "client_id", provider.ClientID, "error", err)
 		http.Redirect(w, r, "/login?error=oidc_verify", http.StatusFound)
 		return
 	}
 	if idToken.Nonce != sess.Nonce {
+		serverLogger.Warn("OIDC nonce mismatch", "slug", provider.Slug, "expected", sess.Nonce[:min(len(sess.Nonce), 8)]+"...", "got", idToken.Nonce[:min(len(idToken.Nonce), 8)]+"...")
 		http.Redirect(w, r, "/login?error=oidc_nonce", http.StatusFound)
 		return
 	}
 
 	var claims oidcClaims
 	if err := idToken.Claims(&claims); err != nil {
+		serverLogger.Error("OIDC claims parsing failed", "slug", provider.Slug, "subject", idToken.Subject, "error", err)
 		http.Redirect(w, r, "/login?error=oidc_claims", http.StatusFound)
 		return
 	}
