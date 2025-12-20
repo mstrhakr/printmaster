@@ -1266,7 +1266,14 @@ func (s *BaseStore) SaveAlertSettings(ctx context.Context, settings *AlertSettin
 // GetAlertSummary computes dashboard statistics.
 func (s *BaseStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error) {
 	summary := &AlertSummary{
-		AlertsByType: make(map[string]int),
+		AlertsByType:  make(map[string]int),
+		AlertsByScope: make(map[string]int),
+	}
+
+	// Count total active alerts
+	err := s.queryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'active'`).Scan(&summary.ActiveCount)
+	if err != nil {
+		return nil, err
 	}
 
 	// Count active alerts by type
@@ -1287,6 +1294,60 @@ func (s *BaseStore) GetAlertSummary(ctx context.Context) (*AlertSummary, error) 
 			return nil, err
 		}
 		summary.AlertsByType[alertType] = count
+	}
+
+	// Count active alerts by severity
+	severityRows, err := s.queryContext(ctx, `
+		SELECT severity, COUNT(*) FROM alerts 
+		WHERE status = 'active' 
+		GROUP BY severity
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer severityRows.Close()
+
+	for severityRows.Next() {
+		var severity string
+		var count int
+		if err := severityRows.Scan(&severity, &count); err != nil {
+			return nil, err
+		}
+		switch severity {
+		case "critical":
+			summary.CriticalCount = count
+		case "warning":
+			summary.WarningCount = count
+		case "info":
+			summary.InfoCount = count
+		}
+	}
+
+	// Count active alerts by scope
+	scopeRows, err := s.queryContext(ctx, `
+		SELECT scope, COUNT(*) FROM alerts 
+		WHERE status = 'active' 
+		GROUP BY scope
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer scopeRows.Close()
+
+	for scopeRows.Next() {
+		var scope string
+		var count int
+		if err := scopeRows.Scan(&scope, &count); err != nil {
+			return nil, err
+		}
+		summary.AlertsByScope[scope] = count
+	}
+
+	// Count resolved today
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	err = s.queryRowContext(ctx, `SELECT COUNT(*) FROM alerts WHERE status = 'resolved' AND resolved_at >= ?`, today).Scan(&summary.ResolvedTodayCount)
+	if err != nil {
+		return nil, err
 	}
 
 	// Count active rules

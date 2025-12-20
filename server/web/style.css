@@ -2226,6 +2226,164 @@ select:focus {
   line-height: 1.5;
 }
 
+/* ========================== Alert History Table ========================== */
+.alert-history-table-container {
+  max-height: 500px;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-inset-sm);
+}
+
+.alert-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+.alert-history-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+}
+
+.alert-history-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.alert-history-table td {
+  padding: 10px 12px;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.alert-history-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Column widths */
+.ah-col-time { width: 90px; }
+.ah-col-severity { width: 80px; }
+.ah-col-title { min-width: 200px; }
+.ah-col-scope { width: 90px; }
+.ah-col-duration { width: 80px; }
+.ah-col-resolved { width: 100px; }
+
+/* Time styling */
+.alert-history-table .ah-time {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.ah-time-date {
+  display: block;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* Severity badges */
+.ah-severity {
+  font-weight: 600;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  display: inline-block;
+  letter-spacing: 0.03em;
+}
+
+.ah-severity-critical {
+  background: rgba(220, 50, 47, 0.2);
+  color: #dc322f;
+}
+
+.ah-severity-warning {
+  background: rgba(203, 75, 22, 0.2);
+  color: #cb4b16;
+}
+
+.ah-severity-info {
+  background: rgba(38, 139, 210, 0.15);
+  color: var(--highlight);
+}
+
+/* Title and context */
+.ah-title-text {
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.ah-context {
+  margin-top: 4px;
+}
+
+.ah-context-tag {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-right: 4px;
+  font-size: 10px;
+}
+
+.ah-context-tag .tag-key {
+  color: var(--highlight);
+}
+
+.ah-context-tag .tag-value {
+  color: var(--text);
+}
+
+/* Scope styling */
+.ah-scope {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* Duration styling */
+.ah-duration {
+  font-size: 11px;
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Resolved time */
+.ah-resolved {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Empty state */
+.alert-history-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.alert-history-empty.error-text {
+  color: var(--danger);
+}
+
 .sso-modal-helper {
   border: 1px dashed var(--border);
   border-radius: 6px;

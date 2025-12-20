@@ -1201,8 +1201,20 @@
                                 <button id="export_history_btn" class="btn-outline">Export CSV</button>
                             </div>
                         </div>
-                        <div id="alerts_history_table" class="table-wrapper">
-                            <div class="muted-text">Loading alert history...</div>
+                        <div id="alerts_history_container" class="alert-history-table-container">
+                            <table class="alert-history-table" id="alerts_history_table">
+                                <thead>
+                                    <tr>
+                                        <th class="ah-col-time">Triggered</th>
+                                        <th class="ah-col-severity">Severity</th>
+                                        <th class="ah-col-title">Alert</th>
+                                        <th class="ah-col-scope">Scope</th>
+                                        <th class="ah-col-duration">Duration</th>
+                                        <th class="ah-col-resolved">Resolved</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alerts_history_body"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

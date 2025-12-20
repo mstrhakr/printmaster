@@ -1598,8 +1598,8 @@ async function handleAlertAction(action, alertId) {
 }
 
 async function loadAlertHistory() {
-    const container = document.getElementById('alerts_history_table');
-    if (!container) return;
+    const tbody = document.getElementById('alerts_history_body');
+    if (!tbody) return;
     
     try {
         const resp = await fetch('/api/v1/alerts?status=resolved');
@@ -1608,40 +1608,101 @@ async function loadAlertHistory() {
         const alerts = data.alerts || [];
         
         if (alerts.length === 0) {
-            container.innerHTML = '<div class="muted-text">No alert history available. Alerts will appear here once resolved.</div>';
+            tbody.innerHTML = '<tr><td colspan="6" class="alert-history-empty">No alert history available. Alerts will appear here once resolved.</td></tr>';
             return;
         }
         
-        // Render as a simple table
-        container.innerHTML = `
-            <table class="table table-sm">
-                <thead>
-                    <tr>
-                        <th>Severity</th>
-                        <th>Title</th>
-                        <th>Scope</th>
-                        <th>Triggered</th>
-                        <th>Resolved</th>
-                        <th>Duration</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${alerts.map(a => `
-                        <tr>
-                            <td><span class="badge badge-${a.severity}">${a.severity}</span></td>
-                            <td>${escapeHtml(a.title || 'Untitled')}</td>
-                            <td>${a.scope || 'device'}</td>
-                            <td>${formatRelativeTime(a.triggered_at)}</td>
-                            <td>${a.resolved_at ? formatRelativeTime(a.resolved_at) : '-'}</td>
-                            <td>${a.resolved_at && a.triggered_at ? formatDuration(new Date(a.resolved_at) - new Date(a.triggered_at)) : '-'}</td>
-                        </tr>
-                    `).join('')}
-                </tbody>
-            </table>
-        `;
+        // Get filter values
+        const severityFilter = document.getElementById('alerts_history_severity');
+        const scopeFilter = document.getElementById('alerts_history_scope');
+        const searchFilter = document.getElementById('alerts_history_search');
+        const filterSeverity = severityFilter ? severityFilter.value : '';
+        const filterScope = scopeFilter ? scopeFilter.value : '';
+        const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
+        
+        // Apply filters
+        const filteredAlerts = alerts.filter(a => {
+            if (filterSeverity && a.severity !== filterSeverity) return false;
+            if (filterScope && a.scope !== filterScope) return false;
+            if (filterSearch) {
+                const searchStr = (a.title || '') + ' ' + (a.message || '') + ' ' + (a.target_id || '');
+                if (!searchStr.toLowerCase().includes(filterSearch)) return false;
+            }
+            return true;
+        });
+        
+        if (filteredAlerts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" class="alert-history-empty">No alerts match the current filters</td></tr>';
+            return;
+        }
+        
+        // Render table rows in styled format
+        const rows = filteredAlerts.map(a => {
+            const triggeredAt = a.triggered_at ? new Date(a.triggered_at) : null;
+            const resolvedAt = a.resolved_at ? new Date(a.resolved_at) : null;
+            const duration = resolvedAt && triggeredAt ? resolvedAt - triggeredAt : null;
+            
+            const timeHtml = triggeredAt
+                ? `<span class="ah-time-date">${formatDateShort(triggeredAt)}</span>${formatTimeShort(triggeredAt)}`
+                : '<span class="ah-time">—</span>';
+            
+            const severityClass = `ah-severity-${(a.severity || 'info').toLowerCase()}`;
+            const severityHtml = `<span class="ah-severity ${severityClass}">${escapeHtml((a.severity || 'info').toUpperCase())}</span>`;
+            
+            const scopeIcon = getScopeIcon(a.scope);
+            const scopeHtml = `<span class="ah-scope">${scopeIcon}${escapeHtml(a.scope || 'device')}</span>`;
+            
+            const durationHtml = duration !== null
+                ? `<span class="ah-duration">${formatDuration(duration)}</span>`
+                : '<span class="ah-duration">—</span>';
+            
+            const resolvedHtml = resolvedAt
+                ? `<span class="ah-resolved">${formatRelativeTime(resolvedAt)}</span>`
+                : '<span class="ah-resolved">—</span>';
+            
+            // Build context tags for target info
+            const contextTags = [];
+            if (a.target_id) {
+                contextTags.push(`<span class="ah-context-tag"><span class="tag-key">target</span>=<span class="tag-value">${escapeHtml(a.target_id)}</span></span>`);
+            }
+            if (a.rule_name) {
+                contextTags.push(`<span class="ah-context-tag"><span class="tag-key">rule</span>=<span class="tag-value">${escapeHtml(a.rule_name)}</span></span>`);
+            }
+            
+            return `<tr>
+                <td class="ah-time">${timeHtml}</td>
+                <td>${severityHtml}</td>
+                <td class="ah-title">
+                    <div class="ah-title-text">${escapeHtml(a.title || 'Untitled')}</div>
+                    ${contextTags.length > 0 ? `<div class="ah-context">${contextTags.join('')}</div>` : ''}
+                </td>
+                <td>${scopeHtml}</td>
+                <td>${durationHtml}</td>
+                <td>${resolvedHtml}</td>
+            </tr>`;
+        });
+        
+        tbody.innerHTML = rows.join('');
     } catch (err) {
         console.error('Failed to load alert history:', err);
-        container.innerHTML = '<div class="error-text">Failed to load alert history.</div>';
+        tbody.innerHTML = '<tr><td colspan="6" class="alert-history-empty error-text">Failed to load alert history.</td></tr>';
+    }
+}
+
+function getScopeIcon(scope) {
+    switch (scope) {
+        case 'device':
+            return '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right:4px;vertical-align:-1px;opacity:0.7;"><rect x="3" y="1" width="10" height="11" rx="1"/><rect x="4" y="12" width="8" height="3" rx="0.5"/></svg>';
+        case 'agent':
+            return '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right:4px;vertical-align:-1px;opacity:0.7;"><path d="M6 1v6h4V1H6zM5 0h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V1a1 1 0 0 1 1-1z"/><path d="M8 9v6H2V9h6zM1 8h8a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/></svg>';
+        case 'site':
+            return '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right:4px;vertical-align:-1px;opacity:0.7;"><path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4.5a.5.5 0 0 0 .5-.5v-4h2v4a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146z"/></svg>';
+        case 'tenant':
+            return '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right:4px;vertical-align:-1px;opacity:0.7;"><path d="M4 16s-1 0-1-1 1-4 5-4 5 3 5 4-1 1-1 1H4zm4-5.95a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/></svg>';
+        case 'fleet':
+            return '<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style="margin-right:4px;vertical-align:-1px;opacity:0.7;"><path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm4.5 0a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1h-7zM4 5.5a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 0-1h-7a.5.5 0 0 0-.5.5zM4.5 8a.5.5 0 0 0 0 1h7a.5.5 0 0 0 0-1h-7z"/></svg>';
+        default:
+            return '';
     }
 }
 
