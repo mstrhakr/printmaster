@@ -379,6 +379,22 @@ func (w *UploadWorker) buildHeartbeatMetadata() map[string]interface{} {
 		"platform":     runtime.GOOS,
 		"architecture": runtime.GOARCH,
 		"go_version":   runtime.Version(),
+		"num_cpu":      runtime.NumCPU(),
+	}
+
+	// Add runtime memory stats
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	meta["heap_alloc_mb"] = int64(memStats.HeapAlloc / (1024 * 1024))
+	meta["sys_mb"] = int64(memStats.Sys / (1024 * 1024))
+	meta["goroutines"] = runtime.NumGoroutine()
+
+	// Add database size if available
+	if w.dataDir != "" {
+		dbPath := filepath.Join(w.dataDir, "devices.db")
+		if info, err := os.Stat(dbPath); err == nil {
+			meta["db_size_bytes"] = info.Size()
+		}
 	}
 
 	if hostname, err := os.Hostname(); err == nil && hostname != "" {

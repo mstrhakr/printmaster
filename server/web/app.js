@@ -12596,12 +12596,12 @@ async function loadMetrics(force) {
     const since = new Date(Date.now() - getMetricsRangeWindow(metricsVM.range));
     const params = new URLSearchParams({ since: since.toISOString() });
 
-    // Server time-series params
+    // Server time-series params - request all series for comprehensive dashboards
     const tsParams = new URLSearchParams({
         start: since.toISOString(),
         end: new Date().toISOString(),
         resolution: 'auto',
-        series: 'goroutines,heap_alloc,total_pages,color_pages,mono_pages,scan_volume,toner_low,toner_critical,ws_connections',
+        series: 'goroutines,heap_alloc,db_size,total_pages,color_pages,mono_pages,scan_count,toner_high,toner_medium,toner_low,toner_critical,ws_connections,agents,devices,devices_online,devices_error',
     });
 
     metricsVM.loading = true;
@@ -12648,6 +12648,8 @@ async function loadMetrics(force) {
 function renderMetricsLoading() {
     const statsEl = document.getElementById('metrics_stats');
     const chartsEl = document.getElementById('metrics_chart_grid');
+    const consumablesChartsEl = document.getElementById('metrics_consumables_charts');
+    const agentFleetChartsEl = document.getElementById('metrics_agent_fleet_charts');
     const serverChartsEl = document.getElementById('metrics_server_charts');
     const serverEl = document.getElementById('metrics_server_panel');
     const consumablesEl = document.getElementById('metrics_consumables');
@@ -12656,6 +12658,12 @@ function renderMetricsLoading() {
     }
     if (chartsEl && !metricsVM.aggregated) {
         chartsEl.innerHTML = '<div class="metric-chart-card loading">Loading throughput data…</div>';
+    }
+    if (consumablesChartsEl && !serverMetricsVM.timeseries) {
+        consumablesChartsEl.innerHTML = '<div class="metric-chart-card loading">Loading consumables history…</div>';
+    }
+    if (agentFleetChartsEl && !serverMetricsVM.timeseries) {
+        agentFleetChartsEl.innerHTML = '<div class="metric-chart-card loading">Loading agent fleet data…</div>';
     }
     if (serverChartsEl && !serverMetricsVM.timeseries) {
         serverChartsEl.innerHTML = '<div class="metric-chart-card loading">Loading server time-series…</div>';
@@ -12671,6 +12679,8 @@ function renderMetricsLoading() {
 function renderMetricsDashboard() {
     renderMetricsOverview(metricsVM.summary, metricsVM.aggregated);
     renderFleetCharts(metricsVM.aggregated);
+    renderConsumablesTimeSeriesCharts(serverMetricsVM.timeseries);
+    renderAgentFleetCharts(serverMetricsVM.timeseries);
     renderServerTimeSeriesCharts(serverMetricsVM.timeseries);
     renderServerPanel(metricsVM.aggregated?.server);
     renderConsumables(metricsVM.aggregated?.fleet);
@@ -12786,7 +12796,183 @@ const SERVER_SERIES_COLORS = {
     scan_volume: '#38b2ac',
     toner_low: '#ecc94b',
     toner_critical: '#f56565',
+    toner_high: '#4299e1',
+    toner_medium: '#48bb78',
+    agents: '#9f7aea',
+    devices: '#ed8936',
+    devices_online: '#48bb78',
+    devices_error: '#f56565',
 };
+
+// Consumables Time-Series Charts - Historical view of toner levels across fleet
+function renderConsumablesTimeSeriesCharts(timeseries) {
+    const grid = document.getElementById('metrics_consumables_charts');
+    if (!grid) return;
+
+    if (!timeseries || !timeseries.snapshots || timeseries.snapshots.length === 0) {
+        grid.innerHTML = '<div class="metric-chart-card"><div class="muted-text" style="text-align:center;padding:20px;">No consumables history yet. Data will appear after metrics collection.</div></div>';
+        return;
+    }
+
+    const chartSeries = timeseries.chart_series || {};
+    const snapshots = timeseries.snapshots || [];
+
+    const buildSeriesFromSnapshots = (key, accessor) => {
+        return snapshots.map(s => ({
+            time: new Date(s.timestamp).getTime(),
+            value: accessor(s),
+        })).filter(p => p.value !== undefined && p.value !== null);
+    };
+
+    const cards = [
+        {
+            id: 'consumables_history_chart',
+            title: 'Consumables Distribution Over Time',
+            series: [
+                { 
+                    label: 'High (>50%)', 
+                    color: SERVER_SERIES_COLORS.toner_high, 
+                    points: chartSeries.toner_high || buildSeriesFromSnapshots('toner_high', s => s.fleet?.toner_high),
+                },
+                { 
+                    label: 'Medium (25-50%)', 
+                    color: SERVER_SERIES_COLORS.toner_medium, 
+                    points: chartSeries.toner_medium || buildSeriesFromSnapshots('toner_medium', s => s.fleet?.toner_medium),
+                },
+                { 
+                    label: 'Low (10-25%)', 
+                    color: SERVER_SERIES_COLORS.toner_low, 
+                    points: chartSeries.toner_low || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
+                },
+                { 
+                    label: 'Critical (<10%)', 
+                    color: SERVER_SERIES_COLORS.toner_critical, 
+                    points: chartSeries.toner_critical || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
+                },
+            ],
+        },
+        {
+            id: 'consumables_alerts_chart',
+            title: 'Low & Critical Consumables Trend',
+            series: [
+                { 
+                    label: 'Low', 
+                    color: SERVER_SERIES_COLORS.toner_low, 
+                    points: chartSeries.toner_low || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
+                },
+                { 
+                    label: 'Critical', 
+                    color: SERVER_SERIES_COLORS.toner_critical, 
+                    points: chartSeries.toner_critical || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
+                },
+            ],
+        },
+    ];
+
+    // Filter out charts with no data
+    const validCards = cards.filter(card => {
+        return card.series.some(s => s.points && s.points.length > 0);
+    });
+
+    if (validCards.length === 0) {
+        grid.innerHTML = '<div class="metric-chart-card"><div class="muted-text" style="text-align:center;padding:20px;">Collecting consumables data... charts will appear shortly.</div></div>';
+        return;
+    }
+
+    grid.innerHTML = validCards.map(card => `
+        <div class="metric-chart-card">
+            <div class="card-title">${card.title}</div>
+            <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
+        </div>
+    `).join('');
+
+    validCards.forEach(card => {
+        const canvas = document.getElementById(card.id);
+        if (canvas) {
+            drawFleetChart(canvas, card.series, { label: card.title });
+        }
+    });
+}
+
+// Agent Fleet Time-Series Charts - Historical view of agent fleet health
+function renderAgentFleetCharts(timeseries) {
+    const grid = document.getElementById('metrics_agent_fleet_charts');
+    if (!grid) return;
+
+    if (!timeseries || !timeseries.snapshots || timeseries.snapshots.length === 0) {
+        grid.innerHTML = '<div class="metric-chart-card"><div class="muted-text" style="text-align:center;padding:20px;">No agent fleet history yet. Data will appear after metrics collection.</div></div>';
+        return;
+    }
+
+    const chartSeries = timeseries.chart_series || {};
+    const snapshots = timeseries.snapshots || [];
+
+    const buildSeriesFromSnapshots = (key, accessor) => {
+        return snapshots.map(s => ({
+            time: new Date(s.timestamp).getTime(),
+            value: accessor(s),
+        })).filter(p => p.value !== undefined && p.value !== null);
+    };
+
+    const cards = [
+        {
+            id: 'agent_count_chart',
+            title: 'Agent & Device Count',
+            series: [
+                { 
+                    label: 'Agents', 
+                    color: SERVER_SERIES_COLORS.agents, 
+                    points: chartSeries.agents || buildSeriesFromSnapshots('agents', s => s.fleet?.total_agents),
+                },
+                { 
+                    label: 'Devices', 
+                    color: SERVER_SERIES_COLORS.devices, 
+                    points: chartSeries.devices || buildSeriesFromSnapshots('devices', s => s.fleet?.total_devices),
+                },
+            ],
+        },
+        {
+            id: 'device_health_chart',
+            title: 'Device Health',
+            series: [
+                { 
+                    label: 'Online', 
+                    color: SERVER_SERIES_COLORS.devices_online, 
+                    points: chartSeries.devices_online || buildSeriesFromSnapshots('devices_online', s => s.fleet?.devices_online),
+                },
+                { 
+                    label: 'Errors', 
+                    color: SERVER_SERIES_COLORS.devices_error, 
+                    points: chartSeries.devices_error || buildSeriesFromSnapshots('devices_error', s => s.fleet?.devices_error),
+                },
+            ],
+        },
+    ];
+
+    // Filter out charts with no data
+    const validCards = cards.filter(card => {
+        return card.series.some(s => s.points && s.points.length > 0);
+    });
+
+    if (validCards.length === 0) {
+        grid.innerHTML = '<div class="metric-chart-card"><div class="muted-text" style="text-align:center;padding:20px;">Collecting agent fleet data... charts will appear shortly.</div></div>';
+        return;
+    }
+
+    grid.innerHTML = validCards.map(card => `
+        <div class="metric-chart-card">
+            <div class="card-title">${card.title}</div>
+            <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
+        </div>
+    `).join('');
+
+    validCards.forEach(card => {
+        const canvas = document.getElementById(card.id);
+        if (canvas) {
+            drawFleetChart(canvas, card.series, { label: card.title });
+        }
+    });
+}
 
 function renderServerTimeSeriesCharts(timeseries) {
     const grid = document.getElementById('metrics_server_charts');

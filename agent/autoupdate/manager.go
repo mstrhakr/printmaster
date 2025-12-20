@@ -190,6 +190,17 @@ func NewManager(opts Options) (*Manager, error) {
 		}
 	}
 
+	// Check if binary path is writable (self-update feasibility check)
+	// This catches read-only filesystems, package manager installations, etc.
+	if opts.Enabled && binaryPath != "" && runtime.GOOS != "windows" {
+		// On Unix, check if we can write to the binary's directory
+		binaryDir := filepath.Dir(binaryPath)
+		if reason := checkBinaryWritable(binaryPath, binaryDir, opts.Log); reason != "" {
+			disabledReason = reason
+			opts.Enabled = false
+		}
+	}
+
 	mgr := &Manager{
 		log:              opts.Log,
 		stateDir:         stateDir,
@@ -1170,6 +1181,63 @@ func (m *Manager) logError(msg string, args ...interface{}) {
 	if m.log != nil {
 		m.log.Error(msg, args...)
 	}
+}
+
+// checkBinaryWritable verifies that self-update is feasible by checking:
+// 1. If the binary is managed by a package manager (dpkg on Debian/Ubuntu)
+// 2. If the binary directory is writable
+// Returns empty string if writable, otherwise returns the reason self-update is disabled.
+func checkBinaryWritable(binaryPath, binaryDir string, log *logger.Logger) string {
+	// On Linux, check if dpkg manages this binary (installed via apt/deb)
+	if runtime.GOOS == "linux" {
+		if dpkgPath, err := exec.LookPath("dpkg-query"); err == nil {
+			// Check if the binary is part of any installed package
+			cmd := exec.Command(dpkgPath, "-S", binaryPath)
+			if output, err := cmd.Output(); err == nil && len(output) > 0 {
+				// dpkg-query -S returns "package: /path/to/file" if managed
+				pkgInfo := strings.TrimSpace(string(output))
+				if pkgInfo != "" && !strings.Contains(pkgInfo, "no path found") {
+					pkgName := strings.Split(pkgInfo, ":")[0]
+					if log != nil {
+						log.Info("Binary managed by package manager, self-update disabled",
+							"package", pkgName, "path", binaryPath)
+					}
+					return fmt.Sprintf("binary managed by package %s (use 'apt upgrade' to update)", pkgName)
+				}
+			}
+		}
+	}
+
+	// Try to create a test file in the binary's directory to check writability
+	testFile := filepath.Join(binaryDir, ".printmaster-update-check")
+	f, err := os.Create(testFile)
+	if err != nil {
+		if os.IsPermission(err) {
+			if log != nil {
+				log.Info("Binary directory not writable (permission denied), self-update disabled",
+					"dir", binaryDir, "error", err)
+			}
+			return "binary directory not writable: permission denied (use package manager or run with elevated privileges)"
+		}
+		if strings.Contains(err.Error(), "read-only file system") {
+			if log != nil {
+				log.Info("Binary directory on read-only filesystem, self-update disabled",
+					"dir", binaryDir, "error", err)
+			}
+			return "binary on read-only filesystem (use package manager to update)"
+		}
+		// Other errors - log but don't disable (might be transient)
+		if log != nil {
+			log.Warn("Could not verify binary directory writability",
+				"dir", binaryDir, "error", err)
+		}
+		return ""
+	}
+	// Clean up test file
+	f.Close()
+	os.Remove(testFile)
+
+	return ""
 }
 
 // copyFile copies a file from src to dst.
