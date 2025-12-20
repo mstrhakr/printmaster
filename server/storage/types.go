@@ -656,6 +656,7 @@ type Store interface {
 
 	// Utility
 	Close() error
+	Path() string // Returns the database path (SQLite) or empty string (PostgreSQL)
 
 	// Tenancy
 	CreateTenant(ctx context.Context, tenant *Tenant) error
@@ -860,6 +861,13 @@ type Store interface {
 	ListReportRuns(ctx context.Context, filter ReportRunFilter) ([]*ReportRun, error)
 	GetReportSummary(ctx context.Context) (*ReportSummary, error)
 	CleanupOldReportRuns(ctx context.Context, olderThan time.Time) (int64, error)
+
+	// Server metrics time-series (Netdata-style)
+	InsertServerMetrics(ctx context.Context, snapshot *ServerMetricsSnapshot) error
+	GetServerMetrics(ctx context.Context, query ServerMetricsQuery) (*ServerMetricsTimeSeries, error)
+	GetLatestServerMetrics(ctx context.Context) (*ServerMetricsSnapshot, error)
+	AggregateServerMetrics(ctx context.Context) error
+	PruneServerMetrics(ctx context.Context) error
 }
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.

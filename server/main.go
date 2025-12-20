@@ -34,6 +34,7 @@ import (
 	wscommon "printmaster/common/ws"
 	alertsapi "printmaster/server/alerts"
 	authz "printmaster/server/authz"
+	metricsapi "printmaster/server/metrics"
 	"printmaster/server/packager"
 	releases "printmaster/server/releases"
 	selfupdate "printmaster/server/selfupdate"
@@ -318,6 +319,7 @@ var (
 	intakeWorker        *releases.IntakeWorker // Release intake worker for syncing GitHub releases
 	selfUpdateManager   *selfupdate.Manager    // Self-update manager for server binary updates
 	alertEvaluator      *alertsapi.Evaluator   // Alert evaluation background worker
+	metricsCollector    *metricsapi.Collector  // Server metrics collection background worker
 )
 
 var processStart = time.Now()
@@ -844,6 +846,18 @@ func runServer(ctx context.Context, configFlag string) {
 	alertEvaluator.Start()
 	defer alertEvaluator.Stop()
 	logInfo("Alert evaluator started", "interval", "60s")
+
+	// Start server metrics collector for Netdata-style dashboards
+	metricsCollector = metricsapi.NewCollector(serverStore, metricsapi.CollectorConfig{
+		CollectionInterval:  10 * time.Second,
+		AggregationInterval: 5 * time.Minute,
+		PruneInterval:       1 * time.Hour,
+		Logger:              nil, // Uses slog.Default()
+	})
+	metricsCollector.SetDBPath(serverStore.Path())
+	metricsCollector.Start()
+	defer metricsCollector.Stop()
+	logInfo("Server metrics collector started", "interval", "10s")
 
 	// Get TLS configuration
 	tlsConfig := cfg.ToTLSConfig()
@@ -3087,6 +3101,8 @@ func setupRoutes(cfg *Config) {
 	// UI metrics summary endpoint (protected)
 	http.HandleFunc("/api/metrics", requireWebAuth(handleMetricsSummary))
 	http.HandleFunc("/api/metrics/aggregated", requireWebAuth(handleMetricsAggregated))
+	http.HandleFunc("/api/metrics/timeseries", requireWebAuth(handleServerMetricsTimeSeries))
+	http.HandleFunc("/api/metrics/latest", requireWebAuth(handleServerMetricsLatest))
 
 	// Serve device metrics history from server DB. If the server has historical
 	// metrics stored (uploaded by agents) this endpoint will return them. The
@@ -5143,6 +5159,106 @@ func attachServerStats(ctx context.Context, agg *storage.AggregatedMetrics) {
 		stats.Database = dbStats
 	}
 	agg.Server = stats
+}
+
+// handleServerMetricsTimeSeries returns historical time-series data for Netdata-style charts.
+// Query params:
+//   - start: RFC3339 timestamp for range start (default: 24h ago)
+//   - end: RFC3339 timestamp for range end (default: now)
+//   - resolution: "raw", "hourly", "daily", or "auto" (default: auto)
+//   - series: comma-separated list of series to include in chart format (e.g., "goroutines,heap_alloc")
+//   - max_points: maximum number of data points to return (default: 1000)
+func handleServerMetricsTimeSeries(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionMetricsSummaryRead, authz.ResourceRef{}) {
+		return
+	}
+
+	// Parse query parameters
+	query := storage.ServerMetricsQuery{
+		EndTime:   time.Now().UTC(),
+		MaxPoints: 1000,
+	}
+
+	if startStr := r.URL.Query().Get("start"); startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			query.StartTime = t.UTC()
+		} else {
+			http.Error(w, "invalid start parameter (use RFC3339)", http.StatusBadRequest)
+			return
+		}
+	} else {
+		query.StartTime = query.EndTime.Add(-24 * time.Hour)
+	}
+
+	if endStr := r.URL.Query().Get("end"); endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			query.EndTime = t.UTC()
+		} else {
+			http.Error(w, "invalid end parameter (use RFC3339)", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if res := r.URL.Query().Get("resolution"); res != "" {
+		query.Resolution = res
+	}
+
+	if seriesStr := r.URL.Query().Get("series"); seriesStr != "" {
+		query.Series = strings.Split(seriesStr, ",")
+	}
+
+	if maxStr := r.URL.Query().Get("max_points"); maxStr != "" {
+		if max, err := strconv.Atoi(maxStr); err == nil && max > 0 {
+			query.MaxPoints = max
+		}
+	}
+
+	ctx := context.Background()
+	result, err := serverStore.GetServerMetrics(ctx, query)
+	if err != nil {
+		logError("Failed to get server metrics time series", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handleServerMetricsLatest returns the most recent server metrics snapshot
+func handleServerMetricsLatest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionMetricsSummaryRead, authz.ResourceRef{}) {
+		return
+	}
+
+	ctx := context.Background()
+	snapshot, err := serverStore.GetLatestServerMetrics(ctx)
+	if err != nil {
+		logError("Failed to get latest server metrics", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	if snapshot == nil {
+		// Return empty snapshot if no data yet
+		snapshot = &storage.ServerMetricsSnapshot{
+			Timestamp: time.Now().UTC(),
+			Tier:      "raw",
+			Fleet:     storage.FleetSnapshot{},
+			Server:    storage.ServerSnapshot{},
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(snapshot)
 }
 
 // handleMetricsBounds returns min/max timestamps and total point count for a device's metrics.

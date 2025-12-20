@@ -53,6 +53,11 @@ func (s *BaseStore) Close() error {
 	return nil
 }
 
+// Path returns the database path (SQLite) or empty string (PostgreSQL).
+func (s *BaseStore) Path() string {
+	return s.dbPath
+}
+
 // query converts SQLite-style ? placeholders to the dialect's format and executes.
 // This allows writing queries once with ? and having them work on both SQLite and Postgres.
 func (s *BaseStore) query(q string) string {

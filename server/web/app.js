@@ -12521,6 +12521,12 @@ async function loadAuditLogs(options) {
 }
 
 // ====== Metrics ======
+const serverMetricsVM = {
+    timeseries: null,
+    loading: false,
+    error: null,
+};
+
 async function loadMetrics(force) {
     const tab = document.querySelector('[data-tab="metrics"]');
     if (!tab) return;
@@ -12529,13 +12535,23 @@ async function loadMetrics(force) {
     const since = new Date(Date.now() - getMetricsRangeWindow(metricsVM.range));
     const params = new URLSearchParams({ since: since.toISOString() });
 
+    // Server time-series params
+    const tsParams = new URLSearchParams({
+        start: since.toISOString(),
+        end: new Date().toISOString(),
+        resolution: 'auto',
+        series: 'goroutines,heap_alloc,total_pages,color_pages,mono_pages,scan_volume,toner_low,toner_critical,ws_connections',
+    });
+
     metricsVM.loading = true;
+    serverMetricsVM.loading = true;
     renderMetricsLoading();
 
     try {
-        const [summaryResp, aggregatedResp] = await Promise.all([
+        const [summaryResp, aggregatedResp, timeseriesResp] = await Promise.all([
             fetch('/api/metrics'),
-            fetch(`/api/metrics/aggregated?${params.toString()}`)
+            fetch(`/api/metrics/aggregated?${params.toString()}`),
+            fetch(`/api/metrics/timeseries?${tsParams.toString()}`),
         ]);
 
         if (!summaryResp.ok) {
@@ -12550,18 +12566,28 @@ async function loadMetrics(force) {
         metricsVM.lastFetched = new Date();
         metricsVM.error = null;
 
+        // Load server time-series data (non-blocking on error)
+        if (timeseriesResp.ok) {
+            serverMetricsVM.timeseries = await timeseriesResp.json();
+            serverMetricsVM.error = null;
+        } else {
+            serverMetricsVM.timeseries = null;
+        }
+
         renderMetricsDashboard();
     } catch (err) {
         metricsVM.error = err;
         renderMetricsError(err);
     } finally {
         metricsVM.loading = false;
+        serverMetricsVM.loading = false;
     }
 }
 
 function renderMetricsLoading() {
     const statsEl = document.getElementById('metrics_stats');
     const chartsEl = document.getElementById('metrics_chart_grid');
+    const serverChartsEl = document.getElementById('metrics_server_charts');
     const serverEl = document.getElementById('metrics_server_panel');
     const consumablesEl = document.getElementById('metrics_consumables');
     if (statsEl && !metricsVM.summary) {
@@ -12569,6 +12595,9 @@ function renderMetricsLoading() {
     }
     if (chartsEl && !metricsVM.aggregated) {
         chartsEl.innerHTML = '<div class="metric-chart-card loading">Loading throughput data…</div>';
+    }
+    if (serverChartsEl && !serverMetricsVM.timeseries) {
+        serverChartsEl.innerHTML = '<div class="metric-chart-card loading">Loading server time-series…</div>';
     }
     if (serverEl && !metricsVM.aggregated) {
         serverEl.innerHTML = '<div class="metric-card loading">Collecting server stats…</div>';
@@ -12581,6 +12610,7 @@ function renderMetricsLoading() {
 function renderMetricsDashboard() {
     renderMetricsOverview(metricsVM.summary, metricsVM.aggregated);
     renderFleetCharts(metricsVM.aggregated);
+    renderServerTimeSeriesCharts(serverMetricsVM.timeseries);
     renderServerPanel(metricsVM.aggregated?.server);
     renderConsumables(metricsVM.aggregated?.fleet);
     renderMetricsActivity(metricsVM.aggregated);
@@ -12679,6 +12709,146 @@ function renderFleetCharts(aggregated) {
         const canvas = document.getElementById(card.id);
         if (canvas) {
             drawFleetChart(canvas, card.series, { label: card.title });
+        }
+    });
+}
+
+// Server Runtime Time-Series Charts - Netdata-style full-width
+const SERVER_SERIES_COLORS = {
+    goroutines: '#4299e1',
+    heap_alloc: '#48bb78',
+    db_size: '#ed8936',
+    ws_connections: '#9f7aea',
+    total_pages: '#4a5568',
+    color_pages: '#00bcd4',
+    mono_pages: '#718096',
+    scan_volume: '#38b2ac',
+    toner_low: '#ecc94b',
+    toner_critical: '#f56565',
+};
+
+function renderServerTimeSeriesCharts(timeseries) {
+    const grid = document.getElementById('metrics_server_charts');
+    if (!grid) return;
+
+    if (!timeseries || !timeseries.snapshots || timeseries.snapshots.length === 0) {
+        grid.innerHTML = '<div class="metric-chart-card"><div class="muted-text" style="text-align:center;padding:20px;">No server metrics collected yet. Data will appear after the collector runs.</div></div>';
+        return;
+    }
+
+    const chartSeries = timeseries.chart_series || {};
+    const snapshots = timeseries.snapshots || [];
+
+    // Build chart data from snapshots if chart_series not provided
+    const buildSeriesFromSnapshots = (key, accessor) => {
+        return snapshots.map(s => ({
+            time: new Date(s.timestamp).getTime(),
+            value: accessor(s),
+        })).filter(p => p.value !== undefined && p.value !== null);
+    };
+
+    const cards = [
+        {
+            id: 'server_goroutines_chart',
+            title: 'Goroutines',
+            series: [{ 
+                label: 'Goroutines', 
+                color: SERVER_SERIES_COLORS.goroutines, 
+                points: chartSeries.goroutines || buildSeriesFromSnapshots('goroutines', s => s.server?.goroutines) 
+            }],
+        },
+        {
+            id: 'server_memory_chart',
+            title: 'Memory (Heap)',
+            series: [{ 
+                label: 'Heap Alloc', 
+                color: SERVER_SERIES_COLORS.heap_alloc, 
+                points: chartSeries.heap_alloc || buildSeriesFromSnapshots('heap_alloc', s => s.server?.heap_alloc),
+            }],
+            formatY: formatBytes,
+        },
+        {
+            id: 'server_db_chart',
+            title: 'Database Size',
+            series: [{ 
+                label: 'DB Size', 
+                color: SERVER_SERIES_COLORS.db_size, 
+                points: chartSeries.db_size || buildSeriesFromSnapshots('db_size', s => s.server?.db_size),
+            }],
+            formatY: formatBytes,
+        },
+        {
+            id: 'server_ws_chart',
+            title: 'WebSocket Connections',
+            series: [{ 
+                label: 'Connections', 
+                color: SERVER_SERIES_COLORS.ws_connections, 
+                points: chartSeries.ws_connections || buildSeriesFromSnapshots('ws_connections', s => s.server?.ws_connections),
+            }],
+        },
+        {
+            id: 'server_pages_chart',
+            title: 'Fleet Page Counts',
+            series: [
+                { 
+                    label: 'Total', 
+                    color: SERVER_SERIES_COLORS.total_pages, 
+                    points: chartSeries.total_pages || buildSeriesFromSnapshots('total_pages', s => s.fleet?.total_pages),
+                },
+                { 
+                    label: 'Color', 
+                    color: SERVER_SERIES_COLORS.color_pages, 
+                    points: chartSeries.color_pages || buildSeriesFromSnapshots('color_pages', s => s.fleet?.color_pages),
+                },
+                { 
+                    label: 'Mono', 
+                    color: SERVER_SERIES_COLORS.mono_pages, 
+                    points: chartSeries.mono_pages || buildSeriesFromSnapshots('mono_pages', s => s.fleet?.mono_pages),
+                },
+            ],
+        },
+        {
+            id: 'server_toner_chart',
+            title: 'Toner Levels',
+            series: [
+                { 
+                    label: 'Low', 
+                    color: SERVER_SERIES_COLORS.toner_low, 
+                    points: chartSeries.toner_low || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
+                },
+                { 
+                    label: 'Critical', 
+                    color: SERVER_SERIES_COLORS.toner_critical, 
+                    points: chartSeries.toner_critical || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
+                },
+            ],
+        },
+    ];
+
+    // Filter out charts with no data
+    const validCards = cards.filter(card => {
+        return card.series.some(s => s.points && s.points.length > 0);
+    });
+
+    if (validCards.length === 0) {
+        grid.innerHTML = '<div class="metric-chart-card"><div class="muted-text" style="text-align:center;padding:20px;">Collecting server metrics... charts will appear shortly.</div></div>';
+        return;
+    }
+
+    grid.innerHTML = validCards.map(card => `
+        <div class="metric-chart-card">
+            <div class="card-title">${card.title}</div>
+            <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
+        </div>
+    `).join('');
+
+    validCards.forEach(card => {
+        const canvas = document.getElementById(card.id);
+        if (canvas) {
+            drawFleetChart(canvas, card.series, { 
+                label: card.title,
+                formatY: card.formatY,
+            });
         }
     });
 }
@@ -12893,6 +13063,8 @@ function drawFleetChart(canvas, seriesList, options) {
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, rect.width, rect.height);
 
+    const formatY = options?.formatY || ((v) => formatNumber(Math.round(v)));
+
     const points = seriesList.flatMap(s => s.points || []);
     if (points.length === 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
@@ -12905,7 +13077,7 @@ function drawFleetChart(canvas, seriesList, options) {
     const maxTime = Math.max(...points.map(p => p.time));
     const minValue = 0;
     const maxValue = Math.max(...points.map(p => p.value)) || 1;
-    const padding = { top: 20, right: 16, bottom: 26, left: 40 };
+    const padding = { top: 20, right: 16, bottom: 26, left: 60 }; // Wider left margin for bytes
     const width = rect.width - padding.left - padding.right;
     const height = rect.height - padding.top - padding.bottom;
 
@@ -12952,9 +13124,9 @@ function drawFleetChart(canvas, seriesList, options) {
     ctx.font = '10px monospace';
     ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
-        const value = minValue + ((maxValue - minValue) / 4) * i;
-        const y = mapY(value);
-        ctx.fillText(formatNumber(Math.round(value)), padding.left - 6, y + 3);
+        const value = minValue + ((maxValue - minValue) / 4) * (4 - i);
+        const y = padding.top + (height / 4) * i;
+        ctx.fillText(formatY(value), padding.left - 6, y + 3);
     }
 }
 

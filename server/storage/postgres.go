@@ -166,6 +166,19 @@ func (s *PostgresStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_metrics_agent_id ON metrics_history(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics_history(timestamp);
 
+	-- Server metrics history for Netdata-style dashboards (tiered storage)
+	CREATE TABLE IF NOT EXISTS server_metrics_history (
+		id BIGSERIAL PRIMARY KEY,
+		timestamp TIMESTAMPTZ NOT NULL,
+		tier TEXT NOT NULL DEFAULT 'raw',
+		fleet_json TEXT NOT NULL,
+		server_json TEXT NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_server_metrics_timestamp ON server_metrics_history(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_server_metrics_tier ON server_metrics_history(tier);
+	CREATE INDEX IF NOT EXISTS idx_server_metrics_tier_ts ON server_metrics_history(tier, timestamp);
+
 	-- Audit log
 	CREATE TABLE IF NOT EXISTS audit_log (
 		id BIGSERIAL PRIMARY KEY,
@@ -911,9 +924,4 @@ func (s *PostgresStore) Close() error {
 		return s.db.Close()
 	}
 	return nil
-}
-
-// Path returns an empty string since PostgreSQL doesn't use file paths.
-func (s *PostgresStore) Path() string {
-	return ""
 }

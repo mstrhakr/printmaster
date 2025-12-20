@@ -172,6 +172,19 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_metrics_agent_id ON metrics_history(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics_history(timestamp);
 
+	-- Server metrics history for Netdata-style dashboards (tiered storage)
+	CREATE TABLE IF NOT EXISTS server_metrics_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		timestamp DATETIME NOT NULL,
+		tier TEXT NOT NULL DEFAULT 'raw',
+		fleet_json TEXT NOT NULL,
+		server_json TEXT NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_server_metrics_timestamp ON server_metrics_history(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_server_metrics_tier ON server_metrics_history(tier);
+	CREATE INDEX IF NOT EXISTS idx_server_metrics_tier_ts ON server_metrics_history(tier, timestamp);
+
 	-- Audit log for agent and admin operations
 	CREATE TABLE IF NOT EXISTS audit_log (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,

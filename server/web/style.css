@@ -2419,6 +2419,27 @@ select:focus {
   gap: 12px;
 }
 
+/* Full-width Netdata-style charts */
+.metrics-charts-fullwidth {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.metrics-charts-fullwidth .metric-chart-card {
+  width: 100%;
+}
+
+.metrics-charts-fullwidth .metric-chart-canvas {
+  width: 100%;
+  min-height: 200px;
+  max-height: 280px;
+}
+
+.metrics-section {
+  margin-bottom: 0;
+}
+
 .metrics-side-panel {
   display: flex;
   flex-direction: column;

@@ -318,18 +318,30 @@
                 <div class="metric-card loading">Loading fleet overview…</div>
             </div>
 
-            <div class="metrics-layout">
-                <div class="metrics-charts" id="metrics_chart_grid">
+            <!-- Fleet Throughput Charts (full-width, Netdata-style) -->
+            <div class="metrics-section" style="margin-top:16px;">
+                <h4 style="margin:0 0 8px;color:var(--highlight);">Fleet Throughput</h4>
+                <div id="metrics_chart_grid" class="metrics-charts-fullwidth">
                     <div class="metric-chart-card loading">Preparing charts…</div>
+                </div>
+            </div>
+
+            <!-- Server Runtime Charts (full-width, Netdata-style) -->
+            <div class="metrics-section" style="margin-top:16px;">
+                <h4 style="margin:0 0 8px;color:var(--highlight);">Server Runtime</h4>
+                <div id="metrics_server_charts" class="metrics-charts-fullwidth">
+                    <div class="metric-chart-card loading">Loading server metrics…</div>
+                </div>
+            </div>
+
+            <div class="metrics-layout" style="margin-top:16px;">
+                <div id="metrics_consumables" class="metric-card">
+                    <div class="card-title">Consumables</div>
+                    <div class="muted-text">Loading consumable data…</div>
                 </div>
                 <div class="metrics-side-panel" id="metrics_server_panel">
                     <div class="metric-card loading">Loading server stats…</div>
                 </div>
-            </div>
-
-            <div id="metrics_consumables" class="metric-card" style="margin-top:12px;">
-                <div class="card-title">Consumables</div>
-                <div class="muted-text">Loading consumable data…</div>
             </div>
 
             <div id="metrics_activity" class="metric-card" style="margin-top:12px;">
