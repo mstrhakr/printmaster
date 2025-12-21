@@ -1706,12 +1706,8 @@ function getScopeIcon(scope) {
     }
 }
 
-function formatDuration(ms) {
-    if (ms < 60000) return `${Math.round(ms / 1000)}s`;
-    if (ms < 3600000) return `${Math.round(ms / 60000)}m`;
-    if (ms < 86400000) return `${Math.round(ms / 3600000)}h`;
-    return `${Math.round(ms / 86400000)}d`;
-}
+// formatDuration(ms) is now formatDurationMs in utils/formatters.js
+const formatDuration = formatDurationMs;
 
 async function loadRecentReports() {
     const container = document.getElementById('recent_reports_list');
@@ -3063,12 +3059,7 @@ function showMaintenanceWindowModal(existingWindow = null) {
     modal.style.display = 'flex';
 }
 
-function formatDatetimeLocal(isoString) {
-    if (!isoString) return '';
-    const d = new Date(isoString);
-    const pad = n => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+// formatDatetimeLocal is now in utils/formatters.js
 
 async function saveMaintenanceWindow() {
     const modal = document.getElementById('maintenance_window_modal');
@@ -6615,84 +6606,10 @@ async function revokeToken(id){
     return r.json();
 }
 
-function escapeHtml(s){
-    if(!s) return '';
-    return String(s).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':"&#39;"})[m]; });
-}
+// escapeHtml is now in utils/formatters.js
 
-/**
- * Compare two semantic version strings.
- * Returns: 1 if a > b, -1 if a < b, 0 if equal
- * Handles versions like "0.10.18", "0.10.18-dev", "0.10.18.2"
- */
-function compareVersions(a, b) {
-    if (!a && !b) return 0;
-    if (!a) return -1;
-    if (!b) return 1;
-    
-    // Strip any suffix like "-dev", "-beta", etc. for comparison
-    const cleanA = String(a).replace(/-.*$/, '');
-    const cleanB = String(b).replace(/-.*$/, '');
-    
-    const partsA = cleanA.split('.').map(p => parseInt(p, 10) || 0);
-    const partsB = cleanB.split('.').map(p => parseInt(p, 10) || 0);
-    
-    // Pad arrays to same length
-    const maxLen = Math.max(partsA.length, partsB.length);
-    while (partsA.length < maxLen) partsA.push(0);
-    while (partsB.length < maxLen) partsB.push(0);
-    
-    for (let i = 0; i < maxLen; i++) {
-        if (partsA[i] > partsB[i]) return 1;
-        if (partsA[i] < partsB[i]) return -1;
-    }
-    return 0;
-}
-
-function formatBytes(bytes){
-    let value = Number(bytes);
-    if(!isFinite(value) || value <= 0) return '0 B';
-    const units = ['B','KB','MB','GB','TB'];
-    let unitIdx = 0;
-    while(value >= 1024 && unitIdx < units.length - 1){
-        value /= 1024;
-        unitIdx++;
-    }
-    const precision = value >= 10 || unitIdx === 0 ? 0 : 1;
-    return value.toFixed(precision) + ' ' + units[unitIdx];
-}
-
-function formatDateTime(value){
-    if(!value) return '—';
-    const d = new Date(value);
-    if(isNaN(d.getTime())) return '—';
-    return d.toLocaleString();
-}
-
-function formatRelativeTime(value){
-    if(!value) return '—';
-    const d = new Date(value);
-    if(isNaN(d.getTime())) return '—';
-    const diffMs = Date.now() - d.getTime();
-    if(diffMs < 0) return 'just now';
-    const minutes = Math.floor(diffMs / 60000);
-    if(minutes < 1) return 'just now';
-    if(minutes < 60) return minutes + 'm ago';
-    const hours = Math.floor(minutes / 60);
-    if(hours < 24) return hours + 'h ago';
-    const days = Math.floor(hours / 24);
-    return days + 'd ago';
-}
-
-function formatNumber(value){
-    if(typeof value === 'number' && isFinite(value)){
-        return value.toLocaleString();
-    }
-    if(typeof value === 'string' && value.trim() !== ''){
-        return value;
-    }
-    return '—';
-}
+// compareVersions, formatBytes, formatDateTime, formatRelativeTime, formatNumber
+// are now in utils/formatters.js
 
 function initAgentsUI() {
     if (agentsVM.uiInitialized) {
@@ -13622,23 +13539,8 @@ function calculateThroughput(series) {
     return hours > 0 ? total / hours : 0;
 }
 
-function formatDuration(seconds) {
-    if (!Number.isFinite(seconds) || seconds <= 0) {
-        return 'unknown';
-    }
-    const sec = Math.floor(seconds);
-    const days = Math.floor(sec / 86400);
-    const hours = Math.floor((sec % 86400) / 3600);
-    const minutes = Math.floor((sec % 3600) / 60);
-    const parts = [];
-    if (days) parts.push(days + 'd');
-    if (hours) parts.push(hours + 'h');
-    if (!days && !hours && minutes) parts.push(minutes + 'm');
-    if (parts.length === 0) parts.push(sec + 's');
-    return parts.join(' ');
-}
-
 // Chart functions (drawFleetChart, drawFleetChartDualAxis) are now in utils/charts.js
+// formatDurationSec, formatDateShort, formatTimeShort are now in utils/formatters.js
 
 function renderLogs(logs) {
     // Parse and normalize log lines
@@ -13816,20 +13718,7 @@ function renderLogsRaw(entries) {
     }
 }
 
-function formatDateShort(date) {
-    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${month}/${day} `;
-}
-
-function formatTimeShort(date) {
-    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
-    const hours = String(date.getHours()).padStart(2, '0');
-    const mins = String(date.getMinutes()).padStart(2, '0');
-    const secs = String(date.getSeconds()).padStart(2, '0');
-    return `${hours}:${mins}:${secs}`;
-}
+// formatDateShort and formatTimeShort are now in utils/formatters.js
 
 function renderAuditLogs(entries, options = {}) {
     const container = document.getElementById('audit_logs_table');
