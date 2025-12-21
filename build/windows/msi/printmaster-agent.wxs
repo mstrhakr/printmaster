@@ -55,14 +55,14 @@
 
     <!-- WIX_UPGRADE_DETECTED is set when upgrading from an older version -->
     <InstallExecuteSequence>
-      <!-- Stop service before upgrade or uninstall -->
-      <Custom Action="StopService" Before="InstallValidate">Installed OR WIX_UPGRADE_DETECTED</Custom>
+      <!-- Stop service early in deferred execution (after InstallInitialize, before file changes) -->
+      <Custom Action="StopService" After="InstallInitialize">Installed OR WIX_UPGRADE_DETECTED</Custom>
       <!-- Fresh install: install and start service -->
       <Custom Action="InstallService" After="InstallFiles">NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
       <Custom Action="StartServiceFreshInstall" After="InstallService">NOT Installed AND NOT WIX_UPGRADE_DETECTED</Custom>
       <!-- Upgrade: just start service (it's already installed) -->
       <Custom Action="StartServiceAfterUpgrade" After="InstallFiles">WIX_UPGRADE_DETECTED</Custom>
-      <!-- Uninstall: remove service -->
+      <!-- Uninstall: remove service before removing files -->
       <Custom Action="UninstallService" Before="RemoveFiles">REMOVE~="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
     </InstallExecuteSequence>
 
