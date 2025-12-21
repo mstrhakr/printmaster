@@ -820,6 +820,12 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 
 			// Copy the staged file to the target location
 			if copyErr := copyFile(stagingPath, m.binaryPath); copyErr != nil {
+				// Check for read-only filesystem errors and provide helpful guidance
+				if strings.Contains(copyErr.Error(), "read-only file system") {
+					return fmt.Errorf("failed to update binary: filesystem is read-only. "+
+						"If this agent was installed via apt/deb package, update using: sudo apt-get update && sudo apt-get upgrade printmaster-agent. "+
+						"If running in a container, rebuild the container image with the new version. Original error: %w", copyErr)
+				}
 				return fmt.Errorf("failed to copy binary across filesystems: %w", copyErr)
 			}
 
@@ -832,6 +838,12 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 			_ = os.Remove(stagingPath) // Best effort cleanup
 
 			return nil
+		}
+		// Check for read-only filesystem on the rename error too
+		if strings.Contains(err.Error(), "read-only file system") {
+			return fmt.Errorf("failed to update binary: filesystem is read-only. "+
+				"If this agent was installed via apt/deb package, update using: sudo apt-get update && sudo apt-get upgrade printmaster-agent. "+
+				"If running in a container, rebuild the container image with the new version. Original error: %w", err)
 		}
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
@@ -1310,29 +1322,74 @@ func checkBinaryUpdateMethod(binaryPath, binaryDir string, log *logger.Logger) (
 	// On Linux, check if dpkg manages this binary (installed via apt/deb)
 	if runtime.GOOS == "linux" {
 		if dpkgPath, err := exec.LookPath("dpkg-query"); err == nil {
-			// Check if the binary is part of any installed package
-			cmd := exec.Command(dpkgPath, "-S", binaryPath)
-			if output, err := cmd.Output(); err == nil && len(output) > 0 {
-				// dpkg-query -S returns "package: /path/to/file" if managed
-				pkgInfo := strings.TrimSpace(string(output))
-				if pkgInfo != "" && !strings.Contains(pkgInfo, "no path found") {
-					pkgName := strings.Split(pkgInfo, ":")[0]
-					// Verify apt-get is available
-					if _, aptErr := exec.LookPath("apt-get"); aptErr == nil {
-						if log != nil {
-							log.Info("Binary managed by package manager, will use apt-get for updates",
-								"package", pkgName, "path", binaryPath)
-						}
-						return pkgName, ""
+			// Try to find the package using multiple path variants:
+			// 1. The original path as-is
+			// 2. The resolved symlink path (os.Executable() returns resolved path)
+			// 3. Common installation paths for deb packages
+			pathsToCheck := []string{binaryPath}
+
+			// Add symlink-resolved path if different
+			if resolved, err := filepath.EvalSymlinks(binaryPath); err == nil && resolved != binaryPath {
+				pathsToCheck = append(pathsToCheck, resolved)
+			}
+
+			// Also check common Debian package paths if not already included
+			baseName := filepath.Base(binaryPath)
+			for _, commonPath := range []string{"/usr/bin/", "/usr/local/bin/", "/usr/sbin/"} {
+				candidate := filepath.Join(commonPath, baseName)
+				found := false
+				for _, p := range pathsToCheck {
+					if p == candidate {
+						found = true
+						break
 					}
-					// dpkg but no apt-get - can't update
-					if log != nil {
-						log.Info("Binary managed by dpkg but apt-get not available",
-							"package", pkgName, "path", binaryPath)
-					}
-					return "", fmt.Sprintf("binary managed by package %s but apt-get not available", pkgName)
+				}
+				if !found {
+					pathsToCheck = append(pathsToCheck, candidate)
 				}
 			}
+
+			for _, checkPath := range pathsToCheck {
+				cmd := exec.Command(dpkgPath, "-S", checkPath)
+				output, err := cmd.Output()
+				if err != nil {
+					if log != nil {
+						log.Debug("dpkg-query check failed for path",
+							"path", checkPath, "error", err)
+					}
+					continue
+				}
+				if len(output) == 0 {
+					continue
+				}
+				// dpkg-query -S returns "package: /path/to/file" if managed
+				pkgInfo := strings.TrimSpace(string(output))
+				if pkgInfo == "" || strings.Contains(pkgInfo, "no path found") {
+					continue
+				}
+				pkgName := strings.Split(pkgInfo, ":")[0]
+				// Verify apt-get is available
+				if _, aptErr := exec.LookPath("apt-get"); aptErr == nil {
+					if log != nil {
+						log.Info("Binary managed by package manager, will use apt-get for updates",
+							"package", pkgName, "path", binaryPath, "matched_path", checkPath)
+					}
+					return pkgName, ""
+				}
+				// dpkg but no apt-get - can't update
+				if log != nil {
+					log.Info("Binary managed by dpkg but apt-get not available",
+						"package", pkgName, "path", binaryPath)
+				}
+				return "", fmt.Sprintf("binary managed by package %s but apt-get not available", pkgName)
+			}
+
+			if log != nil {
+				log.Debug("dpkg-query did not find package for any path variant",
+					"paths_checked", pathsToCheck)
+			}
+		} else if log != nil {
+			log.Debug("dpkg-query not available", "error", err)
 		}
 	}
 

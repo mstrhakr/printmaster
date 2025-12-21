@@ -3167,25 +3167,51 @@ type healthAttempt struct {
 // Returns nil on success; otherwise an error summarizing all failed attempts.
 func runHealthCheck(configFlag string) error {
 	cfg := DefaultConfig()
+	tracker := newConfigSourceTracker()
 
 	// Load configuration if provided so we honor custom ports/env overrides.
 	if resolved := config.ResolveConfigPath("SERVER", configFlag); resolved != "" {
 		if _, err := os.Stat(resolved); err == nil {
-			if loaded, _, loadErr := LoadConfig(resolved); loadErr == nil {
+			if loaded, loadTracker, loadErr := LoadConfig(resolved); loadErr == nil {
 				cfg = loaded
+				tracker = loadTracker
 			}
 		}
 	}
 
+	// Always apply environment variable overrides (even without config file).
+	// This is critical for Docker deployments where config is often via env vars only.
+	applyEnvOverrides(cfg, tracker)
+
+	// Determine which endpoints to probe based on configuration.
+	// The logic matches the actual server startup behavior:
+	// - BehindProxy + !ProxyUseHTTPS → HTTP only (proxy terminates TLS)
+	// - BehindProxy + ProxyUseHTTPS → HTTPS only (end-to-end encryption)
+	// - !BehindProxy (standalone) → HTTPS only
 	attempts := make([]healthAttempt, 0, 2)
-	if cfg.Server.HTTPPort > 0 {
-		attempts = append(attempts, healthAttempt{url: fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Server.HTTPPort)})
-	}
-	if cfg.Server.HTTPSPort > 0 {
-		attempts = append(attempts, healthAttempt{url: fmt.Sprintf("https://127.0.0.1:%d/health", cfg.Server.HTTPSPort), insecure: true})
+
+	if cfg.Server.BehindProxy && !cfg.Server.ProxyUseHTTPS {
+		// Reverse proxy mode with HTTP: only probe HTTP since that's all that's running
+		if cfg.Server.HTTPPort > 0 {
+			attempts = append(attempts, healthAttempt{url: fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Server.HTTPPort)})
+		}
+	} else if cfg.Server.BehindProxy && cfg.Server.ProxyUseHTTPS {
+		// Reverse proxy mode with end-to-end HTTPS: only probe HTTPS
+		if cfg.Server.HTTPSPort > 0 {
+			attempts = append(attempts, healthAttempt{url: fmt.Sprintf("https://127.0.0.1:%d/health", cfg.Server.HTTPSPort), insecure: true})
+		}
+	} else {
+		// Standalone mode (default): HTTPS only
+		// However, if HTTPS port is 0/disabled but HTTP port is set, try HTTP (test compatibility)
+		if cfg.Server.HTTPSPort > 0 {
+			attempts = append(attempts, healthAttempt{url: fmt.Sprintf("https://127.0.0.1:%d/health", cfg.Server.HTTPSPort), insecure: true})
+		} else if cfg.Server.HTTPPort > 0 {
+			// Fallback to HTTP if HTTPS is explicitly disabled
+			attempts = append(attempts, healthAttempt{url: fmt.Sprintf("http://127.0.0.1:%d/health", cfg.Server.HTTPPort)})
+		}
 	}
 
-	// Fallback to defaults if nothing configured
+	// Ultimate fallback to defaults if nothing configured
 	if len(attempts) == 0 {
 		attempts = append(attempts, healthAttempt{url: "http://127.0.0.1:9090/health"})
 	}

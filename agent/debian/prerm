@@ -2,13 +2,19 @@
 set -e
 
 case "$1" in
-    remove|upgrade|deconfigure)
+    remove)
         # Stop and disable the service before removal
         if systemctl is-active --quiet printmaster-agent.service; then
             systemctl stop printmaster-agent.service || true
         fi
         if systemctl is-enabled --quiet printmaster-agent.service 2>/dev/null; then
             systemctl disable printmaster-agent.service || true
+        fi
+        ;;
+    upgrade|deconfigure)
+        # Only stop the service for upgrades (don't disable - postinst will restart)
+        if systemctl is-active --quiet printmaster-agent.service; then
+            systemctl stop printmaster-agent.service || true
         fi
         ;;
     failed-upgrade)

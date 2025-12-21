@@ -12967,6 +12967,18 @@ function renderFleetCharts(aggregated) {
 }
 
 // Server Runtime Time-Series Charts - Netdata-style full-width
+
+// Helper to normalize chart series points from {t, v} to {time, value} format
+// Backend sends compact {t, v} but our chart functions expect {time, value}
+// Returns null if input is falsy/empty so fallback can work with || operator
+function normalizeChartSeriesPoints(points) {
+    if (!Array.isArray(points) || points.length === 0) return null;
+    // Check if already in correct format
+    if (points[0].time !== undefined) return points;
+    // Transform from {t, v} to {time, value}
+    return points.map(p => ({ time: p.t, value: p.v }));
+}
+
 const SERVER_SERIES_COLORS = {
     goroutines: '#4299e1',
     heap_alloc: '#48bb78',
@@ -13014,22 +13026,22 @@ function renderConsumablesTimeSeriesCharts(timeseries) {
                 { 
                     label: 'High (>50%)', 
                     color: SERVER_SERIES_COLORS.toner_high, 
-                    points: chartSeries.toner_high || buildSeriesFromSnapshots('toner_high', s => s.fleet?.toner_high),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_high) || buildSeriesFromSnapshots('toner_high', s => s.fleet?.toner_high),
                 },
                 { 
                     label: 'Medium (25-50%)', 
                     color: SERVER_SERIES_COLORS.toner_medium, 
-                    points: chartSeries.toner_medium || buildSeriesFromSnapshots('toner_medium', s => s.fleet?.toner_medium),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_medium) || buildSeriesFromSnapshots('toner_medium', s => s.fleet?.toner_medium),
                 },
                 { 
                     label: 'Low (10-25%)', 
                     color: SERVER_SERIES_COLORS.toner_low, 
-                    points: chartSeries.toner_low || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_low) || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
                 },
                 { 
                     label: 'Critical (<10%)', 
                     color: SERVER_SERIES_COLORS.toner_critical, 
-                    points: chartSeries.toner_critical || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_critical) || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
                 },
             ],
         },
@@ -13040,12 +13052,12 @@ function renderConsumablesTimeSeriesCharts(timeseries) {
                 { 
                     label: 'Low', 
                     color: SERVER_SERIES_COLORS.toner_low, 
-                    points: chartSeries.toner_low || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_low) || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
                 },
                 { 
                     label: 'Critical', 
                     color: SERVER_SERIES_COLORS.toner_critical, 
-                    points: chartSeries.toner_critical || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_critical) || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
                 },
             ],
         },
@@ -13104,12 +13116,12 @@ function renderAgentFleetCharts(timeseries) {
                 { 
                     label: 'Agents', 
                     color: SERVER_SERIES_COLORS.agents, 
-                    points: chartSeries.agents || buildSeriesFromSnapshots('agents', s => s.fleet?.total_agents),
+                    points: normalizeChartSeriesPoints(chartSeries.agents) || buildSeriesFromSnapshots('agents', s => s.fleet?.total_agents),
                 },
                 { 
                     label: 'Devices', 
                     color: SERVER_SERIES_COLORS.devices, 
-                    points: chartSeries.devices || buildSeriesFromSnapshots('devices', s => s.fleet?.total_devices),
+                    points: normalizeChartSeriesPoints(chartSeries.devices) || buildSeriesFromSnapshots('devices', s => s.fleet?.total_devices),
                 },
             ],
         },
@@ -13120,12 +13132,12 @@ function renderAgentFleetCharts(timeseries) {
                 { 
                     label: 'Online', 
                     color: SERVER_SERIES_COLORS.devices_online, 
-                    points: chartSeries.devices_online || buildSeriesFromSnapshots('devices_online', s => s.fleet?.devices_online),
+                    points: normalizeChartSeriesPoints(chartSeries.devices_online) || buildSeriesFromSnapshots('devices_online', s => s.fleet?.devices_online),
                 },
                 { 
                     label: 'Errors', 
                     color: SERVER_SERIES_COLORS.devices_error, 
-                    points: chartSeries.devices_error || buildSeriesFromSnapshots('devices_error', s => s.fleet?.devices_error),
+                    points: normalizeChartSeriesPoints(chartSeries.devices_error) || buildSeriesFromSnapshots('devices_error', s => s.fleet?.devices_error),
                 },
             ],
         },
@@ -13183,7 +13195,7 @@ function renderServerTimeSeriesCharts(timeseries) {
             series: [{ 
                 label: 'Goroutines', 
                 color: SERVER_SERIES_COLORS.goroutines, 
-                points: chartSeries.goroutines || buildSeriesFromSnapshots('goroutines', s => s.server?.goroutines) 
+                points: normalizeChartSeriesPoints(chartSeries.goroutines) || buildSeriesFromSnapshots('goroutines', s => s.server?.goroutines) 
             }],
         },
         {
@@ -13192,7 +13204,7 @@ function renderServerTimeSeriesCharts(timeseries) {
             series: [{ 
                 label: 'Heap Alloc', 
                 color: SERVER_SERIES_COLORS.heap_alloc, 
-                points: chartSeries.heap_alloc || buildSeriesFromSnapshots('heap_alloc', s => s.server?.heap_alloc_mb),
+                points: normalizeChartSeriesPoints(chartSeries.heap_alloc) || buildSeriesFromSnapshots('heap_alloc', s => s.server?.heap_alloc_mb),
             }],
             formatY: v => formatBytes(v * 1024 * 1024), // heap_alloc_mb is in MB
         },
@@ -13202,7 +13214,7 @@ function renderServerTimeSeriesCharts(timeseries) {
             series: [{ 
                 label: 'DB Size', 
                 color: SERVER_SERIES_COLORS.db_size, 
-                points: chartSeries.db_size || buildSeriesFromSnapshots('db_size', s => s.server?.db_size_bytes),
+                points: normalizeChartSeriesPoints(chartSeries.db_size) || buildSeriesFromSnapshots('db_size', s => s.server?.db_size_bytes),
             }],
             formatY: formatBytes,
         },
@@ -13212,7 +13224,7 @@ function renderServerTimeSeriesCharts(timeseries) {
             series: [{ 
                 label: 'Connections', 
                 color: SERVER_SERIES_COLORS.ws_connections, 
-                points: chartSeries.ws_connections || buildSeriesFromSnapshots('ws_connections', s => s.server?.ws_connections),
+                points: normalizeChartSeriesPoints(chartSeries.ws_connections) || buildSeriesFromSnapshots('ws_connections', s => s.server?.ws_connections),
             }],
         },
         {
@@ -13222,17 +13234,17 @@ function renderServerTimeSeriesCharts(timeseries) {
                 { 
                     label: 'Total', 
                     color: SERVER_SERIES_COLORS.total_pages, 
-                    points: chartSeries.total_pages || buildSeriesFromSnapshots('total_pages', s => s.fleet?.total_pages),
+                    points: normalizeChartSeriesPoints(chartSeries.total_pages) || buildSeriesFromSnapshots('total_pages', s => s.fleet?.total_pages),
                 },
                 { 
                     label: 'Color', 
                     color: SERVER_SERIES_COLORS.color_pages, 
-                    points: chartSeries.color_pages || buildSeriesFromSnapshots('color_pages', s => s.fleet?.color_pages),
+                    points: normalizeChartSeriesPoints(chartSeries.color_pages) || buildSeriesFromSnapshots('color_pages', s => s.fleet?.color_pages),
                 },
                 { 
                     label: 'Mono', 
                     color: SERVER_SERIES_COLORS.mono_pages, 
-                    points: chartSeries.mono_pages || buildSeriesFromSnapshots('mono_pages', s => s.fleet?.mono_pages),
+                    points: normalizeChartSeriesPoints(chartSeries.mono_pages) || buildSeriesFromSnapshots('mono_pages', s => s.fleet?.mono_pages),
                 },
             ],
         },
@@ -13243,12 +13255,12 @@ function renderServerTimeSeriesCharts(timeseries) {
                 { 
                     label: 'Low', 
                     color: SERVER_SERIES_COLORS.toner_low, 
-                    points: chartSeries.toner_low || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_low) || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
                 },
                 { 
                     label: 'Critical', 
                     color: SERVER_SERIES_COLORS.toner_critical, 
-                    points: chartSeries.toner_critical || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
+                    points: normalizeChartSeriesPoints(chartSeries.toner_critical) || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
                 },
             ],
         },
