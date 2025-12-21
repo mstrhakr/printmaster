@@ -17,6 +17,8 @@ const styleCss = path.resolve(__dirname, '../../../../server/web/style.css');
 const appJs = path.resolve(__dirname, '../../../../server/web/app.js');
 const rbacJs = path.resolve(__dirname, '../../../../server/web/rbac.js');
 const ssoAdminJs = path.resolve(__dirname, '../../../../server/web/sso-admin.js');
+const chartsJs = path.resolve(__dirname, '../../../../server/web/utils/charts.js');
+const formattersJs = path.resolve(__dirname, '../../../../server/web/utils/formatters.js');
 const sharedCss = path.resolve(__dirname, '../../shared.css');
 const sharedJs = path.resolve(__dirname, '../../shared.js');
 const cardsJs = path.resolve(__dirname, '../../cards.js');
@@ -52,6 +54,8 @@ function startAppFixtureServer() {
         '/static/shared.js': { file: sharedJs, type: 'application/javascript' },
         '/static/cards.js': { file: cardsJs, type: 'application/javascript' },
         '/static/metrics.js': { file: metricsJs, type: 'application/javascript' },
+        '/static/utils/charts.js': { file: chartsJs, type: 'application/javascript' },
+        '/static/utils/formatters.js': { file: formattersJs, type: 'application/javascript' },
         '/static/app.js': { file: appJs, type: 'application/javascript' },
         '/static/rbac.js': { file: rbacJs, type: 'application/javascript' },
         '/static/sso-admin.js': { file: ssoAdminJs, type: 'application/javascript' },
@@ -265,31 +269,19 @@ test.describe('Sites API Integration', () => {
 
 test.describe('Agents API Integration', () => {
   test('agents list uses /api/v1/agents/list endpoint', async ({ page }) => {
-    const apiCalls = [];
+    // Track the API URLs that are requested
+    const apiCallUrls = [];
     
-    await page.addInitScript(() => {
-      window.EventSource = class {
-        constructor() { this.readyState = 1; }
-        addEventListener() {}
-        close() {}
-      };
-      window.WebSocket = class {
-        constructor() {}
-        addEventListener() {}
-        close() {}
-      };
-    });
-    
-    // Track API requests
-    page.on('request', req => {
-      if (req.url().includes('/api/')) {
-        apiCalls.push({ url: req.url(), method: req.method() });
-      }
-    });
-    
-    await page.route('**/api/**', route => {
+    // Create a handler that tracks calls and also handles responses
+    const trackingHandler = (route) => {
       const url = route.request().url();
       
+      // Track all API calls
+      if (url.includes('/api/')) {
+        apiCallUrls.push(url);
+      }
+      
+      // Handle the responses
       if (url.includes('/api/v1/auth/me')) {
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(adminUser) });
       }
@@ -297,36 +289,34 @@ test.describe('Agents API Integration', () => {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       }
       if (url.includes('/api/v1/tenants')) {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 't1', name: 'Acme Corp' }]) });
       }
-      if (url.includes('/api/v1/join-token')) {
+      if (url.includes('/api/v1/join-token') || url.includes('/api/v1/join-tokens')) {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       }
       if (route.request().method() === 'GET') {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
-    });
+    };
     
-    await page.goto(`${global.__PM_BASE_URL__}/app`);
-    await page.waitForLoadState('networkidle');
+    // Use loadApp helper which properly waits for auth to complete
+    await loadApp(page, trackingHandler);
     
-    // Wait for agents tab to be visible (indicates auth/me was processed)
+    // Click the agents tab to ensure loadAgents() runs
     const agentsTab = page.locator('#desktop_tabs [data-target="agents"]').first();
-    await expect(agentsTab).toBeVisible({ timeout: 5000 });
+    await expect(agentsTab).toBeVisible();
     await agentsTab.click();
+    
+    // Wait for agents list to load
     await page.waitForTimeout(1000);
     
-    // Verify /api/v1/agents/list was called, NOT /api/v1/agents
-    const agentsListCall = apiCalls.find(c => c.url.includes('/api/v1/agents/list'));
-    expect(agentsListCall).toBeTruthy();
+    // Verify the correct endpoint was called (not the bare /agents endpoint)
+    const agentsListCalled = apiCallUrls.some(url => url.includes('/api/v1/agents/list'));
+    const bareAgentsCalled = apiCallUrls.some(url => url.match(/\/api\/v1\/agents($|\?)/));
     
-    // Ensure we didn't call the wrong endpoint
-    const wrongCall = apiCalls.find(c => 
-      c.url.match(/\/api\/v1\/agents$/) || 
-      c.url.match(/\/api\/v1\/agents\?/)
-    );
-    expect(wrongCall).toBeFalsy();
+    expect(agentsListCalled).toBe(true);
+    expect(bareAgentsCalled).toBe(false);
   });
 
   test('agents response is array, not wrapped object', async ({ page }) => {

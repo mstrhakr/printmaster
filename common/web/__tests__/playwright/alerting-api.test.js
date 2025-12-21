@@ -19,6 +19,8 @@ const styleCss = path.resolve(__dirname, '../../../../server/web/style.css');
 const appJs = path.resolve(__dirname, '../../../../server/web/app.js');
 const rbacJs = path.resolve(__dirname, '../../../../server/web/rbac.js');
 const ssoAdminJs = path.resolve(__dirname, '../../../../server/web/sso-admin.js');
+const chartsJs = path.resolve(__dirname, '../../../../server/web/utils/charts.js');
+const formattersJs = path.resolve(__dirname, '../../../../server/web/utils/formatters.js');
 const sharedCss = path.resolve(__dirname, '../../shared.css');
 const sharedJs = path.resolve(__dirname, '../../shared.js');
 const cardsJs = path.resolve(__dirname, '../../cards.js');
@@ -43,6 +45,8 @@ function startAppFixtureServer() {
         '/static/shared.js': { file: sharedJs, type: 'application/javascript' },
         '/static/cards.js': { file: cardsJs, type: 'application/javascript' },
         '/static/metrics.js': { file: metricsJs, type: 'application/javascript' },
+        '/static/utils/charts.js': { file: chartsJs, type: 'application/javascript' },
+        '/static/utils/formatters.js': { file: formattersJs, type: 'application/javascript' },
         '/static/app.js': { file: appJs, type: 'application/javascript' },
         '/static/rbac.js': { file: rbacJs, type: 'application/javascript' },
         '/static/sso-admin.js': { file: ssoAdminJs, type: 'application/javascript' },
