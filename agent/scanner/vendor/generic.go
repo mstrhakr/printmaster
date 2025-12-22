@@ -210,14 +210,26 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		desc := strings.ToLower(entry.Description)
 
 		// Calculate percentage if we have both level and capacity
+		// Per RFC 3805 (Printer-MIB):
+		//   MaxCapacity = -1: other/unknown
+		//   MaxCapacity = -2: unknown (manufacturer-defined)
+		//   MaxCapacity = -3: someRemaining (level is not quantifiable)
+		//   Level = -1: other/unknown
+		//   Level = -2: unknown
+		//   Level = -3: someRemaining (low but usable)
 		var percentage float64
 		if entry.MaxCapacity > 0 && entry.Level >= 0 {
+			// Normal case: calculate percentage from level/capacity
 			percentage = (float64(entry.Level) / float64(entry.MaxCapacity)) * 100.0
-		} else if entry.Level >= 0 && entry.Level <= 100 {
-			// Some devices report level as percentage directly
+		} else if entry.Level >= 0 && entry.Level <= 100 && entry.MaxCapacity <= 0 {
+			// MaxCapacity is unknown/special but Level is valid 0-100 range
+			// Treat level as percentage directly (common for many printers)
 			percentage = float64(entry.Level)
+		} else if entry.Level == -3 {
+			// someRemaining: report as low (10%) as a reasonable estimate
+			percentage = 10.0
 		} else {
-			// Unknown level
+			// Unknown level - cannot determine
 			percentage = -1
 		}
 

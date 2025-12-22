@@ -151,16 +151,37 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	// 1. Kyocera enterprise total (most accurate for Kyocera)
 	// 2. Standard Printer-MIB PrtMarkerLifeCount (widely supported)
 	// 3. Calculated from mono+color (last resort)
+	var finalTotal int
+	var totalSource string
 	if totalPrinted > 0 {
+		finalTotal = totalPrinted
+		totalSource = "KyoceraTotalPrinted"
 		result["page_count"] = totalPrinted
 		result["total_pages"] = totalPrinted
 	} else if pageCount := getOIDIntIndexed(idx, pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
+		finalTotal = pageCount
+		totalSource = "PrtMarkerLifeCount"
 		result["page_count"] = pageCount
 		result["total_pages"] = pageCount
 	} else if monoTotal > 0 || colorTotal > 0 {
 		// Last resort: calculate from function counters
+		finalTotal = monoTotal + colorTotal
+		totalSource = "calculated"
 		result["page_count"] = monoTotal + colorTotal
 		result["total_pages"] = monoTotal + colorTotal
+	}
+
+	// Validate: Check if parts (mono + color) match total when all are available
+	if finalTotal > 0 && (monoTotal > 0 || colorTotal > 0) {
+		partsSum := monoTotal + colorTotal
+		if partsSum != finalTotal && logger.Global != nil {
+			// Log mismatch for investigation - this is expected when using KyoceraTotalPrinted
+			// which may include additional job types not broken down
+			logger.Global.Debug("Kyocera total/parts mismatch (normal for KyoceraTotalPrinted)",
+				"total", finalTotal, "source", totalSource,
+				"mono", monoTotal, "color", colorTotal, "parts_sum", partsSum,
+				"diff", finalTotal-partsSum)
+		}
 	}
 
 	// Copy function counters

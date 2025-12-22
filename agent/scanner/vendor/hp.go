@@ -150,9 +150,17 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["mono_pages"] = monoPages
 	}
 
+	// Calculate total from color + mono only if we have valid data
+	// Note: This is the print-only total, not including copy/fax
 	if colorPages > 0 || monoPages > 0 {
-		result["page_count"] = colorPages + monoPages
-		result["total_pages"] = colorPages + monoPages
+		printTotal := colorPages + monoPages
+		result["page_count"] = printTotal
+		result["total_pages"] = printTotal
+		// Log warning if we have copy/fax pages that aren't included
+		if (copyPages > 0 || faxSent+faxReceived > 0) && logger.Global != nil {
+			logger.Global.Debug("HP total_pages is print-only, copy/fax pages tracked separately",
+				"print_total", printTotal, "copy_pages", copyPages, "fax_pages", faxSent+faxReceived)
+		}
 	}
 
 	// Copy counters

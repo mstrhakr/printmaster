@@ -1498,40 +1498,78 @@ func (s *SQLiteStore) saveMetricsSnapshotWithExecer(ctx context.Context, ex exec
 		return nil
 	}
 
-	// Defensive check: ignore snapshots where cumulative counters decreased compared to latest saved
-	// (e.g., device returned 0 where previous was 45000). This avoids polluting history with invalid resets.
+	// Validation: Check if color + mono equals total (when all three are present)
+	// This helps identify inconsistent vendor parsing
+	if snapshot.PageCount > 0 && snapshot.ColorPages > 0 && snapshot.MonoPages > 0 {
+		partsSum := snapshot.ColorPages + snapshot.MonoPages
+		diff := snapshot.PageCount - partsSum
+		// Allow small discrepancy (e.g., from copy/fax pages not included in parts)
+		if diff < 0 || diff > snapshot.PageCount/10 { // >10% discrepancy
+			if storageLogger != nil {
+				storageLogger.WarnRateLimited("metrics_mismatch_"+snapshot.Serial, 10*time.Minute,
+					"Metrics mismatch: total != color + mono",
+					"serial", snapshot.Serial,
+					"total", snapshot.PageCount,
+					"color", snapshot.ColorPages,
+					"mono", snapshot.MonoPages,
+					"diff", diff)
+			}
+		}
+	}
+
+	// Defensive check: ignore snapshots where cumulative counters SIGNIFICANTLY decreased compared to latest.
+	// Small decreases (< 5% of latest value) are tolerated to handle minor SNMP response variations.
+	// Large decreases (> 5%) indicate likely SNMP errors, partial responses, or counter resets.
 	if latest, err := s.GetLatestMetrics(ctx, snapshot.Serial); err == nil && latest != nil {
-		// If page_count decreased, drop this snapshot
-		if snapshot.PageCount < latest.PageCount {
+		// Helper to check if decrease is significant (> 5% of latest value)
+		isSignificantDecrease := func(incoming, previous int) bool {
+			if previous <= 0 {
+				return false // No previous value to compare
+			}
+			if incoming >= previous {
+				return false // Not a decrease
+			}
+			// Calculate decrease percentage
+			decrease := previous - incoming
+			threshold := previous / 20 // 5% threshold
+			if threshold < 10 {
+				threshold = 10 // Minimum threshold of 10 to avoid noise on small counts
+			}
+			return decrease > threshold
+		}
+
+		// If page_count decreased significantly, drop this snapshot
+		if isSignificantDecrease(snapshot.PageCount, latest.PageCount) {
 			if storageLogger != nil {
 				storageLogger.WarnRateLimited("metrics_decrease_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because page_count decreased compared to latest",
-					"serial", snapshot.Serial, "latest", latest.PageCount, "incoming", snapshot.PageCount)
+					"Dropping metrics snapshot because page_count decreased significantly",
+					"serial", snapshot.Serial, "latest", latest.PageCount, "incoming", snapshot.PageCount,
+					"decrease", latest.PageCount-snapshot.PageCount)
 			}
 			// Treat as non-fatal: do not save the snapshot
 			return nil
 		}
 		// Similarly for color/mono/scan counts (only if provided/non-zero on incoming)
-		if snapshot.ColorPages > 0 && snapshot.ColorPages < latest.ColorPages {
+		if snapshot.ColorPages > 0 && isSignificantDecrease(snapshot.ColorPages, latest.ColorPages) {
 			if storageLogger != nil {
 				storageLogger.WarnRateLimited("metrics_decrease_color_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because color_pages decreased compared to latest",
+					"Dropping metrics snapshot because color_pages decreased significantly",
 					"serial", snapshot.Serial, "latest", latest.ColorPages, "incoming", snapshot.ColorPages)
 			}
 			return nil
 		}
-		if snapshot.MonoPages > 0 && snapshot.MonoPages < latest.MonoPages {
+		if snapshot.MonoPages > 0 && isSignificantDecrease(snapshot.MonoPages, latest.MonoPages) {
 			if storageLogger != nil {
 				storageLogger.WarnRateLimited("metrics_decrease_mono_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because mono_pages decreased compared to latest",
+					"Dropping metrics snapshot because mono_pages decreased significantly",
 					"serial", snapshot.Serial, "latest", latest.MonoPages, "incoming", snapshot.MonoPages)
 			}
 			return nil
 		}
-		if snapshot.ScanCount > 0 && snapshot.ScanCount < latest.ScanCount {
+		if snapshot.ScanCount > 0 && isSignificantDecrease(snapshot.ScanCount, latest.ScanCount) {
 			if storageLogger != nil {
 				storageLogger.WarnRateLimited("metrics_decrease_scan_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because scan_count decreased compared to latest",
+					"Dropping metrics snapshot because scan_count decreased significantly",
 					"serial", snapshot.Serial, "latest", latest.ScanCount, "incoming", snapshot.ScanCount)
 			}
 			return nil
