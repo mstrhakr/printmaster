@@ -1518,14 +1518,33 @@ func (s *SQLiteStore) saveMetricsSnapshotWithExecer(ctx context.Context, ex exec
 	}
 
 	// =============================================================================
-	// METRICS VALIDATION - Three Simple Rules
+	// METRICS VALIDATION - Two Simple Rules
 	// =============================================================================
-	// Rule 1: Counts only go up (cumulative counters never decrease significantly)
-	// Rule 2: Non-zero can't become zero (if we had data, we should still have it)
-	// Rule 3: Parts must equal whole (color + mono ≈ total)
+	// Rule 1: Counts only go up (cumulative counters never decrease)
+	// Rule 2: Parts must equal whole (color + mono ≈ total)
 	// =============================================================================
 
+	// Debug: log incoming metrics for troubleshooting
+	if storageLogger != nil {
+		storageLogger.Debug("Metrics snapshot received",
+			"serial", snapshot.Serial,
+			"total", snapshot.PageCount,
+			"color", snapshot.ColorPages,
+			"mono", snapshot.MonoPages,
+			"scan", snapshot.ScanCount)
+	}
+
 	if latest, err := s.GetLatestMetrics(ctx, snapshot.Serial); err == nil && latest != nil {
+
+		// Debug: log comparison with previous values
+		if storageLogger != nil {
+			storageLogger.Debug("Comparing with previous metrics",
+				"serial", snapshot.Serial,
+				"prev_total", latest.PageCount,
+				"prev_color", latest.ColorPages,
+				"prev_mono", latest.MonoPages,
+				"prev_scan", latest.ScanCount)
+		}
 
 		// --- RULE 1: Counts only go up ---
 		// Cumulative counters should never decrease (except for noise/rounding)
@@ -1552,38 +1571,18 @@ func (s *SQLiteStore) saveMetricsSnapshotWithExecer(ctx context.Context, ex exec
 		if isSignificantDecrease(snapshot.PageCount, latest.PageCount, "page_count") {
 			return nil
 		}
+		if isSignificantDecrease(snapshot.ColorPages, latest.ColorPages, "color_pages") {
+			return nil
+		}
 		if isSignificantDecrease(snapshot.MonoPages, latest.MonoPages, "mono_pages") {
 			return nil
 		}
 		if isSignificantDecrease(snapshot.ScanCount, latest.ScanCount, "scan_count") {
 			return nil
 		}
-		// Note: color_pages checked in Rule 2 (zero is special case)
-
-		// --- RULE 2: Non-zero can't become zero ---
-		// If a field had a value before, it can't suddenly be zero (SNMP read failure)
-		becameZero := func(incoming, previous int, name string) bool {
-			if previous > 0 && incoming == 0 {
-				if storageLogger != nil {
-					storageLogger.WarnRateLimited("metrics_zeroed_"+name+"_"+snapshot.Serial, 1*time.Minute,
-						"Dropping metrics: "+name+" became zero (SNMP failure)", "serial", snapshot.Serial,
-						"previous", previous, "incoming", incoming)
-				}
-				return true
-			}
-			return false
-		}
-
-		if becameZero(snapshot.ColorPages, latest.ColorPages, "color_pages") {
-			return nil
-		}
-		if becameZero(snapshot.MonoPages, latest.MonoPages, "mono_pages") {
-			return nil
-		}
-		// Don't check page_count becoming zero - that's already caught by Rule 1
 	}
 
-	// --- RULE 3: Parts must equal whole ---
+	// --- RULE 2: Parts must equal whole ---
 	// If we have both breakdown AND total, they should roughly match
 	// color + mono should be close to total (within 10%)
 	if snapshot.PageCount > 0 && (snapshot.ColorPages > 0 || snapshot.MonoPages > 0) {

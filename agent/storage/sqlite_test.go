@@ -619,72 +619,7 @@ func TestSQLiteStore_BackupAndReset_InMemory(t *testing.T) {
 // - Previous snapshot: total=423995, color=200404, mono=223591 (valid color device)
 // - Anomalous snapshot: total=423995, color=0, mono=423995 (mono jumped to match total!)
 //
-// Rule 2: Non-zero can't become zero - catches the "flip" where color goes from 200404 to 0
-func TestSQLiteStore_MetricsRule2_NonZeroCantBecomeZero(t *testing.T) {
-	store, err := NewSQLiteStore(":memory:")
-	if err != nil {
-		t.Fatalf("Failed to create store: %v", err)
-	}
-	defer store.Close()
-
-	ctx := context.Background()
-
-	// Create a test device (color copier)
-	device := newFullTestDevice("COLOR001", "192.168.1.100", "Epson", "WF-C17590", true, true)
-	err = store.Create(ctx, device)
-	if err != nil {
-		t.Fatalf("Failed to create device: %v", err)
-	}
-
-	// Save initial "good" metrics - color device with proper breakdown
-	snapshot1 := newTestMetrics("COLOR001", 10000)
-	snapshot1.Timestamp = time.Now().Add(-10 * time.Minute)
-	snapshot1.ColorPages = 5000
-	snapshot1.MonoPages = 5000
-	err = store.SaveMetricsSnapshot(ctx, snapshot1)
-	if err != nil {
-		t.Fatalf("Failed to save initial metrics: %v", err)
-	}
-
-	// Try to save snapshot where color became zero (SNMP failure)
-	badSnapshot := newTestMetrics("COLOR001", 10000)
-	badSnapshot.Timestamp = time.Now().Add(-5 * time.Minute)
-	badSnapshot.ColorPages = 0    // Became zero! (Rule 2 violation)
-	badSnapshot.MonoPages = 10000 // Jumped to match total
-	err = store.SaveMetricsSnapshot(ctx, badSnapshot)
-	if err != nil {
-		t.Fatalf("SaveMetricsSnapshot returned error (expected silent drop): %v", err)
-	}
-
-	// Verify the bad snapshot was DROPPED
-	latest, err := store.GetLatestMetrics(ctx, "COLOR001")
-	if err != nil {
-		t.Fatalf("Failed to get latest metrics: %v", err)
-	}
-	if latest.ColorPages != 5000 {
-		t.Errorf("Rule 2 failed! color_pages became %d (expected 5000 to be preserved)", latest.ColorPages)
-	}
-
-	// Now save a legitimate update
-	goodSnapshot := newTestMetrics("COLOR001", 10100)
-	goodSnapshot.Timestamp = time.Now()
-	goodSnapshot.ColorPages = 5050
-	goodSnapshot.MonoPages = 5050
-	err = store.SaveMetricsSnapshot(ctx, goodSnapshot)
-	if err != nil {
-		t.Fatalf("Failed to save legitimate metrics: %v", err)
-	}
-
-	latest, err = store.GetLatestMetrics(ctx, "COLOR001")
-	if err != nil {
-		t.Fatalf("Failed to get latest: %v", err)
-	}
-	if latest.ColorPages != 5050 {
-		t.Errorf("Legitimate update was rejected! color_pages=%d (expected 5050)", latest.ColorPages)
-	}
-}
-
-// TestSQLiteStore_MetricsRule1_CountsOnlyGoUp tests Rule 1: cumulative counters can't decrease
+// Rule 1: Counts only go up - this includes going from non-zero to zero
 func TestSQLiteStore_MetricsRule1_CountsOnlyGoUp(t *testing.T) {
 	store, err := NewSQLiteStore(":memory:")
 	if err != nil {
@@ -710,28 +645,54 @@ func TestSQLiteStore_MetricsRule1_CountsOnlyGoUp(t *testing.T) {
 		t.Fatalf("Failed to save initial: %v", err)
 	}
 
-	// Try to save snapshot where page_count decreased significantly
-	badSnapshot := newTestMetrics("TEST001", 8000) // Decreased by 2000 (20%)
-	badSnapshot.Timestamp = time.Now()
-	badSnapshot.ColorPages = 4000
-	badSnapshot.MonoPages = 4000
-	err = store.SaveMetricsSnapshot(ctx, badSnapshot)
+	// Test case 1: page_count decreased significantly
+	badSnapshot1 := newTestMetrics("TEST001", 8000) // Decreased by 2000 (20%)
+	badSnapshot1.Timestamp = time.Now().Add(-8 * time.Minute)
+	badSnapshot1.ColorPages = 4000
+	badSnapshot1.MonoPages = 4000
+	err = store.SaveMetricsSnapshot(ctx, badSnapshot1)
 	if err != nil {
 		t.Fatalf("SaveMetricsSnapshot returned error: %v", err)
 	}
 
-	// Verify bad snapshot was dropped
-	latest, err := store.GetLatestMetrics(ctx, "TEST001")
-	if err != nil {
-		t.Fatalf("Failed to get latest: %v", err)
-	}
+	latest, _ := store.GetLatestMetrics(ctx, "TEST001")
 	if latest.PageCount != 10000 {
-		t.Errorf("Rule 1 failed! page_count decreased to %d (expected 10000)", latest.PageCount)
+		t.Errorf("Rule 1 failed for page_count! decreased to %d (expected 10000)", latest.PageCount)
+	}
+
+	// Test case 2: color_pages went to zero (5000 -> 0 is a decrease!)
+	badSnapshot2 := newTestMetrics("TEST001", 10000)
+	badSnapshot2.Timestamp = time.Now().Add(-6 * time.Minute)
+	badSnapshot2.ColorPages = 0    // Went to zero!
+	badSnapshot2.MonoPages = 10000 // Jumped to match total
+	err = store.SaveMetricsSnapshot(ctx, badSnapshot2)
+	if err != nil {
+		t.Fatalf("SaveMetricsSnapshot returned error: %v", err)
+	}
+
+	latest, _ = store.GetLatestMetrics(ctx, "TEST001")
+	if latest.ColorPages != 5000 {
+		t.Errorf("Rule 1 failed for color_pages! went to %d (expected 5000)", latest.ColorPages)
+	}
+
+	// Test case 3: legitimate update should work
+	goodSnapshot := newTestMetrics("TEST001", 10100)
+	goodSnapshot.Timestamp = time.Now()
+	goodSnapshot.ColorPages = 5050
+	goodSnapshot.MonoPages = 5050
+	err = store.SaveMetricsSnapshot(ctx, goodSnapshot)
+	if err != nil {
+		t.Fatalf("Failed to save legitimate: %v", err)
+	}
+
+	latest, _ = store.GetLatestMetrics(ctx, "TEST001")
+	if latest.ColorPages != 5050 {
+		t.Errorf("Legitimate update was rejected! color_pages=%d (expected 5050)", latest.ColorPages)
 	}
 }
 
-// TestSQLiteStore_MetricsRule3_PartsMustEqualWhole tests Rule 3: color + mono ≈ total
-func TestSQLiteStore_MetricsRule3_PartsMustEqualWhole(t *testing.T) {
+// TestSQLiteStore_MetricsRule2_PartsMustEqualWhole tests Rule 2: color + mono ≈ total
+func TestSQLiteStore_MetricsRule2_PartsMustEqualWhole(t *testing.T) {
 	store, err := NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
