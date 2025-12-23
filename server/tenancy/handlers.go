@@ -1438,7 +1438,7 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 
 		downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
 		w.Header().Set("Content-Type", "application/json")
-		oneLiner := fmt.Sprintf("curl -fsSL %q | sh", downloadURL)
+		oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
 		if platform == "windows" {
 			oneLiner = fmt.Sprintf("irm %q | iex", downloadURL)
 		}
@@ -1944,21 +1944,40 @@ if [ "$(id -u)" -ne 0 ]; then
 	exit 1
 fi
 
-# Detect architecture
-ARCH="$(uname -m)"
-case "$ARCH" in
-	x86_64)  ARCH="amd64" ;;
-	aarch64) ARCH="arm64" ;;
-	armv7l)  ARCH="armv7" ;;
-esac
+REPO_BASE="https://mstrhakr.github.io/printmaster"
 
-echo "Downloading agent (linux/$ARCH)..."
-curl -fsSL "$SERVER/api/v1/agents/download/latest?platform=linux&arch=$ARCH&proxy=1" -o /usr/local/bin/pm-agent || exit 1
-chmod +x /usr/local/bin/pm-agent
+# Detect distro family from /etc/os-release
+DISTRO_FAMILY=""
+if [ -f /etc/os-release ]; then
+	. /etc/os-release
+	case "$ID" in
+		debian|ubuntu|raspbian|linuxmint|pop|elementary|zorin|kali|parrot)
+			DISTRO_FAMILY="debian"
+			;;
+		fedora|rhel|centos|rocky|alma|ol|amzn)
+			DISTRO_FAMILY="rhel"
+			;;
+		opensuse*|sles)
+			DISTRO_FAMILY="suse"
+			;;
+	esac
+	# Also check ID_LIKE as fallback
+	if [ -z "$DISTRO_FAMILY" ] && [ -n "$ID_LIKE" ]; then
+		case "$ID_LIKE" in
+			*debian*|*ubuntu*) DISTRO_FAMILY="debian" ;;
+			*rhel*|*fedora*|*centos*) DISTRO_FAMILY="rhel" ;;
+			*suse*) DISTRO_FAMILY="suse" ;;
+		esac
+	fi
+fi
 
-mkdir -p /etc/printmaster
-AGENT_NAME="$(hostname 2>/dev/null || echo 'linux-agent')"
-cat > /etc/printmaster/config.toml <<EOF
+echo "Detected distro: ${ID:-unknown} (family: ${DISTRO_FAMILY:-unknown})"
+
+# Function to configure agent after install
+configure_agent() {
+	mkdir -p /etc/printmaster
+	AGENT_NAME="$(hostname 2>/dev/null || echo 'linux-agent')"
+	cat > /etc/printmaster/config.toml <<EOF
 [server]
 enabled = true
 url = "$SERVER"
@@ -1966,11 +1985,36 @@ name = "$AGENT_NAME"
 token = "$TOKEN"
 insecure_skip_verify = true
 EOF
-chmod 600 /etc/printmaster/config.toml
+	chmod 600 /etc/printmaster/config.toml
+	echo "Configuration: /etc/printmaster/config.toml"
+}
 
-# Try to install systemd unit if available (best-effort)
-if command -v systemctl >/dev/null 2>&1; then
-	cat >/etc/systemd/system/printmaster-agent.service <<EOL
+# Function for direct binary install (fallback)
+install_binary() {
+	echo "Installing via direct binary download..."
+	
+	# Detect architecture
+	ARCH="$(uname -m)"
+	case "$ARCH" in
+		x86_64)  ARCH="amd64" ;;
+		aarch64) ARCH="arm64" ;;
+		armv7l)  ARCH="armv7" ;;
+	esac
+
+	echo "Downloading agent (linux/$ARCH)..."
+	curl -fsSL "$SERVER/api/v1/agents/download/latest?platform=linux&arch=$ARCH&proxy=1" -o /usr/local/bin/pm-agent || exit 1
+	chmod +x /usr/local/bin/pm-agent
+
+	# Fix SELinux context if SELinux is enabled (required for Fedora/RHEL/CentOS)
+	if command -v restorecon >/dev/null 2>&1; then
+		restorecon -v /usr/local/bin/pm-agent 2>/dev/null || true
+	fi
+
+	configure_agent
+
+	# Install systemd unit if available
+	if command -v systemctl >/dev/null 2>&1; then
+		cat >/etc/systemd/system/printmaster-agent.service <<EOL
 [Unit]
 Description=PrintMaster Agent
 After=network.target
@@ -1983,15 +2027,74 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOL
-	systemctl daemon-reload || true
-	systemctl enable --now printmaster-agent || true
-	echo "PrintMaster Agent service installed and started."
-	echo "Configuration: /etc/printmaster/config.toml"
-	echo "Check status: systemctl status printmaster-agent"
-else
-	echo "systemd not found. Starting agent manually..."
-	/usr/local/bin/pm-agent --config /etc/printmaster/config.toml &
-fi
+		systemctl daemon-reload || true
+		systemctl enable --now printmaster-agent || true
+		echo "PrintMaster Agent service installed and started."
+		echo "Check status: systemctl status printmaster-agent"
+	else
+		echo "systemd not found. Starting agent manually..."
+		/usr/local/bin/pm-agent --config /etc/printmaster/config.toml &
+	fi
+}
+
+# Install based on detected distro family
+case "$DISTRO_FAMILY" in
+	debian)
+		if command -v apt-get >/dev/null 2>&1; then
+			echo "Installing via APT (Debian/Ubuntu family)..."
+			echo "deb [trusted=yes] $REPO_BASE stable main" > /etc/apt/sources.list.d/printmaster.list
+			apt-get update -qq
+			if apt-get install -y printmaster-agent; then
+				configure_agent
+				systemctl restart printmaster-agent 2>/dev/null || true
+				echo "PrintMaster Agent installed via APT."
+				echo "Check status: systemctl status printmaster-agent"
+				exit 0
+			fi
+			echo "APT install failed, falling back to binary..."
+			rm -f /etc/apt/sources.list.d/printmaster.list
+		fi
+		;;
+	rhel)
+		# Prefer DNF over YUM on modern systems
+		if command -v dnf >/dev/null 2>&1; then
+			echo "Installing via DNF (Fedora/RHEL family)..."
+			curl -fsSL "$REPO_BASE/printmaster.repo" -o /etc/yum.repos.d/printmaster.repo
+			if dnf install -y printmaster-agent; then
+				configure_agent
+				systemctl restart printmaster-agent 2>/dev/null || true
+				echo "PrintMaster Agent installed via DNF."
+				echo "Check status: systemctl status printmaster-agent"
+				exit 0
+			fi
+			echo "DNF install failed, falling back to binary..."
+			rm -f /etc/yum.repos.d/printmaster.repo
+		elif command -v yum >/dev/null 2>&1; then
+			echo "Installing via YUM (RHEL/CentOS family)..."
+			curl -fsSL "$REPO_BASE/printmaster.repo" -o /etc/yum.repos.d/printmaster.repo
+			if yum install -y printmaster-agent; then
+				configure_agent
+				systemctl restart printmaster-agent 2>/dev/null || true
+				echo "PrintMaster Agent installed via YUM."
+				echo "Check status: systemctl status printmaster-agent"
+				exit 0
+			fi
+			echo "YUM install failed, falling back to binary..."
+			rm -f /etc/yum.repos.d/printmaster.repo
+		fi
+		;;
+	suse)
+		if command -v zypper >/dev/null 2>&1; then
+			echo "Installing via Zypper (openSUSE/SLES family)..."
+			# Note: Zypper repo support would need to be added to the repo
+			echo "Zypper repository not yet available, using binary install..."
+		fi
+		;;
+esac
+
+# Fallback to direct binary install (unknown distro or package install failed)
+echo "Using direct binary install..."
+install_binary
 `
 
 func normalizePlatform(input string) string {
