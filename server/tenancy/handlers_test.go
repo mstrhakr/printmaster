@@ -572,6 +572,26 @@ func TestHandleAgentDownloadLatestRedirect(t *testing.T) {
 	}
 }
 
+func TestHandleAgentDownloadLatestMSI(t *testing.T) {
+	enableTenancyForTest(t)
+	origVersion := serverVersion
+	serverVersion = "2.0.0"
+	t.Cleanup(func() { serverVersion = origVersion })
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/download/latest?platform=windows&arch=amd64&format=msi", nil)
+	rw := httptest.NewRecorder()
+	handleAgentDownloadLatest(rw, req)
+	if rw.Code != http.StatusFound {
+		t.Fatalf("expected 302 got %d", rw.Code)
+	}
+	loc := rw.Header().Get("Location")
+	if !strings.Contains(loc, "/agent-v2.0.0/") {
+		t.Fatalf("unexpected redirect location: %s", loc)
+	}
+	if !strings.Contains(loc, "printmaster-agent-v2.0.0-windows-amd64.msi") {
+		t.Fatalf("expected MSI in redirect, got: %s", loc)
+	}
+}
+
 func TestDefaultBundleVersionFallsBackToFile(t *testing.T) {
 	origVersion := serverVersion
 	serverVersion = "dev"

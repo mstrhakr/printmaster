@@ -1840,59 +1840,20 @@ function Set-RelaxedCertificatePolicy {
 Assert-Administrator
 Set-RelaxedCertificatePolicy
 
-$programFiles = ${env:ProgramFiles}
-if ([string]::IsNullOrWhiteSpace($programFiles)) {
-	$programFiles = "C:\\Program Files"
-}
 $programData = ${env:ProgramData}
 if ([string]::IsNullOrWhiteSpace($programData)) {
 	$programData = "C:\\ProgramData"
 }
 
-$agentDir = Join-Path $programFiles "PrintMaster"
-$agentExe = Join-Path $agentDir "printmaster-agent.exe"
 $dataRoot = Join-Path $programData "PrintMaster"
 $configDir = Join-Path $dataRoot "agent"
 $configPath = Join-Path $configDir "config.toml"
+$tempDir = Join-Path $env:TEMP "PrintMaster-Install"
+$msiPath = Join-Path $tempDir "printmaster-agent.msi"
 
 Write-Host "Preparing directories..."
-New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-
-Write-Host "Downloading agent binary..."
-try {
-	$downloadParams = @{
-			Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64&proxy=1"
-		OutFile = $agentExe
-		ErrorAction = 'Stop'
-	}
-	try {
-		$invokeCmd = Get-Command Invoke-WebRequest -ErrorAction Stop
-		if ($invokeCmd.Parameters.Keys -contains 'UseBasicParsing') {
-			$downloadParams.UseBasicParsing = $true
-		}
-		if ($invokeCmd.Parameters.Keys -contains 'SkipCertificateCheck') {
-			$downloadParams.SkipCertificateCheck = $true
-		}
-	} catch {
-		# Fall back to relaxed certificate policy only
-	}
-	Invoke-WebRequest @downloadParams
-} catch {
-	Write-Error "Failed to download agent: $_"
-	exit 1
-}
-
-if (-not (Test-Path $agentExe)) {
-	Write-Error "Agent binary missing after download."
-	exit 1
-}
-
-try {
-	Unblock-File -Path $agentExe -ErrorAction SilentlyContinue
-} catch {
-	# Ignore if Unblock-File is unavailable
-}
+New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 
 $agentName = $env:COMPUTERNAME
 if ([string]::IsNullOrWhiteSpace($agentName)) {
@@ -1910,21 +1871,64 @@ insecure_skip_verify = true
 "@
 Set-Content -Path $configPath -Value $configContent -Encoding UTF8
 
-Write-Host "Installing PrintMaster Agent service..."
-& $agentExe --service install --quiet
-if ($LASTEXITCODE -ne 0) {
-	Write-Error "Service installation failed with exit code $LASTEXITCODE"
-	exit $LASTEXITCODE
+Write-Host "Downloading MSI installer..."
+try {
+	$downloadParams = @{
+		Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64&format=msi&proxy=1"
+		OutFile = $msiPath
+		ErrorAction = 'Stop'
+	}
+	try {
+		$invokeCmd = Get-Command Invoke-WebRequest -ErrorAction Stop
+		if ($invokeCmd.Parameters.Keys -contains 'UseBasicParsing') {
+			$downloadParams.UseBasicParsing = $true
+		}
+		if ($invokeCmd.Parameters.Keys -contains 'SkipCertificateCheck') {
+			$downloadParams.SkipCertificateCheck = $true
+		}
+	} catch {
+		# Fall back to relaxed certificate policy only
+	}
+	Invoke-WebRequest @downloadParams
+} catch {
+	Write-Error "Failed to download MSI: $_"
+	exit 1
 }
 
-Write-Host "Starting PrintMaster Agent service..."
-& $agentExe --service start --quiet
-if ($LASTEXITCODE -ne 0) {
-	Write-Warning "Service installed but failed to start (exit code $LASTEXITCODE). Use 'Get-Service PrintMasterAgent' for status."
-} else {
+if (-not (Test-Path $msiPath)) {
+	Write-Error "MSI installer missing after download."
+	exit 1
+}
+
+try {
+	Unblock-File -Path $msiPath -ErrorAction SilentlyContinue
+} catch {
+	# Ignore if Unblock-File is unavailable
+}
+
+Write-Host "Installing PrintMaster Agent via MSI..."
+$logPath = Join-Path $tempDir "install.log"
+$proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i",$msiPath,"/qn","/norestart","/l*v",$logPath -Wait -PassThru
+if ($proc.ExitCode -ne 0) {
+	Write-Error "MSI installation failed with exit code $($proc.ExitCode). See log: $logPath"
+	exit $proc.ExitCode
+}
+
+# Clean up temp MSI
+Remove-Item -Path $msiPath -Force -ErrorAction SilentlyContinue
+
+# Verify service is running
+$svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -eq 'Running') {
 	Write-Host "PrintMaster Agent service is running."
 	Write-Host "Configuration: $configPath"
-	Write-Host "Logs:        $(Join-Path $configDir 'logs')"
+	Write-Host "Logs:          $(Join-Path $configDir 'logs')"
+} elseif ($svc) {
+	Write-Host "PrintMaster Agent installed. Service status: $($svc.Status)"
+	Write-Host "Starting service..."
+	Start-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
+} else {
+	Write-Warning "PrintMaster Agent installed but service not found. Check installation log: $logPath"
 }
 `
 
@@ -2145,9 +2149,15 @@ func handleAgentDownloadLatest(w http.ResponseWriter, r *http.Request) {
 	}
 	releaseTag := "agent-" + tag
 
+	// Determine file extension based on platform and requested format
 	ext := ""
+	format := strings.ToLower(q.Get("format"))
 	if platform == "windows" {
-		ext = ".exe"
+		if format == "msi" {
+			ext = ".msi"
+		} else {
+			ext = ".exe"
+		}
 	}
 
 	asset := fmt.Sprintf("printmaster-agent-%s-%s-%s%s", tag, platform, arch, ext)
