@@ -1,20 +1,27 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>PrintMaster APT Repository</title>
+  <title>PrintMaster Package Repository</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 50px auto; padding: 20px; }
     h1 { color: #333; }
+    h2 { color: #555; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
+    h3 { color: #666; }
     pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
     code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tab { padding: 10px 20px; background: #e0e0e0; border-radius: 5px; cursor: pointer; }
+    .tab.active { background: #333; color: white; }
   </style>
 </head>
 <body>
-  <h1>🖨️ PrintMaster APT Repository</h1>
+  <h1>🖨️ PrintMaster Package Repository</h1>
   
-  <p>Official APT repository for <a href="https://github.com/mstrhakr/printmaster">PrintMaster Agent</a>.</p>
+  <p>Official package repositories for <a href="https://github.com/mstrhakr/printmaster">PrintMaster Agent</a>.</p>
   
-  <h2>Quick Install</h2>
+  <h2>Debian/Ubuntu (APT)</h2>
+  
+  <h3>Quick Install</h3>
   <pre><code># Add repository
 echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
 
@@ -22,7 +29,7 @@ echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | su
 sudo apt-get update
 sudo apt-get install printmaster-agent</code></pre>
 
-  <h2>With GPG Verification (Recommended)</h2>
+  <h3>With GPG Verification (Recommended)</h3>
   <pre><code># Download and add GPG key
 curl -fsSL https://mstrhakr.github.io/printmaster/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/printmaster.gpg
 
@@ -32,6 +39,21 @@ echo "deb [signed-by=/usr/share/keyrings/printmaster.gpg] https://mstrhakr.githu
 # Update and install
 sudo apt-get update
 sudo apt-get install printmaster-agent</code></pre>
+
+  <h2>Fedora/RHEL (DNF)</h2>
+  
+  <h3>Quick Install (One-liner)</h3>
+  <pre><code># Add repository and install
+sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf install printmaster-agent</code></pre>
+
+  <h3>With GPG Verification (Recommended)</h3>
+  <pre><code># Import GPG key first
+sudo rpm --import https://mstrhakr.github.io/printmaster/gpg.key
+
+# Add repository and install
+sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf install printmaster-agent</code></pre>
 
   <h2>After Installation</h2>
   <pre><code># Start the service

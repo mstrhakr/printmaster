@@ -1,0 +1,37 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: PrintMaster
+Label: PrintMaster
+Suite: stable
+Codename: stable
+Architectures: amd64 arm64
+Components: main
+Description: PrintMaster Agent APT Repository
+Date: Tue, 23 Dec 2025 02:50:04 +0000
+MD5Sum:
+ c6963bad9118a0eab6ea0feb718bfa7b 948 main/binary-amd64/Packages
+ bcacbd1cbd02742772ca2e580731f20f 596 main/binary-amd64/Packages.gz
+ 474c282e4a3a9a20f9c81df9a787240a 948 main/binary-arm64/Packages
+ 915d8b83b647faae7800b6f6802ef92b 596 main/binary-arm64/Packages.gz
+SHA256:
+ 0ad55f1f96f9aa679f5b28806dbf172036b8189b2a5acd643442776f915084b3 948 main/binary-amd64/Packages
+ 803b0b6f6b0a1e3f0c0cd97c83a0af6b87545d1bd690cca69e02b500eb9cdda9 596 main/binary-amd64/Packages.gz
+ 771159cf68b5c3e204097677e61418e8e51a12123721505b0a2072e821d26038 948 main/binary-arm64/Packages
+ beb3a6d98960fb1d7eb87e629a1ccb00e4441855327117c2c86b8085ed88639f 596 main/binary-arm64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEQcsUrxW4IxLeXtLq9c9pJAf/998FAmlKA1wACgkQ9c9pJAf/
+999C2BAAieh9miPhPNQi7xZ4pkDKPitI0cPoJhkIAEGQmbcoGZ7XtA7Mu9e8cwXQ
+dQmOUGgev5Dj5jsmZVc/H1CPbcdutIAk4mdshdxXqsPmch/q0PsxrPlh2NFFk8WA
+D/5rgFxo63YDXYf/rtM1ETV0SNYNM00nf9U3NnRgJRAKTVrT3CKe1hK9t9TAQcIl
+G4pe4mTq3SJhpQU2ChzsfZKQFWxCpINwzALsCpbPXqePddaLXw/nE6dVhq5f7GMA
+KNjM/Lmq5N12Lx7lxAI2BFG55EW6N/H9Kl2mkhjJ1UMZYdecL51bVESIJDGUAizB
+KPTRbPszh0bXahiAGHksfQY5rhOFPCbIgInB/RzUtAzVSDPMUZ2+ka1ZXPpu/4dk
+vMqUYX0pMZM6314HKIGxOrXr1vYrDO7W/D2R5Gb4dCTlJNBhgiQtcoMc4gPjQzok
+aPzO5D8S8sHU+TMLb3lGmKYqCkAOrXJ38Z3FlDtxESS8sgSjOOZ7ZH7gbA5W+vQ6
+l18qimfrvj4rvcMrZFijbFFWMXBWZn6VOci/i2iCvGit1wrqWA9WeTVcKvy9Fp5J
+ZZO4QLouRB0pq7olT6+wLDzSN3b6+Q3NUxRFtqf9ffROo0bId+aaeDU3Mz5UkvR6
+Xj2UMKnm2hEpbVl11RdJQc6Y8PoBVfx4peRx8dpK2fveDl5gun8=
+=D/Eh
+-----END PGP SIGNATURE-----
