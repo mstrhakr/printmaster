@@ -111,15 +111,17 @@ func DefaultAgentConfig() *AgentConfig {
 	}
 }
 
-// LoadAgentConfig loads configuration from TOML file with environment variable overrides
+// LoadAgentConfig loads configuration from TOML file with environment variable overrides.
+// Returns an error if the config file does not exist or cannot be parsed.
 func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 	cfg := DefaultAgentConfig()
 
-	// Load from file if it exists
-	if _, err := os.Stat(configPath); err == nil {
-		if err := config.LoadTOML(configPath, cfg); err != nil {
-			return nil, err
-		}
+	// File must exist - return error if missing
+	if _, err := os.Stat(configPath); err != nil {
+		return nil, err
+	}
+	if err := config.LoadTOML(configPath, cfg); err != nil {
+		return nil, err
 	}
 
 	// Override with environment variables

@@ -271,18 +271,13 @@ timeout_ms = 2000
 func TestLoadAgentConfigNonExistent(t *testing.T) {
 	t.Parallel()
 
-	// Load config from non-existent file (should return defaults)
+	// Load config from non-existent file (should return error)
 	cfg, err := LoadAgentConfig("/nonexistent/config.toml")
-	if err != nil {
-		t.Fatalf("expected no error when config file doesn't exist, got: %v", err)
+	if err == nil {
+		t.Fatalf("expected error when config file doesn't exist, got nil")
 	}
-
-	// Should return default values
-	if cfg.AssetIDRegex != `\b\d{5}\b` {
-		t.Errorf("expected default AssetIDRegex, got %s", cfg.AssetIDRegex)
-	}
-	if cfg.SNMP.Community != "public" {
-		t.Errorf("expected default SNMP community, got %s", cfg.SNMP.Community)
+	if cfg != nil {
+		t.Errorf("expected nil config when file doesn't exist, got %+v", cfg)
 	}
 }
 
