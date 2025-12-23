@@ -168,7 +168,7 @@ echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | su
 sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
 ```
 
-Web UI at http://localhost:8000 • Config at `/etc/printmaster/agent.toml`
+Web UI at http://localhost:8080 • Config at `/etc/printmaster/agent.toml`
 
 For GPG verification and detailed options, see [Linux Repositories Guide](docs/LINUX_REPOSITORIES.md).
 

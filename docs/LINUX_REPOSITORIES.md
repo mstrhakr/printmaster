@@ -112,7 +112,7 @@ sudo systemctl status printmaster-agent
 journalctl -u printmaster-agent -f
 
 # Test web UI
-curl -s http://localhost:8000/api/v1/status | jq
+curl -s http://localhost:8080/api/v1/status | jq
 ```
 
 ### Important Paths
@@ -126,7 +126,7 @@ curl -s http://localhost:8000/api/v1/status | jq
 
 ### Web UI
 
-Access the agent web interface at: **http://localhost:8000**
+Access the agent web interface at: **http://localhost:8080**
 
 If connecting from another machine, use the server's IP address.
 
@@ -226,8 +226,8 @@ ls -la /var/lib/printmaster
 ### Port already in use
 
 ```bash
-# Check what's using port 8000
-sudo ss -tlnp | grep 8000
+# Check what's using port 8080
+sudo ss -tlnp | grep 8080
 
 # Change port in config
 sudo nano /etc/printmaster/agent.toml

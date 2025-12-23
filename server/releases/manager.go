@@ -201,8 +201,16 @@ func (m *Manager) GetLatestManifest(ctx context.Context, component, platform, ar
 		return nil, fmt.Errorf("failed to list manifests: %w", err)
 	}
 
+	m.logDebug("searching for latest manifest",
+		"component", component,
+		"platform", platform,
+		"arch", arch,
+		"channel", channel,
+		"total_manifests", len(manifests))
+
 	var latest *storage.ReleaseManifest
 	var latestVersion *semver.Version
+	matchCount := 0
 	for _, manifest := range manifests {
 		if manifest.Platform != platform || manifest.Arch != arch {
 			continue
@@ -210,7 +218,18 @@ func (m *Manager) GetLatestManifest(ctx context.Context, component, platform, ar
 		if channel != "" && manifest.Channel != channel {
 			continue
 		}
+		matchCount++
 		candidateVersion := parseSemverVersion(manifest.Version)
+		m.logDebug("manifest candidate",
+			"version", manifest.Version,
+			"parsed", candidateVersion != nil,
+			"current_latest", func() string {
+				if latest != nil {
+					return latest.Version
+				}
+				return "<none>"
+			}())
+
 		if latest == nil {
 			latest = manifest
 			latestVersion = candidateVersion
@@ -229,8 +248,11 @@ func (m *Manager) GetLatestManifest(ctx context.Context, component, platform, ar
 	}
 
 	if latest == nil {
+		m.logDebug("no matching manifest found", "matched_count", matchCount)
 		return nil, fmt.Errorf("no manifest found for %s/%s-%s/%s", component, platform, arch, channel)
 	}
+
+	m.logDebug("selected latest manifest", "version", latest.Version, "matched_count", matchCount)
 
 	// Get the corresponding artifact for size info
 	artifact, err := m.store.GetReleaseArtifact(ctx, latest.Component, latest.Version, latest.Platform, latest.Arch)

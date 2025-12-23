@@ -6738,6 +6738,13 @@ func handleAgentUpdateManifest(w http.ResponseWriter, r *http.Request) {
 		req.Channel = "stable"
 	}
 
+	logDebug("Agent update manifest request",
+		"agent_id", req.AgentID,
+		"component", req.Component,
+		"platform", req.Platform,
+		"arch", req.Arch,
+		"channel", req.Channel)
+
 	// Fetch matching manifest from release manager
 	if releaseManager == nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -6764,6 +6771,12 @@ func handleAgentUpdateManifest(w http.ResponseWriter, r *http.Request) {
 		manifest.DownloadURL = fmt.Sprintf("/api/v1/agents/update/download/%s/%s/%s-%s",
 			manifest.Component, manifest.Version, manifest.Platform, manifest.Arch)
 	}
+
+	logDebug("Returning update manifest",
+		"agent_id", req.AgentID,
+		"version", manifest.Version,
+		"platform", manifest.Platform,
+		"arch", manifest.Arch)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

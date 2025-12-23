@@ -118,7 +118,8 @@ services:
       # AGENT_NAME: "Site-A-Agent"
       # LOG_LEVEL: "info"
     ports:
-      - "8000:8000"    # Web UI
+      - "8080:8080"    # Web UI HTTP
+      - "8443:8443"    # Web UI HTTPS
     volumes:
       # Persistent storage for discovered devices and metrics
       - agent-data:/var/lib/printmaster/agent

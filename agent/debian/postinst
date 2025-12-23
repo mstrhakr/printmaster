@@ -32,7 +32,7 @@ case "$1" in
         # (start only works if service is not running at all)
         systemctl restart printmaster-agent.service || true
         
-        echo "PrintMaster Agent installed and running at http://localhost:8000"
+        echo "PrintMaster Agent installed and running at http://localhost:8080"
         ;;
     abort-upgrade|abort-remove|abort-deconfigure)
         ;;

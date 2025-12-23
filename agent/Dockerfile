@@ -61,8 +61,8 @@ WORKDIR /var/lib/printmaster/agent
 # Set environment to indicate Docker environment
 ENV DOCKER=true
 
-# Expose web UI port (default 8000)
-EXPOSE 8000
+# Expose web UI port (default 8080 HTTP, 8443 HTTPS)
+EXPOSE 8080 8443
 
 # Run the agent (distroless nonroot user)
 ENTRYPOINT ["/printmaster-agent"]

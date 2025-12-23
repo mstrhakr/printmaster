@@ -42,7 +42,7 @@ sudo systemctl enable printmaster-agent
 sudo systemctl status printmaster-agent
 ```
 
-- **Web UI**: http://localhost:8000
+- **Web UI**: http://localhost:8080
 - **Config file**: `/etc/printmaster/agent.toml`
 - **Data directory**: `/var/lib/printmaster`
 - **Logs**: `journalctl -u printmaster-agent`

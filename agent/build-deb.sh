@@ -149,7 +149,7 @@ case "$1" in
         echo "  sudo systemctl start printmaster-agent"
         echo ""
         echo "Configuration file: /etc/printmaster/agent.toml"
-        echo "Web UI: http://localhost:8000"
+        echo "Web UI: http://localhost:8080"
         echo ""
         ;;
 esac

@@ -17,6 +17,11 @@ Source0:        printmaster-agent
 BuildRequires:  systemd-rpm-macros
 Requires:       glibc
 
+# The package creates its own user/group in %pre, so we provide these
+# to satisfy RPM's automatic dependency generator
+Provides:       user(printmaster)
+Provides:       group(printmaster)
+
 %description
 PrintMaster Agent discovers and monitors network printers via SNMP,
 collects metrics (page counts, toner levels, status), and optionally
@@ -76,7 +81,7 @@ cat > %{buildroot}%{_sysconfdir}/printmaster/agent.toml.example << 'EOF'
 name = "my-site-agent"
 
 # Web UI settings
-listen = ":8000"
+listen = ":8080"
 
 [discovery]
 # Networks to scan (CIDR notation)
@@ -102,6 +107,12 @@ exit 0
 %post
 %systemd_post printmaster-agent.service
 
+# Restore SELinux context on binary (required for Fedora/RHEL with SELinux enforcing)
+# The binary should have bin_t context to be executable by systemd
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon -v /usr/bin/printmaster-agent || true
+fi
+
 # Set ownership of directories
 chown -R printmaster:printmaster /var/lib/printmaster
 chown -R printmaster:printmaster /var/log/printmaster
@@ -120,7 +131,7 @@ systemctl daemon-reload
 systemctl enable printmaster-agent.service || true
 systemctl restart printmaster-agent.service || true
 
-echo "PrintMaster Agent installed and running at http://localhost:8000"
+echo "PrintMaster Agent installed and running at http://localhost:8080"
 
 %preun
 %systemd_preun printmaster-agent.service
