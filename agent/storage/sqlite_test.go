@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -618,8 +619,8 @@ func TestSQLiteStore_BackupAndReset_InMemory(t *testing.T) {
 // - Previous snapshot: total=423995, color=200404, mono=223591 (valid color device)
 // - Anomalous snapshot: total=423995, color=0, mono=423995 (mono jumped to match total!)
 //
-// The storage layer should detect this and drop the anomalous snapshot.
-func TestSQLiteStore_MonoOnlyFlipDetection(t *testing.T) {
+// Rule 2: Non-zero can't become zero - catches the "flip" where color goes from 200404 to 0
+func TestSQLiteStore_MetricsRule2_NonZeroCantBecomeZero(t *testing.T) {
 	store, err := NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
@@ -628,86 +629,63 @@ func TestSQLiteStore_MonoOnlyFlipDetection(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a test device (Epson WF-C17590 style color copier)
-	device := newFullTestDevice("EPSON001", "192.168.1.100", "Epson", "WF-C17590", true, true)
+	// Create a test device (color copier)
+	device := newFullTestDevice("COLOR001", "192.168.1.100", "Epson", "WF-C17590", true, true)
 	err = store.Create(ctx, device)
 	if err != nil {
 		t.Fatalf("Failed to create device: %v", err)
 	}
 
-	// Save initial "good" metrics - a color device with proper breakdown
-	snapshot1 := newTestMetrics("EPSON001", 423995)
+	// Save initial "good" metrics - color device with proper breakdown
+	snapshot1 := newTestMetrics("COLOR001", 10000)
 	snapshot1.Timestamp = time.Now().Add(-10 * time.Minute)
-	snapshot1.ColorPages = 200404
-	snapshot1.MonoPages = 223591
-	snapshot1.ScanCount = 0
+	snapshot1.ColorPages = 5000
+	snapshot1.MonoPages = 5000
 	err = store.SaveMetricsSnapshot(ctx, snapshot1)
 	if err != nil {
 		t.Fatalf("Failed to save initial metrics: %v", err)
 	}
 
-	// Verify initial metrics saved correctly
-	latest, err := store.GetLatestMetrics(ctx, "EPSON001")
-	if err != nil {
-		t.Fatalf("Failed to get initial metrics: %v", err)
-	}
-	if latest.ColorPages != 200404 {
-		t.Errorf("Expected color_pages=200404, got %d", latest.ColorPages)
-	}
-
-	// Now try to save an anomalous "mono-only flip" snapshot
-	// This simulates SNMP not returning the color OID properly
-	anomalousSnapshot := newTestMetrics("EPSON001", 423995) // Same total
-	anomalousSnapshot.Timestamp = time.Now().Add(-5 * time.Minute)
-	anomalousSnapshot.ColorPages = 0     // Color OID didn't return!
-	anomalousSnapshot.MonoPages = 423995 // Mono jumped to match total (wrong!)
-	anomalousSnapshot.ScanCount = 0
-	err = store.SaveMetricsSnapshot(ctx, anomalousSnapshot)
+	// Try to save snapshot where color became zero (SNMP failure)
+	badSnapshot := newTestMetrics("COLOR001", 10000)
+	badSnapshot.Timestamp = time.Now().Add(-5 * time.Minute)
+	badSnapshot.ColorPages = 0    // Became zero! (Rule 2 violation)
+	badSnapshot.MonoPages = 10000 // Jumped to match total
+	err = store.SaveMetricsSnapshot(ctx, badSnapshot)
 	if err != nil {
 		t.Fatalf("SaveMetricsSnapshot returned error (expected silent drop): %v", err)
 	}
 
-	// Verify the anomalous snapshot was DROPPED (not saved)
-	latest, err = store.GetLatestMetrics(ctx, "EPSON001")
+	// Verify the bad snapshot was DROPPED
+	latest, err := store.GetLatestMetrics(ctx, "COLOR001")
 	if err != nil {
-		t.Fatalf("Failed to get latest metrics after anomaly: %v", err)
+		t.Fatalf("Failed to get latest metrics: %v", err)
+	}
+	if latest.ColorPages != 5000 {
+		t.Errorf("Rule 2 failed! color_pages became %d (expected 5000 to be preserved)", latest.ColorPages)
 	}
 
-	// Latest metrics should still be the original "good" values
-	if latest.ColorPages != 200404 {
-		t.Errorf("Anomalous snapshot was NOT dropped! color_pages=%d (expected 200404)", latest.ColorPages)
-	}
-	if latest.MonoPages != 223591 {
-		t.Errorf("Anomalous snapshot was NOT dropped! mono_pages=%d (expected 223591)", latest.MonoPages)
-	}
-
-	// Now save a legitimate update (small increment, color still present)
-	legitimateSnapshot := newTestMetrics("EPSON001", 424000) // Small increase
-	legitimateSnapshot.Timestamp = time.Now()
-	legitimateSnapshot.ColorPages = 200410 // Small increase
-	legitimateSnapshot.MonoPages = 223590  // Roughly stable
-	legitimateSnapshot.ScanCount = 5       // Some scans
-	err = store.SaveMetricsSnapshot(ctx, legitimateSnapshot)
+	// Now save a legitimate update
+	goodSnapshot := newTestMetrics("COLOR001", 10100)
+	goodSnapshot.Timestamp = time.Now()
+	goodSnapshot.ColorPages = 5050
+	goodSnapshot.MonoPages = 5050
+	err = store.SaveMetricsSnapshot(ctx, goodSnapshot)
 	if err != nil {
 		t.Fatalf("Failed to save legitimate metrics: %v", err)
 	}
 
-	// Verify legitimate snapshot was saved
-	latest, err = store.GetLatestMetrics(ctx, "EPSON001")
+	latest, err = store.GetLatestMetrics(ctx, "COLOR001")
 	if err != nil {
-		t.Fatalf("Failed to get latest after legitimate update: %v", err)
+		t.Fatalf("Failed to get latest: %v", err)
 	}
-	if latest.PageCount != 424000 {
-		t.Errorf("Legitimate snapshot was not saved! page_count=%d (expected 424000)", latest.PageCount)
-	}
-	if latest.ColorPages != 200410 {
-		t.Errorf("Legitimate snapshot was not saved! color_pages=%d (expected 200410)", latest.ColorPages)
+	if latest.ColorPages != 5050 {
+		t.Errorf("Legitimate update was rejected! color_pages=%d (expected 5050)", latest.ColorPages)
 	}
 }
 
-// TestSQLiteStore_MonoOnlyFlipAllowsLegitimateMonoDevice tests that the mono-only
-// flip detection does NOT falsely reject legitimate mono-only devices.
-func TestSQLiteStore_MonoOnlyFlipAllowsLegitimateMonoDevice(t *testing.T) {
+// TestSQLiteStore_MetricsRule1_CountsOnlyGoUp tests Rule 1: cumulative counters can't decrease
+func TestSQLiteStore_MetricsRule1_CountsOnlyGoUp(t *testing.T) {
 	store, err := NewSQLiteStore(":memory:")
 	if err != nil {
 		t.Fatalf("Failed to create store: %v", err)
@@ -716,41 +694,138 @@ func TestSQLiteStore_MonoOnlyFlipAllowsLegitimateMonoDevice(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Create a legitimate mono-only device
+	device := newFullTestDevice("TEST001", "192.168.1.100", "HP", "LaserJet", true, true)
+	err = store.Create(ctx, device)
+	if err != nil {
+		t.Fatalf("Failed to create device: %v", err)
+	}
+
+	// Initial metrics
+	snapshot1 := newTestMetrics("TEST001", 10000)
+	snapshot1.Timestamp = time.Now().Add(-10 * time.Minute)
+	snapshot1.ColorPages = 5000
+	snapshot1.MonoPages = 5000
+	err = store.SaveMetricsSnapshot(ctx, snapshot1)
+	if err != nil {
+		t.Fatalf("Failed to save initial: %v", err)
+	}
+
+	// Try to save snapshot where page_count decreased significantly
+	badSnapshot := newTestMetrics("TEST001", 8000) // Decreased by 2000 (20%)
+	badSnapshot.Timestamp = time.Now()
+	badSnapshot.ColorPages = 4000
+	badSnapshot.MonoPages = 4000
+	err = store.SaveMetricsSnapshot(ctx, badSnapshot)
+	if err != nil {
+		t.Fatalf("SaveMetricsSnapshot returned error: %v", err)
+	}
+
+	// Verify bad snapshot was dropped
+	latest, err := store.GetLatestMetrics(ctx, "TEST001")
+	if err != nil {
+		t.Fatalf("Failed to get latest: %v", err)
+	}
+	if latest.PageCount != 10000 {
+		t.Errorf("Rule 1 failed! page_count decreased to %d (expected 10000)", latest.PageCount)
+	}
+}
+
+// TestSQLiteStore_MetricsRule3_PartsMustEqualWhole tests Rule 3: color + mono ≈ total
+func TestSQLiteStore_MetricsRule3_PartsMustEqualWhole(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	device := newFullTestDevice("TEST002", "192.168.1.101", "Canon", "MF", true, true)
+	err = store.Create(ctx, device)
+	if err != nil {
+		t.Fatalf("Failed to create device: %v", err)
+	}
+
+	// Try to save snapshot where parts don't match total (>10% off)
+	badSnapshot := newTestMetrics("TEST002", 10000)
+	badSnapshot.Timestamp = time.Now()
+	badSnapshot.ColorPages = 3000 // 3000 + 3000 = 6000, but total is 10000 (40% off!)
+	badSnapshot.MonoPages = 3000
+	err = store.SaveMetricsSnapshot(ctx, badSnapshot)
+	if err != nil {
+		t.Fatalf("SaveMetricsSnapshot returned error: %v", err)
+	}
+
+	// Verify bad snapshot was dropped (no metrics saved)
+	latest, err := store.GetLatestMetrics(ctx, "TEST002")
+	if err != nil && !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if latest != nil {
+		t.Errorf("Rule 3 failed! Mismatched snapshot was saved (total=%d, color+mono=%d)",
+			latest.PageCount, latest.ColorPages+latest.MonoPages)
+	}
+
+	// Now save a good snapshot where parts match
+	goodSnapshot := newTestMetrics("TEST002", 10000)
+	goodSnapshot.Timestamp = time.Now()
+	goodSnapshot.ColorPages = 5000
+	goodSnapshot.MonoPages = 5000 // 5000 + 5000 = 10000 ✓
+	err = store.SaveMetricsSnapshot(ctx, goodSnapshot)
+	if err != nil {
+		t.Fatalf("Failed to save good snapshot: %v", err)
+	}
+
+	latest, err = store.GetLatestMetrics(ctx, "TEST002")
+	if err != nil {
+		t.Fatalf("Failed to get latest: %v", err)
+	}
+	if latest.PageCount != 10000 {
+		t.Errorf("Good snapshot was rejected!")
+	}
+}
+
+// TestSQLiteStore_MetricsAllowsLegitimateMonoDevice tests that mono-only devices work
+func TestSQLiteStore_MetricsAllowsLegitimateMonoDevice(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
 	device := newFullTestDevice("MONO001", "192.168.1.101", "Brother", "HL-L2350DW", true, true)
 	err = store.Create(ctx, device)
 	if err != nil {
 		t.Fatalf("Failed to create device: %v", err)
 	}
 
-	// Save initial metrics for mono device (color=0 is expected)
+	// Mono device: color=0 from the start (legitimate)
 	snapshot1 := newTestMetrics("MONO001", 10000)
 	snapshot1.Timestamp = time.Now().Add(-10 * time.Minute)
-	snapshot1.ColorPages = 0 // Mono device - no color
+	snapshot1.ColorPages = 0
 	snapshot1.MonoPages = 10000
-	snapshot1.ScanCount = 0
 	err = store.SaveMetricsSnapshot(ctx, snapshot1)
 	if err != nil {
-		t.Fatalf("Failed to save initial mono metrics: %v", err)
+		t.Fatalf("Failed to save mono metrics: %v", err)
 	}
 
-	// Save update with more pages (mono device continues to work)
+	// Update with more pages
 	snapshot2 := newTestMetrics("MONO001", 10500)
 	snapshot2.Timestamp = time.Now()
-	snapshot2.ColorPages = 0 // Still mono
+	snapshot2.ColorPages = 0
 	snapshot2.MonoPages = 10500
-	snapshot2.ScanCount = 0
 	err = store.SaveMetricsSnapshot(ctx, snapshot2)
 	if err != nil {
-		t.Fatalf("Failed to save updated mono metrics: %v", err)
+		t.Fatalf("Failed to save mono update: %v", err)
 	}
 
-	// Verify the update was saved (mono device should not trigger flip detection)
 	latest, err := store.GetLatestMetrics(ctx, "MONO001")
 	if err != nil {
-		t.Fatalf("Failed to get latest mono metrics: %v", err)
+		t.Fatalf("Failed to get latest: %v", err)
 	}
 	if latest.PageCount != 10500 {
-		t.Errorf("Mono device update was incorrectly rejected! page_count=%d (expected 10500)", latest.PageCount)
+		t.Errorf("Mono device update was rejected! page_count=%d", latest.PageCount)
 	}
 }

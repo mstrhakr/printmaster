@@ -1517,100 +1517,93 @@ func (s *SQLiteStore) saveMetricsSnapshotWithExecer(ctx context.Context, ex exec
 		}
 	}
 
-	// Defensive check: ignore snapshots where cumulative counters SIGNIFICANTLY decreased compared to latest.
-	// Small decreases (< 5% of latest value) are tolerated to handle minor SNMP response variations.
-	// Large decreases (> 5%) indicate likely SNMP errors, partial responses, or counter resets.
+	// =============================================================================
+	// METRICS VALIDATION - Three Simple Rules
+	// =============================================================================
+	// Rule 1: Counts only go up (cumulative counters never decrease significantly)
+	// Rule 2: Non-zero can't become zero (if we had data, we should still have it)
+	// Rule 3: Parts must equal whole (color + mono ≈ total)
+	// =============================================================================
+
 	if latest, err := s.GetLatestMetrics(ctx, snapshot.Serial); err == nil && latest != nil {
-		// Helper to check if decrease is significant (> 5% of latest value)
-		isSignificantDecrease := func(incoming, previous int) bool {
-			if previous <= 0 {
-				return false // No previous value to compare
+
+		// --- RULE 1: Counts only go up ---
+		// Cumulative counters should never decrease (except for noise/rounding)
+		isSignificantDecrease := func(incoming, previous int, name string) bool {
+			if previous <= 0 || incoming >= previous {
+				return false
 			}
-			if incoming >= previous {
-				return false // Not a decrease
-			}
-			// Calculate decrease percentage
 			decrease := previous - incoming
-			threshold := previous / 20 // 5% threshold
+			threshold := previous / 20 // 5% tolerance
 			if threshold < 10 {
-				threshold = 10 // Minimum threshold of 10 to avoid noise on small counts
+				threshold = 10
 			}
-			return decrease > threshold
-		}
-
-		// If page_count decreased significantly, drop this snapshot
-		if isSignificantDecrease(snapshot.PageCount, latest.PageCount) {
-			if storageLogger != nil {
-				storageLogger.WarnRateLimited("metrics_decrease_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because page_count decreased significantly",
-					"serial", snapshot.Serial, "latest", latest.PageCount, "incoming", snapshot.PageCount,
-					"decrease", latest.PageCount-snapshot.PageCount)
-			}
-			// Treat as non-fatal: do not save the snapshot
-			return nil
-		}
-		// Similarly for color/mono/scan counts (only if provided/non-zero on incoming)
-		if snapshot.ColorPages > 0 && isSignificantDecrease(snapshot.ColorPages, latest.ColorPages) {
-			if storageLogger != nil {
-				storageLogger.WarnRateLimited("metrics_decrease_color_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because color_pages decreased significantly",
-					"serial", snapshot.Serial, "latest", latest.ColorPages, "incoming", snapshot.ColorPages)
-			}
-			return nil
-		}
-		if snapshot.MonoPages > 0 && isSignificantDecrease(snapshot.MonoPages, latest.MonoPages) {
-			if storageLogger != nil {
-				storageLogger.WarnRateLimited("metrics_decrease_mono_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because mono_pages decreased significantly",
-					"serial", snapshot.Serial, "latest", latest.MonoPages, "incoming", snapshot.MonoPages)
-			}
-			return nil
-		}
-		if snapshot.ScanCount > 0 && isSignificantDecrease(snapshot.ScanCount, latest.ScanCount) {
-			if storageLogger != nil {
-				storageLogger.WarnRateLimited("metrics_decrease_scan_"+snapshot.Serial, 1*time.Minute,
-					"Dropping metrics snapshot because scan_count decreased significantly",
-					"serial", snapshot.Serial, "latest", latest.ScanCount, "incoming", snapshot.ScanCount)
-			}
-			return nil
-		}
-
-		// Detect "mono-only flip" anomaly: a color device suddenly reporting as mono-only.
-		// This happens when SNMP intermittently fails to return color page count OID.
-		// Pattern: latest had color_pages > 0, but incoming has color_pages == 0 AND mono_pages jumped
-		// to approximately match total_pages (within 5%).
-		// Example: Previous: total=423995, color=200404, mono=223591
-		//          Incoming: total=423995, color=0, mono=423995 (mono jumped to match total!)
-		if latest.ColorPages > 0 && snapshot.ColorPages == 0 && snapshot.MonoPages > 0 {
-			// Check if mono_pages is suspiciously close to total_pages (within 5%)
-			monoMatchesTotal := false
-			if snapshot.PageCount > 0 {
-				diff := snapshot.PageCount - snapshot.MonoPages
-				if diff < 0 {
-					diff = -diff
-				}
-				// Allow 5% tolerance for mono matching total
-				tolerance := snapshot.PageCount / 20
-				if tolerance < 100 {
-					tolerance = 100 // Minimum tolerance of 100 pages
-				}
-				monoMatchesTotal = diff <= tolerance
-			}
-
-			// Also check if mono jumped significantly from its previous value
-			monoJumped := snapshot.MonoPages > latest.MonoPages &&
-				(snapshot.MonoPages-latest.MonoPages) > latest.MonoPages/10 // >10% jump
-
-			if monoMatchesTotal && monoJumped {
+			if decrease > threshold {
 				if storageLogger != nil {
-					storageLogger.WarnRateLimited("metrics_mono_flip_"+snapshot.Serial, 1*time.Minute,
-						"Dropping metrics: suspected mono-only flip (SNMP missed color OID)",
-						"serial", snapshot.Serial,
-						"latest_color", latest.ColorPages,
-						"incoming_color", snapshot.ColorPages,
-						"latest_mono", latest.MonoPages,
-						"incoming_mono", snapshot.MonoPages,
-						"total", snapshot.PageCount)
+					storageLogger.WarnRateLimited("metrics_decrease_"+name+"_"+snapshot.Serial, 1*time.Minute,
+						"Dropping metrics: "+name+" decreased", "serial", snapshot.Serial,
+						"previous", previous, "incoming", incoming, "decrease", decrease)
+				}
+				return true
+			}
+			return false
+		}
+
+		if isSignificantDecrease(snapshot.PageCount, latest.PageCount, "page_count") {
+			return nil
+		}
+		if isSignificantDecrease(snapshot.MonoPages, latest.MonoPages, "mono_pages") {
+			return nil
+		}
+		if isSignificantDecrease(snapshot.ScanCount, latest.ScanCount, "scan_count") {
+			return nil
+		}
+		// Note: color_pages checked in Rule 2 (zero is special case)
+
+		// --- RULE 2: Non-zero can't become zero ---
+		// If a field had a value before, it can't suddenly be zero (SNMP read failure)
+		becameZero := func(incoming, previous int, name string) bool {
+			if previous > 0 && incoming == 0 {
+				if storageLogger != nil {
+					storageLogger.WarnRateLimited("metrics_zeroed_"+name+"_"+snapshot.Serial, 1*time.Minute,
+						"Dropping metrics: "+name+" became zero (SNMP failure)", "serial", snapshot.Serial,
+						"previous", previous, "incoming", incoming)
+				}
+				return true
+			}
+			return false
+		}
+
+		if becameZero(snapshot.ColorPages, latest.ColorPages, "color_pages") {
+			return nil
+		}
+		if becameZero(snapshot.MonoPages, latest.MonoPages, "mono_pages") {
+			return nil
+		}
+		// Don't check page_count becoming zero - that's already caught by Rule 1
+	}
+
+	// --- RULE 3: Parts must equal whole ---
+	// If we have both breakdown AND total, they should roughly match
+	// color + mono should be close to total (within 10%)
+	if snapshot.PageCount > 0 && (snapshot.ColorPages > 0 || snapshot.MonoPages > 0) {
+		partsSum := snapshot.ColorPages + snapshot.MonoPages
+		if partsSum > 0 {
+			diff := snapshot.PageCount - partsSum
+			if diff < 0 {
+				diff = -diff
+			}
+			// Allow 10% mismatch (some devices count differently)
+			tolerance := snapshot.PageCount / 10
+			if tolerance < 100 {
+				tolerance = 100
+			}
+			if diff > tolerance {
+				if storageLogger != nil {
+					storageLogger.WarnRateLimited("metrics_mismatch_"+snapshot.Serial, 1*time.Minute,
+						"Dropping metrics: color+mono doesn't match total", "serial", snapshot.Serial,
+						"total", snapshot.PageCount, "color", snapshot.ColorPages, "mono", snapshot.MonoPages,
+						"parts_sum", partsSum, "diff", diff)
 				}
 				return nil
 			}
