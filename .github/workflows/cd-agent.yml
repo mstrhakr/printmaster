@@ -462,7 +462,7 @@ jobs:
     - name: Install APT repo tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y dpkg-dev apt-utils gnupg createrepo-c
+        sudo apt-get install -y dpkg-dev apt-utils gnupg createrepo-c rpm expect
 
     - name: Import GPG key
       env:
@@ -599,6 +599,61 @@ jobs:
         
         echo "Release signed"
 
+    - name: Sign RPM packages
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+      run: |
+        if [ -z "$GPG_PRIVATE_KEY" ]; then
+          echo "No GPG key configured, skipping RPM signing"
+          exit 0
+        fi
+        
+        cd apt-repo
+        
+        # Check if we have RPM packages
+        if ! ls rpm/packages/*.rpm 1>/dev/null 2>&1; then
+          echo "No RPM packages to sign"
+          exit 0
+        fi
+        
+        # Get the GPG key ID
+        GPG_KEY_ID=$(gpg --list-keys --keyid-format SHORT | grep -A1 "^pub" | tail -1 | awk '{print $1}')
+        echo "Using GPG key: $GPG_KEY_ID"
+        
+        # Configure rpmmacros for signing
+        mkdir -p ~/.gnupg
+        echo "%_gpg_name $GPG_KEY_ID" >> ~/.rpmmacros
+        echo "%__gpg_sign_cmd %{__gpg} gpg --batch --verbose --no-armor --pinentry-mode loopback --passphrase \"$GPG_PASSPHRASE\" -u \"%{_gpg_name}\" -sbo %{__signature_filename} --digest-algo sha256 %{__plaintext_filename}" >> ~/.rpmmacros
+        
+        # Sign each RPM package
+        for rpm in rpm/packages/*.rpm; do
+          echo "Signing $rpm..."
+          rpm --addsign "$rpm" <<< "$GPG_PASSPHRASE" || {
+            # Alternative method using rpmsign directly
+            echo "Trying alternative signing method..."
+            rpmsign --addsign --key-id="$GPG_KEY_ID" "$rpm" <<< "$GPG_PASSPHRASE" || {
+              echo "Warning: Failed to sign $rpm, trying expect-based approach..."
+              # Final fallback - use expect if available
+              if command -v expect &> /dev/null; then
+                expect -c "
+                  spawn rpm --addsign $rpm
+                  expect \"Enter pass phrase:\"
+                  send \"$GPG_PASSPHRASE\r\"
+                  expect eof
+                "
+              else
+                echo "ERROR: Could not sign $rpm"
+              fi
+            }
+          }
+        done
+        
+        echo "Verifying RPM signatures:"
+        for rpm in rpm/packages/*.rpm; do
+          rpm -K "$rpm" || true
+        done
+
     - name: Generate DNF repository metadata
       run: |
         cd apt-repo
@@ -615,7 +670,7 @@ jobs:
         echo "Repository metadata generated:"
         ls -la rpm/repodata/
 
-    - name: Sign RPM repository
+    - name: Sign RPM repository metadata
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
