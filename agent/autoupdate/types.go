@@ -62,6 +62,7 @@ type ManagerStatus struct {
 	Arch              string     `json:"arch"`
 	UsePackageManager bool       `json:"use_package_manager,omitempty"` // True if updates use apt-get
 	PackageName       string     `json:"package_name,omitempty"`        // Package name (e.g., "printmaster-agent")
+	UseMSI            bool       `json:"use_msi,omitempty"`             // True if updates use Windows MSI
 }
 
 // UpdateManifest mirrors the server's signed manifest payload.

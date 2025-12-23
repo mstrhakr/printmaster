@@ -110,6 +110,10 @@ type Manager struct {
 	packageName       string // Package name (e.g., "printmaster-agent")
 	packageManager    string // Package manager type: "apt", "dnf", or ""
 
+	// MSI support (Windows)
+	useMSI         bool   // True if installed via MSI
+	msiProductCode string // MSI Product Code GUID for upgrades
+
 	mu             sync.RWMutex
 	status         Status
 	lastCheck      time.Time
@@ -218,6 +222,21 @@ func NewManager(opts Options) (*Manager, error) {
 		}
 	}
 
+	// Check for MSI installation on Windows
+	var useMSI bool
+	var msiProductCode string
+	if opts.Enabled && runtime.GOOS == "windows" {
+		productCode, isMSI := checkMSIInstallation()
+		if isMSI {
+			useMSI = true
+			msiProductCode = productCode
+			if opts.Log != nil {
+				opts.Log.Info("Auto-update will use MSI installer",
+					"product_code", productCode)
+			}
+		}
+	}
+
 	mgr := &Manager{
 		log:               opts.Log,
 		stateDir:          stateDir,
@@ -241,6 +260,8 @@ func NewManager(opts Options) (*Manager, error) {
 		usePackageManager: usePackageManager,
 		packageName:       packageName,
 		packageManager:    packageManager,
+		useMSI:            useMSI,
+		msiProductCode:    msiProductCode,
 		status:            StatusIdle,
 		stopCh:            make(chan struct{}),
 	}
@@ -300,6 +321,7 @@ func (m *Manager) Status() ManagerStatus {
 		Arch:              m.arch,
 		UsePackageManager: m.usePackageManager,
 		PackageName:       m.packageName,
+		UseMSI:            m.useMSI,
 	}
 }
 
@@ -948,6 +970,11 @@ func (m *Manager) applyUpdateViaYum() error {
 }
 
 func (m *Manager) applyUpdateWindows(stagingPath string) error {
+	// If using MSI, delegate to MSI-specific update method
+	if m.useMSI {
+		return m.applyUpdateWindowsMSI(stagingPath)
+	}
+
 	// On Windows, we write a helper batch file that:
 	// 1. Stops the service (if running as service) to prevent auto-restart race
 	// 2. Waits for the current process to exit
@@ -1060,6 +1087,84 @@ del "%%~f0"
 	}
 
 	m.logInfo("Update helper launched", "helper_path", helperPath, "is_service", isService)
+	return nil
+}
+
+// applyUpdateWindowsMSI applies an update using the Windows MSI installer.
+// This method downloads an MSI and runs msiexec to perform an upgrade.
+func (m *Manager) applyUpdateWindowsMSI(msiPath string) error {
+	m.logInfo("Applying update via MSI", "msi_path", msiPath)
+
+	// Create a helper batch script that:
+	// 1. Waits for current process to exit
+	// 2. Runs msiexec to install the new MSI (which handles service stop/start)
+	// 3. Cleans up
+
+	logPath := filepath.Join(m.stateDir, "msi_update.log")
+
+	// MSI upgrade will automatically:
+	// - Stop the service
+	// - Replace files
+	// - Start the service
+	// We use /qn for silent install, /l*v for verbose logging
+	helperScript := fmt.Sprintf(`@echo off
+echo PrintMaster Agent MSI Update Helper
+echo ============================================
+echo Waiting for agent to exit...
+timeout /t 3 /nobreak >nul
+
+echo Running MSI installer...
+msiexec /i "%s" /qn /norestart /l*v "%s"
+set MSI_EXIT=%%errorlevel%%
+
+if %%MSI_EXIT%% equ 0 (
+    echo MSI installation completed successfully.
+) else if %%MSI_EXIT%% equ 3010 (
+    echo MSI installation completed - reboot required.
+) else (
+    echo MSI installation failed with exit code %%MSI_EXIT%%
+    echo Check log file: %s
+)
+
+echo Cleaning up...
+timeout /t 2 /nobreak >nul
+del "%s"
+del "%%~f0"
+exit /b %%MSI_EXIT%%
+`, msiPath, logPath, logPath, msiPath)
+
+	helperPath := filepath.Join(m.stateDir, "msi_update_helper.bat")
+
+	// Ensure the state directory exists
+	if err := os.MkdirAll(m.stateDir, 0o755); err != nil {
+		return fmt.Errorf("failed to ensure update directory exists: %w", err)
+	}
+
+	if err := os.WriteFile(helperPath, []byte(helperScript), 0o755); err != nil {
+		return fmt.Errorf("failed to write MSI update helper: %w", err)
+	}
+
+	// Verify the file was written
+	if _, err := os.Stat(helperPath); err != nil {
+		return fmt.Errorf("MSI update helper file not found after write: %w", err)
+	}
+
+	// Launch the helper script detached
+	if m.launchHelperFn != nil {
+		// Use mock function (for testing)
+		if err := m.launchHelperFn(helperPath); err != nil {
+			return fmt.Errorf("failed to launch MSI update helper: %w", err)
+		}
+	} else {
+		// Production: use cmd /C start with proper quoting
+		cmd := exec.Command("cmd.exe", "/C", "start", "/min", "PrintMaster MSI Update", helperPath)
+		cmd.Dir = m.stateDir
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to launch MSI update helper: %w", err)
+		}
+	}
+
+	m.logInfo("MSI update helper launched", "helper_path", helperPath, "msi_path", msiPath)
 	return nil
 }
 
@@ -1351,6 +1456,9 @@ func (m *Manager) reportTelemetry(ctx context.Context, status Status, errCode, e
 
 func (m *Manager) binaryExtension() string {
 	if m.platform == "windows" {
+		if m.useMSI {
+			return ".msi"
+		}
 		return ".exe"
 	}
 	return ""
