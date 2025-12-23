@@ -54,11 +54,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/printmaster-agent --config /etc/printmaster/agent.toml --datadir /var/lib/printmaster
+ExecStart=/usr/bin/printmaster-agent --config /etc/printmaster/agent.toml
 Restart=on-failure
 RestartSec=5
 User=printmaster
 Group=printmaster
+WorkingDirectory=/var/lib/printmaster
+
+# Set data directory via environment variable
+Environment=PRINTMASTER_DATA_DIR=/var/lib/printmaster
 
 # Security hardening
 NoNewPrivileges=true
