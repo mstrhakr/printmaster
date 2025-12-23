@@ -2419,6 +2419,11 @@ func runInteractive(ctx context.Context, configFlag string) {
 			MaxAgeDays: 7,
 			MaxFiles:   5,
 		})
+		// Disable console output when running as service to avoid flooding syslog/journal.
+		// The agent already writes to its own rotated log files in logDir.
+		if !service.Interactive() {
+			appLogger.SetConsoleOutput(false)
+		}
 		// Set up SSE broadcasting for log entries
 		appLogger.SetOnLogCallback(func(entry logger.LogEntry) {
 			if sseHub != nil {
