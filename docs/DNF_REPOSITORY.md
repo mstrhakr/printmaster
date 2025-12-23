@@ -8,7 +8,7 @@ PrintMaster provides a DNF/YUM repository hosted on GitHub Pages for easy instal
 
 ```bash
 # Add repository and install
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
 sudo dnf install printmaster-agent
 ```
 
@@ -19,7 +19,7 @@ sudo dnf install printmaster-agent
 sudo rpm --import https://mstrhakr.github.io/printmaster/gpg.key
 
 # Add repository and install
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
 sudo dnf install printmaster-agent
 ```
 
@@ -148,7 +148,7 @@ After publishing, test the repository:
 curl -s https://mstrhakr.github.io/printmaster/rpm/repodata/repomd.xml | head
 
 # Test install on a fresh Fedora system
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
 sudo dnf install printmaster-agent
 ```
 

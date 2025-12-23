@@ -39,14 +39,14 @@ sudo apt-get install printmaster-agent
 
 ```bash
 # Add repository and install (one command)
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
+sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
 ```
 
 Or step by step:
 
 ```bash
 # 1. Add the repository
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
 
 # 2. Install
 sudo dnf install printmaster-agent
@@ -89,7 +89,7 @@ sudo apt-get install printmaster-agent
 sudo rpm --import https://mstrhakr.github.io/printmaster/gpg.key
 
 # 2. Add repository and install (repo file has gpgcheck=1)
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
 sudo dnf install printmaster-agent
 ```
 

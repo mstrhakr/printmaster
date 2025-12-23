@@ -165,7 +165,7 @@ echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | su
 
 **Fedora/RHEL:**
 ```bash
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
+sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
 ```
 
 Web UI at http://localhost:8000 • Config at `/etc/printmaster/agent.toml`

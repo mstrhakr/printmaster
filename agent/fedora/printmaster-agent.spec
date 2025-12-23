@@ -139,8 +139,8 @@ fi
 %{_unitdir}/printmaster-agent.service
 %dir %{_sysconfdir}/printmaster
 %config(noreplace) %{_sysconfdir}/printmaster/agent.toml.example
-%dir %attr(755,printmaster,printmaster) %{_sharedstatedir}/printmaster
-%dir %attr(755,printmaster,printmaster) %{_localstatedir}/log/printmaster
+%dir %{_sharedstatedir}/printmaster
+%dir %{_localstatedir}/log/printmaster
 
 %changelog
 * Sun Dec 22 2024 PrintMaster Team <printmaster@example.com> - %{version}-1

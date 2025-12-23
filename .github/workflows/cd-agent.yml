@@ -373,7 +373,7 @@ jobs:
           
           **Fedora/RHEL (DNF repo):**
           ```bash
-          sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
+          sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
           ```
           
           **Windows:** Download the MSI installer from Assets below.
@@ -706,7 +706,7 @@ jobs:
           
           <h3>Quick Install (One-liner)</h3>
           <pre><code># Add repository and install
-        sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+        sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
         sudo dnf install printmaster-agent</code></pre>
 
           <h3>With GPG Verification (Recommended)</h3>
@@ -714,7 +714,7 @@ jobs:
         sudo rpm --import https://mstrhakr.github.io/printmaster/gpg.key
 
         # Add repository and install
-        sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+        sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
         sudo dnf install printmaster-agent</code></pre>
 
           <h2>After Installation</h2>
