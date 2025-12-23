@@ -105,9 +105,10 @@ type Manager struct {
 	launchHelperFn   func(helperPath string) error // For testing: allows mocking the helper launch
 	progressCallback ProgressCallback
 
-	// Package manager support (Linux dpkg/apt)
-	usePackageManager bool   // True if binary is managed by apt/dpkg
+	// Package manager support (Linux dpkg/apt/dnf/rpm)
+	usePackageManager bool   // True if binary is managed by a package manager
 	packageName       string // Package name (e.g., "printmaster-agent")
+	packageManager    string // Package manager type: "apt", "dnf", or ""
 
 	mu             sync.RWMutex
 	status         Status
@@ -197,16 +198,18 @@ func NewManager(opts Options) (*Manager, error) {
 	// Check if binary is managed by package manager or if directory is writable
 	var usePackageManager bool
 	var packageName string
+	var packageManager string
 	if opts.Enabled && binaryPath != "" && runtime.GOOS != "windows" {
 		binaryDir := filepath.Dir(binaryPath)
-		pkgName, reason := checkBinaryUpdateMethod(binaryPath, binaryDir, opts.Log)
+		pkgName, pkgMgr, reason := checkBinaryUpdateMethod(binaryPath, binaryDir, opts.Log)
 		if pkgName != "" {
-			// Binary managed by package manager - use apt for updates
+			// Binary managed by package manager
 			usePackageManager = true
 			packageName = pkgName
+			packageManager = pkgMgr
 			if opts.Log != nil {
 				opts.Log.Info("Auto-update will use package manager",
-					"package", pkgName, "method", "apt-get")
+					"package", pkgName, "method", pkgMgr)
 			}
 		} else if reason != "" {
 			// Not writable and not package-managed - disable updates
@@ -237,6 +240,7 @@ func NewManager(opts Options) (*Manager, error) {
 		progressCallback:  opts.ProgressCallback,
 		usePackageManager: usePackageManager,
 		packageName:       packageName,
+		packageManager:    packageManager,
 		status:            StatusIdle,
 		stopCh:            make(chan struct{}),
 	}
@@ -670,12 +674,12 @@ func (m *Manager) executeUpdateViaPackageManager(ctx context.Context, manifest *
 		return fmt.Errorf("update cancelled by user")
 	}
 
-	// Apply phase via apt-get
-	m.setStatusWithProgress(StatusApplying, -1, fmt.Sprintf("Updating via apt-get (%s)...", m.packageName))
+	// Apply phase via package manager (apt/dnf/yum)
+	m.setStatusWithProgress(StatusApplying, -1, fmt.Sprintf("Updating via %s (%s)...", m.packageManager, m.packageName))
 	run.Status = StatusApplying
 	m.reportTelemetry(ctx, StatusApplying, "", "")
 
-	if err := m.applyUpdateViaApt(); err != nil {
+	if err := m.applyUpdateViaPackageManager(); err != nil {
 		run.Status = StatusFailed
 		run.ErrorCode = ErrCodeApplyFailed
 		run.ErrorMessage = err.Error()
@@ -692,7 +696,7 @@ func (m *Manager) executeUpdateViaPackageManager(ctx context.Context, manifest *
 	m.reportTelemetry(ctx, StatusSucceeded, "", "")
 
 	m.logInfo("Update applied successfully via package manager",
-		"from", m.currentVersion, "to", manifest.Version, "package", m.packageName)
+		"from", m.currentVersion, "to", manifest.Version, "package", m.packageName, "manager", m.packageManager)
 
 	// The package's postinst script should restart the service,
 	// but we explicitly restart to ensure we're running the new version
@@ -785,9 +789,9 @@ func (m *Manager) applyUpdate(stagingPath string) error {
 		return fmt.Errorf("binary path not set")
 	}
 
-	// If using package manager (apt), delegate to apt-get
+	// If using package manager (apt/dnf/yum), delegate to package manager
 	if m.usePackageManager && m.packageName != "" {
-		return m.applyUpdateViaApt()
+		return m.applyUpdateViaPackageManager()
 	}
 
 	// On Windows, we can't replace a running binary directly.
@@ -851,11 +855,26 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 	return nil
 }
 
+// applyUpdateViaPackageManager uses the appropriate package manager (apt/dnf/yum)
+// to update the package when the binary was installed via a package manager.
+func (m *Manager) applyUpdateViaPackageManager() error {
+	m.logInfo("Updating via package manager", "package", m.packageName, "manager", m.packageManager)
+
+	switch m.packageManager {
+	case "apt":
+		return m.applyUpdateViaApt()
+	case "dnf":
+		return m.applyUpdateViaDnf()
+	case "yum":
+		return m.applyUpdateViaYum()
+	default:
+		return fmt.Errorf("unknown package manager: %s", m.packageManager)
+	}
+}
+
 // applyUpdateViaApt uses apt-get to update the package when the binary was installed via dpkg.
 // This is the proper way to update on Debian/Ubuntu systems with package-managed binaries.
 func (m *Manager) applyUpdateViaApt() error {
-	m.logInfo("Updating via package manager", "package", m.packageName)
-
 	// First, update the package lists to get the latest version info
 	m.logDebug("Running apt-get update")
 	updateCmd := exec.Command("apt-get", "update", "-qq")
@@ -877,6 +896,53 @@ func (m *Manager) applyUpdateViaApt() error {
 	m.logInfo("Package updated successfully via apt-get", "package", m.packageName, "output", strings.TrimSpace(string(output)))
 
 	// The service should be restarted by the package's postinst script,
+	// but we trigger a restart anyway to ensure we're running the new version
+	return nil
+}
+
+// applyUpdateViaDnf uses dnf to update the package when the binary was installed via rpm.
+// This is the proper way to update on Fedora/RHEL 8+ systems with package-managed binaries.
+func (m *Manager) applyUpdateViaDnf() error {
+	// Refresh package metadata
+	m.logDebug("Running dnf check-update")
+	// dnf check-update returns exit code 100 if updates are available, 0 if none, 1 on error
+	checkCmd := exec.Command("dnf", "check-update", "-q", m.packageName)
+	checkCmd.Run() // Ignore exit code, just refreshes cache
+
+	// Now upgrade the specific package
+	m.logInfo("Running dnf upgrade", "package", m.packageName)
+	upgradeCmd := exec.Command("dnf", "upgrade", "-y", "-q", m.packageName)
+	output, err := upgradeCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("dnf upgrade failed: %w (output: %s)", err, string(output))
+	}
+
+	m.logInfo("Package updated successfully via dnf", "package", m.packageName, "output", strings.TrimSpace(string(output)))
+
+	// The service should be restarted by the package's postinst script (%post),
+	// but we trigger a restart anyway to ensure we're running the new version
+	return nil
+}
+
+// applyUpdateViaYum uses yum to update the package when the binary was installed via rpm.
+// This is for older RHEL/CentOS systems that don't have dnf.
+func (m *Manager) applyUpdateViaYum() error {
+	// Refresh package metadata
+	m.logDebug("Running yum check-update")
+	checkCmd := exec.Command("yum", "check-update", "-q", m.packageName)
+	checkCmd.Run() // Ignore exit code, just refreshes cache
+
+	// Now upgrade the specific package
+	m.logInfo("Running yum upgrade", "package", m.packageName)
+	upgradeCmd := exec.Command("yum", "upgrade", "-y", "-q", m.packageName)
+	output, err := upgradeCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("yum upgrade failed: %w (output: %s)", err, string(output))
+	}
+
+	m.logInfo("Package updated successfully via yum", "package", m.packageName, "output", strings.TrimSpace(string(output)))
+
+	// The service should be restarted by the package's postinst script (%post),
 	// but we trigger a restart anyway to ensure we're running the new version
 	return nil
 }
@@ -1315,85 +1381,175 @@ func (m *Manager) logError(msg string, args ...interface{}) {
 }
 
 // checkBinaryUpdateMethod determines how the agent can be updated:
-// - Returns (packageName, "") if managed by dpkg and apt-get can be used
-// - Returns ("", "") if directory is writable and direct update is possible
-// - Returns ("", reason) if update is not possible (read-only, no permissions)
-func checkBinaryUpdateMethod(binaryPath, binaryDir string, log *logger.Logger) (packageName string, disabledReason string) {
-	// On Linux, check if dpkg manages this binary (installed via apt/deb)
-	if runtime.GOOS == "linux" {
-		if dpkgPath, err := exec.LookPath("dpkg-query"); err == nil {
-			// Try to find the package using multiple path variants:
-			// 1. The original path as-is
-			// 2. The resolved symlink path (os.Executable() returns resolved path)
-			// 3. Common installation paths for deb packages
-			pathsToCheck := []string{binaryPath}
+// - Returns (packageName, "apt", "") if managed by dpkg and apt-get can be used
+// - Returns (packageName, "dnf", "") if managed by rpm and dnf can be used
+// - Returns ("", "", "") if directory is writable and direct update is possible
+// - Returns ("", "", reason) if update is not possible (read-only, no permissions)
+func checkBinaryUpdateMethod(binaryPath, binaryDir string, log *logger.Logger) (packageName string, packageManager string, disabledReason string) {
+	if runtime.GOOS != "linux" {
+		// Non-Linux: check directory writability only
+		return checkDirectoryWritable(binaryDir, log)
+	}
 
-			// Add symlink-resolved path if different
-			if resolved, err := filepath.EvalSymlinks(binaryPath); err == nil && resolved != binaryPath {
-				pathsToCheck = append(pathsToCheck, resolved)
-			}
+	baseName := filepath.Base(binaryPath)
+	pathsToCheck := buildPathsToCheck(binaryPath, baseName)
 
-			// Also check common Debian package paths if not already included
-			baseName := filepath.Base(binaryPath)
-			for _, commonPath := range []string{"/usr/bin/", "/usr/local/bin/", "/usr/sbin/"} {
-				candidate := filepath.Join(commonPath, baseName)
-				found := false
-				for _, p := range pathsToCheck {
-					if p == candidate {
-						found = true
-						break
-					}
-				}
-				if !found {
-					pathsToCheck = append(pathsToCheck, candidate)
-				}
-			}
-
-			for _, checkPath := range pathsToCheck {
-				cmd := exec.Command(dpkgPath, "-S", checkPath)
-				output, err := cmd.Output()
-				if err != nil {
-					if log != nil {
-						log.Debug("dpkg-query check failed for path",
-							"path", checkPath, "error", err)
-					}
-					continue
-				}
-				if len(output) == 0 {
-					continue
-				}
-				// dpkg-query -S returns "package: /path/to/file" if managed
-				pkgInfo := strings.TrimSpace(string(output))
-				if pkgInfo == "" || strings.Contains(pkgInfo, "no path found") {
-					continue
-				}
-				pkgName := strings.Split(pkgInfo, ":")[0]
-				// Verify apt-get is available
-				if _, aptErr := exec.LookPath("apt-get"); aptErr == nil {
-					if log != nil {
-						log.Info("Binary managed by package manager, will use apt-get for updates",
-							"package", pkgName, "path", binaryPath, "matched_path", checkPath)
-					}
-					return pkgName, ""
-				}
-				// dpkg but no apt-get - can't update
-				if log != nil {
-					log.Info("Binary managed by dpkg but apt-get not available",
-						"package", pkgName, "path", binaryPath)
-				}
-				return "", fmt.Sprintf("binary managed by package %s but apt-get not available", pkgName)
-			}
-
+	// Try dpkg/apt first (Debian/Ubuntu)
+	if pkgName, found := checkDpkg(pathsToCheck, log); found {
+		if _, aptErr := exec.LookPath("apt-get"); aptErr == nil {
 			if log != nil {
-				log.Debug("dpkg-query did not find package for any path variant",
-					"paths_checked", pathsToCheck)
+				log.Info("Binary managed by dpkg, will use apt-get for updates",
+					"package", pkgName, "path", binaryPath)
 			}
-		} else if log != nil {
-			log.Debug("dpkg-query not available", "error", err)
+			return pkgName, "apt", ""
+		}
+		// dpkg but no apt-get - can't update via package manager
+		if log != nil {
+			log.Info("Binary managed by dpkg but apt-get not available",
+				"package", pkgName, "path", binaryPath)
+		}
+		return "", "", fmt.Sprintf("binary managed by package %s but apt-get not available", pkgName)
+	}
+
+	// Try rpm/dnf (Fedora/RHEL/CentOS)
+	if pkgName, found := checkRpm(pathsToCheck, log); found {
+		if _, dnfErr := exec.LookPath("dnf"); dnfErr == nil {
+			if log != nil {
+				log.Info("Binary managed by rpm, will use dnf for updates",
+					"package", pkgName, "path", binaryPath)
+			}
+			return pkgName, "dnf", ""
+		}
+		// rpm but no dnf - try yum as fallback
+		if _, yumErr := exec.LookPath("yum"); yumErr == nil {
+			if log != nil {
+				log.Info("Binary managed by rpm, will use yum for updates",
+					"package", pkgName, "path", binaryPath)
+			}
+			return pkgName, "yum", ""
+		}
+		// rpm but no dnf/yum - can't update via package manager
+		if log != nil {
+			log.Info("Binary managed by rpm but dnf/yum not available",
+				"package", pkgName, "path", binaryPath)
+		}
+		return "", "", fmt.Sprintf("binary managed by package %s but dnf/yum not available", pkgName)
+	}
+
+	// Not package-managed, check directory writability
+	return checkDirectoryWritable(binaryDir, log)
+}
+
+// buildPathsToCheck builds a list of paths to check for package management
+func buildPathsToCheck(binaryPath, baseName string) []string {
+	pathsToCheck := []string{binaryPath}
+
+	// Add symlink-resolved path if different
+	if resolved, err := filepath.EvalSymlinks(binaryPath); err == nil && resolved != binaryPath {
+		pathsToCheck = append(pathsToCheck, resolved)
+	}
+
+	// Also check common package installation paths
+	for _, commonPath := range []string{"/usr/bin/", "/usr/local/bin/", "/usr/sbin/"} {
+		candidate := filepath.Join(commonPath, baseName)
+		found := false
+		for _, p := range pathsToCheck {
+			if p == candidate {
+				found = true
+				break
+			}
+		}
+		if !found {
+			pathsToCheck = append(pathsToCheck, candidate)
 		}
 	}
 
-	// Try to create a test file in the binary's directory to check writability
+	return pathsToCheck
+}
+
+// checkDpkg checks if the binary is managed by dpkg (Debian/Ubuntu)
+func checkDpkg(pathsToCheck []string, log *logger.Logger) (packageName string, found bool) {
+	dpkgPath, err := exec.LookPath("dpkg-query")
+	if err != nil {
+		if log != nil {
+			log.Debug("dpkg-query not available", "error", err)
+		}
+		return "", false
+	}
+
+	for _, checkPath := range pathsToCheck {
+		cmd := exec.Command(dpkgPath, "-S", checkPath)
+		output, err := cmd.Output()
+		if err != nil {
+			if log != nil {
+				log.Debug("dpkg-query check failed for path", "path", checkPath, "error", err)
+			}
+			continue
+		}
+		if len(output) == 0 {
+			continue
+		}
+		// dpkg-query -S returns "package: /path/to/file" if managed
+		pkgInfo := strings.TrimSpace(string(output))
+		if pkgInfo == "" || strings.Contains(pkgInfo, "no path found") {
+			continue
+		}
+		return strings.Split(pkgInfo, ":")[0], true
+	}
+
+	if log != nil {
+		log.Debug("dpkg-query did not find package for any path variant", "paths_checked", pathsToCheck)
+	}
+	return "", false
+}
+
+// checkRpm checks if the binary is managed by rpm (Fedora/RHEL/CentOS)
+func checkRpm(pathsToCheck []string, log *logger.Logger) (packageName string, found bool) {
+	rpmPath, err := exec.LookPath("rpm")
+	if err != nil {
+		if log != nil {
+			log.Debug("rpm not available", "error", err)
+		}
+		return "", false
+	}
+
+	for _, checkPath := range pathsToCheck {
+		// rpm -qf returns the package name that owns a file
+		cmd := exec.Command(rpmPath, "-qf", checkPath)
+		output, err := cmd.Output()
+		if err != nil {
+			if log != nil {
+				log.Debug("rpm -qf check failed for path", "path", checkPath, "error", err)
+			}
+			continue
+		}
+		if len(output) == 0 {
+			continue
+		}
+		pkgInfo := strings.TrimSpace(string(output))
+		if pkgInfo == "" || strings.Contains(pkgInfo, "not owned by any package") {
+			continue
+		}
+		// rpm -qf returns full package name with version, extract base name
+		// e.g., "printmaster-agent-1.2.3-1.fc41.x86_64" -> "printmaster-agent"
+		// We want the package name without version for dnf install
+		pkgName := pkgInfo
+		// Try to get just the name without version using rpm -q --qf
+		nameCmd := exec.Command(rpmPath, "-q", "--qf", "%{NAME}", pkgInfo)
+		if nameOutput, err := nameCmd.Output(); err == nil && len(nameOutput) > 0 {
+			pkgName = strings.TrimSpace(string(nameOutput))
+		}
+		return pkgName, true
+	}
+
+	if log != nil {
+		log.Debug("rpm did not find package for any path variant", "paths_checked", pathsToCheck)
+	}
+	return "", false
+}
+
+// checkDirectoryWritable checks if the binary directory is writable for direct updates
+func checkDirectoryWritable(binaryDir string, log *logger.Logger) (string, string, string) {
 	testFile := filepath.Join(binaryDir, ".printmaster-update-check")
 	f, err := os.Create(testFile)
 	if err != nil {
@@ -1402,27 +1558,27 @@ func checkBinaryUpdateMethod(binaryPath, binaryDir string, log *logger.Logger) (
 				log.Info("Binary directory not writable (permission denied), self-update disabled",
 					"dir", binaryDir, "error", err)
 			}
-			return "", "binary directory not writable: permission denied (run with elevated privileges)"
+			return "", "", "binary directory not writable: permission denied (run with elevated privileges)"
 		}
 		if strings.Contains(err.Error(), "read-only file system") {
 			if log != nil {
 				log.Info("Binary directory on read-only filesystem, self-update disabled",
 					"dir", binaryDir, "error", err)
 			}
-			return "", "binary on read-only filesystem"
+			return "", "", "binary on read-only filesystem"
 		}
 		// Other errors - log but don't disable (might be transient)
 		if log != nil {
 			log.Warn("Could not verify binary directory writability",
 				"dir", binaryDir, "error", err)
 		}
-		return "", ""
+		return "", "", ""
 	}
 	// Clean up test file
 	f.Close()
 	os.Remove(testFile)
 
-	return "", ""
+	return "", "", ""
 }
 
 // copyFile copies a file from src to dst.
