@@ -608,3 +608,149 @@ func TestSQLiteStore_BackupAndReset_InMemory(t *testing.T) {
 		t.Errorf("Retrieved wrong device after reset: got %s, want RESET001", retrieved.Serial)
 	}
 }
+
+// TestSQLiteStore_MonoOnlyFlipDetection tests that the storage layer correctly
+// rejects metrics snapshots that exhibit the "mono-only flip" anomaly.
+// This happens when SNMP intermittently fails to return the color page count OID,
+// causing a color device to temporarily appear as mono-only.
+//
+// Pattern:
+// - Previous snapshot: total=423995, color=200404, mono=223591 (valid color device)
+// - Anomalous snapshot: total=423995, color=0, mono=423995 (mono jumped to match total!)
+//
+// The storage layer should detect this and drop the anomalous snapshot.
+func TestSQLiteStore_MonoOnlyFlipDetection(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Create a test device (Epson WF-C17590 style color copier)
+	device := newFullTestDevice("EPSON001", "192.168.1.100", "Epson", "WF-C17590", true, true)
+	err = store.Create(ctx, device)
+	if err != nil {
+		t.Fatalf("Failed to create device: %v", err)
+	}
+
+	// Save initial "good" metrics - a color device with proper breakdown
+	snapshot1 := newTestMetrics("EPSON001", 423995)
+	snapshot1.Timestamp = time.Now().Add(-10 * time.Minute)
+	snapshot1.ColorPages = 200404
+	snapshot1.MonoPages = 223591
+	snapshot1.ScanCount = 0
+	err = store.SaveMetricsSnapshot(ctx, snapshot1)
+	if err != nil {
+		t.Fatalf("Failed to save initial metrics: %v", err)
+	}
+
+	// Verify initial metrics saved correctly
+	latest, err := store.GetLatestMetrics(ctx, "EPSON001")
+	if err != nil {
+		t.Fatalf("Failed to get initial metrics: %v", err)
+	}
+	if latest.ColorPages != 200404 {
+		t.Errorf("Expected color_pages=200404, got %d", latest.ColorPages)
+	}
+
+	// Now try to save an anomalous "mono-only flip" snapshot
+	// This simulates SNMP not returning the color OID properly
+	anomalousSnapshot := newTestMetrics("EPSON001", 423995) // Same total
+	anomalousSnapshot.Timestamp = time.Now().Add(-5 * time.Minute)
+	anomalousSnapshot.ColorPages = 0     // Color OID didn't return!
+	anomalousSnapshot.MonoPages = 423995 // Mono jumped to match total (wrong!)
+	anomalousSnapshot.ScanCount = 0
+	err = store.SaveMetricsSnapshot(ctx, anomalousSnapshot)
+	if err != nil {
+		t.Fatalf("SaveMetricsSnapshot returned error (expected silent drop): %v", err)
+	}
+
+	// Verify the anomalous snapshot was DROPPED (not saved)
+	latest, err = store.GetLatestMetrics(ctx, "EPSON001")
+	if err != nil {
+		t.Fatalf("Failed to get latest metrics after anomaly: %v", err)
+	}
+
+	// Latest metrics should still be the original "good" values
+	if latest.ColorPages != 200404 {
+		t.Errorf("Anomalous snapshot was NOT dropped! color_pages=%d (expected 200404)", latest.ColorPages)
+	}
+	if latest.MonoPages != 223591 {
+		t.Errorf("Anomalous snapshot was NOT dropped! mono_pages=%d (expected 223591)", latest.MonoPages)
+	}
+
+	// Now save a legitimate update (small increment, color still present)
+	legitimateSnapshot := newTestMetrics("EPSON001", 424000) // Small increase
+	legitimateSnapshot.Timestamp = time.Now()
+	legitimateSnapshot.ColorPages = 200410 // Small increase
+	legitimateSnapshot.MonoPages = 223590  // Roughly stable
+	legitimateSnapshot.ScanCount = 5       // Some scans
+	err = store.SaveMetricsSnapshot(ctx, legitimateSnapshot)
+	if err != nil {
+		t.Fatalf("Failed to save legitimate metrics: %v", err)
+	}
+
+	// Verify legitimate snapshot was saved
+	latest, err = store.GetLatestMetrics(ctx, "EPSON001")
+	if err != nil {
+		t.Fatalf("Failed to get latest after legitimate update: %v", err)
+	}
+	if latest.PageCount != 424000 {
+		t.Errorf("Legitimate snapshot was not saved! page_count=%d (expected 424000)", latest.PageCount)
+	}
+	if latest.ColorPages != 200410 {
+		t.Errorf("Legitimate snapshot was not saved! color_pages=%d (expected 200410)", latest.ColorPages)
+	}
+}
+
+// TestSQLiteStore_MonoOnlyFlipAllowsLegitimateMonoDevice tests that the mono-only
+// flip detection does NOT falsely reject legitimate mono-only devices.
+func TestSQLiteStore_MonoOnlyFlipAllowsLegitimateMonoDevice(t *testing.T) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	// Create a legitimate mono-only device
+	device := newFullTestDevice("MONO001", "192.168.1.101", "Brother", "HL-L2350DW", true, true)
+	err = store.Create(ctx, device)
+	if err != nil {
+		t.Fatalf("Failed to create device: %v", err)
+	}
+
+	// Save initial metrics for mono device (color=0 is expected)
+	snapshot1 := newTestMetrics("MONO001", 10000)
+	snapshot1.Timestamp = time.Now().Add(-10 * time.Minute)
+	snapshot1.ColorPages = 0 // Mono device - no color
+	snapshot1.MonoPages = 10000
+	snapshot1.ScanCount = 0
+	err = store.SaveMetricsSnapshot(ctx, snapshot1)
+	if err != nil {
+		t.Fatalf("Failed to save initial mono metrics: %v", err)
+	}
+
+	// Save update with more pages (mono device continues to work)
+	snapshot2 := newTestMetrics("MONO001", 10500)
+	snapshot2.Timestamp = time.Now()
+	snapshot2.ColorPages = 0 // Still mono
+	snapshot2.MonoPages = 10500
+	snapshot2.ScanCount = 0
+	err = store.SaveMetricsSnapshot(ctx, snapshot2)
+	if err != nil {
+		t.Fatalf("Failed to save updated mono metrics: %v", err)
+	}
+
+	// Verify the update was saved (mono device should not trigger flip detection)
+	latest, err := store.GetLatestMetrics(ctx, "MONO001")
+	if err != nil {
+		t.Fatalf("Failed to get latest mono metrics: %v", err)
+	}
+	if latest.PageCount != 10500 {
+		t.Errorf("Mono device update was incorrectly rejected! page_count=%d (expected 10500)", latest.PageCount)
+	}
+}

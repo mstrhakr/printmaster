@@ -1574,6 +1574,47 @@ func (s *SQLiteStore) saveMetricsSnapshotWithExecer(ctx context.Context, ex exec
 			}
 			return nil
 		}
+
+		// Detect "mono-only flip" anomaly: a color device suddenly reporting as mono-only.
+		// This happens when SNMP intermittently fails to return color page count OID.
+		// Pattern: latest had color_pages > 0, but incoming has color_pages == 0 AND mono_pages jumped
+		// to approximately match total_pages (within 5%).
+		// Example: Previous: total=423995, color=200404, mono=223591
+		//          Incoming: total=423995, color=0, mono=423995 (mono jumped to match total!)
+		if latest.ColorPages > 0 && snapshot.ColorPages == 0 && snapshot.MonoPages > 0 {
+			// Check if mono_pages is suspiciously close to total_pages (within 5%)
+			monoMatchesTotal := false
+			if snapshot.PageCount > 0 {
+				diff := snapshot.PageCount - snapshot.MonoPages
+				if diff < 0 {
+					diff = -diff
+				}
+				// Allow 5% tolerance for mono matching total
+				tolerance := snapshot.PageCount / 20
+				if tolerance < 100 {
+					tolerance = 100 // Minimum tolerance of 100 pages
+				}
+				monoMatchesTotal = diff <= tolerance
+			}
+
+			// Also check if mono jumped significantly from its previous value
+			monoJumped := snapshot.MonoPages > latest.MonoPages &&
+				(snapshot.MonoPages-latest.MonoPages) > latest.MonoPages/10 // >10% jump
+
+			if monoMatchesTotal && monoJumped {
+				if storageLogger != nil {
+					storageLogger.WarnRateLimited("metrics_mono_flip_"+snapshot.Serial, 1*time.Minute,
+						"Dropping metrics: suspected mono-only flip (SNMP missed color OID)",
+						"serial", snapshot.Serial,
+						"latest_color", latest.ColorPages,
+						"incoming_color", snapshot.ColorPages,
+						"latest_mono", latest.MonoPages,
+						"incoming_mono", snapshot.MonoPages,
+						"total", snapshot.PageCount)
+				}
+				return nil
+			}
+		}
 	}
 
 	query := `
