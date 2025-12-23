@@ -151,8 +151,13 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["color_pages"] = colorPages
 	}
 
-	// Parse function counters (ICE-style)
-	// Print function (1)
+	// === FUNCTION COUNTERS (ICE-style) ===
+	// Epson reports per-function counters for print, copy, fax, scan
+	// We need to correctly categorize these into:
+	// - Print Impressions = marks made on paper by print engine
+	// - Scan Impressions = pages digitized by scanner unit
+
+	// Print function (1) - direct prints from network/USB
 	printTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".1")
 	printColor := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionColorCount+".1")
 	printBW := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionBWCount+".1")
@@ -171,12 +176,17 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 	}
 
-	// Copy function (2)
+	// Copy function (2) - uses both scanner (input) and print engine (output)
+	// Copy pages = OUTPUT (print impressions)
+	// Copy scans need to be tracked separately but Epson may not provide separate counter
 	copyTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".2")
 	copyColor := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionColorCount+".2")
 	copyBW := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionBWCount+".2")
 	if copyTotal > 0 {
 		result["copy_pages"] = copyTotal
+		// Also estimate copy scans (1:1 for single-page copies, but could differ with multi-copy)
+		// Store as copy_scans for scan impression tracking
+		result["copy_scans"] = copyTotal // Best estimate without separate counter
 	}
 	if copyColor > 0 {
 		result["copy_color_pages"] = copyColor
@@ -189,20 +199,43 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 	}
 
-	// Fax function (3)
+	// Fax function (3) - Epson fax counter typically counts pages printed (received faxes)
+	// For received faxes: this is a PRINT impression
+	// For sent faxes: the scan would be counted separately (in scan function or not at all)
 	faxTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".3")
 	faxBW := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionBWCount+".3")
 	if faxTotal > 0 {
 		result["fax_pages"] = faxTotal
+		result["fax_mono_pages"] = faxTotal // Fax is typically mono
 	}
 	if faxBW > 0 {
 		result["fax_mono_pages"] = faxBW
 	}
 
-	// Scan function (4)
+	// Scan function (4) - direct scans to host/email/folder
+	// This is a SCAN impression (scanner unit usage)
 	scanTotal := getOIDIntIndexed(idx, pdus, oids.EpsonFunctionTotalCount+".4")
 	if scanTotal > 0 {
-		result["scan_count"] = scanTotal
+		result["other_scans"] = scanTotal // scan-to-host/email/folder
+	}
+
+	// === CALCULATE TOTAL PRINT IMPRESSIONS ===
+	// = direct prints + copy outputs + fax prints (received)
+	// Note: mono_pages and color_pages from summary OIDs may already represent this
+	// but we calculate from functions for validation
+	totalPrintFromFunctions := printTotal + copyTotal + faxTotal
+	if totalPrintFromFunctions > 0 && totalPages == 0 {
+		// No summary total available, use function sum
+		result["page_count"] = totalPrintFromFunctions
+		result["total_pages"] = totalPrintFromFunctions
+	}
+
+	// === CALCULATE TOTAL SCAN IMPRESSIONS ===
+	// = copy scans + fax scans (sent) + other scans
+	// Note: Epson may not separate fax_scans (outgoing fax) from scan function
+	totalScanImpressions := copyTotal + scanTotal // copy_scans estimated from copy_pages
+	if totalScanImpressions > 0 {
+		result["scan_count"] = totalScanImpressions
 	}
 
 	// Parse supply levels using generic parser (handles both standard and Epson supplies)
@@ -231,13 +264,19 @@ func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	if logger.Global != nil {
 		mono := 0
 		color := 0
+		scan := 0
 		if m, ok := result["mono_pages"].(int); ok {
 			mono = m
 		}
 		if c, ok := result["color_pages"].(int); ok {
 			color = c
 		}
-		logger.Global.Debug("Epson parsing complete", "mono_pages", mono, "color_pages", color)
+		if s, ok := result["scan_count"].(int); ok {
+			scan = s
+		}
+		logger.Global.Debug("Epson parsing complete",
+			"mono_pages", mono, "color_pages", color, "scan_count", scan,
+			"print_func", printTotal, "copy_func", copyTotal, "fax_func", faxTotal, "scan_func", scanTotal)
 	}
 	return result
 }

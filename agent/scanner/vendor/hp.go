@@ -120,6 +120,8 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	idx := newPDUIndex(pdus)
 
 	// Extract HP enterprise counters
+	// HP enterprise total page count (authoritative if available)
+	hpTotalPages := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.1.4.1.1")
 	colorPages := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.7.0")
 	monoPages := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.4.8.0")
 	copyPages := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.4.1.3.0")
@@ -141,7 +143,7 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	flatbedImagesScanned := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.74.0")
 	scannerJamEvents := getOIDIntIndexed(idx, pdus, "1.3.6.1.4.1.11.2.3.9.4.2.1.2.2.1.43.0")
 
-	// Color/Mono breakdown
+	// Color/Mono breakdown (print engine impressions)
 	if colorPages > 0 {
 		result["color_pages"] = colorPages
 	}
@@ -150,25 +152,56 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["mono_pages"] = monoPages
 	}
 
-	// Calculate total from color + mono only if we have valid data
-	// Note: This is the print-only total, not including copy/fax
-	if colorPages > 0 || monoPages > 0 {
-		printTotal := colorPages + monoPages
-		result["page_count"] = printTotal
-		result["total_pages"] = printTotal
-		// Log warning if we have copy/fax pages that aren't included
-		if (copyPages > 0 || faxSent+faxReceived > 0) && logger.Global != nil {
-			logger.Global.Debug("HP total_pages is print-only, copy/fax pages tracked separately",
-				"print_total", printTotal, "copy_pages", copyPages, "fax_pages", faxSent+faxReceived)
+	// PRINT IMPRESSIONS TOTAL
+	// Priority: 1. HP enterprise total (authoritative)
+	//           2. Standard PrtMarkerLifeCount
+	//           3. Calculated mono+color (last resort)
+	calculatedTotal := colorPages + monoPages
+	var finalTotal int
+	var totalSource string
+
+	if hpTotalPages > 0 {
+		// HP enterprise total takes precedence
+		finalTotal = hpTotalPages
+		totalSource = "HP enterprise"
+	} else if pageCount := getOIDIntIndexed(idx, pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
+		// Standard Printer-MIB fallback
+		finalTotal = pageCount
+		totalSource = "PrtMarkerLifeCount"
+	} else if calculatedTotal > 0 {
+		// Last resort: calculate from mono+color
+		finalTotal = calculatedTotal
+		totalSource = "calculated"
+	}
+
+	if finalTotal > 0 {
+		result["page_count"] = finalTotal
+		result["total_pages"] = finalTotal
+	}
+
+	// Validate: Check if parts (mono + color) match total when all are available
+	if finalTotal > 0 && calculatedTotal > 0 && calculatedTotal != finalTotal {
+		if logger.Global != nil {
+			// Log mismatch for investigation
+			logger.Global.Debug("HP total/parts mismatch",
+				"total", finalTotal, "source", totalSource,
+				"mono", monoPages, "color", colorPages, "parts_sum", calculatedTotal,
+				"diff", finalTotal-calculatedTotal)
 		}
 	}
 
-	// Copy counters
+	// Copy counters (these are PRINT impressions made via the copy function)
+	// Copy pages are already counted in mono/color totals for most HP devices
 	if copyPages > 0 {
 		result["copy_pages"] = copyPages
 	}
 
-	// Scan counters
+	// SCAN IMPRESSIONS: All uses of the scanner unit
+	// Includes: scan-to-host (ADF + flatbed) + fax scans (ADF + flatbed)
+	// Fax SENDING uses the scanner to digitize the document
+	scanToHostTotal := adfScans + flatbedScans
+	faxScanTotal := faxAdfScans + faxFlatbedScans
+
 	if adfScans > 0 {
 		result["scan_to_host_adf"] = adfScans
 	}
@@ -177,13 +210,28 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["scan_to_host_flatbed"] = flatbedScans
 	}
 
-	if adfScans > 0 || flatbedScans > 0 {
-		result["scan_count"] = adfScans + flatbedScans
+	// scan_count = total scanner unit usage (scan-to-host + fax scans)
+	totalScanImpressions := scanToHostTotal + faxScanTotal
+	if totalScanImpressions > 0 {
+		result["scan_count"] = totalScanImpressions
+	}
+
+	// Also track scan-to-host separately for users who want that breakdown
+	if scanToHostTotal > 0 {
+		result["scan_to_host_total"] = scanToHostTotal
 	}
 
 	// Fax counters
+	// fax_pages = pages sent + received (printed output from fax)
+	// Note: Fax RECEIVED creates print impressions (counted in mono/color)
+	// Fax SENT creates scan impressions (counted above in scan_count)
 	if faxSent > 0 || faxReceived > 0 {
 		result["fax_pages"] = faxSent + faxReceived
+		result["fax_sent"] = faxSent
+		result["fax_received"] = faxReceived
+	}
+	if faxScanTotal > 0 {
+		result["fax_scans"] = faxScanTotal
 	}
 
 	// Duplex counter
@@ -244,16 +292,9 @@ func (v *HPVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		logger.Global.Debug("HP supplies parsed", "supplies_count", len(supplies))
 	}
 
-	// Fallback to standard Printer-MIB if enterprise OIDs failed
-	if _, ok := result["page_count"]; !ok {
-		if pageCount := getOIDIntIndexed(idx, pdus, oids.PrtMarkerLifeCount+".1"); pageCount > 0 {
-			result["page_count"] = pageCount
-			result["total_pages"] = pageCount
-		}
-	}
-
 	if logger.Global != nil {
 		logger.Global.Debug("HP parsing complete",
+			"page_count", finalTotal, "source", totalSource,
 			"color_pages", colorPages,
 			"mono_pages", monoPages,
 			"copy_pages", copyPages,

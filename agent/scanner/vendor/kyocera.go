@@ -112,19 +112,27 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	idx := newPDUIndex(pdus)
 
 	// Extract Kyocera enterprise counters
+	// Print function (direct prints from network/USB)
 	printerBW := getOIDIntIndexed(idx, pdus, oids.KyoceraPrintBW)
 	printerColor := getOIDIntIndexed(idx, pdus, oids.KyoceraPrintColor)
+	// Copy function (uses scanner, outputs to print engine)
 	copyBW := getOIDIntIndexed(idx, pdus, oids.KyoceraCopyBW)
 	copyColor := getOIDIntIndexed(idx, pdus, oids.KyoceraCopyColor)
+	// Fax function - prints are mono only
 	faxBW := getOIDIntIndexed(idx, pdus, oids.KyoceraFaxBW)
 
+	// Scanner unit usage counters
 	copyScan := getOIDIntIndexed(idx, pdus, oids.KyoceraCopyScans)
 	faxScan := getOIDIntIndexed(idx, pdus, oids.KyoceraFaxScans)
-	otherScan := getOIDIntIndexed(idx, pdus, oids.KyoceraOtherScans)
+	otherScan := getOIDIntIndexed(idx, pdus, oids.KyoceraOtherScans) // scan-to-email, scan-to-folder, etc.
 
 	totalPrinted := getOIDIntIndexed(idx, pdus, oids.KyoceraTotalPrinted)
 
-	// Print function counters
+	// === PRINT IMPRESSIONS ===
+	// Print engine output = all pages that went through the fuser
+	// Includes: direct prints + copy outputs + fax prints (received faxes)
+
+	// Store per-function print counters
 	if printerBW > 0 {
 		result["print_mono_pages"] = printerBW
 	}
@@ -135,7 +143,21 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["print_pages"] = printerBW + printerColor
 	}
 
-	// Calculate totals
+	// Copy function print output
+	if copyBW > 0 || copyColor > 0 {
+		result["copy_pages"] = copyBW + copyColor
+		result["copy_mono_pages"] = copyBW
+		result["copy_color_pages"] = copyColor
+	}
+
+	// Fax print output (received faxes printed)
+	if faxBW > 0 {
+		result["fax_pages"] = faxBW
+		result["fax_mono_pages"] = faxBW
+	}
+
+	// Calculate TOTAL PRINT IMPRESSIONS (mono + color)
+	// These are all the physical prints made by the print engine
 	monoTotal := printerBW + copyBW + faxBW
 	colorTotal := printerColor + copyColor
 
@@ -147,7 +169,7 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["color_pages"] = colorTotal
 	}
 
-	// Determine page_count using best available source:
+	// Determine page_count (total print impressions) using best available source:
 	// 1. Kyocera enterprise total (most accurate for Kyocera)
 	// 2. Standard Printer-MIB PrtMarkerLifeCount (widely supported)
 	// 3. Calculated from mono+color (last resort)
@@ -184,23 +206,12 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		}
 	}
 
-	// Copy function counters
-	if copyBW > 0 || copyColor > 0 {
-		result["copy_pages"] = copyBW + copyColor
-		result["copy_mono_pages"] = copyBW
-		result["copy_color_pages"] = copyColor
-	}
-
-	// Fax counters
-	if faxBW > 0 {
-		result["fax_pages"] = faxBW
-		result["fax_mono_pages"] = faxBW
-	}
-
-	// Scan counters
-	if copyScan > 0 || faxScan > 0 || otherScan > 0 {
-		result["scan_count"] = copyScan + faxScan + otherScan
-	}
+	// === SCAN IMPRESSIONS ===
+	// Scanner unit usage = all pages digitized by the scanner
+	// Includes: copy scans + fax scans (outgoing) + scan-to-host/email/folder
+	// Note: copy_scans = scanner usage for copying (results in print impressions too)
+	//       fax_scans = scanner usage for sending faxes (outgoing fax)
+	//       other_scans = scan-to-email, scan-to-folder, scan-to-USB, etc.
 
 	if copyScan > 0 {
 		result["copy_scans"] = copyScan
@@ -214,24 +225,22 @@ func (v *KyoceraVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 		result["other_scans"] = otherScan
 	}
 
+	// Total scan impressions = all uses of the scanner unit
+	totalScanImpressions := copyScan + faxScan + otherScan
+	if totalScanImpressions > 0 {
+		result["scan_count"] = totalScanImpressions
+	}
+
 	// Parse supply levels using generic parser
 	supplies := parseSuppliesTable(pdus)
 	for k, v := range supplies {
 		result[k] = v
 	}
 
-	// Note: PrtMarkerLifeCount is now checked earlier in the priority chain
-
 	if logger.Global != nil {
-		mono := 0
-		color := 0
-		if m, ok := result["mono_pages"].(int); ok {
-			mono = m
-		}
-		if c, ok := result["color_pages"].(int); ok {
-			color = c
-		}
-		logger.Global.Debug("Kyocera parsing complete", "mono_pages", mono, "color_pages", color)
+		logger.Global.Debug("Kyocera parsing complete",
+			"print_total", finalTotal, "mono_pages", monoTotal, "color_pages", colorTotal,
+			"scan_count", totalScanImpressions)
 	}
 	return result
 }
