@@ -151,6 +151,7 @@ cd agent
 | Method | Best For | Documentation |
 |--------|----------|---------------|
 | **APT Repository** | Debian/Ubuntu servers | [APT_REPOSITORY.md](docs/APT_REPOSITORY.md) |
+| **DNF Repository** | Fedora/RHEL servers | [DNF_REPOSITORY.md](docs/DNF_REPOSITORY.md) |
 | **Docker** | Production deployments | [DOCKER_DEPLOYMENT.md](docs/DOCKER_DEPLOYMENT.md) |
 | **Unraid** | Home lab, small business | [UNRAID_DEPLOYMENT.md](docs/UNRAID_DEPLOYMENT.md) |
 | **Windows Service** | Windows servers | [SERVICE_DEPLOYMENT.md](docs/SERVICE_DEPLOYMENT.md) |
@@ -173,6 +174,19 @@ sudo systemctl enable --now printmaster-agent
 Web UI at http://localhost:8000 • Config at `/etc/printmaster/agent.toml`
 
 For GPG-signed installation, see [APT Repository Guide](docs/APT_REPOSITORY.md).
+
+### Fedora/RHEL Quick Install
+
+```bash
+# Add repository and install
+sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+sudo dnf install printmaster-agent
+
+# Start and enable on boot
+sudo systemctl enable --now printmaster-agent
+```
+
+For GPG-signed installation, see [DNF Repository Guide](docs/DNF_REPOSITORY.md).
 
 ## Architecture
 

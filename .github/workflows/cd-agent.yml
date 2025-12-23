@@ -112,6 +112,26 @@ jobs:
         name: agent-deb-${{ matrix.goarch }}
         path: agent/dist/*.deb
 
+    - name: Build RPM Package (Linux)
+      if: matrix.goos == 'linux'
+      working-directory: ./agent
+      run: |
+        # Install RPM build tools
+        sudo apt-get update
+        sudo apt-get install -y rpm
+
+        # Copy binary to expected location for build script
+        cp "printmaster-agent-v${{ steps.version.outputs.agent_version }}-linux-${{ matrix.goarch }}" "printmaster-agent"
+        chmod +x build-rpm.sh
+        ./build-rpm.sh "${{ steps.version.outputs.agent_version }}" "${{ matrix.goarch }}"
+
+    - name: Upload RPM Package
+      if: matrix.goos == 'linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: agent-rpm-${{ matrix.goarch }}
+        path: agent/dist/*.rpm
+
     - name: Install WiX Toolset (Windows)
       if: matrix.os == 'windows-latest'
       shell: pwsh
@@ -327,6 +347,16 @@ jobs:
           sudo systemctl start printmaster-agent
           ```
           
+          #### Fedora/RHEL (.rpm)
+          ```bash
+          # Download and install
+          wget https://github.com/mstrhakr/printmaster/releases/download/agent-v${{ steps.version.outputs.version }}/printmaster-agent-${{ steps.version.outputs.version }}-1.x86_64.rpm
+          sudo dnf install ./printmaster-agent-${{ steps.version.outputs.version }}-1.x86_64.rpm
+          
+          # Start the service
+          sudo systemctl start printmaster-agent
+          ```
+          
           #### Binary Installation
           1. Download the appropriate binary for your platform from the Assets section below
           2. Extract the archive
@@ -348,6 +378,7 @@ jobs:
           
           **Supported Platforms:**
           - Debian/Ubuntu (amd64, arm64) - .deb package with systemd service
+          - Fedora/RHEL (x86_64, aarch64) - .rpm package with systemd service
           - Windows (amd64) - EXE and MSI installer
           - Linux (all) - Docker container
           - macOS (amd64, arm64) - Binary
@@ -364,8 +395,8 @@ jobs:
         draft: false
         prerelease: false
 
-  update-apt-repo:
-    name: Update APT Repository
+  update-package-repos:
+    name: Update Package Repositories (APT + DNF)
     needs: [build-agent]
     runs-on: ubuntu-latest
     permissions:
@@ -390,14 +421,21 @@ jobs:
           git init
           git remote add origin https://github.com/${{ github.repository }}.git
           git checkout -b gh-pages
-          echo "# PrintMaster APT Repository" > README.md
+          echo "# PrintMaster Package Repository" > README.md
         fi
 
     - name: Download deb artifacts
       uses: actions/download-artifact@v4
       with:
         pattern: agent-deb-*
-        path: downloads
+        path: downloads-deb
+        merge-multiple: true
+
+    - name: Download rpm artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: agent-rpm-*
+        path: downloads-rpm
         merge-multiple: true
 
     - name: Get version
@@ -420,7 +458,7 @@ jobs:
     - name: Install APT repo tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y dpkg-dev apt-utils gnupg
+        sudo apt-get install -y dpkg-dev apt-utils gnupg createrepo-c
 
     - name: Import GPG key
       env:
@@ -444,13 +482,30 @@ jobs:
         mkdir -p dists/stable/main/binary-arm64
         
         # Copy new .deb files to pool
-        if ls ../downloads/*.deb 1>/dev/null 2>&1; then
-          cp ../downloads/*.deb pool/main/
+        if ls ../downloads-deb/*.deb 1>/dev/null 2>&1; then
+          cp ../downloads-deb/*.deb pool/main/
           echo "Copied packages to pool:"
           ls -la pool/main/
         else
-          echo "No .deb packages found in downloads"
-          ls -la ../downloads/ || true
+          echo "No .deb packages found in downloads-deb"
+          ls -la ../downloads-deb/ || true
+        fi
+
+    - name: Setup DNF repository structure
+      run: |
+        cd apt-repo
+        
+        # Create RPM directory structure
+        mkdir -p rpm/packages
+        
+        # Copy new .rpm files to rpm directory
+        if ls ../downloads-rpm/*.rpm 1>/dev/null 2>&1; then
+          cp ../downloads-rpm/*.rpm rpm/packages/
+          echo "Copied RPM packages:"
+          ls -la rpm/packages/
+        else
+          echo "No .rpm packages found in downloads-rpm"
+          ls -la ../downloads-rpm/ || true
         fi
 
     - name: Generate APT repository metadata
@@ -536,6 +591,62 @@ jobs:
         
         echo "Release signed"
 
+    - name: Generate DNF repository metadata
+      run: |
+        cd apt-repo
+        
+        # Check if we have any RPM packages
+        if ! ls rpm/packages/*.rpm 1>/dev/null 2>&1; then
+          echo "No RPM packages in rpm/packages, skipping metadata generation"
+          exit 0
+        fi
+        
+        echo "Generating DNF/YUM repository metadata..."
+        createrepo_c rpm/
+        
+        echo "Repository metadata generated:"
+        ls -la rpm/repodata/
+
+    - name: Sign RPM repository
+      env:
+        GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+      run: |
+        if [ -z "$GPG_PRIVATE_KEY" ]; then
+          echo "No GPG key configured, skipping RPM signing"
+          exit 0
+        fi
+        
+        cd apt-repo
+        
+        # Check if we have RPM packages
+        if ! ls rpm/packages/*.rpm 1>/dev/null 2>&1; then
+          echo "No RPM packages to sign"
+          exit 0
+        fi
+        
+        # Sign repomd.xml
+        if [ -f rpm/repodata/repomd.xml ]; then
+          gpg --batch --yes --pinentry-mode loopback \
+            --passphrase "$GPG_PASSPHRASE" \
+            --armor --detach-sign --output rpm/repodata/repomd.xml.asc rpm/repodata/repomd.xml
+          echo "RPM repository metadata signed"
+        fi
+
+    - name: Create repo files
+      run: |
+        cd apt-repo
+        
+        # Create downloadable .repo file for Fedora/RHEL
+        cat > printmaster.repo << 'EOF'
+        [printmaster]
+        name=PrintMaster Repository
+        baseurl=https://mstrhakr.github.io/printmaster/rpm
+        enabled=1
+        gpgcheck=1
+        gpgkey=https://mstrhakr.github.io/printmaster/gpg.key
+        EOF
+
     - name: Create index page
       run: |
         cd apt-repo
@@ -544,20 +655,27 @@ jobs:
         <!DOCTYPE html>
         <html>
         <head>
-          <title>PrintMaster APT Repository</title>
+          <title>PrintMaster Package Repository</title>
           <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 50px auto; padding: 20px; }
             h1 { color: #333; }
+            h2 { color: #555; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-top: 30px; }
+            h3 { color: #666; }
             pre { background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }
             code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; }
+            .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+            .tab { padding: 10px 20px; background: #e0e0e0; border-radius: 5px; cursor: pointer; }
+            .tab.active { background: #333; color: white; }
           </style>
         </head>
         <body>
-          <h1>🖨️ PrintMaster APT Repository</h1>
+          <h1>🖨️ PrintMaster Package Repository</h1>
           
-          <p>Official APT repository for <a href="https://github.com/mstrhakr/printmaster">PrintMaster Agent</a>.</p>
+          <p>Official package repositories for <a href="https://github.com/mstrhakr/printmaster">PrintMaster Agent</a>.</p>
           
-          <h2>Quick Install</h2>
+          <h2>Debian/Ubuntu (APT)</h2>
+          
+          <h3>Quick Install</h3>
           <pre><code># Add repository
         echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
 
@@ -565,7 +683,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install printmaster-agent</code></pre>
 
-          <h2>With GPG Verification (Recommended)</h2>
+          <h3>With GPG Verification (Recommended)</h3>
           <pre><code># Download and add GPG key
         curl -fsSL https://mstrhakr.github.io/printmaster/gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/printmaster.gpg
 
@@ -575,6 +693,21 @@ jobs:
         # Update and install
         sudo apt-get update
         sudo apt-get install printmaster-agent</code></pre>
+
+          <h2>Fedora/RHEL (DNF)</h2>
+          
+          <h3>Quick Install (One-liner)</h3>
+          <pre><code># Add repository and install
+        sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+        sudo dnf install printmaster-agent</code></pre>
+
+          <h3>With GPG Verification (Recommended)</h3>
+          <pre><code># Import GPG key first
+        sudo rpm --import https://mstrhakr.github.io/printmaster/gpg.key
+
+        # Add repository and install
+        sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
+        sudo dnf install printmaster-agent</code></pre>
 
           <h2>After Installation</h2>
           <pre><code># Start the service
@@ -602,7 +735,7 @@ jobs:
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else
-          git commit -m "Update APT repository - v${{ steps.main_version.outputs.version }}"
+          git commit -m "Update package repositories (APT + DNF) - v${{ steps.main_version.outputs.version }}"
           git push origin gh-pages
         fi
 

@@ -32,17 +32,7 @@ case "$1" in
         # (start only works if service is not running at all)
         systemctl restart printmaster-agent.service || true
         
-        echo ""
-        echo "PrintMaster Agent installed and started successfully!"
-        echo ""
-        echo "Configuration file: /etc/printmaster/agent.toml"
-        echo "Web UI: http://localhost:8000"
-        echo ""
-        echo "Useful commands:"
-        echo "  sudo systemctl status printmaster-agent   # Check status"
-        echo "  sudo systemctl restart printmaster-agent  # Restart service"
-        echo "  journalctl -u printmaster-agent -f        # View logs"
-        echo ""
+        echo "PrintMaster Agent installed and running at http://localhost:8000"
         ;;
     abort-upgrade|abort-remove|abort-deconfigure)
         ;;

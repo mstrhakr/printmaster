@@ -1,0 +1,147 @@
+# PrintMaster Agent RPM Spec File
+# Usage: rpmbuild -bb printmaster-agent.spec
+# Requires: PRINTMASTER_VERSION and PRINTMASTER_BINARY env vars to be set
+
+%define _binaries_in_noarch_packages_terminate_build 0
+%define debug_package %{nil}
+
+Name:           printmaster-agent
+Version:        %{getenv:PRINTMASTER_VERSION}
+Release:        1%{?dist}
+Summary:        Network printer fleet management agent
+
+License:        MIT
+URL:            https://github.com/mstrhakr/printmaster
+Source0:        printmaster-agent
+
+BuildRequires:  systemd-rpm-macros
+Requires:       glibc
+
+%description
+PrintMaster Agent discovers and monitors network printers via SNMP,
+collects metrics (page counts, toner levels, status), and optionally
+reports to a central PrintMaster Server for multi-site fleet management.
+
+Features:
+- Automatic printer discovery (SNMP, mDNS, WS-Discovery)
+- Real-time metrics collection
+- Web UI for monitoring
+- Optional central server reporting
+
+%install
+# Create directories
+install -d %{buildroot}%{_bindir}
+install -d %{buildroot}%{_unitdir}
+install -d %{buildroot}%{_sysconfdir}/printmaster
+install -d %{buildroot}%{_sharedstatedir}/printmaster
+install -d %{buildroot}%{_localstatedir}/log/printmaster
+
+# Install binary
+install -m 755 %{getenv:PRINTMASTER_BINARY} %{buildroot}%{_bindir}/printmaster-agent
+
+# Install systemd service
+cat > %{buildroot}%{_unitdir}/printmaster-agent.service << 'EOF'
+[Unit]
+Description=PrintMaster Agent - Network Printer Fleet Management
+Documentation=https://github.com/mstrhakr/printmaster
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/printmaster-agent --config /etc/printmaster/agent.toml --datadir /var/lib/printmaster
+Restart=on-failure
+RestartSec=5
+User=printmaster
+Group=printmaster
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/printmaster /var/log/printmaster
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Install example config
+cat > %{buildroot}%{_sysconfdir}/printmaster/agent.toml.example << 'EOF'
+# PrintMaster Agent Configuration
+# Copy to agent.toml and customize as needed
+
+[agent]
+# Name for this agent (displayed in server UI)
+name = "my-site-agent"
+
+# Web UI settings
+listen = ":8000"
+
+[discovery]
+# Networks to scan (CIDR notation)
+# networks = ["192.168.1.0/24", "10.0.0.0/24"]
+
+# Scan interval (minutes)
+# interval = 60
+
+[server]
+# Optional: Report to central PrintMaster Server
+# url = "http://your-server:8080"
+# enabled = false
+EOF
+
+%pre
+# Create printmaster user/group if they don't exist
+getent group printmaster >/dev/null || groupadd -r printmaster
+getent passwd printmaster >/dev/null || \
+    useradd -r -g printmaster -d /var/lib/printmaster -s /sbin/nologin \
+    -c "PrintMaster Agent" printmaster
+exit 0
+
+%post
+%systemd_post printmaster-agent.service
+
+# Set ownership of directories
+chown -R printmaster:printmaster /var/lib/printmaster
+chown -R printmaster:printmaster /var/log/printmaster
+chmod 750 /var/lib/printmaster
+chmod 750 /var/log/printmaster
+
+# Create config from example if it doesn't exist
+if [ ! -f /etc/printmaster/agent.toml ]; then
+    cp /etc/printmaster/agent.toml.example /etc/printmaster/agent.toml
+    chown root:printmaster /etc/printmaster/agent.toml
+    chmod 640 /etc/printmaster/agent.toml
+fi
+
+# Enable and start the service (fresh install or upgrade)
+systemctl daemon-reload
+systemctl enable printmaster-agent.service || true
+systemctl restart printmaster-agent.service || true
+
+echo "PrintMaster Agent installed and running at http://localhost:8000"
+
+%preun
+%systemd_preun printmaster-agent.service
+
+%postun
+%systemd_postun_with_restart printmaster-agent.service
+
+# Remove user on complete uninstall (not upgrade)
+if [ $1 -eq 0 ]; then
+    userdel printmaster 2>/dev/null || true
+    groupdel printmaster 2>/dev/null || true
+fi
+
+%files
+%{_bindir}/printmaster-agent
+%{_unitdir}/printmaster-agent.service
+%dir %{_sysconfdir}/printmaster
+%config(noreplace) %{_sysconfdir}/printmaster/agent.toml.example
+%dir %attr(755,printmaster,printmaster) %{_sharedstatedir}/printmaster
+%dir %attr(755,printmaster,printmaster) %{_localstatedir}/log/printmaster
+
+%changelog
+* Sun Dec 22 2024 PrintMaster Team <printmaster@example.com> - %{version}-1
+- Automated build from release
