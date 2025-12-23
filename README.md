@@ -150,43 +150,27 @@ cd agent
 
 | Method | Best For | Documentation |
 |--------|----------|---------------|
-| **APT Repository** | Debian/Ubuntu servers | [APT_REPOSITORY.md](docs/APT_REPOSITORY.md) |
-| **DNF Repository** | Fedora/RHEL servers | [DNF_REPOSITORY.md](docs/DNF_REPOSITORY.md) |
+| **Linux Repos** | Debian/Ubuntu/Fedora/RHEL | [LINUX_REPOSITORIES.md](docs/LINUX_REPOSITORIES.md) |
 | **Docker** | Production deployments | [DOCKER_DEPLOYMENT.md](docs/DOCKER_DEPLOYMENT.md) |
 | **Unraid** | Home lab, small business | [UNRAID_DEPLOYMENT.md](docs/UNRAID_DEPLOYMENT.md) |
-| **Windows Service** | Windows servers | [SERVICE_DEPLOYMENT.md](docs/SERVICE_DEPLOYMENT.md) |
-| **Windows MSI** | Windows desktops | [GitHub Releases](https://github.com/mstrhakr/printmaster/releases) |
-| **Linux Service** | Linux servers | [agent/printmaster-agent.service](agent/printmaster-agent.service) |
+| **Windows MSI** | Windows servers/desktops | [GitHub Releases](https://github.com/mstrhakr/printmaster/releases) |
 | **Standalone Binary** | Testing, development | Build with `build.ps1` |
 
-### Debian/Ubuntu Quick Install
+### Linux Quick Install
 
+**Debian/Ubuntu:**
 ```bash
-# Add repository and install
-echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list
-sudo apt-get update
-sudo apt-get install printmaster-agent
+echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list && sudo apt-get update && sudo apt-get install -y printmaster-agent
+```
 
-# Start and enable on boot
-sudo systemctl enable --now printmaster-agent
+**Fedora/RHEL:**
+```bash
+sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
 ```
 
 Web UI at http://localhost:8000 • Config at `/etc/printmaster/agent.toml`
 
-For GPG-signed installation, see [APT Repository Guide](docs/APT_REPOSITORY.md).
-
-### Fedora/RHEL Quick Install
-
-```bash
-# Add repository and install
-sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo
-sudo dnf install printmaster-agent
-
-# Start and enable on boot
-sudo systemctl enable --now printmaster-agent
-```
-
-For GPG-signed installation, see [DNF Repository Guide](docs/DNF_REPOSITORY.md).
+For GPG verification and detailed options, see [Linux Repositories Guide](docs/LINUX_REPOSITORIES.md).
 
 ## Architecture
 

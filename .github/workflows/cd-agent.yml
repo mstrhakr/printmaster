@@ -335,53 +335,28 @@ jobs:
           
           ---
           
-          ### 📦 Installation
+          ### 📦 Quick Install
           
-          #### Debian/Ubuntu (.deb)
+          **Debian/Ubuntu (APT repo):**
           ```bash
-          # Download and install
-          wget https://github.com/mstrhakr/printmaster/releases/download/agent-v${{ steps.version.outputs.version }}/printmaster-agent_${{ steps.version.outputs.version }}_amd64.deb
-          sudo dpkg -i printmaster-agent_${{ steps.version.outputs.version }}_amd64.deb
-          
-          # Start the service
-          sudo systemctl start printmaster-agent
+          echo "deb [trusted=yes] https://mstrhakr.github.io/printmaster stable main" | sudo tee /etc/apt/sources.list.d/printmaster.list && sudo apt-get update && sudo apt-get install -y printmaster-agent
           ```
           
-          #### Fedora/RHEL (.rpm)
+          **Fedora/RHEL (DNF repo):**
           ```bash
-          # Download and install
-          wget https://github.com/mstrhakr/printmaster/releases/download/agent-v${{ steps.version.outputs.version }}/printmaster-agent-${{ steps.version.outputs.version }}-1.x86_64.rpm
-          sudo dnf install ./printmaster-agent-${{ steps.version.outputs.version }}-1.x86_64.rpm
-          
-          # Start the service
-          sudo systemctl start printmaster-agent
+          sudo dnf config-manager --add-repo https://mstrhakr.github.io/printmaster/printmaster.repo && sudo dnf install -y printmaster-agent
           ```
           
-          #### Binary Installation
-          1. Download the appropriate binary for your platform from the Assets section below
-          2. Extract the archive
-          3. Run the binary with `--help` to see available options
+          **Windows:** Download the MSI installer from Assets below.
           
-          #### Windows MSI Installer
-          Download `printmaster-agent-v${{ steps.version.outputs.version }}-windows-amd64.msi` for easy installation on Windows.
-          
-          #### Docker Installation
+          **Docker:**
           ```bash
-          docker pull ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
-          docker run -d \
-            -p 8000:8000 \
-            -v agent-data:/var/lib/printmaster/agent \
-            ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
+          docker run -d -p 8000:8000 -v agent-data:/var/lib/printmaster/agent ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
           ```
           
-          See `docker-compose.yml` in the repository for a complete multi-service example.
+          Web UI at http://localhost:8000 after install.
           
-          **Supported Platforms:**
-          - Debian/Ubuntu (amd64, arm64) - .deb package with systemd service
-          - Fedora/RHEL (x86_64, aarch64) - .rpm package with systemd service
-          - Windows (amd64) - EXE and MSI installer
-          - Linux (all) - Docker container
-          - macOS (amd64, arm64) - Binary
+          **Supported Platforms:** Debian/Ubuntu • Fedora/RHEL • Windows • Docker • macOS
           
           ### ⏱️ Build Information
           - **Workflow run:** ${{ github.run_id }}
