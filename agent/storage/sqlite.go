@@ -1640,7 +1640,12 @@ func (s *SQLiteStore) saveMetricsSnapshotWithExecer(ctx context.Context, ex exec
 	snapshot.ID = id
 
 	if storageLogger != nil {
-		storageLogger.Debug("Metrics snapshot saved", "serial", snapshot.Serial, "timestamp", snapshot.Timestamp)
+		storageLogger.Debug("Metrics snapshot saved",
+			"serial", snapshot.Serial,
+			"id", id,
+			"total", snapshot.PageCount,
+			"color", snapshot.ColorPages,
+			"mono", snapshot.MonoPages)
 	}
 
 	return nil
