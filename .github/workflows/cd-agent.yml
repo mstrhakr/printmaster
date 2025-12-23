@@ -112,26 +112,6 @@ jobs:
         name: agent-deb-${{ matrix.goarch }}
         path: agent/dist/*.deb
 
-    - name: Build RPM Package (Linux)
-      if: matrix.goos == 'linux'
-      working-directory: ./agent
-      run: |
-        # Install RPM build tools and systemd macros
-        sudo apt-get update
-        sudo apt-get install -y rpm systemd-rpm-macros
-
-        # Copy binary to expected location for build script
-        cp "printmaster-agent-v${{ steps.version.outputs.agent_version }}-linux-${{ matrix.goarch }}" "printmaster-agent"
-        chmod +x build-rpm.sh
-        ./build-rpm.sh "${{ steps.version.outputs.agent_version }}" "${{ matrix.goarch }}"
-
-    - name: Upload RPM Package
-      if: matrix.goos == 'linux'
-      uses: actions/upload-artifact@v4
-      with:
-        name: agent-rpm-${{ matrix.goarch }}
-        path: agent/dist/*.rpm
-
     - name: Install WiX Toolset (Windows)
       if: matrix.os == 'windows-latest'
       shell: pwsh
@@ -265,9 +245,58 @@ jobs:
         provenance: false
         sbom: false
 
+  build-rpm:
+    name: Build RPM Packages (Fedora)
+    needs: [build-agent]
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    
+    steps:
+    - name: Install dependencies
+      run: |
+        dnf install -y rpm-build systemd-rpm-macros git
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download Linux binary
+      uses: actions/download-artifact@v4
+      with:
+        name: agent-binary-linux-${{ matrix.arch }}
+        path: agent/
+
+    - name: Get version
+      id: version
+      run: |
+        echo "version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
+
+    - name: Build RPM Package
+      working-directory: ./agent
+      run: |
+        # Find and prepare the binary
+        BINARY=$(ls printmaster-agent-v*-linux-${{ matrix.arch }} 2>/dev/null | head -n 1)
+        if [ -z "$BINARY" ]; then
+          echo "Error: No binary found matching printmaster-agent-v*-linux-${{ matrix.arch }}"
+          ls -la
+          exit 1
+        fi
+        cp "$BINARY" printmaster-agent
+        chmod +x printmaster-agent build-rpm.sh
+        ./build-rpm.sh "${{ steps.version.outputs.version }}" "${{ matrix.arch }}"
+
+    - name: Upload RPM Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: agent-rpm-${{ matrix.arch }}
+        path: agent/dist/*.rpm
+
   release-agent:
     name: Create Agent Release
-    needs: [build-agent, build-docker]
+    needs: [build-agent, build-docker, build-rpm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -372,7 +401,7 @@ jobs:
 
   update-package-repos:
     name: Update Package Repositories (APT + DNF)
-    needs: [build-agent]
+    needs: [build-agent, build-rpm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
