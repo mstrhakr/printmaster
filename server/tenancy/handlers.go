@@ -1107,14 +1107,14 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 						// Broadcast pending_registration_created event to UI via SSE
 						if agentEventSink != nil {
 							agentEventSink("pending_registration_created", map[string]interface{}{
-								"id":              pendingID,
-								"agent_id":        in.AgentID,
-								"name":            in.Name,
-								"hostname":        in.Hostname,
-								"platform":        in.Platform,
-								"agent_version":   in.AgentVersion,
-								"expired_tenant":  tve.TenantID,
-								"status":          storage.PendingStatusPending,
+								"id":             pendingID,
+								"agent_id":       in.AgentID,
+								"name":           in.Name,
+								"hostname":       in.Hostname,
+								"platform":       in.Platform,
+								"agent_version":  in.AgentVersion,
+								"expired_tenant": tve.TenantID,
+								"status":         storage.PendingStatusPending,
 							})
 						}
 					}
