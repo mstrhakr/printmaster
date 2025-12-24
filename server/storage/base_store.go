@@ -133,7 +133,9 @@ func (s *BaseStore) upsertReturningID(ctx context.Context, query string, args ..
 // Agent Management Methods
 // ============================================================================
 
-// RegisterAgent registers a new agent or updates existing
+// RegisterAgent registers a new agent or updates existing.
+// Note: On conflict, the 'name' field is only updated if the existing name is empty,
+// to preserve user-set display names.
 func (s *BaseStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 	query := `
 		INSERT INTO agents (
@@ -144,7 +146,7 @@ func (s *BaseStore) RegisterAgent(ctx context.Context, agent *Agent) error {
 		)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(agent_id) DO UPDATE SET
-			name = excluded.name,
+			name = CASE WHEN COALESCE(agents.name, '') = '' THEN excluded.name ELSE agents.name END,
 			hostname = excluded.hostname,
 			ip = excluded.ip,
 			platform = excluded.platform,
@@ -401,11 +403,12 @@ func (s *BaseStore) UpdateAgentHeartbeat(ctx context.Context, agentID string, st
 	return err
 }
 
-// UpdateAgentInfo updates agent metadata (version, platform, etc.) typically on heartbeat
+// UpdateAgentInfo updates agent metadata (version, platform, etc.) typically on heartbeat.
+// Note: This does NOT update the 'name' field - that's managed separately via UpdateAgentName
+// to preserve user-set display names from being overwritten by agent heartbeats.
 func (s *BaseStore) UpdateAgentInfo(ctx context.Context, agent *Agent) error {
 	query := `
 		UPDATE agents SET
-			name = ?,
 			hostname = ?,
 			ip = ?,
 			platform = ?,
@@ -426,7 +429,7 @@ func (s *BaseStore) UpdateAgentInfo(ctx context.Context, agent *Agent) error {
 	`
 
 	_, err := s.execContext(ctx, query,
-		agent.Name, agent.Hostname, agent.IP, agent.Platform,
+		agent.Hostname, agent.IP, agent.Platform,
 		agent.Version, agent.ProtocolVersion,
 		agent.OSVersion, agent.GoVersion, agent.Architecture,
 		agent.NumCPU, agent.TotalMemoryMB, agent.BuildType, agent.GitCommit,
