@@ -303,6 +303,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Releases.PollIntervalMinutes != 240 {
 		t.Errorf("Releases.PollIntervalMinutes = %d, want 240", cfg.Releases.PollIntervalMinutes)
 	}
+	if cfg.Releases.RetentionVersions != 6 {
+		t.Errorf("Releases.RetentionVersions = %d, want 6", cfg.Releases.RetentionVersions)
+	}
 	if cfg.SelfUpdate.Channel != "stable" {
 		t.Errorf("SelfUpdate.Channel = %s, want 'stable'", cfg.SelfUpdate.Channel)
 	}

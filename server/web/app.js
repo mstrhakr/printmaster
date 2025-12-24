@@ -364,7 +364,8 @@ const SERVER_SETTINGS_SCHEMA = [
         description: 'Control how many GitHub releases are cached locally for auto-update and packaging.',
         fields: [
             { key: 'max_releases', label: 'Max Releases per Component', type: 'number', min: 1, required: true, helper: 'Upper bound of releases ingested for each component on every sync.', configKey: 'releases.max_releases' },
-            { key: 'poll_interval_minutes', label: 'Sync Interval (minutes)', type: 'number', min: 15, required: true, helper: 'How often the server polls GitHub for new releases.', configKey: 'releases.poll_interval_minutes' }
+            { key: 'poll_interval_minutes', label: 'Sync Interval (minutes)', type: 'number', min: 15, required: true, helper: 'How often the server polls GitHub for new releases.', configKey: 'releases.poll_interval_minutes' },
+            { key: 'retention_versions', label: 'Retention (versions)', type: 'number', min: 0, required: true, helper: 'How many versions to keep per component. Set to 0 to keep all versions (no pruning).', configKey: 'releases.retention_versions' }
         ]
     },
     {
@@ -3659,6 +3660,7 @@ function buildServerSettingsPayload() {
         releases: {
             max_releases: parseNumber(data.releases.max_releases),
             poll_interval_minutes: parseNumber(data.releases.poll_interval_minutes),
+            retention_versions: parseNumber(data.releases.retention_versions),
         },
         self_update: {
             enabled: Boolean(data.self_update.enabled),

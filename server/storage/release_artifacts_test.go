@@ -102,6 +102,95 @@ func TestReleaseArtifactsCRUD(t *testing.T) {
 	}
 }
 
+func TestReleaseArtifactDeleteAndPruning(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	ctx := context.Background()
+	baseTime := time.Now().UTC()
+
+	// Create multiple versions of artifacts to test pruning
+	versions := []struct {
+		version     string
+		publishedAt time.Time
+	}{
+		{"1.0.0", baseTime.Add(-5 * 24 * time.Hour)}, // oldest
+		{"1.1.0", baseTime.Add(-4 * 24 * time.Hour)},
+		{"1.2.0", baseTime.Add(-3 * 24 * time.Hour)},
+		{"1.3.0", baseTime.Add(-2 * 24 * time.Hour)},
+		{"1.4.0", baseTime.Add(-1 * 24 * time.Hour)}, // newest
+	}
+
+	for _, v := range versions {
+		art := &ReleaseArtifact{
+			Component:   "agent",
+			Version:     v.version,
+			Platform:    "linux",
+			Arch:        "amd64",
+			SourceURL:   "https://example.com/agent-" + v.version,
+			PublishedAt: v.publishedAt,
+			SizeBytes:   1024,
+		}
+		if err := store.UpsertReleaseArtifact(ctx, art); err != nil {
+			t.Fatalf("failed to upsert artifact %s: %v", v.version, err)
+		}
+	}
+
+	// Verify all artifacts were created
+	all, err := store.ListReleaseArtifacts(ctx, "agent", 0)
+	if err != nil {
+		t.Fatalf("failed to list artifacts: %v", err)
+	}
+	if len(all) != 5 {
+		t.Fatalf("expected 5 artifacts, got %d", len(all))
+	}
+
+	// Test pruning: keep 3 versions, should return 2 oldest for deletion
+	toPrune, err := store.ListArtifactsForPruning(ctx, "agent", 3)
+	if err != nil {
+		t.Fatalf("ListArtifactsForPruning failed: %v", err)
+	}
+	if len(toPrune) != 2 {
+		t.Fatalf("expected 2 artifacts to prune, got %d", len(toPrune))
+	}
+	// Verify oldest versions are returned
+	prunedVersions := map[string]bool{}
+	for _, art := range toPrune {
+		prunedVersions[art.Version] = true
+	}
+	if !prunedVersions["1.0.0"] || !prunedVersions["1.1.0"] {
+		t.Fatalf("expected versions 1.0.0 and 1.1.0 to be pruned, got: %v", prunedVersions)
+	}
+
+	// Test delete
+	if err := store.DeleteReleaseArtifact(ctx, toPrune[0].ID); err != nil {
+		t.Fatalf("DeleteReleaseArtifact failed: %v", err)
+	}
+
+	// Verify deletion
+	remaining, err := store.ListReleaseArtifacts(ctx, "agent", 0)
+	if err != nil {
+		t.Fatalf("failed to list after delete: %v", err)
+	}
+	if len(remaining) != 4 {
+		t.Fatalf("expected 4 artifacts after delete, got %d", len(remaining))
+	}
+
+	// Test pruning with retention disabled (keep 0)
+	noPrune, err := store.ListArtifactsForPruning(ctx, "agent", 0)
+	if err != nil {
+		t.Fatalf("ListArtifactsForPruning with 0 retention failed: %v", err)
+	}
+	if len(noPrune) != 0 {
+		t.Fatalf("expected 0 artifacts when retention is 0, got %d", len(noPrune))
+	}
+}
+
 func TestSigningKeysAndManifests(t *testing.T) {
 	t.Parallel()
 

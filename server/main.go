@@ -660,9 +660,12 @@ func runServer(ctx context.Context, configFlag string) {
 	}
 
 	if worker, err := releases.NewIntakeWorker(serverStore, serverLogger, releases.Options{
-		GitHubToken:     os.Getenv("GITHUB_TOKEN"),
-		UserAgent:       fmt.Sprintf("printmaster-server/%s release-intake", Version),
-		ManifestManager: releaseManager,
+		GitHubToken:       os.Getenv("GITHUB_TOKEN"),
+		UserAgent:         fmt.Sprintf("printmaster-server/%s release-intake", Version),
+		ManifestManager:   releaseManager,
+		MaxReleases:       cfg.Releases.MaxReleases,
+		PollInterval:      time.Duration(cfg.Releases.PollIntervalMinutes) * time.Minute,
+		RetentionVersions: cfg.Releases.RetentionVersions,
 	}); err != nil {
 		logWarn("Release intake worker disabled", "error", err)
 	} else {
@@ -5899,11 +5902,13 @@ func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 // ===== Server Settings API =====
 
 type serverSettingsRequest struct {
-	Server   *serverSettingsServerSection   `json:"server"`
-	Security *serverSettingsSecuritySection `json:"security"`
-	TLS      *serverSettingsTLSSection      `json:"tls"`
-	Logging  *serverSettingsLoggingSection  `json:"logging"`
-	SMTP     *serverSettingsSMTPSection     `json:"smtp"`
+	Server     *serverSettingsServerSection     `json:"server"`
+	Security   *serverSettingsSecuritySection   `json:"security"`
+	TLS        *serverSettingsTLSSection        `json:"tls"`
+	Logging    *serverSettingsLoggingSection    `json:"logging"`
+	SMTP       *serverSettingsSMTPSection       `json:"smtp"`
+	Releases   *serverSettingsReleasesSection   `json:"releases"`
+	SelfUpdate *serverSettingsSelfUpdateSection `json:"self_update"`
 }
 
 type serverSettingsServerSection struct {
@@ -5949,6 +5954,19 @@ type serverSettingsSMTPSection struct {
 	User    *string `json:"user"`
 	Pass    *string `json:"pass"`
 	From    *string `json:"from"`
+}
+
+type serverSettingsReleasesSection struct {
+	MaxReleases       *int `json:"max_releases"`
+	PollIntervalMins  *int `json:"poll_interval_minutes"`
+	RetentionVersions *int `json:"retention_versions"`
+}
+
+type serverSettingsSelfUpdateSection struct {
+	Enabled           *bool   `json:"enabled"`
+	Channel           *string `json:"channel"`
+	MaxArtifacts      *int    `json:"max_artifacts"`
+	CheckIntervalMins *int    `json:"check_interval_minutes"`
 }
 
 type serverSettingsUpdateResult struct {
@@ -6053,6 +6071,17 @@ func buildServerSettingsResponse(cfg *Config) map[string]interface{} {
 			"user":    cfg.SMTP.User,
 			"from":    cfg.SMTP.From,
 		},
+		"releases": map[string]interface{}{
+			"max_releases":          cfg.Releases.MaxReleases,
+			"poll_interval_minutes": cfg.Releases.PollIntervalMinutes,
+			"retention_versions":    cfg.Releases.RetentionVersions,
+		},
+		"self_update": map[string]interface{}{
+			"enabled":                cfg.Server.SelfUpdateEnabled,
+			"channel":                cfg.SelfUpdate.Channel,
+			"max_artifacts":          cfg.SelfUpdate.MaxArtifacts,
+			"check_interval_minutes": cfg.SelfUpdate.CheckIntervalMinutes,
+		},
 	}
 }
 
@@ -6097,6 +6126,8 @@ func getEffectiveConfigValues(keys []string) map[string]interface{} {
 			values[key] = cfg.Releases.MaxReleases
 		case "releases.poll_interval_minutes":
 			values[key] = cfg.Releases.PollIntervalMinutes
+		case "releases.retention_versions":
+			values[key] = cfg.Releases.RetentionVersions
 
 		// Self update settings
 		case "self_update.channel":
@@ -6520,6 +6551,109 @@ func applyServerSettings(cfg *Config, req *serverSettingsRequest) (*serverSettin
 			if cfg.SMTP.From != from {
 				cfg.SMTP.From = from
 				markChanged("smtp.from", true)
+			}
+		}
+	}
+
+	// Handle releases section
+	if section := req.Releases; section != nil {
+		if section.MaxReleases != nil {
+			if err := ensureConfigKeyEditable("releases.max_releases"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.MaxReleases < 1 {
+				*cfg = original
+				return nil, fmt.Errorf("releases.max_releases must be at least 1")
+			}
+			if cfg.Releases.MaxReleases != *section.MaxReleases {
+				cfg.Releases.MaxReleases = *section.MaxReleases
+				markChanged("releases.max_releases", false)
+			}
+		}
+		if section.PollIntervalMins != nil {
+			if err := ensureConfigKeyEditable("releases.poll_interval_minutes"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.PollIntervalMins < 15 {
+				*cfg = original
+				return nil, fmt.Errorf("releases.poll_interval_minutes must be at least 15")
+			}
+			if cfg.Releases.PollIntervalMinutes != *section.PollIntervalMins {
+				cfg.Releases.PollIntervalMinutes = *section.PollIntervalMins
+				markChanged("releases.poll_interval_minutes", false)
+			}
+		}
+		if section.RetentionVersions != nil {
+			if err := ensureConfigKeyEditable("releases.retention_versions"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.RetentionVersions < 0 {
+				*cfg = original
+				return nil, fmt.Errorf("releases.retention_versions cannot be negative")
+			}
+			if cfg.Releases.RetentionVersions != *section.RetentionVersions {
+				cfg.Releases.RetentionVersions = *section.RetentionVersions
+				markChanged("releases.retention_versions", false)
+			}
+		}
+	}
+
+	// Handle self_update section
+	if section := req.SelfUpdate; section != nil {
+		if section.Enabled != nil {
+			if err := ensureConfigKeyEditable("server.self_update_enabled"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if cfg.Server.SelfUpdateEnabled != *section.Enabled {
+				cfg.Server.SelfUpdateEnabled = *section.Enabled
+				markChanged("server.self_update_enabled", true)
+			}
+		}
+		if section.Channel != nil {
+			if err := ensureConfigKeyEditable("self_update.channel"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			channel := strings.TrimSpace(*section.Channel)
+			if channel == "" {
+				*cfg = original
+				return nil, fmt.Errorf("self_update.channel cannot be empty")
+			}
+			if cfg.SelfUpdate.Channel != channel {
+				cfg.SelfUpdate.Channel = channel
+				markChanged("self_update.channel", false)
+			}
+		}
+		if section.MaxArtifacts != nil {
+			if err := ensureConfigKeyEditable("self_update.max_artifacts"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.MaxArtifacts < 1 {
+				*cfg = original
+				return nil, fmt.Errorf("self_update.max_artifacts must be at least 1")
+			}
+			if cfg.SelfUpdate.MaxArtifacts != *section.MaxArtifacts {
+				cfg.SelfUpdate.MaxArtifacts = *section.MaxArtifacts
+				markChanged("self_update.max_artifacts", false)
+			}
+		}
+		if section.CheckIntervalMins != nil {
+			if err := ensureConfigKeyEditable("self_update.check_interval_minutes"); err != nil {
+				*cfg = original
+				return nil, err
+			}
+			if *section.CheckIntervalMins < 30 {
+				*cfg = original
+				return nil, fmt.Errorf("self_update.check_interval_minutes must be at least 30")
+			}
+			if cfg.SelfUpdate.CheckIntervalMinutes != *section.CheckIntervalMins {
+				cfg.SelfUpdate.CheckIntervalMinutes = *section.CheckIntervalMins
+				markChanged("self_update.check_interval_minutes", false)
 			}
 		}
 	}

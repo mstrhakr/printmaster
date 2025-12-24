@@ -31,31 +31,33 @@ var safeSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // Options control IntakeWorker behavior.
 type Options struct {
-	CacheDir        string
-	PollInterval    time.Duration
-	RepoOwner       string
-	RepoName        string
-	BaseAPIURL      string
-	GitHubToken     string
-	HTTPClient      *http.Client
-	MaxReleases     int
-	UserAgent       string
-	ManifestManager *Manager
+	CacheDir          string
+	PollInterval      time.Duration
+	RepoOwner         string
+	RepoName          string
+	BaseAPIURL        string
+	GitHubToken       string
+	HTTPClient        *http.Client
+	MaxReleases       int
+	RetentionVersions int // 0 = disabled (keep all), N = keep N versions per component
+	UserAgent         string
+	ManifestManager   *Manager
 }
 
 type IntakeWorker struct {
-	store        storage.Store
-	log          *logger.Logger
-	cacheDir     string
-	pollInterval time.Duration
-	repoOwner    string
-	repoName     string
-	baseAPIURL   string
-	client       *http.Client
-	maxReleases  int
-	token        string
-	userAgent    string
-	manifests    *Manager
+	store             storage.Store
+	log               *logger.Logger
+	cacheDir          string
+	pollInterval      time.Duration
+	repoOwner         string
+	repoName          string
+	baseAPIURL        string
+	client            *http.Client
+	maxReleases       int
+	retentionVersions int
+	token             string
+	userAgent         string
+	manifests         *Manager
 }
 
 type ghRelease struct {
@@ -131,18 +133,19 @@ func NewIntakeWorker(store storage.Store, log *logger.Logger, opts Options) (*In
 	}
 
 	return &IntakeWorker{
-		store:        store,
-		log:          log,
-		cacheDir:     cacheDir,
-		pollInterval: poll,
-		repoOwner:    repoOwner,
-		repoName:     repoName,
-		baseAPIURL:   baseAPI,
-		client:       client,
-		maxReleases:  maxReleases,
-		token:        strings.TrimSpace(opts.GitHubToken),
-		userAgent:    userAgent,
-		manifests:    opts.ManifestManager,
+		store:             store,
+		log:               log,
+		cacheDir:          cacheDir,
+		pollInterval:      poll,
+		repoOwner:         repoOwner,
+		repoName:          repoName,
+		baseAPIURL:        baseAPI,
+		client:            client,
+		maxReleases:       maxReleases,
+		retentionVersions: opts.RetentionVersions,
+		token:             strings.TrimSpace(opts.GitHubToken),
+		userAgent:         userAgent,
+		manifests:         opts.ManifestManager,
 	}, nil
 }
 
@@ -195,6 +198,16 @@ func (w *IntakeWorker) runOnce(ctx context.Context) error {
 		}
 		processed[component]++
 	}
+
+	// Prune old artifacts if retention is configured
+	if w.retentionVersions > 0 {
+		for _, comp := range []string{"agent", "server"} {
+			if err := w.pruneOldArtifacts(ctx, comp); err != nil {
+				w.logWarn("artifact pruning failed", "component", comp, "error", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -425,6 +438,44 @@ func fileExists(path string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+// pruneOldArtifacts removes artifacts for versions beyond retention threshold
+func (w *IntakeWorker) pruneOldArtifacts(ctx context.Context, component string) error {
+	artifacts, err := w.store.ListArtifactsForPruning(ctx, component, w.retentionVersions)
+	if err != nil {
+		return err
+	}
+	if len(artifacts) == 0 {
+		return nil
+	}
+
+	var deletedCount int
+	var freedBytes int64
+	for _, art := range artifacts {
+		// Remove cached file from disk
+		if art.CachePath != "" {
+			if rmErr := os.Remove(art.CachePath); rmErr != nil && !os.IsNotExist(rmErr) {
+				w.logWarn("failed to remove cached artifact file", "path", art.CachePath, "error", rmErr)
+			}
+		}
+		// Remove from database
+		if err := w.store.DeleteReleaseArtifact(ctx, art.ID); err != nil {
+			w.logWarn("failed to delete artifact record", "id", art.ID, "component", art.Component, "version", art.Version, "error", err)
+			continue
+		}
+		deletedCount++
+		freedBytes += art.SizeBytes
+	}
+
+	if deletedCount > 0 {
+		w.logInfo("pruned old release artifacts",
+			"component", component,
+			"deleted", deletedCount,
+			"freed_bytes", freedBytes,
+			"retention", w.retentionVersions)
+	}
+	return nil
 }
 
 func (w *IntakeWorker) logInfo(msg string, kv ...interface{}) {

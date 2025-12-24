@@ -52,6 +52,7 @@ type ServerConfig struct {
 type ReleasesConfig struct {
 	MaxReleases         int `toml:"max_releases"`
 	PollIntervalMinutes int `toml:"poll_interval_minutes"`
+	RetentionVersions   int `toml:"retention_versions"` // 0 = disabled (keep all), N = keep N versions per component
 }
 
 // SelfUpdateConfig exposes tweakable server auto-update controls.
@@ -158,6 +159,7 @@ func DefaultConfig() *Config {
 		Releases: ReleasesConfig{
 			MaxReleases:         6,
 			PollIntervalMinutes: 240,
+			RetentionVersions:   6, // Keep 6 versions per component; 0 = keep all (no pruning)
 		},
 		SelfUpdate: SelfUpdateConfig{
 			Channel:              "stable",
@@ -248,6 +250,13 @@ func applyEnvOverrides(cfg *Config, tracker *ConfigSourceTracker) {
 		if _, err := fmt.Sscanf(val, "%d", &v); err == nil {
 			cfg.Releases.PollIntervalMinutes = v
 			tracker.EnvKeys["releases.poll_interval_minutes"] = true
+		}
+	}
+	if val := os.Getenv("RELEASES_RETENTION_VERSIONS"); val != "" {
+		var v int
+		if _, err := fmt.Sscanf(val, "%d", &v); err == nil && v >= 0 {
+			cfg.Releases.RetentionVersions = v
+			tracker.EnvKeys["releases.retention_versions"] = true
 		}
 	}
 	if val := os.Getenv("SELF_UPDATE_CHANNEL"); val != "" {

@@ -3364,6 +3364,74 @@ func (s *BaseStore) scanReleaseArtifactRow(rows *sql.Rows) (*ReleaseArtifact, er
 	return artifact, nil
 }
 
+// DeleteReleaseArtifact removes an artifact by id
+func (s *BaseStore) DeleteReleaseArtifact(ctx context.Context, id int64) error {
+	_, err := s.execContext(ctx, `DELETE FROM release_artifacts WHERE id = ?`, id)
+	return err
+}
+
+// ListArtifactsForPruning returns artifacts for versions beyond the keepVersions threshold.
+// For each component, it keeps the newest keepVersions distinct versions and returns
+// all artifacts belonging to older versions (to be pruned).
+func (s *BaseStore) ListArtifactsForPruning(ctx context.Context, component string, keepVersions int) ([]*ReleaseArtifact, error) {
+	if keepVersions <= 0 {
+		return nil, nil // No pruning when retention is disabled
+	}
+
+	// Strategy: find distinct versions per component ordered by published_at DESC,
+	// skip the first keepVersions, then return all artifacts for remaining versions.
+	// Using a subquery to get versions to keep, then exclude them.
+	query := `
+		WITH versions_to_keep AS (
+			SELECT DISTINCT version
+			FROM release_artifacts
+			WHERE component = ?
+			ORDER BY MAX(published_at) DESC, MAX(created_at) DESC
+			LIMIT ?
+		)
+		SELECT id, component, version, platform, arch, channel, source_url,
+		       cache_path, sha256, size_bytes, release_notes, published_at,
+		       downloaded_at, created_at, updated_at
+		FROM release_artifacts
+		WHERE component = ? AND version NOT IN (SELECT version FROM versions_to_keep)
+		ORDER BY published_at ASC
+	`
+
+	// The CTE with GROUP BY for proper ordering
+	query = `
+		WITH ranked_versions AS (
+			SELECT version, MAX(published_at) as max_pub, MAX(created_at) as max_created
+			FROM release_artifacts
+			WHERE component = ?
+			GROUP BY version
+			ORDER BY max_pub DESC, max_created DESC
+			LIMIT ?
+		)
+		SELECT id, component, version, platform, arch, channel, source_url,
+		       cache_path, sha256, size_bytes, release_notes, published_at,
+		       downloaded_at, created_at, updated_at
+		FROM release_artifacts
+		WHERE component = ? AND version NOT IN (SELECT version FROM ranked_versions)
+		ORDER BY published_at ASC
+	`
+
+	rows, err := s.queryContext(ctx, query, component, keepVersions, component)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var artifacts []*ReleaseArtifact
+	for rows.Next() {
+		artifact, serr := s.scanReleaseArtifactRow(rows)
+		if serr != nil {
+			return nil, serr
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	return artifacts, rows.Err()
+}
+
 // ============================================================================
 // Signing Key Methods
 // ============================================================================

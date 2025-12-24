@@ -764,6 +764,10 @@ type Store interface {
 	UpsertReleaseArtifact(ctx context.Context, artifact *ReleaseArtifact) error
 	GetReleaseArtifact(ctx context.Context, component, version, platform, arch string) (*ReleaseArtifact, error)
 	ListReleaseArtifacts(ctx context.Context, component string, limit int) ([]*ReleaseArtifact, error)
+	DeleteReleaseArtifact(ctx context.Context, id int64) error
+	// ListVersionsForPruning returns distinct versions per component ordered by publish date (oldest first)
+	// limited to versions beyond the keepVersions threshold. Returns artifacts to be pruned.
+	ListArtifactsForPruning(ctx context.Context, component string, keepVersions int) ([]*ReleaseArtifact, error)
 
 	// Release manifest signing
 	CreateSigningKey(ctx context.Context, key *SigningKey) error
