@@ -485,6 +485,15 @@ func closeAgentWebSocket(agentID string) {
 	}
 }
 
+// cleanupAgentDiagnostics removes diagnostic counters for a deleted agent.
+// Call this when an agent is permanently deleted to prevent memory growth.
+func cleanupAgentDiagnostics(agentID string) {
+	wsDiagLock.Lock()
+	defer wsDiagLock.Unlock()
+	delete(wsPingFailuresPerAgent, agentID)
+	delete(wsDisconnectEventsPerAgent, agentID)
+}
+
 // handleWSProxyResponse handles HTTP proxy responses from agents
 func handleWSProxyResponse(msg wscommon.Message) {
 	requestID, ok := msg.Data["request_id"].(string)

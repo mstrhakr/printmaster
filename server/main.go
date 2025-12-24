@@ -22,6 +22,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	_ "net/http/pprof" // Import for side-effect: registers /debug/pprof handlers
 	"net/smtp"
 	"net/url"
 	"os"
@@ -3972,6 +3973,9 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 
 			// Close WebSocket connection if active
 			closeAgentWebSocket(agentID)
+
+			// Clean up diagnostic counters for this agent to prevent memory leak
+			cleanupAgentDiagnostics(agentID)
 
 			logInfo("Agent deleted", "agent_id", agentID)
 
