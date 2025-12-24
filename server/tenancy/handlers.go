@@ -927,6 +927,8 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte(`{"error":"tenant_id required for approval"}`))
 				return
 			}
+			// Get registration details before approving for SSE broadcast
+			reg, _ := dbStore.GetPendingAgentRegistration(r.Context(), id)
 			if err := dbStore.ApprovePendingRegistration(r.Context(), id, in.TenantID, username); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error":"failed to approve registration"}`))
@@ -936,6 +938,20 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 			jt, rawToken, err := dbStore.CreateJoinToken(r.Context(), in.TenantID, 60*24, true) // 24hr one-time token
 			if err != nil {
 				logWarn("handlePendingRegistrationByID: failed to create approval token", "error", err)
+			}
+			// Broadcast pending_registration_approved event to UI via SSE
+			if agentEventSink != nil {
+				eventData := map[string]interface{}{
+					"id":        id,
+					"tenant_id": in.TenantID,
+					"status":    storage.PendingStatusApproved,
+				}
+				if reg != nil {
+					eventData["agent_id"] = reg.AgentID
+					eventData["name"] = reg.Name
+					eventData["hostname"] = reg.Hostname
+				}
+				agentEventSink("pending_registration_approved", eventData)
 			}
 			recordAudit(r, &storage.AuditEntry{
 				Action:     "pending_registration.approve",
@@ -952,10 +968,25 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(resp)
 
 		case "reject":
+			// Get registration details before rejecting for SSE broadcast
+			regForReject, _ := dbStore.GetPendingAgentRegistration(r.Context(), id)
 			if err := dbStore.RejectPendingRegistration(r.Context(), id, username, in.Notes); err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(`{"error":"failed to reject registration"}`))
 				return
+			}
+			// Broadcast pending_registration_rejected event to UI via SSE
+			if agentEventSink != nil {
+				eventData := map[string]interface{}{
+					"id":     id,
+					"status": storage.PendingStatusRejected,
+				}
+				if regForReject != nil {
+					eventData["agent_id"] = regForReject.AgentID
+					eventData["name"] = regForReject.Name
+					eventData["hostname"] = regForReject.Hostname
+				}
+				agentEventSink("pending_registration_rejected", eventData)
 			}
 			recordAudit(r, &storage.AuditEntry{
 				Action:     "pending_registration.reject",
@@ -979,6 +1010,12 @@ func handlePendingRegistrationByID(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to delete registration"}`))
 			return
+		}
+		// Broadcast pending_registration_deleted event to UI via SSE
+		if agentEventSink != nil {
+			agentEventSink("pending_registration_deleted", map[string]interface{}{
+				"id": id,
+			})
 		}
 		recordAudit(r, &storage.AuditEntry{
 			Action:     "pending_registration.delete",
@@ -1061,9 +1098,24 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 						ExpiredTenantID: tve.TenantID,
 						Status:          storage.PendingStatusPending,
 					}
-					if _, createErr := dbStore.CreatePendingAgentRegistration(r.Context(), pending); createErr != nil {
+					pendingID, createErr := dbStore.CreatePendingAgentRegistration(r.Context(), pending)
+					if createErr != nil {
 						if pkgLogger != nil {
 							pkgLogger.Warn("register-with-token: failed to create pending registration", "error", createErr)
+						}
+					} else {
+						// Broadcast pending_registration_created event to UI via SSE
+						if agentEventSink != nil {
+							agentEventSink("pending_registration_created", map[string]interface{}{
+								"id":              pendingID,
+								"agent_id":        in.AgentID,
+								"name":            in.Name,
+								"hostname":        in.Hostname,
+								"platform":        in.Platform,
+								"agent_version":   in.AgentVersion,
+								"expired_tenant":  tve.TenantID,
+								"status":          storage.PendingStatusPending,
+							})
 						}
 					}
 					recordAudit(r, &storage.AuditEntry{

@@ -3938,6 +3938,19 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			obj["ws_ping_failures"] = pf
 			obj["ws_disconnect_events"] = de
 
+			// Broadcast agent_updated event to UI via SSE
+			sseHub.Broadcast(SSEEvent{
+				Type: "agent_updated",
+				Data: map[string]interface{}{
+					"agent_id":        agent.AgentID,
+					"name":            agent.Name,
+					"hostname":        agent.Hostname,
+					"ip":              agent.IP,
+					"status":          agent.Status,
+					"connection_type": connType,
+				},
+			})
+
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(obj)
 			return
@@ -3979,6 +3992,14 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 
 			// Clean up diagnostic counters for this agent to prevent memory leak
 			cleanupAgentDiagnostics(agentID)
+
+			// Broadcast agent_deleted event to UI via SSE
+			sseHub.Broadcast(SSEEvent{
+				Type: "agent_deleted",
+				Data: map[string]interface{}{
+					"agent_id": agentID,
+				},
+			})
 
 			logInfo("Agent deleted", "agent_id", agentID)
 
