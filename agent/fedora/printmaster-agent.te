@@ -1,0 +1,101 @@
+# PrintMaster Agent SELinux Type Enforcement Policy
+# This policy allows printmaster-agent to run properly under SELinux enforcing mode
+
+policy_module(printmaster_agent, 1.0.0)
+
+########################################
+#
+# Declarations
+#
+
+type printmaster_t;
+type printmaster_exec_t;
+init_daemon_domain(printmaster_t, printmaster_exec_t)
+
+# Config files
+type printmaster_etc_t;
+files_config_file(printmaster_etc_t)
+
+# Data/state files
+type printmaster_var_lib_t;
+files_type(printmaster_var_lib_t)
+
+# Log files
+type printmaster_log_t;
+logging_log_file(printmaster_log_t)
+
+# Port type for web UI
+type printmaster_port_t;
+corenet_port(printmaster_port_t)
+
+########################################
+#
+# Local policy
+#
+
+# Allow basic daemon operations
+allow printmaster_t self:process { signal_perms getsched setsched };
+allow printmaster_t self:fifo_file rw_fifo_file_perms;
+allow printmaster_t self:unix_stream_socket create_stream_socket_perms;
+allow printmaster_t self:unix_dgram_socket create_socket_perms;
+
+# Network access - required for SNMP discovery and web UI
+allow printmaster_t self:tcp_socket create_stream_socket_perms;
+allow printmaster_t self:udp_socket create_socket_perms;
+allow printmaster_t self:netlink_route_socket r_netlink_socket_perms;
+
+# Allow binding to high ports (web UI on 8080 by default)
+corenet_tcp_bind_generic_node(printmaster_t)
+corenet_udp_bind_generic_node(printmaster_t)
+allow printmaster_t printmaster_port_t:tcp_socket name_bind;
+
+# Allow binding to unreserved ports (>1024)
+corenet_tcp_bind_all_unreserved_ports(printmaster_t)
+corenet_udp_bind_all_unreserved_ports(printmaster_t)
+
+# Allow connecting to any port (for SNMP queries to printers, server connections)
+corenet_tcp_connect_all_ports(printmaster_t)
+corenet_sendrecv_all_client_packets(printmaster_t)
+
+# Allow SNMP UDP traffic (port 161)
+corenet_udp_sendrecv_generic_if(printmaster_t)
+corenet_udp_sendrecv_generic_node(printmaster_t)
+
+# Config file access
+allow printmaster_t printmaster_etc_t:dir list_dir_perms;
+allow printmaster_t printmaster_etc_t:file read_file_perms;
+
+# Data directory access (SQLite database, agent_id, etc.)
+allow printmaster_t printmaster_var_lib_t:dir create_dir_perms;
+allow printmaster_t printmaster_var_lib_t:file manage_file_perms;
+
+# Log file access
+allow printmaster_t printmaster_log_t:dir create_dir_perms;
+allow printmaster_t printmaster_log_t:file manage_file_perms;
+logging_log_filetrans(printmaster_t, printmaster_log_t, { file dir })
+
+# Read system state
+kernel_read_system_state(printmaster_t)
+kernel_read_network_state(printmaster_t)
+
+# Read /etc files
+files_read_etc_files(printmaster_t)
+files_read_etc_runtime_files(printmaster_t)
+
+# DNS resolution
+sysnet_dns_name_resolve(printmaster_t)
+
+# Use nsswitch (for user/group lookups)
+auth_use_nsswitch(printmaster_t)
+
+# Read locale data
+miscfiles_read_localization(printmaster_t)
+
+# Read SSL certificates (for HTTPS connections to server)
+miscfiles_read_certs(printmaster_t)
+
+# Allow reading /proc for system info
+domain_read_all_domains_state(printmaster_t)
+
+# Systemd integration
+init_read_state(printmaster_t)

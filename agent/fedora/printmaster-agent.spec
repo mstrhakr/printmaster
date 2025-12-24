@@ -5,6 +5,11 @@
 %define _binaries_in_noarch_packages_terminate_build 0
 %define debug_package %{nil}
 
+# SELinux policy settings
+%global selinux_variants targeted
+%global selinux_policyver %(rpm -q --qf "%%{version}-%%{release}" selinux-policy 2>/dev/null || echo "0.0.0-0")
+%global modulename printmaster_agent
+
 Name:           printmaster-agent
 Version:        %{getenv:PRINTMASTER_VERSION}
 Release:        1%{?dist}
@@ -16,6 +21,12 @@ Source0:        printmaster-agent
 
 BuildRequires:  systemd-rpm-macros
 Requires:       glibc
+Requires:       policycoreutils-python-utils
+
+# SELinux dependencies
+Requires(post): policycoreutils
+Requires(post): policycoreutils-python-utils
+Requires(postun): policycoreutils
 
 # The package creates its own user/group in %pre, so we provide these
 # to satisfy RPM's automatic dependency generator
@@ -32,6 +43,7 @@ Features:
 - Real-time metrics collection
 - Web UI for monitoring
 - Optional central server reporting
+- SELinux compatible (Fedora/RHEL/CentOS)
 
 %install
 # Create directories
@@ -111,10 +123,50 @@ exit 0
 %post
 %systemd_post printmaster-agent.service
 
-# Restore SELinux context on binary (required for Fedora/RHEL with SELinux enforcing)
-# The binary should have bin_t context to be executable by systemd
-if command -v restorecon >/dev/null 2>&1; then
-    restorecon -v /usr/bin/printmaster-agent || true
+# ============================================================
+# SELinux Configuration
+# ============================================================
+# We use standard SELinux types that already exist in the base policy
+# This avoids needing a custom SELinux module while still being secure
+
+if selinuxenabled 2>/dev/null; then
+    echo "Configuring SELinux contexts for PrintMaster..."
+    
+    # Set file contexts using semanage fcontext
+    # Binary: use bin_t (standard executable type)
+    semanage fcontext -a -t bin_t "/usr/bin/printmaster-agent" 2>/dev/null || \
+        semanage fcontext -m -t bin_t "/usr/bin/printmaster-agent" 2>/dev/null || true
+    
+    # Config directory: use etc_t (standard config type)
+    semanage fcontext -a -t etc_t "/etc/printmaster(/.*)?" 2>/dev/null || \
+        semanage fcontext -m -t etc_t "/etc/printmaster(/.*)?" 2>/dev/null || true
+    
+    # Data directory: use var_lib_t (standard state data type)
+    semanage fcontext -a -t var_lib_t "/var/lib/printmaster(/.*)?" 2>/dev/null || \
+        semanage fcontext -m -t var_lib_t "/var/lib/printmaster(/.*)?" 2>/dev/null || true
+    
+    # Log directory: use var_log_t (standard log type)
+    semanage fcontext -a -t var_log_t "/var/log/printmaster(/.*)?" 2>/dev/null || \
+        semanage fcontext -m -t var_log_t "/var/log/printmaster(/.*)?" 2>/dev/null || true
+    
+    # Apply the contexts
+    restorecon -Rv /usr/bin/printmaster-agent 2>/dev/null || true
+    restorecon -Rv /etc/printmaster 2>/dev/null || true
+    restorecon -Rv /var/lib/printmaster 2>/dev/null || true
+    restorecon -Rv /var/log/printmaster 2>/dev/null || true
+    
+    # Allow the service to bind to port 8080 (web UI)
+    # Using http_port_t since 8080 is commonly an HTTP alternate port
+    semanage port -a -t http_port_t -p tcp 8080 2>/dev/null || \
+        semanage port -m -t http_port_t -p tcp 8080 2>/dev/null || true
+    
+    # Enable SELinux booleans needed for network daemon operation
+    # httpd_can_network_connect: allows outbound connections (to printers, server)
+    setsebool -P httpd_can_network_connect on 2>/dev/null || true
+    
+    echo "SELinux configuration complete."
+else
+    echo "SELinux not enforcing, skipping context configuration."
 fi
 
 # Set ownership of directories
@@ -143,8 +195,18 @@ echo "PrintMaster Agent installed and running at http://localhost:8080"
 %postun
 %systemd_postun_with_restart printmaster-agent.service
 
-# Remove user on complete uninstall (not upgrade)
+# Remove user and SELinux contexts on complete uninstall (not upgrade)
 if [ $1 -eq 0 ]; then
+    # Clean up SELinux file contexts
+    if selinuxenabled 2>/dev/null; then
+        echo "Removing SELinux contexts for PrintMaster..."
+        semanage fcontext -d "/usr/bin/printmaster-agent" 2>/dev/null || true
+        semanage fcontext -d "/etc/printmaster(/.*)?" 2>/dev/null || true
+        semanage fcontext -d "/var/lib/printmaster(/.*)?" 2>/dev/null || true
+        semanage fcontext -d "/var/log/printmaster(/.*)?" 2>/dev/null || true
+        # Note: we don't remove port 8080 as other services may use it
+    fi
+    
     userdel printmaster 2>/dev/null || true
     groupdel printmaster 2>/dev/null || true
 fi
@@ -154,9 +216,13 @@ fi
 %{_unitdir}/printmaster-agent.service
 %dir %{_sysconfdir}/printmaster
 %config(noreplace) %{_sysconfdir}/printmaster/agent.toml.example
-%dir %{_sharedstatedir}/printmaster
-%dir %{_localstatedir}/log/printmaster
+%dir %attr(750,printmaster,printmaster) %{_sharedstatedir}/printmaster
+%dir %attr(750,printmaster,printmaster) %{_localstatedir}/log/printmaster
 
 %changelog
-* Sun Dec 22 2024 PrintMaster Team <printmaster@example.com> - %{version}-1
-- Automated build from release
+* Mon Dec 23 2024 PrintMaster Team <printmaster@example.com> - %{version}-1
+- Added proper SELinux context configuration
+- Fixed file contexts for /etc, /var/lib, /var/log directories
+- Added port labeling for web UI port 8080
+* Sun Dec 22 2024 PrintMaster Team <printmaster@example.com>
+- Initial automated build from release

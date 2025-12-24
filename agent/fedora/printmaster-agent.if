@@ -1,0 +1,102 @@
+## <summary>PrintMaster Agent policy interface</summary>
+## <desc>
+##	<p>
+##		Policy interface for PrintMaster Agent.
+##		This module is not typically needed by other policies.
+##	</p>
+## </desc>
+
+########################################
+## <summary>
+##	Execute printmaster-agent in the printmaster domain.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed to transition.
+##	</summary>
+## </param>
+#
+interface(`printmaster_domtrans',`
+	gen_require(`
+		type printmaster_t, printmaster_exec_t;
+	')
+
+	corecmd_search_bin($1)
+	domtrans_pattern($1, printmaster_exec_t, printmaster_t)
+')
+
+########################################
+## <summary>
+##	Read printmaster configuration files.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`printmaster_read_config',`
+	gen_require(`
+		type printmaster_etc_t;
+	')
+
+	files_search_etc($1)
+	allow $1 printmaster_etc_t:dir list_dir_perms;
+	allow $1 printmaster_etc_t:file read_file_perms;
+')
+
+########################################
+## <summary>
+##	Read printmaster log files.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+#
+interface(`printmaster_read_log',`
+	gen_require(`
+		type printmaster_log_t;
+	')
+
+	logging_search_logs($1)
+	allow $1 printmaster_log_t:dir list_dir_perms;
+	allow $1 printmaster_log_t:file read_file_perms;
+')
+
+########################################
+## <summary>
+##	All of the rules required to
+##	administrate an printmaster environment.
+## </summary>
+## <param name="domain">
+##	<summary>
+##	Domain allowed access.
+##	</summary>
+## </param>
+## <param name="role">
+##	<summary>
+##	Role allowed access.
+##	</summary>
+## </param>
+## <rolecap/>
+#
+interface(`printmaster_admin',`
+	gen_require(`
+		type printmaster_t, printmaster_etc_t;
+		type printmaster_var_lib_t, printmaster_log_t;
+	')
+
+	allow $1 printmaster_t:process { ptrace signal_perms };
+	ps_process_pattern($1, printmaster_t)
+
+	files_search_etc($1)
+	admin_pattern($1, printmaster_etc_t)
+
+	files_search_var_lib($1)
+	admin_pattern($1, printmaster_var_lib_t)
+
+	logging_search_logs($1)
+	admin_pattern($1, printmaster_log_t)
+')
