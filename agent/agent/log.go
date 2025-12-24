@@ -21,6 +21,7 @@ type ExternalLogger interface {
 	Warn(msg string, context ...interface{})
 	Info(msg string, context ...interface{})
 	Debug(msg string, context ...interface{})
+	TraceTag(tag string, msg string, context ...interface{})
 }
 
 var extLogger ExternalLogger
@@ -145,4 +146,21 @@ func ErrorCtx(msg string, context ...interface{}) {
 		msg = fmt.Sprintf("%s %v", msg, context)
 	}
 	writeLine("ERROR", msg)
+}
+
+// TraceTagCtx logs a trace-level message with a category tag.
+// Used for high-volume diagnostic logs that are filtered by tag.
+func TraceTagCtx(tag string, msg string, context ...interface{}) {
+	if extLogger != nil {
+		extLogger.TraceTag(tag, msg, context...)
+		return
+	}
+	// Fallback: only print if debug is enabled (trace is more verbose)
+	if !DebugEnabled {
+		return
+	}
+	if len(context) > 0 {
+		msg = fmt.Sprintf("%s %v", msg, context)
+	}
+	writeLine("TRACE", fmt.Sprintf("[%s] %s", tag, msg))
 }

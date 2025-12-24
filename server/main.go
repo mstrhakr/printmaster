@@ -4246,7 +4246,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 		}
 	}
 
-	logInfo("Proxy request dispatched",
+	logTraceTag("proxy", "Proxy request dispatched",
 		"agent_id", agentID,
 		"request_id", requestID,
 		"method", r.Method,
@@ -4274,7 +4274,7 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 			statusCode = int(code)
 		}
 
-		logInfo("Proxy response received",
+		logTraceTag("proxy", "Proxy response received",
 			"agent_id", agentID,
 			"request_id", requestID,
 			"status", statusCode,

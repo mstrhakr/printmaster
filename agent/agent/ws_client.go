@@ -535,7 +535,7 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	}
 
 	start := time.Now()
-	InfoCtx("Proxy request dispatched", "request_id", requestID, "method", method, "url", maskedURL, "body_bytes", len(bodyBytes))
+	TraceTagCtx("proxy", "Proxy request dispatched", "request_id", requestID, "method", method, "url", maskedURL, "body_bytes", len(bodyBytes))
 
 	// If stop requested, bail early
 	select {
@@ -613,7 +613,7 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	}
 
 	duration := time.Since(start)
-	InfoCtx("Proxy response completed", "request_id", requestID, "status", resp.StatusCode, "duration", duration, "bytes", len(respBody))
+	TraceTagCtx("proxy", "Proxy response completed", "request_id", requestID, "status", resp.StatusCode, "duration", duration, "bytes", len(respBody))
 	if duration > proxySlowLogThreshold {
 		WarnCtx("Proxy response slow", "request_id", requestID, "duration", duration, "threshold", proxySlowLogThreshold, "url", maskedURL)
 	}

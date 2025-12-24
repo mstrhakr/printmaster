@@ -73,6 +73,16 @@ func logDebug(msg string, kv ...interface{}) {
 	logWithLevel(logger.DEBUG, msg, kv...)
 }
 
+// logTraceTag logs a trace-level message with a category tag for filtering.
+// Used for high-volume diagnostic logs (e.g., proxy requests).
+func logTraceTag(tag string, msg string, kv ...interface{}) {
+	if serverLogger != nil {
+		serverLogger.TraceTag(tag, msg, kv...)
+		return
+	}
+	// Fallback during bootstrap - skip trace logs
+}
+
 func logFatal(msg string, kv ...interface{}) {
 	logError(msg, kv...)
 	os.Exit(1)
