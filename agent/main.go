@@ -729,8 +729,15 @@ func (a *agentAuthManager) validateServerCallbackToken(ctx context.Context, toke
 		return nil, "", time.Time{}, fmt.Errorf("server validation unavailable")
 	}
 
+	if appLogger != nil {
+		appLogger.Debug("Validating callback token with server", "server_url", a.serverURL)
+	}
+
 	client, err := a.newServerHTTPClient()
 	if err != nil {
+		if appLogger != nil {
+			appLogger.Debug("Failed to create HTTP client for token validation", "error", err.Error())
+		}
 		return nil, "", time.Time{}, err
 	}
 
@@ -759,6 +766,9 @@ func (a *agentAuthManager) validateServerCallbackToken(ctx context.Context, toke
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if appLogger != nil {
+			appLogger.Debug("Server returned non-OK status for token validation", "status", resp.StatusCode)
+		}
 		return nil, "", time.Time{}, fmt.Errorf("token validation failed: status %d", resp.StatusCode)
 	}
 
@@ -776,6 +786,9 @@ func (a *agentAuthManager) validateServerCallbackToken(ctx context.Context, toke
 	}
 
 	if !result.Valid {
+		if appLogger != nil {
+			appLogger.Debug("Server reported token as invalid")
+		}
 		return nil, "", time.Time{}, fmt.Errorf("token invalid")
 	}
 
@@ -788,6 +801,10 @@ func (a *agentAuthManager) validateServerCallbackToken(ctx context.Context, toke
 		Username: result.Username,
 		Role:     result.Role,
 		Source:   "server-callback",
+	}
+
+	if appLogger != nil {
+		appLogger.Debug("Token validation successful", "username", result.Username, "role", result.Role, "expires_at", expiresAt.Format(time.RFC3339))
 	}
 
 	// Return the token itself as the "server token" for logout purposes

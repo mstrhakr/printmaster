@@ -2052,6 +2052,7 @@ var (
 func generateAgentCallbackToken(user *storage.User, agentID, callbackURL string) *agentCallbackToken {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
+		serverLogger.Error("Failed to generate random bytes for callback token", "error", err)
 		return nil
 	}
 	token := base64.URLEncoding.EncodeToString(b)
@@ -2073,6 +2074,13 @@ func generateAgentCallbackToken(user *storage.User, agentID, callbackURL string)
 	agentCallbackTokensMu.Lock()
 	agentCallbackTokens[token] = act
 	agentCallbackTokensMu.Unlock()
+
+	serverLogger.Debug("Generated agent callback token",
+		"user_id", user.ID,
+		"username", user.Username,
+		"agent_id", agentID,
+		"expires_at", act.ExpiresAt.Format(time.RFC3339),
+	)
 
 	return act
 }
@@ -2104,10 +2112,15 @@ func cleanupExpiredAgentCallbackTokens() {
 	defer agentCallbackTokensMu.Unlock()
 
 	now := time.Now().UTC()
+	expiredCount := 0
 	for token, act := range agentCallbackTokens {
 		if now.After(act.ExpiresAt) {
 			delete(agentCallbackTokens, token)
+			expiredCount++
 		}
+	}
+	if expiredCount > 0 {
+		serverLogger.Debug("Cleaned up expired agent callback tokens", "count", expiredCount, "remaining", len(agentCallbackTokens))
 	}
 }
 
@@ -2168,6 +2181,25 @@ func handleAgentAuthCallback(w http.ResponseWriter, r *http.Request) {
 		"callback_url", callbackURL,
 	)
 
+	// Audit log for token creation
+	ctx := r.Context()
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType:  storage.AuditActorUser,
+		ActorID:    principal.User.Username,
+		ActorName:  principal.User.Username,
+		TenantID:   principal.User.TenantID,
+		Action:     "auth.agent_callback.create",
+		TargetType: "agent",
+		TargetID:   req.AgentID,
+		Details:    "Created agent callback token for remote authentication",
+		Metadata: map[string]interface{}{
+			"callback_host": parsed.Host,
+			"expires_at":    act.ExpiresAt.Format(time.RFC3339),
+		},
+		IPAddress: extractClientIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"token":      act.Token,
@@ -2200,6 +2232,22 @@ func handleAgentAuthCallbackValidate(w http.ResponseWriter, r *http.Request) {
 
 	act, valid := validateAgentCallbackToken(token)
 	if !valid {
+		serverLogger.Warn("Agent callback token validation failed", "token_prefix", token[:min(8, len(token))]+"...")
+		// Audit log for failed validation
+		ctx := r.Context()
+		logAuditEntry(ctx, &storage.AuditEntry{
+			ActorType: storage.AuditActorAgent,
+			ActorID:   req.AgentID,
+			Action:    "auth.agent_callback.validate",
+			Severity:  storage.AuditSeverityWarn,
+			Details:   "Agent callback token validation failed (invalid or expired)",
+			Metadata: map[string]interface{}{
+				"result":       "failure",
+				"token_prefix": maskSensitiveToken(token),
+			},
+			IPAddress: extractClientIP(r),
+			UserAgent: r.Header.Get("User-Agent"),
+		})
 		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 		return
 	}
@@ -2218,6 +2266,27 @@ func handleAgentAuthCallbackValidate(w http.ResponseWriter, r *http.Request) {
 		"username", act.Username,
 		"agent_id", act.AgentID,
 	)
+
+	// Audit log for successful validation
+	ctx := r.Context()
+	logAuditEntry(ctx, &storage.AuditEntry{
+		ActorType:  storage.AuditActorAgent,
+		ActorID:    req.AgentID,
+		ActorName:  act.Username,
+		TenantID:   act.TenantID,
+		Action:     "auth.agent_callback.validate",
+		TargetType: "user",
+		TargetID:   act.Username,
+		Details:    fmt.Sprintf("Agent callback token validated for user %s", act.Username),
+		Metadata: map[string]interface{}{
+			"result":   "success",
+			"user_id":  act.UserID,
+			"role":     act.Role,
+			"agent_id": act.AgentID,
+		},
+		IPAddress: extractClientIP(r),
+		UserAgent: r.Header.Get("User-Agent"),
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

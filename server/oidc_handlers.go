@@ -397,6 +397,7 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Check if this is an agent callback redirect
 	if isAgentCallbackURL(redirectURL) {
+		serverLogger.Debug("OIDC callback detected agent redirect", "user_id", user.ID, "callback_url", redirectURL)
 		// Generate an agent callback token and append it to the URL
 		act := generateAgentCallbackToken(user, "", redirectURL)
 		if act != nil {
@@ -406,7 +407,10 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 				q.Set("token", act.Token)
 				parsed.RawQuery = q.Encode()
 				redirectURL = parsed.String()
+				serverLogger.Info("OIDC callback injected agent token", "user_id", user.ID, "username", user.Username)
 			}
+		} else {
+			serverLogger.Error("Failed to generate agent callback token during OIDC flow", "user_id", user.ID)
 		}
 	}
 
