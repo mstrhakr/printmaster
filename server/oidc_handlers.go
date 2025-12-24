@@ -394,7 +394,32 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if redirectURL == "" {
 		redirectURL = "/"
 	}
+
+	// Check if this is an agent callback redirect
+	if isAgentCallbackURL(redirectURL) {
+		// Generate an agent callback token and append it to the URL
+		act := generateAgentCallbackToken(user, "", redirectURL)
+		if act != nil {
+			parsed, err := url.Parse(redirectURL)
+			if err == nil {
+				q := parsed.Query()
+				q.Set("token", act.Token)
+				parsed.RawQuery = q.Encode()
+				redirectURL = parsed.String()
+			}
+		}
+	}
+
 	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+// isAgentCallbackURL checks if a URL is an agent authentication callback
+func isAgentCallbackURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(parsed.Path, "/api/v1/auth/callback")
 }
 
 type tenantResolution struct {

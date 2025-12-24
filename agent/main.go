@@ -225,6 +225,7 @@ type agentAuthOptions struct {
 	Mode            string `json:"mode"`
 	AllowLocalAdmin bool   `json:"allow_local_admin"`
 	ServerURL       string `json:"server_url,omitempty"`
+	ServerAuthURL   string `json:"server_auth_url,omitempty"` // URL to redirect for server auth
 	LoginSupported  bool   `json:"login_supported"`
 }
 
@@ -256,14 +257,15 @@ func newAgentAuthManager(cfg *AgentConfig, sessions *agentSessionManager) *agent
 		serverSkipVerify: serverSkip,
 		sessions:         sessions,
 		publicExact: map[string]struct{}{
-			"/login":               {},
-			"/favicon.ico":         {},
-			"/health":              {},
-			"/api/version":         {},
-			"/api/v1/auth/options": {},
-			"/api/v1/auth/login":   {},
-			"/api/v1/auth/logout":  {},
-			"/api/v1/auth/me":      {},
+			"/login":                {},
+			"/favicon.ico":          {},
+			"/health":               {},
+			"/api/version":          {},
+			"/api/v1/auth/options":  {},
+			"/api/v1/auth/login":    {},
+			"/api/v1/auth/logout":   {},
+			"/api/v1/auth/me":       {},
+			"/api/v1/auth/callback": {}, // Server auth callback
 		},
 		publicPrefixes: []string{"/static/"},
 	}
@@ -273,14 +275,19 @@ func (a *agentAuthManager) optionsPayload() agentAuthOptions {
 	if a == nil {
 		return agentAuthOptions{Mode: "disabled", AllowLocalAdmin: true, LoginSupported: false}
 	}
-	loginSupported := strings.TrimSpace(a.serverURL) != "" && a.mode == "server"
+	serverURL := strings.TrimSpace(a.serverURL)
+	hasServer := serverURL != ""
+	loginSupported := hasServer && a.mode == "server"
 	opts := agentAuthOptions{
 		Mode:            a.mode,
 		AllowLocalAdmin: a.allowLocalAdmin,
 		LoginSupported:  loginSupported,
 	}
-	if loginSupported {
-		opts.ServerURL = strings.TrimSpace(a.serverURL)
+	if hasServer {
+		opts.ServerURL = serverURL
+		// Always provide the server auth URL when server is configured
+		// This enables redirect-based auth even when direct login isn't supported
+		opts.ServerAuthURL = strings.TrimRight(serverURL, "/") + "/login"
 	}
 	return opts
 }
@@ -659,6 +666,135 @@ func (a *agentAuthManager) handleAuthLogout(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
+// handleAuthCallback handles GET /api/v1/auth/callback
+// This is called when the server redirects back to the agent after authentication.
+// The server includes a short-lived callback token that we validate to create a local session.
+func (a *agentAuthManager) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if a == nil {
+		http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get the callback token from query params
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	returnTo := strings.TrimSpace(r.URL.Query().Get("return_to"))
+	if returnTo == "" {
+		returnTo = "/"
+	}
+
+	// Validate return_to is a safe path
+	if !strings.HasPrefix(returnTo, "/") {
+		returnTo = "/"
+	}
+
+	if token == "" {
+		if appLogger != nil {
+			appLogger.Warn("Auth callback missing token")
+		}
+		// Redirect to login with error
+		http.Redirect(w, r, "/login?error=missing_token&return_to="+url.QueryEscape(returnTo), http.StatusFound)
+		return
+	}
+
+	// Validate the token with the server
+	principal, serverToken, expiresAt, err := a.validateServerCallbackToken(r.Context(), token)
+	if err != nil {
+		if appLogger != nil {
+			appLogger.Warn("Auth callback token validation failed", "error", err.Error())
+		}
+		http.Redirect(w, r, "/login?error=invalid_token&return_to="+url.QueryEscape(returnTo), http.StatusFound)
+		return
+	}
+
+	// Create a local session
+	if _, err := a.issueSessionCookie(w, r, principal, serverToken, expiresAt); err != nil {
+		if appLogger != nil {
+			appLogger.Error("Failed to create session after callback", "error", err.Error())
+		}
+		http.Error(w, "failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	if appLogger != nil {
+		appLogger.Info("Auth callback successful", "username", principal.Username, "return_to", returnTo)
+	}
+
+	// Redirect to the original destination
+	http.Redirect(w, r, returnTo, http.StatusFound)
+}
+
+// validateServerCallbackToken validates a callback token with the server and returns user info.
+func (a *agentAuthManager) validateServerCallbackToken(ctx context.Context, token string) (*AgentPrincipal, string, time.Time, error) {
+	if a == nil || strings.TrimSpace(a.serverURL) == "" {
+		return nil, "", time.Time{}, fmt.Errorf("server validation unavailable")
+	}
+
+	client, err := a.newServerHTTPClient()
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+
+	payload := map[string]string{"token": token}
+	buf := &bytes.Buffer{}
+	if err := json.NewEncoder(buf).Encode(payload); err != nil {
+		return nil, "", time.Time{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.serverAPIURL("/api/v1/auth/agent-callback/validate"), bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", fmt.Sprintf("PrintMaster-Agent/%s", Version))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", time.Time{}, fmt.Errorf("token validation failed: status %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Valid     bool     `json:"valid"`
+		UserID    int64    `json:"user_id"`
+		Username  string   `json:"username"`
+		Role      string   `json:"role"`
+		TenantID  string   `json:"tenant_id"`
+		TenantIDs []string `json:"tenant_ids"`
+		ExpiresAt string   `json:"expires_at"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, "", time.Time{}, err
+	}
+
+	if !result.Valid {
+		return nil, "", time.Time{}, fmt.Errorf("token invalid")
+	}
+
+	expiresAt, _ := time.Parse(time.RFC3339, result.ExpiresAt)
+	if expiresAt.IsZero() {
+		expiresAt = time.Now().Add(60 * time.Minute) // Default to 1 hour
+	}
+
+	principal := &AgentPrincipal{
+		Username: result.Username,
+		Role:     result.Role,
+		Source:   "server-callback",
+	}
+
+	// Return the token itself as the "server token" for logout purposes
+	// In a full implementation, you might want to create a proper server session
+	return principal, token, expiresAt, nil
+}
+
 func (a *agentAuthManager) serverLogin(ctx context.Context, username, password string) (*AgentPrincipal, string, time.Time, error) {
 	if a == nil || strings.TrimSpace(a.serverURL) == "" {
 		return nil, "", time.Time{}, fmt.Errorf("server login unavailable")
@@ -810,13 +946,44 @@ func (a *agentAuthManager) serverLoginURL(r *http.Request) string {
 	if a == nil || strings.TrimSpace(a.serverURL) == "" {
 		return "/login"
 	}
+	// Determine what URL the user originally wanted
 	returnTo := "/"
 	if r != nil && r.URL != nil {
 		if uri := r.URL.RequestURI(); uri != "" {
 			returnTo = uri
 		}
 	}
-	return strings.TrimRight(a.serverURL, "/") + "/login?return_to=" + url.QueryEscape(returnTo)
+
+	// Build the agent callback URL that the server will redirect to after auth
+	// We need to determine the agent's external URL
+	agentCallbackURL := buildAgentCallbackURL(r, returnTo)
+
+	// Use 'redirect' parameter for external redirects (server login page convention)
+	return strings.TrimRight(a.serverURL, "/") + "/login?redirect=" + url.QueryEscape(agentCallbackURL)
+}
+
+// buildAgentCallbackURL constructs the callback URL that the server should redirect to after auth
+func buildAgentCallbackURL(r *http.Request, returnTo string) string {
+	// Try to determine the agent's base URL from the request
+	scheme := "http"
+	if r != nil && r.TLS != nil {
+		scheme = "https"
+	}
+	// Check for X-Forwarded-Proto header
+	if r != nil {
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			scheme = strings.ToLower(strings.TrimSpace(proto))
+		}
+	}
+
+	host := "localhost:8080" // default fallback
+	if r != nil && r.Host != "" {
+		host = r.Host
+	}
+
+	// Build the callback URL
+	callbackURL := fmt.Sprintf("%s://%s/api/v1/auth/callback?return_to=%s", scheme, host, url.QueryEscape(returnTo))
+	return callbackURL
 }
 
 type staticResourceCache struct {
@@ -5757,6 +5924,14 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 		agentAuth.handleAuthLogout(w, r)
+	})
+
+	http.HandleFunc("/api/v1/auth/callback", func(w http.ResponseWriter, r *http.Request) {
+		if agentAuth == nil {
+			http.Error(w, "authentication unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		agentAuth.handleAuthCallback(w, r)
 	})
 
 	http.HandleFunc("/api/v1/auth/login", func(w http.ResponseWriter, r *http.Request) {

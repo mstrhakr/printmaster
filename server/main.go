@@ -851,6 +851,20 @@ func runServer(ctx context.Context, configFlag string) {
 	defer alertEvaluator.Stop()
 	logInfo("Alert evaluator started", "interval", "60s")
 
+	// Start agent callback token cleanup goroutine
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanupExpiredAgentCallbackTokens()
+			}
+		}
+	}()
+
 	// Start server metrics collector for Netdata-style dashboards
 	metricsCollector = metricsapi.NewCollector(serverStore, metricsapi.CollectorConfig{
 		CollectionInterval:  10 * time.Second,
@@ -2007,6 +2021,216 @@ func handleAuthMe(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+// ============================================================================
+// Agent Callback Token (for agent-initiated auth via server)
+// ============================================================================
+
+// agentCallbackToken represents a short-lived token for agent auth callbacks.
+// When a user accesses an agent remotely without a session, the agent redirects
+// them to the server for login. After successful login, the server creates one
+// of these tokens and redirects back to the agent with it. The agent then
+// validates the token and creates a local session.
+type agentCallbackToken struct {
+	Token       string    // The actual token value
+	UserID      int64     // User who authenticated
+	Username    string    // Username for agent session
+	Role        string    // User's role
+	TenantID    string    // User's primary tenant
+	TenantIDs   []string  // All tenant IDs user has access to
+	AgentID     string    // Target agent ID (optional, for validation)
+	CallbackURL string    // The agent callback URL
+	ExpiresAt   time.Time // Token expiration (short-lived, typically 5 min)
+	CreatedAt   time.Time
+}
+
+var (
+	agentCallbackTokens   = make(map[string]*agentCallbackToken)
+	agentCallbackTokensMu sync.RWMutex
+)
+
+// generateAgentCallbackToken creates a new short-lived callback token for agent auth.
+func generateAgentCallbackToken(user *storage.User, agentID, callbackURL string) *agentCallbackToken {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil
+	}
+	token := base64.URLEncoding.EncodeToString(b)
+	now := time.Now().UTC()
+
+	act := &agentCallbackToken{
+		Token:       token,
+		UserID:      user.ID,
+		Username:    user.Username,
+		Role:        string(user.Role),
+		TenantID:    user.TenantID,
+		TenantIDs:   user.TenantIDs,
+		AgentID:     agentID,
+		CallbackURL: callbackURL,
+		ExpiresAt:   now.Add(5 * time.Minute), // Short-lived
+		CreatedAt:   now,
+	}
+
+	agentCallbackTokensMu.Lock()
+	agentCallbackTokens[token] = act
+	agentCallbackTokensMu.Unlock()
+
+	return act
+}
+
+// validateAgentCallbackToken validates and consumes a callback token.
+func validateAgentCallbackToken(token string) (*agentCallbackToken, bool) {
+	agentCallbackTokensMu.Lock()
+	defer agentCallbackTokensMu.Unlock()
+
+	act, ok := agentCallbackTokens[token]
+	if !ok {
+		return nil, false
+	}
+
+	// Always delete the token (one-time use)
+	delete(agentCallbackTokens, token)
+
+	// Check expiration
+	if time.Now().UTC().After(act.ExpiresAt) {
+		return nil, false
+	}
+
+	return act, true
+}
+
+// cleanupExpiredAgentCallbackTokens removes expired tokens periodically.
+func cleanupExpiredAgentCallbackTokens() {
+	agentCallbackTokensMu.Lock()
+	defer agentCallbackTokensMu.Unlock()
+
+	now := time.Now().UTC()
+	for token, act := range agentCallbackTokens {
+		if now.After(act.ExpiresAt) {
+			delete(agentCallbackTokens, token)
+		}
+	}
+}
+
+// handleAgentAuthCallback handles POST /api/v1/auth/agent-callback
+// Creates a callback token for redirecting back to an agent with authentication.
+// Requires an authenticated session.
+func handleAgentAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil || principal.User == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		AgentID     string `json:"agent_id"`
+		CallbackURL string `json:"callback_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Validate callback URL is reasonable (must be HTTPS or localhost)
+	callbackURL := strings.TrimSpace(req.CallbackURL)
+	if callbackURL == "" {
+		http.Error(w, "callback_url required", http.StatusBadRequest)
+		return
+	}
+	parsed, err := url.Parse(callbackURL)
+	if err != nil {
+		http.Error(w, "invalid callback_url", http.StatusBadRequest)
+		return
+	}
+	// Allow localhost (any scheme) or HTTPS
+	host := strings.ToLower(parsed.Hostname())
+	isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
+	if !isLocalhost && parsed.Scheme != "https" {
+		http.Error(w, "callback_url must use HTTPS for non-localhost addresses", http.StatusBadRequest)
+		return
+	}
+
+	// Generate callback token
+	act := generateAgentCallbackToken(principal.User, req.AgentID, callbackURL)
+	if act == nil {
+		http.Error(w, "failed to generate callback token", http.StatusInternalServerError)
+		return
+	}
+
+	serverLogger.Info("Agent callback token created",
+		"user_id", principal.User.ID,
+		"username", principal.User.Username,
+		"agent_id", req.AgentID,
+		"callback_url", callbackURL,
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token":      act.Token,
+		"expires_at": act.ExpiresAt.Format(time.RFC3339),
+	})
+}
+
+// handleAgentAuthCallbackValidate handles POST /api/v1/auth/agent-callback/validate
+// Validates a callback token (called by agents). Does not require session auth.
+func handleAgentAuthCallbackValidate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Token   string `json:"token"`
+		AgentID string `json:"agent_id,omitempty"` // Optional: for extra validation
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	token := strings.TrimSpace(req.Token)
+	if token == "" {
+		http.Error(w, "token required", http.StatusBadRequest)
+		return
+	}
+
+	act, valid := validateAgentCallbackToken(token)
+	if !valid {
+		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
+		return
+	}
+
+	// Optional: verify agent ID matches if provided
+	if req.AgentID != "" && act.AgentID != "" && req.AgentID != act.AgentID {
+		serverLogger.Warn("Agent callback token agent ID mismatch",
+			"expected", act.AgentID,
+			"got", req.AgentID,
+		)
+		// Still allow it but log the mismatch
+	}
+
+	serverLogger.Info("Agent callback token validated",
+		"user_id", act.UserID,
+		"username", act.Username,
+		"agent_id", act.AgentID,
+	)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"valid":      true,
+		"user_id":    act.UserID,
+		"username":   act.Username,
+		"role":       act.Role,
+		"tenant_id":  act.TenantID,
+		"tenant_ids": act.TenantIDs,
+		"expires_at": act.ExpiresAt.Format(time.RFC3339),
+	})
+}
+
 // handleUser handles single-user operations: GET, PUT, DELETE (admin only)
 func handleUser(w http.ResponseWriter, r *http.Request) {
 	// Extract ID from path /api/v1/users/{id}
@@ -2866,6 +3090,9 @@ func setupRoutes(cfg *Config) {
 	// Logout (requires valid session)
 	http.HandleFunc("/api/v1/auth/logout", requireWebAuth(handleAuthLogout))
 	http.HandleFunc("/api/v1/auth/me", requireWebAuth(handleAuthMe))
+	// Agent callback auth (for agents redirecting users through server login)
+	http.HandleFunc("/api/v1/auth/agent-callback", requireWebAuth(handleAgentAuthCallback))
+	http.HandleFunc("/api/v1/auth/agent-callback/validate", handleAgentAuthCallbackValidate) // Public - called by agents
 	// SSO / OIDC provider management
 	http.HandleFunc("/api/v1/sso/providers", requireWebAuth(handleOIDCProviders))
 	http.HandleFunc("/api/v1/sso/providers/", requireWebAuth(handleOIDCProvider))

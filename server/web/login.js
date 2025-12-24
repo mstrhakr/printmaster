@@ -314,6 +314,58 @@
         }
     }
 
+    // Check if redirect target is an agent callback URL
+    function isAgentCallbackRedirect(url) {
+        try {
+            const parsed = new URL(url, window.location.origin);
+            return parsed.pathname.includes('/api/v1/auth/callback');
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // Get a callback token for agent redirect
+    async function getAgentCallbackToken(callbackUrl) {
+        const resp = await fetch('/api/v1/auth/agent-callback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ callback_url: callbackUrl })
+        });
+        if (!resp.ok) {
+            throw new Error('Failed to create agent callback token');
+        }
+        const data = await resp.json();
+        return data.token;
+    }
+
+    // Complete redirect, handling agent callbacks specially
+    async function completeRedirect() {
+        const target = redirectTarget || '/';
+        
+        // Check if this is an agent callback redirect
+        if (isAgentCallbackRedirect(target)) {
+            try {
+                // Get a callback token for the agent
+                const token = await getAgentCallbackToken(target);
+                
+                // Parse the callback URL and add the token
+                const callbackUrl = new URL(target);
+                callbackUrl.searchParams.set('token', token);
+                
+                window.location = callbackUrl.toString();
+                return;
+            } catch (e) {
+                console.error('Agent callback token failed:', e);
+                showError('Failed to authenticate with agent. Please try again.');
+                return;
+            }
+        }
+        
+        // Normal redirect for server pages
+        window.location = target;
+    }
+
     async function doLogin(){
         const errEl = elements.error;
         if(errEl){
@@ -330,7 +382,7 @@
                 showError(text || 'Invalid credentials');
                 return;
             }
-            window.location = redirectTarget || '/';
+            await completeRedirect();
         }catch(e){
             showError(e && e.message ? e.message : 'Login failed');
         }
