@@ -5879,7 +5879,11 @@ func handleMetricsBounds(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleMetricsHistory returns metrics history for a device from server store.
-// Query params: serial (required) and either since (RFC3339) or period (day|week|month|year)
+// Query params:
+//   - serial (required): device serial number
+//   - since/until (RFC3339) or period (day|week|month|year): time range
+//   - maxPoints: max data points to return (default 200, ignored if raw=true)
+//   - raw: if "true", return all data points without downsampling
 func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -5905,6 +5909,20 @@ func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "serial parameter required", http.StatusBadRequest)
 		return
 	}
+
+	// Parse maxPoints (default 200, reasonable for chart display)
+	maxPoints := 200
+	if mp := r.URL.Query().Get("maxPoints"); mp != "" {
+		if n, err := strconv.Atoi(mp); err == nil && n > 0 {
+			maxPoints = n
+			if maxPoints > 10000 { // Cap at 10k to prevent memory issues
+				maxPoints = 10000
+			}
+		}
+	}
+
+	// Raw mode disables downsampling
+	rawMode := r.URL.Query().Get("raw") == "true"
 
 	// Determine since time
 	var since time.Time
@@ -5965,8 +5983,75 @@ func handleMetricsHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Downsample if needed and not in raw mode
+	if !rawMode && len(history) > maxPoints {
+		history = downsampleMetrics(history, maxPoints)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(history)
+}
+
+// downsampleMetrics reduces the number of data points while preserving first, last,
+// and representative samples throughout the range. Uses LTTB-inspired algorithm
+// for visually significant point selection.
+func downsampleMetrics(data []*storage.MetricsSnapshot, targetPoints int) []*storage.MetricsSnapshot {
+	n := len(data)
+	if n <= targetPoints || targetPoints < 3 {
+		return data
+	}
+
+	// Always keep first and last points
+	result := make([]*storage.MetricsSnapshot, 0, targetPoints)
+	result = append(result, data[0])
+
+	// Calculate bucket size for middle points
+	bucketSize := float64(n-2) / float64(targetPoints-2)
+
+	// Select representative points from each bucket
+	// Simple approach: pick the point closest to the bucket center
+	// or the one with the most change (to preserve peaks/valleys)
+	for i := 0; i < targetPoints-2; i++ {
+		bucketStart := int(float64(i)*bucketSize) + 1
+		bucketEnd := int(float64(i+1)*bucketSize) + 1
+		if bucketEnd > n-1 {
+			bucketEnd = n - 1
+		}
+		if bucketStart >= bucketEnd {
+			continue
+		}
+
+		// Find the point with max delta from linear interpolation (preserves peaks)
+		bestIdx := bucketStart
+		maxDelta := 0.0
+		prevValue := float64(data[bucketStart-1].PageCount)
+		nextValue := float64(data[bucketEnd].PageCount)
+
+		for j := bucketStart; j < bucketEnd; j++ {
+			// Expected value via linear interpolation
+			t := float64(j-bucketStart+1) / float64(bucketEnd-bucketStart+1)
+			expected := prevValue + t*(nextValue-prevValue)
+			actual := float64(data[j].PageCount)
+			delta := abs64(actual - expected)
+			if delta > maxDelta {
+				maxDelta = delta
+				bestIdx = j
+			}
+		}
+
+		result = append(result, data[bestIdx])
+	}
+
+	result = append(result, data[n-1])
+	return result
+}
+
+// abs64 returns absolute value of float64
+func abs64(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // Metrics batch upload - agent sends device metrics

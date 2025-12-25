@@ -214,8 +214,14 @@ async function loadDeviceMetrics(serial, targetId) {
     html += 'Available: <span id="metrics_data_range_start">Loading...</span> to <span id="metrics_data_range_end">Loading...</span>';
     html += '</div>';
 
-    // Apply button
-    html += '<button data-action="refresh" data-serial="' + serial + '" style="width:100%;padding:10px;font-size:14px;min-height:40px;font-weight:600;background:#268bd2;color:#fff">Update Chart</button>';
+    // Raw data toggle and Apply button
+    html += '<div style="display:flex;align-items:center;gap:12px">';
+    html += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">';
+    html += '<input type="checkbox" id="metrics_raw_mode" style="width:16px;height:16px;accent-color:#268bd2" />';
+    html += '<span>Raw data mode</span>';
+    html += '</label>';
+    html += '<button data-action="refresh" data-serial="' + serial + '" style="flex:1;padding:10px;font-size:14px;min-height:40px;font-weight:600;background:#268bd2;color:#fff">Update Chart</button>';
+    html += '</div>';
     html += '</div>';
 
     // Stats summary
@@ -470,11 +476,21 @@ async function refreshMetricsChart(serial) {
             return;
         }
 
-        // Fetch data
+        // Check for raw mode toggle
+        const rawModeCheckbox = container.querySelector('#metrics_raw_mode') || document.getElementById('metrics_raw_mode');
+        const rawMode = rawModeCheckbox && rawModeCheckbox.checked;
+
+        // Fetch data with optional raw mode and maxPoints
         const startISO = startTime.toISOString();
         const endISO = endTime.toISOString();
-        const url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&since=' + encodeURIComponent(startISO) + '&until=' + encodeURIComponent(endISO);
-        window.__pm_shared.log('[Metrics] Fetching chart data:', url);
+        let url = '/api/devices/metrics/history?serial=' + encodeURIComponent(serial) + '&since=' + encodeURIComponent(startISO) + '&until=' + encodeURIComponent(endISO);
+        if (rawMode) {
+            url += '&raw=true';
+        } else {
+            // Default to 200 points for good chart display
+            url += '&maxPoints=200';
+        }
+        window.__pm_shared.log('[Metrics] Fetching chart data:', url, rawMode ? '(raw mode)' : '(downsampled)');
         const res = await fetch(url);
 
         if (!res.ok) {
@@ -485,7 +501,7 @@ async function refreshMetricsChart(serial) {
         }
 
         const history = await res.json();
-        window.__pm_shared.log('[Metrics] Received', history?.length || 0, 'chart data points');
+        window.__pm_shared.log('[Metrics] Received', history?.length || 0, 'chart data points' + (rawMode ? ' (raw)' : ' (downsampled)'));
         if (!history || history.length === 0) {
             window.__pm_shared.warn('[Metrics] No data in selected timeframe');
             statsEl.textContent = 'No metrics data in selected timeframe.';

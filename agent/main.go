@@ -1153,6 +1153,62 @@ func doMetricsDownsampling(store storage.DeviceStore) {
 	}
 }
 
+// downsampleAgentMetrics reduces the number of data points while preserving first, last,
+// and representative samples throughout the range. Uses LTTB-inspired algorithm
+// for visually significant point selection.
+func downsampleAgentMetrics(data []*storage.MetricsSnapshot, targetPoints int) []*storage.MetricsSnapshot {
+	n := len(data)
+	if n <= targetPoints || targetPoints < 3 {
+		return data
+	}
+
+	// Always keep first and last points
+	result := make([]*storage.MetricsSnapshot, 0, targetPoints)
+	result = append(result, data[0])
+
+	// Calculate bucket size for middle points
+	bucketSize := float64(n-2) / float64(targetPoints-2)
+
+	// Select representative points from each bucket
+	// Simple approach: pick the point with the most change (to preserve peaks/valleys)
+	for i := 0; i < targetPoints-2; i++ {
+		bucketStart := int(float64(i)*bucketSize) + 1
+		bucketEnd := int(float64(i+1)*bucketSize) + 1
+		if bucketEnd > n-1 {
+			bucketEnd = n - 1
+		}
+		if bucketStart >= bucketEnd {
+			continue
+		}
+
+		// Find the point with max delta from linear interpolation (preserves peaks)
+		bestIdx := bucketStart
+		maxDelta := 0.0
+		prevValue := float64(data[bucketStart-1].PageCount)
+		nextValue := float64(data[bucketEnd].PageCount)
+
+		for j := bucketStart; j < bucketEnd; j++ {
+			// Expected value via linear interpolation
+			t := float64(j-bucketStart+1) / float64(bucketEnd-bucketStart+1)
+			expected := prevValue + t*(nextValue-prevValue)
+			actual := float64(data[j].PageCount)
+			delta := expected - actual
+			if delta < 0 {
+				delta = -delta
+			}
+			if delta > maxDelta {
+				maxDelta = delta
+				bestIdx = j
+			}
+		}
+
+		result = append(result, data[bestIdx])
+	}
+
+	result = append(result, data[n-1])
+	return result
+}
+
 // ensureTLSCertificates generates or loads TLS certificates for HTTPS
 // If customCertPath and customKeyPath are provided, uses those instead
 func ensureTLSCertificates(customCertPath, customKeyPath string) (certFile, keyFile string, err error) {
@@ -6268,6 +6324,20 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
+		// Parse maxPoints (default 200, reasonable for chart display)
+		maxPoints := 200
+		if mp := r.URL.Query().Get("maxPoints"); mp != "" {
+			if n, err := strconv.Atoi(mp); err == nil && n > 0 {
+				maxPoints = n
+				if maxPoints > 10000 { // Cap at 10k to prevent memory issues
+					maxPoints = 10000
+				}
+			}
+		}
+
+		// Raw mode disables downsampling
+		rawMode := r.URL.Query().Get("raw") == "true"
+
 		// Support both period-based and custom date range queries
 		var since, until time.Time
 		now := time.Now()
@@ -6323,25 +6393,14 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
-		// Guardrail: cap the number of points returned to keep the UI responsive.
-		// This is a simple pre-decimation (uniform sampling) to avoid returning tens
-		// of thousands of points on very large ranges.
-		const maxPoints = 2000
-		if len(snapshots) > maxPoints {
-			step := (len(snapshots) + maxPoints - 1) / maxPoints
-			decimated := make([]*storage.MetricsSnapshot, 0, maxPoints+1)
-			for i := 0; i < len(snapshots); i += step {
-				decimated = append(decimated, snapshots[i])
-			}
-			if last := snapshots[len(snapshots)-1]; len(decimated) == 0 || decimated[len(decimated)-1] != last {
-				decimated = append(decimated, last)
-			}
-			snapshots = decimated
+		// Downsample if needed and not in raw mode
+		if !rawMode && len(snapshots) > maxPoints {
+			snapshots = downsampleAgentMetrics(snapshots, maxPoints)
 		}
 
 		if agent.DebugEnabled {
-			agent.Debug(fmt.Sprintf("GET /api/devices/metrics/history - serial=%s, since=%s, until=%s, found=%d snapshots",
-				serial, since.Format(time.RFC3339), until.Format(time.RFC3339), len(snapshots)))
+			agent.Debug(fmt.Sprintf("GET /api/devices/metrics/history - serial=%s, since=%s, until=%s, found=%d snapshots, raw=%v",
+				serial, since.Format(time.RFC3339), until.Format(time.RFC3339), len(snapshots), rawMode))
 			if len(snapshots) > 0 {
 				first := snapshots[0]
 				last := snapshots[len(snapshots)-1]
