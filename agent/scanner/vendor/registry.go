@@ -34,6 +34,10 @@ type VendorModule interface {
 	// Typically walks prtMarkerSuppliesTable or vendor-specific supply trees.
 	SupplyOIDs() []string
 
+	// PaperTrayOIDs returns OIDs for paper input tray status.
+	// Walks prtInputTable (43.8) for tray levels, capacity, and media type.
+	PaperTrayOIDs() []string
+
 	// Parse extracts metrics from SNMP PDUs and returns a map of metric names to values.
 	// Keys should match the MetricRegistry names (e.g., "color_pages", "toner_cyan").
 	// Returns map[string]interface{} to support int, float64, string, etc.

@@ -1193,6 +1193,7 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 	}
 
 	// paper tray status: prtInputEntry (1.3.6.1.2.1.43.8.2.1.18.<idx>)
+	// Legacy simple text parsing - retained for backwards compatibility
 	for k, pdu := range pduByOid {
 		if strings.HasPrefix(k, "1.3.6.1.2.1.43.8.2.1.18.") {
 			idx := strings.TrimPrefix(k, "1.3.6.1.2.1.43.8.2.1.18.")
@@ -1207,6 +1208,24 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 		if !pi.DuplexSupported && (strings.Contains(sval, "duplex") || strings.Contains(sval, "two-sided") || strings.Contains(sval, "duplex_unit")) {
 			pi.DuplexSupported = true
 		}
+	}
+
+	// Parse detailed paper tray information using vendor module
+	paperTrays := vendor.ParsePaperTrays(allVars)
+	if len(paperTrays) > 0 {
+		pi.PaperTrays = make([]PaperTray, len(paperTrays))
+		for i, tray := range paperTrays {
+			pi.PaperTrays[i] = PaperTray{
+				Index:        tray.Index,
+				Name:         tray.Name,
+				MediaType:    tray.MediaType,
+				CurrentLevel: tray.CurrentLevel,
+				MaxCapacity:  tray.MaxCapacity,
+				LevelPercent: tray.LevelPercent,
+				Status:       tray.Status,
+			}
+		}
+		debug.Steps = append(debug.Steps, fmt.Sprintf("paper_trays_parsed: count=%d", len(pi.PaperTrays)))
 	}
 
 	// Toner alerts: extract lines from statusMsgs mentioning toner

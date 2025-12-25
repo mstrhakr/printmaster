@@ -5,6 +5,17 @@ import (
 	"time"
 )
 
+// PaperTray represents the status of a single paper input tray
+type PaperTray struct {
+	Index        int    `json:"index"`                   // Tray index (1, 2, 3...)
+	Name         string `json:"name,omitempty"`          // Tray name ("Tray 1", "Manual Feed")
+	MediaType    string `json:"media_type,omitempty"`    // Paper type ("Letter", "A4", "Legal")
+	CurrentLevel int    `json:"current_level"`           // Current sheets (-3=someRemaining, -2=unknown, -1=unavailable, 0+=actual)
+	MaxCapacity  int    `json:"max_capacity"`            // Max capacity (-2=unknown, -1=unlimited, 0+=actual)
+	LevelPercent int    `json:"level_percent,omitempty"` // Calculated percentage (0-100, -1 if unknown)
+	Status       string `json:"status,omitempty"`        // "ok", "low", "empty", "unknown"
+}
+
 // DeviceStorage defines the interface for storing discovered devices
 // This allows the agent package to store devices without importing the storage package
 type DeviceStorage interface {
@@ -83,8 +94,10 @@ type PrinterInfo struct {
 	UptimeSeconds int `json:"uptime_seconds,omitempty"`
 	// DuplexSupported indicates whether the device advertises duplex capability
 	DuplexSupported bool `json:"duplex_supported,omitempty"`
-	// PaperTrayStatus maps tray identifier to a short textual status
+	// PaperTrayStatus maps tray identifier to a short textual status (legacy, prefer PaperTrays)
 	PaperTrayStatus map[string]string `json:"paper_tray_status,omitempty"`
+	// PaperTrays contains detailed paper tray information
+	PaperTrays []PaperTray `json:"paper_trays,omitempty"`
 	// TonerAlerts lists any extracted alert/notification messages related to supplies
 	TonerAlerts []string `json:"toner_alerts,omitempty"`
 	// Network properties (best-effort extraction)

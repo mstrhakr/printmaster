@@ -251,3 +251,124 @@ func TestSupplyColorMatching(t *testing.T) {
 		})
 	}
 }
+
+func TestParsePaperTrays(t *testing.T) {
+	// Test paper tray parsing from prtInputTable PDUs
+	pdus := []gosnmp.SnmpPDU{
+		// Tray 1 - Letter paper, 75% full
+		{Name: ".1.3.6.1.2.1.43.8.2.1.13.1.1", Value: []byte("Tray 1")}, // prtInputName
+		{Name: ".1.3.6.1.2.1.43.8.2.1.12.1.1", Value: []byte("Letter")}, // prtInputMediaName
+		{Name: ".1.3.6.1.2.1.43.8.2.1.10.1.1", Value: 375},              // prtInputCurrentLevel
+		{Name: ".1.3.6.1.2.1.43.8.2.1.9.1.1", Value: 500},               // prtInputMaxCapacity
+		{Name: ".1.3.6.1.2.1.43.8.2.1.2.1.1", Value: 3},                 // prtInputType (sheetFeedAutoRemovableTray)
+		// Tray 2 - A4 paper, low
+		{Name: ".1.3.6.1.2.1.43.8.2.1.13.1.2", Value: []byte("Tray 2")},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.12.1.2", Value: []byte("A4")},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.10.1.2", Value: 25},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.9.1.2", Value: 250},
+		// Manual feed tray - empty
+		{Name: ".1.3.6.1.2.1.43.8.2.1.13.1.3", Value: []byte("Manual Feed")},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.10.1.3", Value: 0},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.9.1.3", Value: 1},
+	}
+
+	trays := ParsePaperTrays(pdus)
+
+	if len(trays) != 3 {
+		t.Fatalf("Expected 3 trays, got %d", len(trays))
+	}
+
+	// Check Tray 1
+	tray1 := trays[0]
+	if tray1.Index != 1 {
+		t.Errorf("Tray 1 index = %d, want 1", tray1.Index)
+	}
+	if tray1.Name != "Tray 1" {
+		t.Errorf("Tray 1 name = %q, want %q", tray1.Name, "Tray 1")
+	}
+	if tray1.MediaType != "Letter" {
+		t.Errorf("Tray 1 media = %q, want %q", tray1.MediaType, "Letter")
+	}
+	if tray1.CurrentLevel != 375 {
+		t.Errorf("Tray 1 level = %d, want 375", tray1.CurrentLevel)
+	}
+	if tray1.MaxCapacity != 500 {
+		t.Errorf("Tray 1 capacity = %d, want 500", tray1.MaxCapacity)
+	}
+	if tray1.LevelPercent != 75 {
+		t.Errorf("Tray 1 percent = %d, want 75", tray1.LevelPercent)
+	}
+	if tray1.Status != "ok" {
+		t.Errorf("Tray 1 status = %q, want %q", tray1.Status, "ok")
+	}
+
+	// Check Tray 2 - low paper
+	tray2 := trays[1]
+	if tray2.Index != 2 {
+		t.Errorf("Tray 2 index = %d, want 2", tray2.Index)
+	}
+	if tray2.LevelPercent != 10 {
+		t.Errorf("Tray 2 percent = %d, want 10", tray2.LevelPercent)
+	}
+	if tray2.Status != "low" {
+		t.Errorf("Tray 2 status = %q, want %q", tray2.Status, "low")
+	}
+
+	// Check Manual Feed - empty
+	tray3 := trays[2]
+	if tray3.Index != 3 {
+		t.Errorf("Manual Feed index = %d, want 3", tray3.Index)
+	}
+	if tray3.CurrentLevel != 0 {
+		t.Errorf("Manual Feed level = %d, want 0", tray3.CurrentLevel)
+	}
+	if tray3.Status != "empty" {
+		t.Errorf("Manual Feed status = %q, want %q", tray3.Status, "empty")
+	}
+}
+
+func TestParsePaperTrays_SpecialValues(t *testing.T) {
+	// Test special SNMP values per RFC 3805
+	pdus := []gosnmp.SnmpPDU{
+		// Tray with "someRemaining" (-3) level
+		{Name: ".1.3.6.1.2.1.43.8.2.1.13.1.1", Value: []byte("Tray 1")},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.10.1.1", Value: -3}, // someRemaining
+		{Name: ".1.3.6.1.2.1.43.8.2.1.9.1.1", Value: 500},
+		// Tray with unknown capacity (-2)
+		{Name: ".1.3.6.1.2.1.43.8.2.1.13.1.2", Value: []byte("Tray 2")},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.10.1.2", Value: 50},
+		{Name: ".1.3.6.1.2.1.43.8.2.1.9.1.2", Value: -2}, // unknown capacity
+	}
+
+	trays := ParsePaperTrays(pdus)
+
+	if len(trays) != 2 {
+		t.Fatalf("Expected 2 trays, got %d", len(trays))
+	}
+
+	// Tray 1 with someRemaining should report "low" and estimate 10%
+	if trays[0].Status != "low" {
+		t.Errorf("Tray 1 with someRemaining status = %q, want %q", trays[0].Status, "low")
+	}
+	if trays[0].LevelPercent != 10 {
+		t.Errorf("Tray 1 with someRemaining percent = %d, want 10", trays[0].LevelPercent)
+	}
+
+	// Tray 2 with unknown capacity should have -1 percent but still report based on level
+	if trays[1].LevelPercent != -1 {
+		t.Errorf("Tray 2 with unknown capacity percent = %d, want -1", trays[1].LevelPercent)
+	}
+}
+
+func TestParsePaperTrays_Empty(t *testing.T) {
+	// Test with no paper tray PDUs
+	pdus := []gosnmp.SnmpPDU{
+		{Name: ".1.3.6.1.2.1.1.1.0", Value: []byte("Some Printer")}, // sysDescr (not a tray OID)
+	}
+
+	trays := ParsePaperTrays(pdus)
+
+	if len(trays) != 0 {
+		t.Errorf("Expected 0 trays, got %d", len(trays))
+	}
+}

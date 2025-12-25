@@ -13,6 +13,17 @@ type FieldLock struct {
 	LockedBy string    `json:"locked_by,omitempty"` // User/system that locked it (for future multi-user support)
 }
 
+// PaperTray represents the status of a single paper input tray
+type PaperTray struct {
+	Index        int    `json:"index"`                   // Tray index (1, 2, 3...)
+	Name         string `json:"name,omitempty"`          // Tray name ("Tray 1", "Manual Feed")
+	MediaType    string `json:"media_type,omitempty"`    // Paper type ("Letter", "A4", "Legal")
+	CurrentLevel int    `json:"current_level"`           // Current sheets (-3=someRemaining, -2=unknown, -1=unavailable, 0+=actual)
+	MaxCapacity  int    `json:"max_capacity"`            // Max capacity (-2=unknown, -1=unlimited, 0+=actual)
+	LevelPercent int    `json:"level_percent,omitempty"` // Calculated percentage (0-100, -1 if unknown)
+	Status       string `json:"status,omitempty"`        // "ok", "low", "empty", "unknown"
+}
+
 // Device represents a printer device with all its properties (base struct shared by agent and server)
 type Device struct {
 	Serial          string                 `json:"serial"`
@@ -47,6 +58,7 @@ type MetricsSnapshot struct {
 	MonoPages   int                    `json:"mono_pages,omitempty"`
 	ScanCount   int                    `json:"scan_count,omitempty"`
 	TonerLevels map[string]interface{} `json:"toner_levels,omitempty"`
+	PaperTrays  []PaperTray            `json:"paper_trays,omitempty"` // Current paper tray status
 }
 
 // DeviceFilter allows filtering devices by various criteria

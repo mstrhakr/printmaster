@@ -350,6 +350,8 @@ func buildQueryOIDsWithModule(profile QueryProfile, caps *capabilities.DeviceCap
 		queryOIDs = appendUniqueOIDs(queryOIDs, VendorIDTargetOIDs()...)
 	case QueryEssential:
 		queryOIDs = append(queryOIDs, vendorModule.BaseOIDs()...)
+		queryOIDs = append(queryOIDs, vendorModule.SupplyOIDs()...)
+		queryOIDs = append(queryOIDs, vendorModule.PaperTrayOIDs()...)
 		queryOIDs = append(queryOIDs, oids.PrtMarkerLifeCount)
 		queryOIDs = appendUniqueOIDs(queryOIDs, VendorIDTargetOIDs()...)
 	case QueryFull:
@@ -358,6 +360,7 @@ func buildQueryOIDsWithModule(profile QueryProfile, caps *capabilities.DeviceCap
 		queryOIDs = append(queryOIDs, vendorModule.BaseOIDs()...)
 		queryOIDs = append(queryOIDs, vendorModule.MetricOIDs(caps)...)
 		queryOIDs = append(queryOIDs, vendorModule.SupplyOIDs()...)
+		queryOIDs = append(queryOIDs, vendorModule.PaperTrayOIDs()...)
 	}
 	return queryOIDs
 }

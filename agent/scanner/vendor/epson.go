@@ -117,6 +117,19 @@ func (v *EpsonVendor) SupplyOIDs() []string {
 	}
 }
 
+func (v *EpsonVendor) PaperTrayOIDs() []string {
+	// Use standard Printer-MIB paper input tables
+	return []string{
+		oids.PrtInputName,
+		oids.PrtInputMediaName,
+		oids.PrtInputCurrentLevel,
+		oids.PrtInputMaxCapacity,
+		oids.PrtInputStatus,
+		oids.PrtInputType,
+		oids.PrtInputDescription,
+	}
+}
+
 func (v *EpsonVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	result := make(map[string]interface{})
 	if logger.Global != nil {

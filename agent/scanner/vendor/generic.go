@@ -78,6 +78,19 @@ func (v *GenericVendor) SupplyOIDs() []string {
 	}
 }
 
+func (v *GenericVendor) PaperTrayOIDs() []string {
+	// Return OID roots for SNMP walk of paper input table (prtInputTable)
+	return []string{
+		oids.PrtInputName,         // Tray name (e.g., "Tray 1")
+		oids.PrtInputMediaName,    // Media type (e.g., "Letter", "A4")
+		oids.PrtInputCurrentLevel, // Current paper level
+		oids.PrtInputMaxCapacity,  // Max tray capacity
+		oids.PrtInputStatus,       // Tray status
+		oids.PrtInputType,         // Tray type (manual feed, cassette, etc.)
+		oids.PrtInputDescription,  // Tray description
+	}
+}
+
 func (v *GenericVendor) Parse(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 	result := make(map[string]interface{})
 	if logger.Global != nil {
@@ -286,6 +299,208 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 	return result
 }
+
+// PaperTray represents a single paper input tray from prtInputTable
+type PaperTray struct {
+	Index        int    `json:"index"`
+	Name         string `json:"name,omitempty"`
+	MediaType    string `json:"media_type,omitempty"`
+	CurrentLevel int    `json:"current_level"`
+	MaxCapacity  int    `json:"max_capacity"`
+	LevelPercent int    `json:"level_percent,omitempty"`
+	Status       string `json:"status,omitempty"`
+	TrayType     int    `json:"tray_type,omitempty"`
+	Description  string `json:"description,omitempty"`
+}
+
+// ParsePaperTrays extracts paper tray information from prtInputTable PDUs.
+// Returns a slice of PaperTray structs with level, capacity, and status.
+func ParsePaperTrays(pdus []gosnmp.SnmpPDU) []PaperTray {
+	// prtInputTable OID structure: 1.3.6.1.2.1.43.8.2.1.<column>.<hrDeviceIndex>.<prtInputIndex>
+	// Column definitions:
+	//   2  = prtInputType
+	//   9  = prtInputMaxCapacity
+	//   10 = prtInputCurrentLevel
+	//   11 = prtInputStatus
+	//   12 = prtInputMediaName
+	//   13 = prtInputName
+	//   18 = prtInputDescription
+
+	type TrayEntry struct {
+		Name         string
+		MediaType    string
+		CurrentLevel int
+		MaxCapacity  int
+		Status       int
+		TrayType     int
+		Description  string
+	}
+
+	// Map of tray index -> entry
+	entries := make(map[int]*TrayEntry)
+
+	for _, pdu := range pdus {
+		oid := normalizeOID(pdu.Name)
+
+		// Parse prtInputTable entries
+		// Format: 1.3.6.1.2.1.43.8.2.1.<column>.<hrIdx>.<inputIdx>
+		if !strings.HasPrefix(oid, "1.3.6.1.2.1.43.8.2.1.") {
+			continue
+		}
+
+		suffix := strings.TrimPrefix(oid, "1.3.6.1.2.1.43.8.2.1.")
+		parts := strings.Split(suffix, ".")
+		if len(parts) < 2 {
+			continue
+		}
+
+		column, err := strconv.Atoi(parts[0])
+		if err != nil {
+			continue
+		}
+
+		// Get tray index (last part or second-to-last if there's hrDeviceIndex)
+		trayIdx := 0
+		if len(parts) >= 3 {
+			// Format: <column>.<hrDeviceIndex>.<prtInputIndex>
+			trayIdx, _ = strconv.Atoi(parts[2])
+		} else if len(parts) == 2 {
+			// Format: <column>.<prtInputIndex>
+			trayIdx, _ = strconv.Atoi(parts[1])
+		}
+
+		if trayIdx <= 0 {
+			continue
+		}
+
+		// Initialize entry if not exists
+		if entries[trayIdx] == nil {
+			entries[trayIdx] = &TrayEntry{
+				CurrentLevel: -1, // Unknown
+				MaxCapacity:  -1, // Unknown
+			}
+		}
+		entry := entries[trayIdx]
+
+		// Populate fields based on column
+		switch column {
+		case 2: // prtInputType
+			entry.TrayType = coerceToInt(pdu.Value)
+		case 9: // prtInputMaxCapacity
+			entry.MaxCapacity = coerceToInt(pdu.Value)
+		case 10: // prtInputCurrentLevel
+			entry.CurrentLevel = coerceToInt(pdu.Value)
+		case 11: // prtInputStatus
+			entry.Status = coerceToInt(pdu.Value)
+		case 12: // prtInputMediaName
+			if bytes, ok := pdu.Value.([]byte); ok {
+				entry.MediaType = strings.TrimSpace(string(bytes))
+			} else if str, ok := pdu.Value.(string); ok {
+				entry.MediaType = strings.TrimSpace(str)
+			}
+		case 13: // prtInputName
+			if bytes, ok := pdu.Value.([]byte); ok {
+				entry.Name = strings.TrimSpace(string(bytes))
+			} else if str, ok := pdu.Value.(string); ok {
+				entry.Name = strings.TrimSpace(str)
+			}
+		case 18: // prtInputDescription
+			if bytes, ok := pdu.Value.([]byte); ok {
+				entry.Description = strings.TrimSpace(string(bytes))
+			} else if str, ok := pdu.Value.(string); ok {
+				entry.Description = strings.TrimSpace(str)
+			}
+		}
+	}
+
+	// Convert to slice and calculate percentages
+	var trays []PaperTray
+	for idx, entry := range entries {
+		tray := PaperTray{
+			Index:        idx,
+			Name:         entry.Name,
+			MediaType:    entry.MediaType,
+			CurrentLevel: entry.CurrentLevel,
+			MaxCapacity:  entry.MaxCapacity,
+			TrayType:     entry.TrayType,
+			Description:  entry.Description,
+		}
+
+		// Generate name if not provided
+		if tray.Name == "" {
+			tray.Name = fmt.Sprintf("Tray %d", idx)
+		}
+
+		// Calculate level percentage
+		// Per RFC 3805 (Printer-MIB):
+		//   Level/Capacity = -1: other/unknown
+		//   Level/Capacity = -2: unknown
+		//   Level = -3: someRemaining (low but usable)
+		//   Capacity = -3: unlimited
+		if entry.MaxCapacity > 0 && entry.CurrentLevel >= 0 {
+			tray.LevelPercent = int((float64(entry.CurrentLevel) / float64(entry.MaxCapacity)) * 100)
+		} else if entry.CurrentLevel == -3 {
+			// someRemaining - estimate 10%
+			tray.LevelPercent = 10
+		} else {
+			tray.LevelPercent = -1 // Unknown
+		}
+
+		// Determine status string
+		tray.Status = determineTrayStatus(entry.CurrentLevel, entry.MaxCapacity, tray.LevelPercent)
+
+		trays = append(trays, tray)
+	}
+
+	// Sort by index
+	for i := 0; i < len(trays); i++ {
+		for j := i + 1; j < len(trays); j++ {
+			if trays[i].Index > trays[j].Index {
+				trays[i], trays[j] = trays[j], trays[i]
+			}
+		}
+	}
+
+	if logger.Global != nil {
+		logger.Global.TraceTag("vendor_parse", "Paper trays parsed", "count", len(trays))
+	}
+
+	return trays
+}
+
+// determineTrayStatus returns a human-readable status based on level values
+func determineTrayStatus(currentLevel, maxCapacity, levelPercent int) string {
+	// Check for special SNMP values
+	if currentLevel == -1 || currentLevel == -2 {
+		return "unknown"
+	}
+	if currentLevel == -3 {
+		return "low" // someRemaining
+	}
+	if currentLevel == 0 {
+		return "empty"
+	}
+
+	// Use percentage if available
+	if levelPercent >= 0 {
+		if levelPercent == 0 {
+			return "empty"
+		} else if levelPercent <= 10 {
+			return "low"
+		} else if levelPercent <= 25 {
+			return "medium"
+		}
+		return "ok"
+	}
+
+	// If we have a positive level but couldn't calculate percentage, assume ok
+	if currentLevel > 0 {
+		return "ok"
+	}
+
+	return "unknown"
+}
+
 func getOIDInt(pdus []gosnmp.SnmpPDU, oid string) int {
 	oid = normalizeOID(oid)
 	for _, pdu := range pdus {
