@@ -796,6 +796,22 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_report_runs_schedule ON report_runs(schedule_id);
 	CREATE INDEX IF NOT EXISTS idx_report_runs_status ON report_runs(status);
 	CREATE INDEX IF NOT EXISTS idx_report_runs_started ON report_runs(started_at);
+
+	-- Device web UI credentials (for proxy auto-login)
+	-- Stored on server so agents remain stateless
+	CREATE TABLE IF NOT EXISTS device_credentials (
+		serial TEXT PRIMARY KEY,
+		username TEXT NOT NULL DEFAULT '',
+		encrypted_password TEXT NOT NULL DEFAULT '',
+		auth_type TEXT NOT NULL DEFAULT 'basic',
+		auto_login INTEGER NOT NULL DEFAULT 0,
+		tenant_id TEXT,
+		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY(serial) REFERENCES devices(serial) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_device_credentials_tenant ON device_credentials(tenant_id);
 	`
 
 	if _, err := s.db.Exec(schema); err != nil {
@@ -1111,6 +1127,51 @@ func isSQLiteDuplicateColumnErr(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "duplicate column name")
+}
+
+// GetDeviceCredentials retrieves credentials for proxy auto-login
+func (s *SQLiteStore) GetDeviceCredentials(ctx context.Context, serial string) (*DeviceCredentials, error) {
+	var creds DeviceCredentials
+	var autoLogin int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT serial, username, encrypted_password, auth_type, auto_login, tenant_id, created_at, updated_at
+		FROM device_credentials
+		WHERE serial = ?
+	`, serial).Scan(
+		&creds.Serial, &creds.Username, &creds.EncryptedPassword, &creds.AuthType,
+		&autoLogin, &creds.TenantID, &creds.CreatedAt, &creds.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	creds.AutoLogin = autoLogin != 0
+	return &creds, nil
+}
+
+// UpsertDeviceCredentials creates or updates credentials for a device
+func (s *SQLiteStore) UpsertDeviceCredentials(ctx context.Context, creds *DeviceCredentials) error {
+	autoLogin := 0
+	if creds.AutoLogin {
+		autoLogin = 1
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO device_credentials (serial, username, encrypted_password, auth_type, auto_login, tenant_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(serial) DO UPDATE SET
+			username = excluded.username,
+			encrypted_password = excluded.encrypted_password,
+			auth_type = excluded.auth_type,
+			auto_login = excluded.auto_login,
+			tenant_id = excluded.tenant_id,
+			updated_at = CURRENT_TIMESTAMP
+	`, creds.Serial, creds.Username, creds.EncryptedPassword, creds.AuthType, autoLogin, creds.TenantID)
+	return err
+}
+
+// DeleteDeviceCredentials removes credentials for a device
+func (s *SQLiteStore) DeleteDeviceCredentials(ctx context.Context, serial string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM device_credentials WHERE serial = ?`, serial)
+	return err
 }
 
 // tableHasColumn checks if a table has a specific column

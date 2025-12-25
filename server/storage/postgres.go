@@ -786,6 +786,21 @@ func (s *PostgresStore) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_report_runs_status ON report_runs(status);
 	CREATE INDEX IF NOT EXISTS idx_report_runs_started ON report_runs(started_at);
 
+	-- Device web UI credentials (for proxy auto-login)
+	-- Stored on server so agents remain stateless
+	CREATE TABLE IF NOT EXISTS device_credentials (
+		serial TEXT PRIMARY KEY REFERENCES devices(serial) ON DELETE CASCADE,
+		username TEXT NOT NULL DEFAULT '',
+		encrypted_password TEXT NOT NULL DEFAULT '',
+		auth_type TEXT NOT NULL DEFAULT 'basic',
+		auto_login BOOLEAN NOT NULL DEFAULT FALSE,
+		tenant_id TEXT REFERENCES tenants(id) ON DELETE CASCADE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_device_credentials_tenant ON device_credentials(tenant_id);
+
 	-- Add FK from report_schedules.last_run_id to report_runs
 	DO $$
 	BEGIN
@@ -924,4 +939,43 @@ func (s *PostgresStore) Close() error {
 		return s.db.Close()
 	}
 	return nil
+}
+
+// GetDeviceCredentials retrieves credentials for proxy auto-login
+func (s *PostgresStore) GetDeviceCredentials(ctx context.Context, serial string) (*DeviceCredentials, error) {
+	var creds DeviceCredentials
+	err := s.db.QueryRowContext(ctx, `
+		SELECT serial, username, encrypted_password, auth_type, auto_login, tenant_id, created_at, updated_at
+		FROM device_credentials
+		WHERE serial = $1
+	`, serial).Scan(
+		&creds.Serial, &creds.Username, &creds.EncryptedPassword, &creds.AuthType,
+		&creds.AutoLogin, &creds.TenantID, &creds.CreatedAt, &creds.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &creds, nil
+}
+
+// UpsertDeviceCredentials creates or updates credentials for a device
+func (s *PostgresStore) UpsertDeviceCredentials(ctx context.Context, creds *DeviceCredentials) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO device_credentials (serial, username, encrypted_password, auth_type, auto_login, tenant_id, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		ON CONFLICT(serial) DO UPDATE SET
+			username = EXCLUDED.username,
+			encrypted_password = EXCLUDED.encrypted_password,
+			auth_type = EXCLUDED.auth_type,
+			auto_login = EXCLUDED.auto_login,
+			tenant_id = EXCLUDED.tenant_id,
+			updated_at = NOW()
+	`, creds.Serial, creds.Username, creds.EncryptedPassword, creds.AuthType, creds.AutoLogin, creds.TenantID)
+	return err
+}
+
+// DeleteDeviceCredentials removes credentials for a device
+func (s *PostgresStore) DeleteDeviceCredentials(ctx context.Context, serial string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM device_credentials WHERE serial = $1`, serial)
+	return err
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -476,6 +477,36 @@ func (c *ServerClient) LogAuditEvent(ctx context.Context, action, resourceType, 
 	}
 
 	return nil
+}
+
+// DeviceCredentials holds web UI credentials for auto-login
+type DeviceCredentials struct {
+	Exists    bool   `json:"exists"`
+	Username  string `json:"username"`
+	Password  string `json:"password"` // plaintext (decrypted by server)
+	AuthType  string `json:"auth_type"`
+	AutoLogin bool   `json:"auto_login"`
+	Error     string `json:"error,omitempty"`
+}
+
+// GetDeviceCredentials fetches device web UI credentials from the server.
+// Returns nil if credentials are not found or an error occurs.
+func (c *ServerClient) GetDeviceCredentials(ctx context.Context, serial string) (*DeviceCredentials, error) {
+	if serial == "" {
+		return nil, fmt.Errorf("serial required")
+	}
+
+	var resp DeviceCredentials
+	path := "/api/v1/agents/device-credentials?serial=" + url.QueryEscape(serial)
+	if err := c.doRequest(ctx, "GET", path, nil, &resp, true); err != nil {
+		return nil, err
+	}
+
+	if !resp.Exists {
+		return nil, fmt.Errorf("credentials not found")
+	}
+
+	return &resp, nil
 }
 
 // GetStats returns client statistics

@@ -581,6 +581,19 @@ type OIDCLink struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// DeviceCredentials stores web UI credentials for proxy auto-login.
+// Stored on server so agents remain stateless.
+type DeviceCredentials struct {
+	Serial            string    `json:"serial"`
+	Username          string    `json:"username"`
+	EncryptedPassword string    `json:"encrypted_password,omitempty"` // Encrypted, not returned to clients
+	AuthType          string    `json:"auth_type"`                    // "basic" or "form"
+	AutoLogin         bool      `json:"auto_login"`
+	TenantID          string    `json:"tenant_id,omitempty"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
 // AuditActorType enumerates the source of an audit event.
 type AuditActorType string
 
@@ -872,6 +885,11 @@ type Store interface {
 	GetLatestServerMetrics(ctx context.Context) (*ServerMetricsSnapshot, error)
 	AggregateServerMetrics(ctx context.Context) error
 	PruneServerMetrics(ctx context.Context) error
+
+	// Device credentials for proxy auto-login (stored on server, agents are stateless)
+	GetDeviceCredentials(ctx context.Context, serial string) (*DeviceCredentials, error)
+	UpsertDeviceCredentials(ctx context.Context, creds *DeviceCredentials) error
+	DeleteDeviceCredentials(ctx context.Context, serial string) error
 }
 
 // SettingsRecord captures the canonical global settings payload persisted by the server.

@@ -2968,12 +2968,38 @@ func runInteractive(ctx context.Context, configFlag string) {
 	// Helpers for WebUI credential storage
 	type credRecord struct {
 		Username  string `json:"username"`
-		Password  string `json:"password_enc"` // encrypted base64
+		Password  string `json:"password_enc"` // encrypted base64 (local) or plaintext (from server)
 		AuthType  string `json:"auth_type"`    // "basic" | "form"
 		AutoLogin bool   `json:"auto_login"`
 	}
 
+	// getCreds fetches device credentials. When connected to a server, credentials are
+	// fetched from the server (stateless agent model). When standalone, local storage is used.
 	getCreds := func(serial string) (*credRecord, error) {
+		// Try server first if connected (agents should be stateless when server-controlled)
+		uploadWorkerMu.RLock()
+		worker := uploadWorker
+		uploadWorkerMu.RUnlock()
+
+		if worker != nil {
+			if client := worker.Client(); client != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if serverCreds, err := client.GetDeviceCredentials(ctx, serial); err == nil {
+					appLogger.Debug("Got credentials from server", "serial", serial, "has_password", serverCreds.Password != "")
+					return &credRecord{
+						Username:  serverCreds.Username,
+						Password:  serverCreds.Password, // plaintext from server (already decrypted)
+						AuthType:  serverCreds.AuthType,
+						AutoLogin: serverCreds.AutoLogin,
+					}, nil
+				}
+				// Server fetch failed - fall through to local storage for standalone compatibility
+				appLogger.Debug("Server credentials fetch failed, trying local", "serial", serial)
+			}
+		}
+
+		// Fallback to local storage (standalone mode)
 		if agentConfigStore == nil {
 			return nil, fmt.Errorf("no config store")
 		}
@@ -2984,6 +3010,12 @@ func runInteractive(ctx context.Context, configFlag string) {
 		c, ok := all[serial]
 		if !ok {
 			return nil, fmt.Errorf("not found")
+		}
+		// Decrypt local password
+		if c.Password != "" && len(secretKey) == 32 {
+			if decrypted, err := commonutil.DecryptFromB64(secretKey, c.Password); err == nil {
+				c.Password = decrypted
+			}
 		}
 		return &c, nil
 	}
@@ -5147,48 +5179,47 @@ func runInteractive(ctx context.Context, configFlag string) {
 				}
 
 				// If no valid session, perform login now before serving the page
-				if !hasValidSession && len(secretKey) == 32 && cr.Password != "" {
+				// cr.Password is already plaintext (fetched from server or decrypted locally)
+				if !hasValidSession && cr.Password != "" {
 					appLogger.Info("Proxy: pre-authenticating for main page request", "serial", serial, "manufacturer", device.Manufacturer)
 					if adapter := proxy.GetAdapterForManufacturer(device.Manufacturer); adapter != nil {
-						if pw, err := commonutil.DecryptFromB64(secretKey, cr.Password); err == nil {
-							if jar, err := adapter.Login(targetURL, cr.Username, pw, appLogger); err == nil {
-								proxySessionCache.Set(serial, jar)
-								appLogger.Info("Proxy: pre-auth successful, cookies ready", "serial", serial, "manufacturer", device.Manufacturer)
+						if jar, err := adapter.Login(targetURL, cr.Username, cr.Password, appLogger); err == nil {
+							proxySessionCache.Set(serial, jar)
+							appLogger.Info("Proxy: pre-auth successful, cookies ready", "serial", serial, "manufacturer", device.Manufacturer)
 
-								// Send cookies to browser and redirect to same URL to reload with auth
-								if targetParsed, err := url.Parse(targetURL); err == nil {
-									cookies := jar.Cookies(targetParsed)
-									// Get HTTPS status from context
-									isHTTPS := false
-									if v := r.Context().Value(isHTTPSContextKey); v != nil {
-										isHTTPS = v.(bool)
-									}
-									for _, cookie := range cookies {
-										// Rewrite cookie path for proxy
-										if cookie.Path == "" || cookie.Path == "/" {
-											cookie.Path = "/proxy/" + serial + "/"
-										} else if !strings.HasPrefix(cookie.Path, "/proxy/"+serial) {
-											cookie.Path = "/proxy/" + serial + cookie.Path
-										}
-										cookie.Domain = ""
-										// Set Secure flag based on current connection type
-										// If agent is accessed via HTTPS, keep Secure=true; if HTTP, clear it
-										cookie.Secure = isHTTPS
-										if cookie.SameSite == 0 {
-											cookie.SameSite = http.SameSiteLaxMode
-										}
-										http.SetCookie(w, cookie)
-										appLogger.Debug("Proxy: pre-auth set cookie", "serial", serial, "name", cookie.Name, "path", cookie.Path, "secure", cookie.Secure)
-									}
+							// Send cookies to browser and redirect to same URL to reload with auth
+							if targetParsed, err := url.Parse(targetURL); err == nil {
+								cookies := jar.Cookies(targetParsed)
+								// Get HTTPS status from context
+								isHTTPS := false
+								if v := r.Context().Value(isHTTPSContextKey); v != nil {
+									isHTTPS = v.(bool)
 								}
-
-								// Redirect to same URL to reload with cookies
-								w.Header().Set("Location", r.URL.Path)
-								w.WriteHeader(http.StatusFound)
-								return
-							} else {
-								appLogger.Warn("Proxy: pre-auth login failed", "serial", serial, "error", err.Error())
+								for _, cookie := range cookies {
+									// Rewrite cookie path for proxy
+									if cookie.Path == "" || cookie.Path == "/" {
+										cookie.Path = "/proxy/" + serial + "/"
+									} else if !strings.HasPrefix(cookie.Path, "/proxy/"+serial) {
+										cookie.Path = "/proxy/" + serial + cookie.Path
+									}
+									cookie.Domain = ""
+									// Set Secure flag based on current connection type
+									// If agent is accessed via HTTPS, keep Secure=true; if HTTP, clear it
+									cookie.Secure = isHTTPS
+									if cookie.SameSite == 0 {
+										cookie.SameSite = http.SameSiteLaxMode
+									}
+									http.SetCookie(w, cookie)
+									appLogger.Debug("Proxy: pre-auth set cookie", "serial", serial, "name", cookie.Name, "path", cookie.Path, "secure", cookie.Secure)
+								}
 							}
+
+							// Redirect to same URL to reload with cookies
+							w.Header().Set("Location", r.URL.Path)
+							w.WriteHeader(http.StatusFound)
+							return
+						} else {
+							appLogger.Warn("Proxy: pre-auth login failed", "serial", serial, "error", err.Error())
 						}
 					}
 				}
@@ -5231,30 +5262,27 @@ func runInteractive(ctx context.Context, configFlag string) {
 					}()
 				}
 				appLogger.Debug("Proxy: session cache check", "serial", serial, "cached", sessionJar != nil)
-				if sessionJar == nil && len(secretKey) == 32 && cr.Password != "" {
+				// cr.Password is already plaintext (fetched from server or decrypted locally)
+				if sessionJar == nil && cr.Password != "" {
 					appLogger.Debug("Proxy: attempting fresh login", "serial", serial, "manufacturer", device.Manufacturer)
 					// Attempt vendor-specific login
 					if adapter := proxy.GetAdapterForManufacturer(device.Manufacturer); adapter != nil {
 						appLogger.Debug("Proxy: attempting vendor login", "manufacturer", device.Manufacturer, "serial", serial, "adapter", adapter.Name())
-						if pw, err := commonutil.DecryptFromB64(secretKey, cr.Password); err == nil {
-							if jar, err := adapter.Login(targetURL, cr.Username, pw, appLogger); err == nil {
-								sessionJar = jar
-								proxySessionCache.Set(serial, jar)
-								// Log cookies that were received
-								if targetParsed, err := url.Parse(targetURL); err == nil {
-									cookies := jar.Cookies(targetParsed)
-									appLogger.Info("Proxy: logged into device", "manufacturer", device.Manufacturer, "serial", serial, "adapter", adapter.Name(), "cookies_received", len(cookies))
-									for i, c := range cookies {
-										appLogger.Debug("Proxy: received cookie", "index", i, "name", c.Name, "value_length", len(c.Value), "path", c.Path, "domain", c.Domain)
-									}
-								} else {
-									appLogger.Info("Proxy: logged into device", "manufacturer", device.Manufacturer, "serial", serial, "adapter", adapter.Name())
+						if jar, err := adapter.Login(targetURL, cr.Username, cr.Password, appLogger); err == nil {
+							sessionJar = jar
+							proxySessionCache.Set(serial, jar)
+							// Log cookies that were received
+							if targetParsed, err := url.Parse(targetURL); err == nil {
+								cookies := jar.Cookies(targetParsed)
+								appLogger.Info("Proxy: logged into device", "manufacturer", device.Manufacturer, "serial", serial, "adapter", adapter.Name(), "cookies_received", len(cookies))
+								for i, c := range cookies {
+									appLogger.Debug("Proxy: received cookie", "index", i, "name", c.Name, "value_length", len(c.Value), "path", c.Path, "domain", c.Domain)
 								}
 							} else {
-								appLogger.WarnRateLimited("proxy_login_"+serial, 5*time.Minute, "Proxy: login failed", "serial", serial, "error", err.Error())
+								appLogger.Info("Proxy: logged into device", "manufacturer", device.Manufacturer, "serial", serial, "adapter", adapter.Name())
 							}
 						} else {
-							appLogger.Warn("Proxy: password decryption failed", "serial", serial, "error", err.Error())
+							appLogger.WarnRateLimited("proxy_login_"+serial, 5*time.Minute, "Proxy: login failed", "serial", serial, "error", err.Error())
 						}
 					} else {
 						appLogger.Debug("Proxy: no adapter found for manufacturer", "manufacturer", device.Manufacturer, "serial", serial)
@@ -5385,13 +5413,10 @@ window.top.location.href = '/proxy/%s/';
 			}
 
 			// Add Authorization for Basic auth
-			if cr, err := getCreds(serial); err == nil && cr != nil && cr.AuthType == "basic" && cr.AutoLogin {
-				if len(secretKey) == 32 && cr.Password != "" {
-					if pw, err := commonutil.DecryptFromB64(secretKey, cr.Password); err == nil {
-						userpass := cr.Username + ":" + pw
-						req.Header.Set("Authorization", "Basic "+basicAuth(userpass))
-					}
-				}
+			// cr.Password is already plaintext (fetched from server or decrypted locally)
+			if cr, err := getCreds(serial); err == nil && cr != nil && cr.AuthType == "basic" && cr.AutoLogin && cr.Password != "" {
+				userpass := cr.Username + ":" + cr.Password
+				req.Header.Set("Authorization", "Basic "+basicAuth(userpass))
 			}
 
 			// Attach cookies for form auth
