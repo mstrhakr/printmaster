@@ -200,14 +200,16 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 			continue
 		}
 
-		// Only process supply class 3 (supplyThatIsConsumed) - toner, ink, etc.
-		// Skip class 4 (receptacleThatIsFilled) - waste toner containers
-		if entry.Class != 3 {
+		// Class 3 = supplyThatIsConsumed (toner, ink, etc.)
+		// Class 4 = receptacleThatIsFilled (waste toner containers)
+		// Skip other classes
+		if entry.Class != 3 && entry.Class != 4 {
 			continue
 		}
 
 		// Normalize description for matching
-		desc := strings.ToLower(entry.Description)
+		// Use original description for part number matching, lowercase for word matching
+		desc := entry.Description
 
 		// Calculate percentage if we have both level and capacity
 		// Per RFC 3805 (Printer-MIB):
@@ -235,14 +237,45 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 		// Match description to canonical metric key
 		metricName := supplies.NormalizeDescription(desc)
+
+		// For Class 4 (waste containers), force to waste_toner if not already mapped
+		if entry.Class == 4 && metricName == "" {
+			metricName = "waste_toner"
+		}
+
 		if metricName != "" {
+			// Deduplication: if key already exists, prefer the value that's not 100%
+			// (100% often indicates a "new toner" placeholder entry from some vendors)
+			if existing, ok := result[metricName]; ok {
+				existingVal, _ := existing.(float64)
+				// Keep the existing value if:
+				// - new value is exactly 100 (likely placeholder) and existing isn't
+				// - new value is invalid (-1)
+				if percentage == 100.0 && existingVal != 100.0 && existingVal >= 0 {
+					// Skip this duplicate - keep existing more realistic value
+					if logger.Global != nil {
+						logger.Global.Debug("Supply dedup: keeping existing value",
+							"key", metricName, "existing", existingVal, "skipped", percentage)
+					}
+					processed++
+					continue
+				}
+				// If existing is 100 and new isn't, we'll overwrite (fall through)
+				if existingVal == 100.0 && percentage != 100.0 && percentage >= 0 {
+					if logger.Global != nil {
+						logger.Global.Debug("Supply dedup: replacing placeholder",
+							"key", metricName, "old", existingVal, "new", percentage)
+					}
+				}
+			}
 			result[metricName] = percentage
 		}
 
 		// Store raw description for unknown supplies
-		if metricName == "" && entry.Level >= 0 {
+		if metricName == "" && percentage >= 0 {
 			// Store with sanitized description as key
-			sanitized := strings.ReplaceAll(desc, " ", "_")
+			sanitized := strings.ToLower(entry.Description)
+			sanitized = strings.ReplaceAll(sanitized, " ", "_")
 			result[fmt.Sprintf("supply_%s", sanitized)] = percentage
 		}
 		processed++

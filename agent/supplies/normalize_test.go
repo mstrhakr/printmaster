@@ -69,6 +69,20 @@ func TestNormalizeDescription(t *testing.T) {
 		{"dashes", "yellow-ink", "toner_yellow"},
 		{"tabs", "black\ttoner", "toner_black"},
 
+		// Kyocera part numbers (color in suffix K/C/M/Y)
+		{"kyocera TK-8517K", "TK-8517K", "toner_black"},
+		{"kyocera TK-8517C", "TK-8517C", "toner_cyan"},
+		{"kyocera TK-8517M", "TK-8517M", "toner_magenta"},
+		{"kyocera TK-8517Y", "TK-8517Y", "toner_yellow"},
+		{"kyocera lowercase", "tk-8517k", "toner_black"},
+		{"kyocera no dash", "TK8517C", "toner_cyan"},
+		{"supply prefix TK", "Supply TK-8517K", "toner_black"},
+		{"supply prefix Tk", "Supply Tk-8517c", "toner_cyan"},
+
+		// Other vendor part number patterns
+		{"HP CE400A black", "CE400K", "toner_black"},
+		{"HP CF410 cyan", "CF410C", "toner_cyan"},
+
 		// Unknown/unmapped
 		{"unknown supply", "Paper Tray", ""},
 		{"random text", "Something Else", ""},
