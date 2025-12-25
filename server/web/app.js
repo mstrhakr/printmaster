@@ -3612,6 +3612,9 @@ function buildServerSettingsPayload() {
         return null;
     }
     const data = serverSettingsVM.data;
+    const lockedKeys = serverSettingsVM.lockedKeys || new Set();
+    // Helper to check if a config key is locked by environment variable
+    const isLocked = (configKey) => lockedKeys.has(configKey);
     const parseNumber = (val) => {
         if (val === undefined || val === null || String(val).trim() === '') {
             return undefined;
@@ -3627,57 +3630,57 @@ function buildServerSettingsPayload() {
     };
     const payload = {
         server: {
-            http_port: parseNumber(data.server.http_port),
-            https_port: parseNumber(data.server.https_port),
-            bind_address: pickString(data.server.bind_address),
-            behind_proxy: Boolean(data.server.behind_proxy),
-            proxy_use_https: Boolean(data.server.proxy_use_https),
-            auto_approve_agents: Boolean(data.server.auto_approve_agents),
-            agent_timeout_minutes: parseNumber(data.server.agent_timeout_minutes),
+            http_port: isLocked('server.http_port') ? undefined : parseNumber(data.server.http_port),
+            https_port: isLocked('server.https_port') ? undefined : parseNumber(data.server.https_port),
+            bind_address: isLocked('server.bind_address') ? undefined : pickString(data.server.bind_address),
+            behind_proxy: isLocked('server.behind_proxy') ? undefined : Boolean(data.server.behind_proxy),
+            proxy_use_https: isLocked('server.proxy_use_https') ? undefined : Boolean(data.server.proxy_use_https),
+            auto_approve_agents: isLocked('server.auto_approve_agents') ? undefined : Boolean(data.server.auto_approve_agents),
+            agent_timeout_minutes: isLocked('server.agent_timeout_minutes') ? undefined : parseNumber(data.server.agent_timeout_minutes),
         },
         security: {
-            rate_limit_enabled: Boolean(data.security.rate_limit_enabled),
-            rate_limit_max_attempts: parseNumber(data.security.rate_limit_max_attempts),
-            rate_limit_block_minutes: parseNumber(data.security.rate_limit_block_minutes),
-            rate_limit_window_minutes: parseNumber(data.security.rate_limit_window_minutes),
+            rate_limit_enabled: isLocked('security.rate_limit_enabled') ? undefined : Boolean(data.security.rate_limit_enabled),
+            rate_limit_max_attempts: isLocked('security.rate_limit_max_attempts') ? undefined : parseNumber(data.security.rate_limit_max_attempts),
+            rate_limit_block_minutes: isLocked('security.rate_limit_block_minutes') ? undefined : parseNumber(data.security.rate_limit_block_minutes),
+            rate_limit_window_minutes: isLocked('security.rate_limit_window_minutes') ? undefined : parseNumber(data.security.rate_limit_window_minutes),
         },
         tls: {
-            mode: pickString(data.tls.mode) || 'self-signed',
-            domain: pickString(data.tls.domain) || '',
-            cert_path: pickString(data.tls.cert_path),
-            key_path: pickString(data.tls.key_path),
+            mode: isLocked('tls.mode') ? undefined : (pickString(data.tls.mode) || 'self-signed'),
+            domain: isLocked('tls.domain') ? undefined : (pickString(data.tls.domain) || ''),
+            cert_path: isLocked('tls.cert_path') ? undefined : pickString(data.tls.cert_path),
+            key_path: isLocked('tls.key_path') ? undefined : pickString(data.tls.key_path),
         },
         logging: {
-            level: data.logging.level || 'INFO',
+            level: isLocked('logging.level') ? undefined : (data.logging.level || 'INFO'),
         },
         smtp: {
-            enabled: Boolean(data.smtp.enabled),
-            host: pickString(data.smtp.host) || '',
-            port: parseNumber(data.smtp.port),
-            user: pickString(data.smtp.user) || '',
-            from: pickString(data.smtp.from) || '',
+            enabled: isLocked('smtp.enabled') ? undefined : Boolean(data.smtp.enabled),
+            host: isLocked('smtp.host') ? undefined : (pickString(data.smtp.host) || ''),
+            port: isLocked('smtp.port') ? undefined : parseNumber(data.smtp.port),
+            user: isLocked('smtp.user') ? undefined : (pickString(data.smtp.user) || ''),
+            from: isLocked('smtp.from') ? undefined : (pickString(data.smtp.from) || ''),
         },
         releases: {
-            max_releases: parseNumber(data.releases.max_releases),
-            poll_interval_minutes: parseNumber(data.releases.poll_interval_minutes),
-            retention_versions: parseNumber(data.releases.retention_versions),
+            max_releases: isLocked('releases.max_releases') ? undefined : parseNumber(data.releases.max_releases),
+            poll_interval_minutes: isLocked('releases.poll_interval_minutes') ? undefined : parseNumber(data.releases.poll_interval_minutes),
+            retention_versions: isLocked('releases.retention_versions') ? undefined : parseNumber(data.releases.retention_versions),
         },
         self_update: {
-            enabled: Boolean(data.self_update.enabled),
-            channel: pickString(data.self_update.channel),
-            max_artifacts: parseNumber(data.self_update.max_artifacts),
-            check_interval_minutes: parseNumber(data.self_update.check_interval_minutes),
+            enabled: isLocked('self_update.enabled') ? undefined : Boolean(data.self_update.enabled),
+            channel: isLocked('self_update.channel') ? undefined : pickString(data.self_update.channel),
+            max_artifacts: isLocked('self_update.max_artifacts') ? undefined : parseNumber(data.self_update.max_artifacts),
+            check_interval_minutes: isLocked('self_update.check_interval_minutes') ? undefined : parseNumber(data.self_update.check_interval_minutes),
         },
     };
     if (payload.tls.mode === 'letsencrypt') {
         payload.tls.letsencrypt = {
-            domain: pickString(data.tls.letsencrypt_domain) || '',
-            email: pickString(data.tls.letsencrypt_email) || '',
-            cache_dir: pickString(data.tls.letsencrypt_cache_dir),
-            accept_tos: Boolean(data.tls.letsencrypt_accept_tos),
+            domain: isLocked('tls.letsencrypt.domain') ? undefined : (pickString(data.tls.letsencrypt_domain) || ''),
+            email: isLocked('tls.letsencrypt.email') ? undefined : (pickString(data.tls.letsencrypt_email) || ''),
+            cache_dir: isLocked('tls.letsencrypt.cache_dir') ? undefined : pickString(data.tls.letsencrypt_cache_dir),
+            accept_tos: isLocked('tls.letsencrypt.accept_tos') ? undefined : Boolean(data.tls.letsencrypt_accept_tos),
         };
     }
-    if (data.smtp.pass && data.smtp.pass.trim() !== '') {
+    if (data.smtp.pass && data.smtp.pass.trim() !== '' && !isLocked('smtp.pass')) {
         payload.smtp.pass = data.smtp.pass;
     }
     if (payload.smtp.port === undefined) {
