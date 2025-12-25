@@ -61,8 +61,8 @@ const (
 )
 
 const (
-	uiLogLineLimit              = 500
-	httpRecencyThreshold        = 90 * time.Second
+	uiLogLineLimit       = 500
+	httpRecencyThreshold = 90 * time.Second
 )
 
 // Principal represents the authenticated user along with cached authorization helpers.
