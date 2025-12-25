@@ -612,7 +612,7 @@ func TestPostgresStore_FreshDatabaseInitialization(t *testing.T) {
 				"settings_global", "settings_tenant", "settings_agent_override",
 				"fleet_update_policies", "fleet_update_policy_global",
 				"release_artifacts", "signing_keys", "release_manifests",
-				"installer_bundles", "self_update_runs",
+				"self_update_runs",
 				"alert_rules", "escalation_policies", "alerts",
 				"notification_channels", "maintenance_windows", "alert_settings",
 				"reports", "report_schedules", "report_runs",
