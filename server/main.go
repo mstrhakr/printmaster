@@ -883,6 +883,7 @@ func runServer(ctx context.Context, configFlag string) {
 		Logger:              nil, // Uses slog.Default()
 	})
 	metricsCollector.SetDBPath(serverStore.Path())
+	metricsCollector.SetWSCounter(&WSCounter{})
 	metricsCollector.Start()
 	defer metricsCollector.Stop()
 	logInfo("Server metrics collector started", "interval", "10s")

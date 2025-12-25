@@ -582,3 +582,20 @@ func handleWSUpdateProgress(agent *storage.Agent, msg wscommon.Message) {
 		})
 	}
 }
+
+// WSCounter implements the WSConnectionCounter interface for metrics collection.
+type WSCounter struct{}
+
+// GetConnectionCount returns the total number of WebSocket connections.
+func (c *WSCounter) GetConnectionCount() int {
+	wsConnectionsLock.RLock()
+	defer wsConnectionsLock.RUnlock()
+	return len(wsConnections)
+}
+
+// GetAgentCount returns the number of connected agents (same as connection count for this server).
+func (c *WSCounter) GetAgentCount() int {
+	wsConnectionsLock.RLock()
+	defer wsConnectionsLock.RUnlock()
+	return len(wsConnections)
+}
