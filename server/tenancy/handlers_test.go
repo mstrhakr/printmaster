@@ -2,21 +2,14 @@ package tenancy
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	authz "printmaster/server/authz"
-	packager "printmaster/server/packager"
-	"printmaster/server/storage"
 )
 
 func enableTenancyForTest(t *testing.T) {
@@ -230,121 +223,6 @@ func TestHTTPRoutesTenantScopedWrite(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("authorizer not invoked")
-	}
-}
-
-type fakeInstallerPackager struct {
-	handle *packager.BundleHandle
-}
-
-func (f *fakeInstallerPackager) BuildInstaller(context.Context, packager.BuildRequest) (*storage.InstallerBundle, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (f *fakeInstallerPackager) OpenBundle(context.Context, *storage.InstallerBundle) (*packager.BundleHandle, error) {
-	if f.handle == nil {
-		return nil, fmt.Errorf("no handle")
-	}
-	return f.handle, nil
-}
-
-func TestServeInstallerBundleUsesPackager(t *testing.T) {
-	t.Parallel()
-	payload := []byte("decrypted-payload")
-	reader := bytes.NewReader(payload)
-	fake := &fakeInstallerPackager{
-		handle: packager.NewBundleHandle(reader, "tenant.zip", time.Now(), int64(len(payload)), nil),
-	}
-	SetInstallerPackager(fake)
-	t.Cleanup(func() { SetInstallerPackager(nil) })
-	bundle := &storage.InstallerBundle{
-		ID:         42,
-		TenantID:   "serve-test",
-		Format:     "zip",
-		BundlePath: "ignored.zip",
-		UpdatedAt:  time.Now(),
-		SizeBytes:  int64(len(payload)),
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/packages/42/download", nil)
-	resp := httptest.NewRecorder()
-	serveInstallerBundle(resp, req, bundle)
-	result := resp.Result()
-	if result.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", result.StatusCode)
-	}
-	body, err := io.ReadAll(result.Body)
-	if err != nil {
-		t.Fatalf("failed to read body: %v", err)
-	}
-	if string(body) != string(payload) {
-		t.Fatalf("unexpected payload: %q", body)
-	}
-	if disp := result.Header.Get("Content-Disposition"); !strings.Contains(disp, "tenant.zip") {
-		t.Fatalf("expected filename in header, got %s", disp)
-	}
-}
-
-func TestTenantBundlesSubresourceListsBundles(t *testing.T) {
-	enableTenancyForTest(t)
-	allowAllAuthorizer(t)
-	AuthMiddleware = func(next http.HandlerFunc) http.HandlerFunc { return next }
-	t.Cleanup(func() { AuthMiddleware = nil })
-	store, err := storage.NewSQLiteStore(":memory:")
-	if err != nil {
-		t.Fatalf("failed to build store: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	// Ensure future tests don't see the sqlite-backed store.
-	t.Cleanup(func() { dbStore = nil })
-	mux := http.NewServeMux()
-	RegisterRoutesOnMux(mux, store)
-	ctx := context.Background()
-	tenant := &storage.Tenant{ID: "bundle-tenant", Name: "Bundle"}
-	if err := store.CreateTenant(ctx, tenant); err != nil {
-		t.Fatalf("failed to create tenant: %v", err)
-	}
-	now := time.Now().UTC()
-	bundle := &storage.InstallerBundle{
-		TenantID:     tenant.ID,
-		Component:    "agent",
-		Version:      "1.2.3",
-		Platform:     "windows",
-		Arch:         "amd64",
-		Format:       "zip",
-		ConfigHash:   "cfg",
-		BundlePath:   "C:/tmp/agent.zip",
-		SizeBytes:    4096,
-		MetadataJSON: `{"foo":"bar"}`,
-		ExpiresAt:    now.Add(30 * time.Minute),
-		CreatedAt:    now.Add(-2 * time.Minute),
-		UpdatedAt:    now.Add(-1 * time.Minute),
-	}
-	if err := store.CreateInstallerBundle(ctx, bundle); err != nil {
-		t.Fatalf("failed to seed bundle: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/tenants/bundle-tenant/bundles?limit=5", nil)
-	req.Host = "example.test"
-	rw := httptest.NewRecorder()
-	mux.ServeHTTP(rw, req)
-	if rw.Code != http.StatusOK {
-		t.Fatalf("expected 200 got %d", rw.Code)
-	}
-	var resp []map[string]interface{}
-	if err := json.NewDecoder(rw.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-	if len(resp) != 1 {
-		t.Fatalf("expected 1 bundle got %d", len(resp))
-	}
-	entry := resp[0]
-	if entry["tenant_id"] != tenant.ID {
-		t.Fatalf("unexpected tenant id %v", entry["tenant_id"])
-	}
-	if entry["download_url"] == "" {
-		t.Fatalf("expected download URL in response")
-	}
-	if expired, ok := entry["expired"].(bool); !ok || expired {
-		t.Fatalf("expected unexpired bundle, got %v", entry["expired"])
 	}
 }
 
@@ -589,31 +467,5 @@ func TestHandleAgentDownloadLatestMSI(t *testing.T) {
 	}
 	if !strings.Contains(loc, "printmaster-agent-v2.0.0-windows-amd64.msi") {
 		t.Fatalf("expected MSI in redirect, got: %s", loc)
-	}
-}
-
-func TestDefaultBundleVersionFallsBackToFile(t *testing.T) {
-	origVersion := serverVersion
-	serverVersion = "dev"
-	t.Cleanup(func() { serverVersion = origVersion })
-	origCandidates := versionFileCandidates
-	defer func() { versionFileCandidates = origCandidates }()
-	fakeDir := t.TempDir()
-	fakeVersion := filepath.Join(fakeDir, "VERSION")
-	if err := os.WriteFile(fakeVersion, []byte("3.4.5"), 0o644); err != nil {
-		t.Fatalf("failed writing fake version file: %v", err)
-	}
-	versionFileCandidates = []string{fakeVersion}
-	if got := defaultBundleVersion(); got != "3.4.5" {
-		t.Fatalf("expected fallback version 3.4.5 got %q", got)
-	}
-}
-
-func TestDefaultBundleVersionUsesExplicitValue(t *testing.T) {
-	origVersion := serverVersion
-	serverVersion = "9.9.9-dev"
-	t.Cleanup(func() { serverVersion = origVersion })
-	if got := defaultBundleVersion(); got != "9.9.9-dev" {
-		t.Fatalf("expected explicit version, got %q", got)
 	}
 }

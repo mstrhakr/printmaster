@@ -50,7 +50,7 @@ const SERVER_UI_STATE_KEYS = {
 const VALID_SETTINGS_VIEWS = ['server', 'sso', 'fleet', 'updates'];
 const VALID_LOG_VIEWS = ['system'];
 const VALID_LOG_VIEW_MODES = ['table', 'raw'];
-const VALID_TENANT_VIEWS = ['directory', 'bundles'];
+const VALID_TENANT_VIEWS = ['directory'];
 
 function getPersistedUIState(key, fallback, allowedValues) {
     try {
@@ -118,12 +118,6 @@ let tenantsUIInitialized = false;
 let tenantModalInitialized = false;
 let tenantsSubtabsInitialized = false;
 let activeTenantsView = getPersistedUIState(SERVER_UI_STATE_KEYS.TENANTS_VIEW, 'directory', VALID_TENANT_VIEWS);
-let tenantBundlesUIInitialized = false;
-const tenantBundlesState = {
-    selectedTenantId: '',
-    cache: new Map(),
-    loading: false,
-};
 let addAgentUIInitialized = false;
 let ssoAdminInitialized = false;
 let logSubtabsInitialized = false;
@@ -1124,14 +1118,6 @@ function initAdminSubTabs() {
             switchAdminView(target);
         });
     });
-
-    // Nested tenants inner sub-tabs (Directory / Bundles)
-    document.querySelectorAll('.tenants-inner-subtab').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const target = btn.dataset.tenantsview || 'directory';
-            switchTenantsInnerView(target);
-        });
-    });
 }
 
 function switchAdminView(view, force = false) {
@@ -1218,26 +1204,6 @@ async function openFleetSettingsForAgent(agentId) {
     settingsUIState.selectedAgentId = agentId;
     await loadAgentSnapshot(agentId);
     renderSettingsUI();
-}
-
-function switchTenantsInnerView(view) {
-    const normalized = VALID_TENANT_VIEWS.includes(view) ? view : 'directory';
-    activeTenantsView = normalized;
-    persistUIState(SERVER_UI_STATE_KEYS.TENANTS_VIEW, normalized);
-
-    document.querySelectorAll('.tenants-inner-subtab').forEach(btn => {
-        const target = btn.dataset.tenantsview || 'directory';
-        btn.classList.toggle('active', target === normalized);
-    });
-
-    document.querySelectorAll('.tenants-view-panel').forEach(panel => {
-        const target = panel.dataset.tenantsviewPanel || 'directory';
-        panel.classList.toggle('hidden', target !== normalized);
-    });
-
-    if (normalized === 'bundles') {
-        initTenantBundlesUI();
-    }
 }
 
 // Sessions management for Access sub-tab
@@ -4559,7 +4525,6 @@ function initTenantsUI(){
     tenantsUIInitialized = true;
     initTenantModal();
     initTenantsSubTabs();
-    initTenantBundlesUI();
     initSitesUI();
     switchTenantsView(activeTenantsView, true);
     const btn = document.getElementById('new_tenant_btn');
@@ -4621,49 +4586,6 @@ function switchTenantsView(view, force = false){
     }
     activeTenantsView = view;
     persistUIState(SERVER_UI_STATE_KEYS.TENANTS_VIEW, view);
-    if (view === 'bundles') {
-        if (tenantBundlesState.selectedTenantId) {
-            loadTenantBundles(tenantBundlesState.selectedTenantId);
-        } else {
-            renderTenantBundlesMessage('Select a tenant to view installer bundles.');
-        }
-    }
-}
-
-function initTenantBundlesUI(){
-    if (tenantBundlesUIInitialized) return;
-    const select = document.getElementById('tenant_bundles_tenant_select');
-    const table = document.getElementById('tenant_bundles_table');
-    if (!select || !table) return;
-    tenantBundlesUIInitialized = true;
-    
-    // Populate with "Add Tenant" option
-    populateTenantDropdown(select, { 
-        placeholder: 'Select tenant…', 
-        showAddOption: true 
-    });
-    
-    // Add change listener for loading bundles (but skip for "Add Tenant")
-    select.addEventListener('change', (event) => {
-        if (event.target.value === '__add_new_tenant__') return; // Handled by populateTenantDropdown
-        tenantBundlesState.selectedTenantId = event.target.value;
-        if (!tenantBundlesState.selectedTenantId) {
-            renderTenantBundlesMessage('Select a tenant to view installer bundles.');
-            return;
-        }
-        loadTenantBundles(tenantBundlesState.selectedTenantId);
-    });
-    const refreshBtn = document.getElementById('tenant_bundles_refresh_btn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            if (!tenantBundlesState.selectedTenantId) {
-                renderTenantBundlesMessage('Select a tenant to refresh bundles.');
-                return;
-            }
-            loadTenantBundles(tenantBundlesState.selectedTenantId, { force: true });
-        });
-    }
-    syncTenantBundlesTenantDirectory(window._tenants || []);
 }
 
 // Callback for after new tenant is created via dropdown "Add Tenant" option
@@ -5707,48 +5629,8 @@ async function loadTenants(){
         syncSSOTenants(data);
         renderTenants(data);
         notifyManagedSettingsTenantDirectory(data);
-        syncTenantBundlesTenantDirectory(data);
     }catch(err){
         el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
-    }
-}
-
-function syncTenantBundlesTenantDirectory(list){
-    const select = document.getElementById('tenant_bundles_tenant_select');
-    if (!select) return;
-    const normalized = normalizeTenantList(list);
-    const previous = tenantBundlesState.selectedTenantId;
-    
-    // Use populateTenantDropdown to update with "Add Tenant" option
-    populateTenantDropdown(select, { 
-        placeholder: 'Select tenant…', 
-        selectedId: previous,
-        showAddOption: true 
-    });
-    
-    // Build set of valid IDs for cache cleanup
-    const validIds = new Set();
-    normalized.forEach(tenant => {
-        if (tenant.id) validIds.add(tenant.id);
-    });
-    
-    tenantBundlesState.cache.forEach((_, key) => {
-        if (!validIds.has(key)) {
-            tenantBundlesState.cache.delete(key);
-        }
-    });
-    if (previous && validIds.has(previous)) {
-        select.value = previous;
-        tenantBundlesState.selectedTenantId = previous;
-        if (activeTenantsView === 'bundles' && tenantBundlesUIInitialized) {
-            loadTenantBundles(previous);
-        }
-        return;
-    }
-    select.value = '';
-    tenantBundlesState.selectedTenantId = '';
-    if (activeTenantsView === 'bundles') {
-        renderTenantBundlesMessage('Select a tenant to view installer bundles.');
     }
 }
 
@@ -5769,111 +5651,6 @@ function tenantDisplayNameById(tenantId){
 function formatTenantDisplay(tenantId){
     if (!tenantId) return 'Global';
     return tenantDisplayNameById(tenantId) || tenantId;
-}
-
-async function loadTenantBundles(tenantId, options = {}){
-    const container = document.getElementById('tenant_bundles_table');
-    if (!container) return;
-    const normalizedId = (tenantId || '').trim();
-    if (!normalizedId) {
-        renderTenantBundlesMessage('Select a tenant to view installer bundles.');
-        return;
-    }
-    if (!options.force && tenantBundlesState.cache.has(normalizedId)) {
-        renderTenantBundlesTable(normalizedId, tenantBundlesState.cache.get(normalizedId));
-        return;
-    }
-    tenantBundlesState.loading = true;
-    container.innerHTML = '<div class="muted-text">Loading bundles…</div>';
-    try {
-        const params = new URLSearchParams({ limit: '50' });
-        const response = await fetch(`/api/v1/tenants/${encodeURIComponent(normalizedId)}/bundles?${params.toString()}`);
-        if (!response.ok) {
-            throw new Error(await response.text());
-        }
-        const bundles = await response.json();
-        tenantBundlesState.cache.set(normalizedId, bundles);
-        renderTenantBundlesTable(normalizedId, bundles);
-    } catch (err) {
-        renderTenantBundlesError(err);
-    } finally {
-        tenantBundlesState.loading = false;
-    }
-}
-
-function renderTenantBundlesTable(tenantId, bundles){
-    const container = document.getElementById('tenant_bundles_table');
-    if (!container) return;
-    const tenantName = tenantDisplayNameById(tenantId);
-    if (!Array.isArray(bundles) || bundles.length === 0) {
-        container.innerHTML = `<div class="muted-text">No installer bundles for ${escapeHtml(tenantName || tenantId)} yet.</div>`;
-        return;
-    }
-    const rows = bundles.map(bundle => {
-        if (!bundle) {
-            return '';
-        }
-        const status = bundle.expired ? '<span style="color:var(--danger);">Expired</span>' : '<span style="color:var(--success);">Active</span>';
-        const created = bundle.created_at ? formatDateTime(bundle.created_at) : '—';
-        const expires = bundle.expires_at ? formatDateTime(bundle.expires_at) : '—';
-        const platformBits = [];
-        if (bundle.platform) platformBits.push(escapeHtml(bundle.platform));
-        if (bundle.arch) platformBits.push(escapeHtml(bundle.arch));
-        if (bundle.format) platformBits.push(escapeHtml(bundle.format));
-        const platform = platformBits.length ? platformBits.join(' • ') : '—';
-        const size = typeof bundle.size_bytes === 'number' ? formatBytes(bundle.size_bytes) : '—';
-        const component = escapeHtml(bundle.component || 'agent');
-        const version = bundle.version ? `<div class="muted-text">v${escapeHtml(bundle.version)}</div>` : '';
-        const download = bundle.download_url ? `<a href="${escapeHtml(bundle.download_url)}" target="_blank" rel="noopener">Download</a>` : '<span class="muted-text">Unavailable</span>';
-        return `
-            <tr>
-                <td>
-                    <div class="table-primary">${component}</div>
-                    ${version}
-                    <div class="muted-text">Bundle ID: ${escapeHtml(String(bundle.id || ''))}</div>
-                </td>
-                <td>${platform}</td>
-                <td>${size}</td>
-                <td>${created}</td>
-                <td>${expires}</td>
-                <td>${status}</td>
-                <td>${download}</td>
-            </tr>
-        `;
-    }).join('');
-    container.innerHTML = `
-        <div class="table-wrapper">
-            <table class="simple-table">
-                <thead>
-                    <tr>
-                        <th>Bundle</th>
-                        <th>Platform</th>
-                        <th>Size</th>
-                        <th>Created</th>
-                        <th>Expires</th>
-                        <th>Status</th>
-                        <th>Download</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rows}
-                </tbody>
-            </table>
-        </div>
-    `;
-}
-
-function renderTenantBundlesMessage(message){
-    const container = document.getElementById('tenant_bundles_table');
-    if (!container) return;
-    container.innerHTML = `<div class="muted-text">${escapeHtml(message || '')}</div>`;
-}
-
-function renderTenantBundlesError(err){
-    const container = document.getElementById('tenant_bundles_table');
-    if (!container) return;
-    const message = err && err.message ? err.message : err;
-    container.innerHTML = `<div style="color:var(--danger);">Failed to load bundles: ${escapeHtml(message || 'unknown error')}</div>`;
 }
 
 function renderTenants(list){
@@ -13314,8 +13091,7 @@ function renderServerPanel(server) {
     const db = server.database || {};
     const uptime = formatDuration(server.uptime_seconds);
     const artifactsBytes = db.release_artifacts_bytes || db.release_bytes || 0;
-    const bundlesBytes = db.installer_bundles_bytes || db.installer_bytes || 0;
-    const cacheBytes = artifactsBytes + bundlesBytes;
+    const cacheBytes = artifactsBytes;
 
     panel.innerHTML = `
         <div class="metric-card">
@@ -13339,7 +13115,6 @@ function renderServerPanel(server) {
                     <li>Users: <strong>${formatNumber(db.users || 0)}</strong></li>
                     <li>Audit entries: <strong>${formatNumber(db.audit_entries || 0)}</strong></li>
                     <li>Artifacts: <strong>${formatNumber(db.release_artifacts || 0)}</strong> (${formatBytes(artifactsBytes)})</li>
-                    <li>Installer bundles: <strong>${formatNumber(db.installer_bundles || 0)}</strong> (${formatBytes(bundlesBytes)})</li>
                     <li>Total cache size: <strong>${formatBytes(cacheBytes)}</strong></li>
                 </ul>
             ` : '<div class="muted-text">No DB stats available.</div>'}
@@ -13997,7 +13772,6 @@ async function handleAddAgentPrimary(){
                 const data = await r.json();
                 st.token = data.token;
                 st.script = null;
-                st.bundle = null;
                 st.mode = 'token';
                 st.step = 2;
                 window._addAgentState = st;
@@ -14039,7 +13813,6 @@ async function handleAddAgentPrimary(){
                 st.scriptFilename = filename;
                 st.scriptDownloadURL = downloadURL;
                 st.oneLiner = oneLiner;
-                st.bundle = null;
                 st.token = null;
                 st.mode = 'script';
                 st.step = 2;
@@ -14047,32 +13820,6 @@ async function handleAddAgentPrimary(){
                 renderAddAgentStep(2);
             }catch(err){
                 window.__pm_shared.showAlert('Failed to generate bootstrap script: ' + (err && err.message ? err.message : err), 'Error', true, false);
-            }
-        } else if(action === 'archive'){
-            try{
-                const payload = {
-                    tenant_id: tenantID,
-                    platform: platform,
-                    installer_type: 'archive',
-                    ttl_minutes: ttl,
-                    format: format,
-                    arch: arch,
-                    component: 'agent'
-                };
-                const r = await fetch('/api/v1/packages', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
-                if(!r.ok){
-                    throw new Error(await r.text());
-                }
-                const data = await r.json();
-                st.bundle = data;
-                st.script = null;
-                st.token = null;
-                st.mode = 'archive';
-                st.step = 2;
-                window._addAgentState = st;
-                renderAddAgentStep(2);
-            } catch(err){
-                window.__pm_shared.showAlert('Failed to build installer: ' + (err && err.message ? err.message : err), 'Error', true, false);
             }
         } else {
             window.__pm_shared.showAlert('Unsupported onboarding option selected.', 'Error', true, false);
@@ -14097,7 +13844,6 @@ function renderAddAgentStep(step){
             const mode = (window._addAgentState && window._addAgentState.mode) ? window._addAgentState.mode : 'token';
             let label = 'Token (shown once)';
             if(mode === 'script') label = 'Bootstrap script';
-            if(mode === 'archive') label = 'Installer download';
             indicator.textContent = 'Step 2/2 — ' + label;
         }
     }
@@ -14140,27 +13886,15 @@ function renderAddAgentStep(step){
                     <div style="font-weight:600;margin-bottom:6px;">Onboarding method</div>
                     <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="token" ${state.mode === 'token' || !state.mode ? 'checked' : ''} /> Show raw token</label>
                     <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="script" ${state.mode === 'script' ? 'checked' : ''} /> Generate bootstrap script</label>
-                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="archive" ${state.mode === 'archive' ? 'checked' : ''} /> Build installer archive</label>
                     <div id="add_agent_platform_row" style="margin-top:8px;display:none;">
                         <label style="font-weight:600">Target platform</label>
                         <select id="add_agent_platform" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:180px;">
                             ${platformOptions}
                         </select>
                     </div>
-                    <div id="add_agent_archive_fields" style="margin-top:12px;display:none;">
-                        <label style="font-weight:600">Archive format</label>
-                        <select id="add_agent_format" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:200px;">
-                            ${formatOptions}
-                        </select>
-                        <label style="font-weight:600;margin-top:10px;">Architecture</label>
-                        <select id="add_agent_arch" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:200px;">
-                            ${archOptions}
-                        </select>
-                        <div style="color:var(--muted);font-size:12px;margin-top:6px;">Installer archives include tenant-specific config and expire automatically.</div>
-                    </div>
                 </div>
 
-                <div style="color:var(--muted);font-size:13px">Tokens and installers inherit this TTL. Installer bundles embed the generated join token and may be downloaded from the link shown after build.</div>
+                <div style="color:var(--muted);font-size:13px">Tokens and scripts inherit this TTL.</div>
             </div>
         `;
 
@@ -14204,37 +13938,18 @@ function renderAddAgentStep(step){
             });
         }
 
-        const formatSelect = content.querySelector('#add_agent_format');
-        if(formatSelect){
-            const selectedFormat = state.format || (state.platform === 'windows' ? 'zip' : 'tar.gz');
-            formatSelect.value = selectedFormat;
-            state.format = formatSelect.value;
-            formatSelect.addEventListener('change', ()=>{ state.format = formatSelect.value; });
-        }
-
-        const archSelect = content.querySelector('#add_agent_arch');
-        if(archSelect){
-            const defaultArch = state.arch || (defaultPlatform === 'darwin' ? 'arm64' : 'amd64');
-            archSelect.value = defaultArch;
-            state.arch = archSelect.value;
-            archSelect.addEventListener('change', ()=>{ state.arch = archSelect.value; });
-        }
-
         const actionRadios = content.querySelectorAll('input[name="add_agent_action"]');
         const platRow = content.querySelector('#add_agent_platform_row');
-        const archiveFields = content.querySelector('#add_agent_archive_fields');
         const updatePrimaryLabel = () => {
             const sel = content.querySelector('input[name="add_agent_action"]:checked');
             if(!sel || !primaryBtn) return;
             if(sel.value === 'script') primaryBtn.textContent = 'Generate Script';
-            else if(sel.value === 'archive') primaryBtn.textContent = 'Build Installer';
             else primaryBtn.textContent = 'Create Token';
         };
         const updateFieldVisibility = () => {
             const sel = content.querySelector('input[name="add_agent_action"]:checked');
             const mode = sel ? sel.value : 'token';
             if(platRow) platRow.style.display = mode === 'token' ? 'none' : '';
-            if(archiveFields) archiveFields.style.display = mode === 'archive' ? '' : 'none';
         };
         actionRadios.forEach(r => r.addEventListener('change', ()=>{
             state.mode = r.value;
@@ -14249,45 +13964,7 @@ function renderAddAgentStep(step){
         const mode = (window._addAgentState && window._addAgentState.mode) ? window._addAgentState.mode : 'token';
         const script = (window._addAgentState && window._addAgentState.script) ? window._addAgentState.script : null;
         const filename = (window._addAgentState && window._addAgentState.scriptFilename) ? window._addAgentState.scriptFilename : 'bootstrap';
-        const bundle = (window._addAgentState && window._addAgentState.bundle) ? window._addAgentState.bundle : null;
-        if(mode === 'archive' && bundle){
-            const expires = bundle.expires_at ? new Date(bundle.expires_at).toLocaleString() : 'n/a';
-            const sizeBytes = bundle.size_bytes ? Number(bundle.size_bytes) : 0;
-            const metadata = bundle.metadata || null;
-            const downloadURL = bundle.download_url || '';
-            content.innerHTML = `
-                <div style="display:flex;flex-direction:column;gap:12px;">
-                    <div class="card" style="padding:12px;">
-                        <div style="font-weight:600;margin-bottom:6px;">Installer ready</div>
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;font-size:13px;">
-                            <div><div class="muted-text">Platform</div><div>${escapeHtml(bundle.platform || '')}</div></div>
-                            <div><div class="muted-text">Architecture</div><div>${escapeHtml(bundle.arch || '')}</div></div>
-                            <div><div class="muted-text">Format</div><div>${escapeHtml(bundle.format || '')}</div></div>
-                            <div><div class="muted-text">Size</div><div>${sizeBytes ? formatBytes(sizeBytes) : 'unknown'}</div></div>
-                            <div><div class="muted-text">Expires</div><div>${escapeHtml(expires)}</div></div>
-                        </div>
-                    </div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <button id="add_agent_download_bundle" class="modal-button" ${downloadURL ? '' : 'disabled'}>Download installer</button>
-                        ${ downloadURL ? `<button id="add_agent_copy_bundle" class="modal-button modal-button-secondary">Copy download URL</button>` : '' }
-                        ${ downloadURL ? `<a id="add_agent_open_bundle" class="modal-button" href="${escapeHtml(downloadURL)}" target="_blank" rel="noopener">Open link</a>` : '' }
-                    </div>
-                    ${ metadata ? `<details style="font-size:13px;" open>
-                        <summary style="cursor:pointer;font-weight:600;">Embed metadata</summary>
-                        <pre style="margin-top:6px;white-space:pre-wrap;word-break:break-word;background:var(--panel);padding:12px;border-radius:6px;border:1px dashed var(--border);">${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>
-                    </details>` : '' }
-                    <div style="color:var(--muted);font-size:13px;">Installer bundles expire automatically. Share this download link with trusted recipients only.</div>
-                </div>
-            `;
-            const downloadBtn = document.getElementById('add_agent_download_bundle');
-            if(downloadBtn && downloadURL){ downloadBtn.addEventListener('click', ()=>{ window.open(downloadURL, '_blank', 'noopener'); }); }
-            const copyBtn = document.getElementById('add_agent_copy_bundle');
-            if(copyBtn && downloadURL){
-                copyBtn.addEventListener('click', ()=>{
-                    navigator.clipboard?.writeText(downloadURL).then(()=> window.__pm_shared.showToast('Download link copied','success')).catch(err=> window.__pm_shared.showAlert('Failed to copy link: ' + (err && err.message ? err.message : err), 'Error', true, false));
-                });
-            }
-        } else if(script && mode === 'script'){
+        if(script && mode === 'script'){
             const oneLiner = (window._addAgentState && window._addAgentState.oneLiner) ? window._addAgentState.oneLiner : null;
             content.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:12px;">

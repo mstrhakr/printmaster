@@ -1186,40 +1186,6 @@ select:focus {
   display: none;
 }
 
-/* Tenants inner sub-tabs (Directory / Bundles) */
-.tenants-inner-subtab-bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding-left: 8px;
-  border-left: 2px solid var(--border);
-}
-
-.tenants-inner-subtab {
-  background: transparent;
-  color: var(--muted);
-  border: none;
-  padding: 4px 10px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
-  transition: var(--transition-fast);
-}
-
-.tenants-inner-subtab:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.tenants-inner-subtab.active {
-  background: var(--panel);
-  color: var(--highlight);
-}
-
-.tenants-inner-view.hidden {
-  display: none;
-}
-
 /* Roles & Permissions reference table */
 .roles-table-container {
   margin-top: 16px;

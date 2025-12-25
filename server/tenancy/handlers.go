@@ -10,14 +10,12 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	authz "printmaster/server/authz"
-	packager "printmaster/server/packager"
 	"printmaster/server/storage"
 
 	"printmaster/common/logger"
@@ -64,19 +62,6 @@ func logError(msg string, kv ...interface{}) {
 	if pkgLogger != nil {
 		pkgLogger.Error(msg, kv...)
 	}
-}
-
-type installerBuilder interface {
-	BuildInstaller(context.Context, packager.BuildRequest) (*storage.InstallerBundle, error)
-	OpenBundle(context.Context, *storage.InstallerBundle) (*packager.BundleHandle, error)
-}
-
-// installerPackager orchestrates archive generation for tenant-scoped installers.
-var installerPackager installerBuilder
-
-// SetInstallerPackager allows the server to inject the shared packager.Manager instance.
-func SetInstallerPackager(builder installerBuilder) {
-	installerPackager = builder
 }
 
 // SetEnabled allows the main server to toggle tenancy feature flags at
@@ -219,8 +204,6 @@ var installCleanerOnce sync.Once
 // agent release asset on GitHub.
 var serverVersion string
 
-var versionFileCandidates = []string{"server/VERSION", "VERSION"}
-
 // SetServerVersion sets the server version (called from main at startup).
 func SetServerVersion(v string) {
 	serverVersion = v
@@ -252,7 +235,6 @@ func RegisterRoutes(s storage.Store) {
 // routes multiple times on the same mux.
 func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	dbStore = s
-	RegisterTenantSubresource("bundles", handleTenantBundlesSubresource)
 	// Wrap handlers with AuthMiddleware when provided
 	wrap := func(h http.HandlerFunc) http.HandlerFunc {
 		if AuthMiddleware != nil {
@@ -270,9 +252,8 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	// Pending agent registrations (expired token capture)
 	mux.HandleFunc("/api/v1/pending-registrations", wrap(handlePendingRegistrations))     // GET (admin)
 	mux.HandleFunc("/api/v1/pending-registrations/", wrap(handlePendingRegistrationByID)) // GET/POST/DELETE by ID
-	// Package generation (bootstrap script / archive) - admin only
+	// Package generation (bootstrap script) - admin only
 	mux.HandleFunc("/api/v1/packages", wrap(handleGeneratePackage))
-	mux.HandleFunc("/api/v1/packages/", wrap(handlePackageRoute))
 	// Public redirect to latest agent binary on GitHub releases. This chooses
 	// the release based on the running server version (set by main via
 	// SetServerVersion) and redirects to the appropriate asset for the
@@ -579,69 +560,6 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-}
-
-func handleTenantBundlesSubresource(w http.ResponseWriter, r *http.Request, tenantID, rest string) {
-	if !requireTenancyEnabled(w, r) {
-		return
-	}
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
-		http.NotFound(w, r)
-		return
-	}
-	if strings.TrimSpace(rest) != "" {
-		http.NotFound(w, r)
-		return
-	}
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	if dbStore == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "installer bundles unavailable")
-		return
-	}
-	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{tenantID}}) {
-		return
-	}
-	limit := parseBundleListLimit(r.URL.Query().Get("limit"))
-	bundles, err := dbStore.ListInstallerBundles(r.Context(), tenantID, limit)
-	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to list bundles")
-		return
-	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	baseURL := scheme + "://" + r.Host
-	response := make([]map[string]interface{}, 0, len(bundles))
-	for _, bundle := range bundles {
-		if bundle == nil {
-			continue
-		}
-		item := map[string]interface{}{
-			"id":           bundle.ID,
-			"tenant_id":    bundle.TenantID,
-			"component":    bundle.Component,
-			"version":      bundle.Version,
-			"platform":     bundle.Platform,
-			"arch":         bundle.Arch,
-			"format":       bundle.Format,
-			"size_bytes":   bundle.SizeBytes,
-			"created_at":   bundle.CreatedAt,
-			"expires_at":   bundle.ExpiresAt,
-			"expired":      bundleExpired(bundle),
-			"download_url": fmt.Sprintf("%s/api/v1/packages/%d/download", baseURL, bundle.ID),
-		}
-		if meta, err := decodeBundleMetadata(bundle.MetadataJSON); err == nil && len(meta) > 0 {
-			item["metadata"] = meta
-		}
-		response = append(response, item)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(response)
 }
 
 // handleCreateJoinToken issues a join token. Body: {"tenant_id":"...","ttl_minutes":60,"one_time":false}
@@ -1414,15 +1332,14 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var tenantRecord *storage.Tenant
+	// Validate tenant exists
 	if dbStore != nil {
-		tenant, err := dbStore.GetTenant(r.Context(), in.TenantID)
+		_, err := dbStore.GetTenant(r.Context(), in.TenantID)
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte(`{"error":"tenant not found"}`))
 			return
 		}
-		tenantRecord = tenant
 	} else {
 		store.mu.Lock()
 		_, ok := store.tenants[in.TenantID]
@@ -1435,18 +1352,14 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var rawToken string
-	var tokenMeta joinTokenInfo
 	if dbStore != nil {
-		jt, rt, err := dbStore.CreateJoinToken(r.Context(), in.TenantID, in.TTLMinutes, true)
+		_, rt, err := dbStore.CreateJoinToken(r.Context(), in.TenantID, in.TTLMinutes, true)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(`{"error":"failed to create token"}`))
 			return
 		}
 		rawToken = rt
-		if jt != nil {
-			tokenMeta = joinTokenInfo{ID: strings.TrimSpace(jt.ID), ExpiresAt: jt.ExpiresAt, OneTime: jt.OneTime}
-		}
 	} else {
 		jt, err := store.CreateJoinToken(in.TenantID, in.TTLMinutes, true)
 		if err != nil {
@@ -1455,7 +1368,6 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rawToken = jt.Token
-		tokenMeta = joinTokenInfo{ExpiresAt: jt.ExpiresAt, OneTime: jt.OneTime}
 	}
 
 	scheme := "http"
@@ -1511,181 +1423,9 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 			"one_liner":    oneLiner,
 		})
 		return
-	case "archive":
-		if dbStore == nil || installerPackager == nil || tenantRecord == nil {
-			writeJSONError(w, http.StatusServiceUnavailable, "installer packaging unavailable")
-			return
-		}
-		bundle, metadata, err := generateInstallerBundle(r.Context(), r, in, tenantRecord, platform, rawToken, serverURL, tokenMeta)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		resp := map[string]interface{}{
-			"bundle_id":    bundle.ID,
-			"tenant_id":    bundle.TenantID,
-			"component":    bundle.Component,
-			"version":      bundle.Version,
-			"platform":     bundle.Platform,
-			"arch":         bundle.Arch,
-			"format":       bundle.Format,
-			"size_bytes":   bundle.SizeBytes,
-			"expires_at":   bundle.ExpiresAt,
-			"download_url": fmt.Sprintf("%s/api/v1/packages/%d/download", serverURL, bundle.ID),
-		}
-		if len(metadata) > 0 {
-			resp["metadata"] = metadata
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-		return
 	default:
-		writeJSONError(w, http.StatusBadRequest, "unsupported installer_type")
+		writeJSONError(w, http.StatusBadRequest, "unsupported installer_type (only 'script' is supported)")
 		return
-	}
-}
-
-// handlePackageRoute dispatches bundle metadata and download requests under /api/v1/packages/{id}
-func handlePackageRoute(w http.ResponseWriter, r *http.Request) {
-	if !requireTenancyEnabled(w, r) {
-		return
-	}
-	if dbStore == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "installer bundles unavailable")
-		return
-	}
-	trimmed := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/packages/"), "/")
-	if trimmed == "" {
-		http.NotFound(w, r)
-		return
-	}
-	parts := strings.Split(trimmed, "/")
-	id, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil || id <= 0 {
-		writeJSONError(w, http.StatusBadRequest, "invalid package id")
-		return
-	}
-	bundle, err := dbStore.GetInstallerBundle(r.Context(), id)
-	if err != nil || bundle == nil {
-		http.NotFound(w, r)
-		return
-	}
-	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{bundle.TenantID}}) {
-		return
-	}
-	if len(parts) == 1 || strings.TrimSpace(parts[1]) == "" {
-		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		respondWithBundleMetadata(w, r, bundle)
-		return
-	}
-	sub := strings.ToLower(strings.TrimSpace(parts[1]))
-	switch sub {
-	case "download":
-		if r.Method != http.MethodGet {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		serveInstallerBundle(w, r, bundle)
-		return
-	default:
-		http.NotFound(w, r)
-		return
-	}
-}
-
-func respondWithBundleMetadata(w http.ResponseWriter, r *http.Request, bundle *storage.InstallerBundle) {
-	if bundle == nil {
-		http.NotFound(w, r)
-		return
-	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	baseURL := scheme + "://" + r.Host
-	expired := bundleExpired(bundle)
-	resp := map[string]interface{}{
-		"bundle_id":    bundle.ID,
-		"tenant_id":    bundle.TenantID,
-		"component":    bundle.Component,
-		"version":      bundle.Version,
-		"platform":     bundle.Platform,
-		"arch":         bundle.Arch,
-		"format":       bundle.Format,
-		"size_bytes":   bundle.SizeBytes,
-		"expires_at":   bundle.ExpiresAt,
-		"expired":      expired,
-		"download_url": fmt.Sprintf("%s/api/v1/packages/%d/download", baseURL, bundle.ID),
-	}
-	if meta, err := decodeBundleMetadata(bundle.MetadataJSON); err == nil && len(meta) > 0 {
-		resp["metadata"] = meta
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-}
-
-func serveInstallerBundle(w http.ResponseWriter, r *http.Request, bundle *storage.InstallerBundle) {
-	if bundle == nil {
-		http.NotFound(w, r)
-		return
-	}
-	if bundleExpired(bundle) {
-		writeJSONError(w, http.StatusGone, "installer bundle expired")
-		return
-	}
-	if installerPackager == nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "installer packager unavailable")
-		return
-	}
-	handle, err := installerPackager.OpenBundle(r.Context(), bundle)
-	if err != nil {
-		writeJSONError(w, http.StatusNotFound, err.Error())
-		return
-	}
-	defer handle.Close()
-	filename := handle.Name()
-	if strings.TrimSpace(filename) == "" {
-		filename = filepath.Base(bundle.BundlePath)
-	}
-	if strings.TrimSpace(filename) == "" {
-		filename = fmt.Sprintf("installer-%d", bundle.ID)
-	}
-	modTime := handle.ModTime()
-	if modTime.IsZero() {
-		modTime = bundle.UpdatedAt
-	}
-	w.Header().Set("Content-Type", contentTypeForFormat(bundle.Format))
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
-	w.Header().Set("Cache-Control", "no-store")
-	http.ServeContent(w, r, filename, modTime, handle)
-	recordAudit(r, &storage.AuditEntry{
-		Action:     "package.download",
-		TargetType: "install_package",
-		TargetID:   bundle.TenantID,
-		TenantID:   bundle.TenantID,
-		Details:    "Installer bundle downloaded",
-		Metadata: map[string]interface{}{
-			"bundle_id": bundle.ID,
-			"format":    bundle.Format,
-			"component": bundle.Component,
-			"version":   bundle.Version,
-		},
-	})
-}
-
-func contentTypeForFormat(format string) string {
-	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "zip":
-		return "application/zip"
-	case "tar.gz", "tgz":
-		return "application/gzip"
-	case "msi":
-		return "application/x-msi"
-	default:
-		return "application/octet-stream"
 	}
 }
 
@@ -1738,122 +1478,6 @@ func installCleanupLoop() {
 		}
 		installStore.mu.Unlock()
 	}
-}
-
-func generateInstallerBundle(ctx context.Context, r *http.Request, req packageRequest, tenant *storage.Tenant, platform, rawToken, serverURL string, tokenMeta joinTokenInfo) (*storage.InstallerBundle, map[string]interface{}, error) {
-	if installerPackager == nil {
-		return nil, nil, fmt.Errorf("installer packager unavailable")
-	}
-	if tenant == nil {
-		return nil, nil, fmt.Errorf("tenant context required")
-	}
-	resolvedPlatform := normalizePlatform(platform)
-	format := strings.ToLower(strings.TrimSpace(req.Format))
-	if format == "" {
-		format = defaultFormatForPlatform(resolvedPlatform)
-	}
-	if format == "" {
-		return nil, nil, fmt.Errorf("installer format required")
-	}
-	component := strings.TrimSpace(req.Component)
-	if component == "" {
-		component = "agent"
-	}
-	version := strings.TrimSpace(req.Version)
-	if version == "" {
-		version = defaultBundleVersion()
-	}
-	if version == "" {
-		return nil, nil, fmt.Errorf("version required")
-	}
-	arch := normalizeArch(req.Arch, resolvedPlatform)
-	if arch == "" {
-		return nil, nil, fmt.Errorf("arch required")
-	}
-	ttl := time.Duration(req.TTLMinutes) * time.Minute
-	if ttl <= 0 {
-		ttl = 10 * time.Minute
-	}
-	effectiveServer := strings.TrimSpace(serverURL)
-	generatedAt := time.Now().UTC()
-	overlayMeta := map[string]interface{}{
-		"tenant_id":           tenant.ID,
-		"tenant_name":         tenant.Name,
-		"platform":            resolvedPlatform,
-		"arch":                arch,
-		"format":              format,
-		"component":           component,
-		"version":             version,
-		"server_url":          effectiveServer,
-		"generated_at":        generatedAt,
-		"server_version":      defaultBundleVersion(),
-		"masked_join_token":   maskTokenValue(rawToken),
-		"join_token_one_time": tokenMeta.OneTime,
-	}
-	if tokenMeta.ID != "" {
-		overlayMeta["join_token_id"] = tokenMeta.ID
-	}
-	if !tokenMeta.ExpiresAt.IsZero() {
-		overlayMeta["join_token_expires_at"] = tokenMeta.ExpiresAt
-	}
-	if r != nil {
-		if addr := strings.TrimSpace(r.RemoteAddr); addr != "" {
-			overlayMeta["request_ip"] = addr
-		}
-		if ua := strings.TrimSpace(r.UserAgent()); ua != "" {
-			overlayMeta["user_agent"] = ua
-		}
-	}
-	overlays, err := buildOverlayFiles(effectiveServer, rawToken, overlayMeta)
-	if err != nil {
-		return nil, nil, err
-	}
-	requestMetadata := map[string]interface{}{
-		"tenant_id":   tenant.ID,
-		"tenant_name": tenant.Name,
-		"platform":    resolvedPlatform,
-		"arch":        arch,
-		"format":      format,
-		"component":   component,
-		"version":     version,
-		"server_url":  effectiveServer,
-	}
-	if tokenMeta.ID != "" {
-		requestMetadata["join_token_id"] = tokenMeta.ID
-	}
-	if !tokenMeta.ExpiresAt.IsZero() {
-		requestMetadata["join_token_expires_at"] = tokenMeta.ExpiresAt
-	}
-	requestMetadata["join_token_one_time"] = tokenMeta.OneTime
-	bundle, err := installerPackager.BuildInstaller(ctx, packager.BuildRequest{
-		TenantID:     tenant.ID,
-		Component:    component,
-		Version:      version,
-		Platform:     resolvedPlatform,
-		Arch:         arch,
-		Format:       format,
-		OverlayFiles: overlays,
-		Metadata:     requestMetadata,
-		TTL:          ttl,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	metadata, _ := decodeBundleMetadata(bundle.MetadataJSON)
-	return bundle, metadata, nil
-}
-
-func buildOverlayFiles(serverURL, rawToken string, meta map[string]interface{}) ([]packager.OverlayFile, error) {
-	config := buildBootstrapConfig(serverURL, rawToken)
-	metaBytes, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	files := []packager.OverlayFile{
-		{Path: "config/bootstrap.toml", Mode: 0o600, Data: config},
-		{Path: "config/metadata.json", Mode: 0o640, Data: metaBytes},
-	}
-	return files, nil
 }
 
 func buildBootstrapConfig(serverURL, token string) []byte {
@@ -2191,78 +1815,6 @@ func normalizeArch(input, platform string) string {
 		}
 	}
 	return arch
-}
-
-func defaultFormatForPlatform(platform string) string {
-	switch normalizePlatform(platform) {
-	case "windows":
-		return "zip"
-	case "darwin":
-		return "tar.gz"
-	default:
-		return "tar.gz"
-	}
-}
-
-func defaultBundleVersion() string {
-	version := strings.TrimSpace(serverVersion)
-	if version != "" && !isDevVersion(version) {
-		return version
-	}
-	for _, candidate := range versionFileCandidates {
-		if data, err := os.ReadFile(candidate); err == nil {
-			fileVersion := strings.TrimSpace(string(data))
-			if fileVersion != "" {
-				return fileVersion
-			}
-		}
-	}
-	return version
-}
-
-func isDevVersion(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "dev", "development", "dirty", "local":
-		return true
-	default:
-		return false
-	}
-}
-
-func parseBundleListLimit(raw string) int {
-	const (
-		defaultLimit = 50
-		maxLimit     = 200
-	)
-	if strings.TrimSpace(raw) == "" {
-		return defaultLimit
-	}
-	value, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil || value <= 0 {
-		return defaultLimit
-	}
-	if value > maxLimit {
-		return maxLimit
-	}
-	return value
-}
-
-func bundleExpired(bundle *storage.InstallerBundle) bool {
-	if bundle == nil {
-		return false
-	}
-	return !bundle.ExpiresAt.IsZero() && time.Now().UTC().After(bundle.ExpiresAt)
-}
-
-func decodeBundleMetadata(raw string) (map[string]interface{}, error) {
-	if strings.TrimSpace(raw) == "" {
-		return nil, nil
-	}
-	var payload map[string]interface{}
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		return nil, err
-	}
-	return payload, nil
 }
 
 func writeJSONError(w http.ResponseWriter, status int, message string) {

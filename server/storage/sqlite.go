@@ -528,31 +528,6 @@ func (s *SQLiteStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_release_manifests_component ON release_manifests(component);
 
-	CREATE TABLE IF NOT EXISTS installer_bundles (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		tenant_id TEXT NOT NULL,
-		component TEXT NOT NULL,
-		version TEXT NOT NULL,
-		platform TEXT NOT NULL,
-		arch TEXT NOT NULL,
-		format TEXT NOT NULL,
-		source_artifact_id INTEGER,
-		config_hash TEXT NOT NULL,
-		bundle_path TEXT NOT NULL,
-		size_bytes INTEGER NOT NULL DEFAULT 0,
-		encrypted INTEGER NOT NULL DEFAULT 0,
-		encryption_key_id TEXT,
-		metadata_json TEXT,
-		expires_at DATETIME,
-		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY(source_artifact_id) REFERENCES release_artifacts(id) ON DELETE SET NULL,
-		UNIQUE(tenant_id, component, version, platform, arch, format, config_hash)
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_installer_bundles_tenant ON installer_bundles(tenant_id);
-	CREATE INDEX IF NOT EXISTS idx_installer_bundles_expires ON installer_bundles(expires_at);
-
 	CREATE TABLE IF NOT EXISTS self_update_runs (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		status TEXT NOT NULL,
@@ -869,8 +844,6 @@ func (s *SQLiteStore) runMigrations() error {
 		"ALTER TABLE agents ADD COLUMN last_device_sync DATETIME",
 		"ALTER TABLE agents ADD COLUMN last_metrics_sync DATETIME",
 		"ALTER TABLE users ADD COLUMN email TEXT",
-		"ALTER TABLE installer_bundles ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0",
-		"ALTER TABLE installer_bundles ADD COLUMN encryption_key_id TEXT",
 	}
 
 	for _, stmt := range altStmts {

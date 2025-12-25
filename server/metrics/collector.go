@@ -302,7 +302,7 @@ func (c *Collector) collectServerMetrics(ctx context.Context, server *storage.Se
 		server.DBSessions = dbStats.Sessions
 		server.DBUsers = dbStats.Users
 		server.DBAuditEntries = dbStats.AuditEntries
-		server.DBCacheBytes = dbStats.ReleaseBytes + dbStats.InstallerBytes
+		server.DBCacheBytes = dbStats.ReleaseBytes
 	}
 
 	// Database file size

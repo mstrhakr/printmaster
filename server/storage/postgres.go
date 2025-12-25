@@ -508,32 +508,6 @@ func (s *PostgresStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_release_manifests_component ON release_manifests(component);
 
-	-- Installer bundles
-	CREATE TABLE IF NOT EXISTS installer_bundles (
-		id BIGSERIAL PRIMARY KEY,
-		tenant_id TEXT NOT NULL,
-		component TEXT NOT NULL,
-		version TEXT NOT NULL,
-		platform TEXT NOT NULL,
-		arch TEXT NOT NULL,
-		format TEXT NOT NULL,
-		source_artifact_id BIGINT,
-		config_hash TEXT NOT NULL,
-		bundle_path TEXT NOT NULL,
-		size_bytes BIGINT NOT NULL DEFAULT 0,
-		encrypted BOOLEAN NOT NULL DEFAULT FALSE,
-		encryption_key_id TEXT,
-		metadata_json TEXT,
-		expires_at TIMESTAMPTZ,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		CONSTRAINT fk_bundles_artifact FOREIGN KEY(source_artifact_id) REFERENCES release_artifacts(id) ON DELETE SET NULL,
-		UNIQUE(tenant_id, component, version, platform, arch, format, config_hash)
-	);
-
-	CREATE INDEX IF NOT EXISTS idx_installer_bundles_tenant ON installer_bundles(tenant_id);
-	CREATE INDEX IF NOT EXISTS idx_installer_bundles_expires ON installer_bundles(expires_at);
-
 	-- Self-update runs
 	CREATE TABLE IF NOT EXISTS self_update_runs (
 		id BIGSERIAL PRIMARY KEY,

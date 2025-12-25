@@ -510,11 +510,6 @@
 
                 <!-- Tenants Sub-tab -->
                 <div class="admin-view-panel hidden" data-adminview-panel="tenants">
-                    <div class="tenants-inner-subtab-bar" id="tenants_inner_subtab_bar">
-                        <button class="subtab tenants-inner-subtab active" data-tenantsview="directory">Directory</button>
-                        <button class="subtab tenants-inner-subtab" data-tenantsview="bundles">Installer Bundles</button>
-                    </div>
-
                     <div class="tenants-view-panel" data-tenantsview-panel="directory">
                         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
                             <div style="color:var(--muted);">Manage tenants and onboarding tokens</div>
@@ -524,24 +519,6 @@
                         </div>
                         <div id="tenants_list">
                             <div style="color:var(--muted);">Loading tenants...</div>
-                        </div>
-                    </div>
-
-                    <div class="tenants-view-panel hidden" data-tenantsview-panel="bundles">
-                        <div class="panel">
-                            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
-                                <div style="color:var(--muted);">Review generated installer bundles per tenant.</div>
-                                <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
-                                    <label style="display:flex;flex-direction:column;font-size:12px;gap:4px;">
-                                        <span>Tenant</span>
-                                        <select id="tenant_bundles_tenant_select" style="min-width:220px;"></select>
-                                    </label>
-                                    <button id="tenant_bundles_refresh_btn" class="ghost-btn">Refresh</button>
-                                </div>
-                            </div>
-                            <div id="tenant_bundles_table" class="card" style="padding:12px;overflow:auto;">
-                                <div class="muted-text">Select a tenant to view installer bundles.</div>
-                            </div>
                         </div>
                     </div>
                 </div>

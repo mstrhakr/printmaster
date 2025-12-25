@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/fs"
 	"log"
 	"mime"
 	"net"
@@ -36,7 +35,6 @@ import (
 	alertsapi "printmaster/server/alerts"
 	authz "printmaster/server/authz"
 	metricsapi "printmaster/server/metrics"
-	"printmaster/server/packager"
 	releases "printmaster/server/releases"
 	selfupdate "printmaster/server/selfupdate"
 	serversettings "printmaster/server/settings"
@@ -64,10 +62,6 @@ const (
 
 const (
 	uiLogLineLimit              = 500
-	installerCleanupInterval    = 6 * time.Hour
-	installerCleanupGracePeriod = 10 * time.Minute
-	installerCleanupRunTimeout  = 2 * time.Minute
-	installerCleanupListTimeout = 30 * time.Second
 	httpRecencyThreshold        = 90 * time.Second
 )
 
@@ -674,34 +668,12 @@ func runServer(ctx context.Context, configFlag string) {
 		go intakeWorker.Run(ctx)
 	}
 
-	var (
-		dataDir           string
-		installerCacheDir string
-		installerKeyPath  string
-	)
+	var dataDir string
 	if resolvedDir, derr := config.GetDataDirectory("server", isService); derr == nil {
 		dataDir = resolvedDir
 	} else {
 		dataDir = filepath.Join(os.TempDir(), "printmaster")
 		logDebug("Falling back to temp data directory", "dir", dataDir, "error", derr)
-	}
-	installerCacheDir = filepath.Join(dataDir, "installers")
-	installerKeyPath = filepath.Join(dataDir, "secrets", "installer.key")
-	packagerManager, err := packager.NewManager(serverStore, serverLogger, packager.ManagerOptions{
-		CacheDir:          installerCacheDir,
-		DefaultTTL:        7 * 24 * time.Hour,
-		EncryptionKeyPath: installerKeyPath,
-		Builders: []packager.Builder{
-			packager.NewZipBuilder(),
-			packager.NewTarGzBuilder(),
-		},
-	})
-	if err != nil {
-		logWarn("Installer packager disabled", "error", err)
-	} else {
-		tenancy.SetInstallerPackager(packagerManager)
-		logInfo("Installer packager initialized", "cache_dir", installerCacheDir)
-		startInstallerCleanupWorker(ctx, serverStore, installerCacheDir)
 	}
 
 	// Load or create encryption key for device credentials
@@ -7285,173 +7257,6 @@ func validatePort(port int) error {
 		return fmt.Errorf("port must be between 1 and 65535")
 	}
 	return nil
-}
-
-func startInstallerCleanupWorker(ctx context.Context, store storage.Store, cacheDir string) {
-	if store == nil || cacheDir == "" {
-		return
-	}
-	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-		logWarn("Installer cleanup worker disabled; unable to prepare cache directory", "dir", cacheDir, "error", err)
-		return
-	}
-	runCleanup := func() {
-		runCtx, cancel := context.WithTimeout(context.Background(), installerCleanupRunTimeout)
-		defer cancel()
-		cleanupInstallerBundles(runCtx, store)
-		cleanupInstallerCacheFiles(runCtx, store, cacheDir)
-	}
-	go func() {
-		logInfo("Installer cleanup worker started", "interval", installerCleanupInterval.String(), "cache_dir", cacheDir)
-		runCleanup()
-		ticker := time.NewTicker(installerCleanupInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				logDebug("Installer cleanup worker stopping")
-				return
-			case <-ticker.C:
-				runCleanup()
-			}
-		}
-	}()
-}
-
-func cleanupInstallerBundles(ctx context.Context, store storage.Store) {
-	if store == nil {
-		return
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	cutoff := time.Now().UTC()
-	deleted, err := store.DeleteExpiredInstallerBundles(ctx, cutoff)
-	if err != nil {
-		logWarn("Failed to purge expired installer bundles", "error", err)
-		return
-	}
-	if deleted > 0 {
-		logInfo("Purged expired installer bundles", "count", deleted)
-	} else {
-		logDebug("No expired installer bundles found during cleanup")
-	}
-}
-
-func cleanupInstallerCacheFiles(ctx context.Context, store storage.Store, cacheDir string) {
-	if cacheDir == "" {
-		return
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if _, err := os.Stat(cacheDir); errors.Is(err, os.ErrNotExist) {
-		return
-	} else if err != nil {
-		logWarn("Installer cache cleanup skipped", "dir", cacheDir, "error", err)
-		return
-	}
-	paths, err := collectActiveInstallerBundlePaths(ctx, store)
-	if err != nil {
-		logWarn("Installer cache cleanup skipped; failed to list bundles", "error", err)
-		return
-	}
-	removedFiles := 0
-	err = filepath.WalkDir(cacheDir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			logDebug("Installer cache walk error", "path", path, "error", walkErr)
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		absPath, err := filepath.Abs(path)
-		if err == nil {
-			if _, ok := paths[absPath]; ok {
-				return nil
-			}
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if time.Since(info.ModTime()) < installerCleanupGracePeriod {
-			return nil
-		}
-		if err := os.Remove(path); err != nil {
-			if !errors.Is(err, os.ErrNotExist) {
-				logDebug("Failed to remove stale installer cache file", "path", path, "error", err)
-			}
-			return nil
-		}
-		removedFiles++
-		return nil
-	})
-	if err != nil {
-		logWarn("Installer cache cleanup walk failed", "dir", cacheDir, "error", err)
-	}
-	removedDirs := removeEmptyInstallerDirs(cacheDir)
-	if removedFiles > 0 || removedDirs > 0 {
-		logInfo("Installer cache cleanup removed entries", "files", removedFiles, "dirs", removedDirs)
-	} else {
-		logDebug("Installer cache cleanup had nothing to remove")
-	}
-}
-
-func collectActiveInstallerBundlePaths(ctx context.Context, store storage.Store) (map[string]struct{}, error) {
-	paths := make(map[string]struct{})
-	if store == nil {
-		return paths, nil
-	}
-	listCtx, cancel := context.WithTimeout(ctx, installerCleanupListTimeout)
-	defer cancel()
-	bundles, err := store.ListInstallerBundles(listCtx, "", 0)
-	if err != nil {
-		return nil, err
-	}
-	for _, bundle := range bundles {
-		if bundle == nil || bundle.BundlePath == "" {
-			continue
-		}
-		absPath, err := filepath.Abs(bundle.BundlePath)
-		if err != nil {
-			continue
-		}
-		paths[absPath] = struct{}{}
-	}
-	return paths, nil
-}
-
-func removeEmptyInstallerDirs(cacheDir string) int {
-	dirs := make([]string, 0, 32)
-	_ = filepath.WalkDir(cacheDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			dirs = append(dirs, path)
-		}
-		return nil
-	})
-	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
-	removed := 0
-	for _, dir := range dirs {
-		if dir == cacheDir {
-			continue
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		if len(entries) == 0 {
-			if err := os.Remove(dir); err == nil {
-				removed++
-			} else if !errors.Is(err, os.ErrNotExist) {
-				logDebug("Failed to remove empty installer cache directory", "dir", dir, "error", err)
-			}
-		}
-	}
-	return removed
 }
 
 // handleAgentUpdateManifest returns the latest update manifest for the requesting agent.
