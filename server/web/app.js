@@ -5009,6 +5009,8 @@ async function loadUsers(){
     if(!el) return;
     el.innerHTML = '<div style="color:var(--muted)">Loading users...</div>';
     try{
+        // Ensure tenant directory is loaded so we can resolve IDs to names
+        await ensureTenantDirectory();
         const r = await fetch('/api/v1/users');
         if(!r.ok) throw new Error(await r.text());
         const users = await r.json();

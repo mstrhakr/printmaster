@@ -416,7 +416,8 @@
         const rows = state.providers.map((p) => {
             const autoBadge = p.auto_login ? '<span class="badge badge-success">Auto</span>' : '<span class="badge badge-muted">Manual</span>';
             const scopePreview = (Array.isArray(p.scopes) && p.scopes.length > 0) ? escapeHtml(p.scopes.join(' ')) : 'openid profile email';
-            const tenantLabel = p.tenant_id ? ('Tenant: ' + escapeHtml(p.tenant_id)) : 'Global';
+            const tenantName = p.tenant_id ? (window._tenants && window._tenants.find(t => (t.id || t.uuid || t.tenant_id) === p.tenant_id)?.name || p.tenant_id) : '';
+            const tenantLabel = p.tenant_id ? ('Tenant: ' + escapeHtml(tenantName)) : 'Global';
             const buttonText = p.button_text || p.display_name || p.slug;
             return '<tr>' +
                 '<td>' +

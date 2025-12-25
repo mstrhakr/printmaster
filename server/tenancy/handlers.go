@@ -1216,6 +1216,10 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 			"tenant_id":   jt.TenantID,
 			"agent_token": token,
 		}
+		// Include tenant name for display purposes
+		if tenant, err := dbStore.GetTenant(r.Context(), jt.TenantID); err == nil && tenant != nil {
+			resp["tenant_name"] = tenant.Name
+		}
 		attachAgentSettings(resp, r.Context(), jt.TenantID, in.AgentID)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
@@ -1295,6 +1299,12 @@ func handleRegisterWithToken(w http.ResponseWriter, r *http.Request) {
 		"success":     true,
 		"tenant_id":   jt.TenantID,
 		"agent_token": placeholder,
+	}
+	// Include tenant name for display purposes (may not exist in non-DB mode)
+	if dbStore != nil {
+		if tenant, err := dbStore.GetTenant(r.Context(), jt.TenantID); err == nil && tenant != nil {
+			resp["tenant_name"] = tenant.Name
+		}
 	}
 	attachAgentSettings(resp, r.Context(), jt.TenantID, in.AgentID)
 	w.Header().Set("Content-Type", "application/json")

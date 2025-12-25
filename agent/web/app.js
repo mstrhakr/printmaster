@@ -4736,9 +4736,11 @@ async function runJoinWorkflow(defaultURL) {
             if (body.tenant_id) {
                 cachedServerInfo = cachedServerInfo || {};
                 cachedServerInfo.tenant_id = body.tenant_id;
+                cachedServerInfo.tenant_name = body.tenant_name || body.tenant_id;
                 updateHeaderInfoBar();
             }
-            window.__pm_shared.showToast('Joined server. Tenant: ' + (body.tenant_id || 'unknown'), 'success', 4000);
+            const tenantDisplay = body.tenant_name || body.tenant_id || 'unknown';
+            window.__pm_shared.showToast('Joined server. Tenant: ' + tenantDisplay, 'success', 4000);
             return true;
         }
     } catch (err) {
@@ -5030,9 +5032,11 @@ async function finalizeDeviceAuthJoin(joinToken, approvedName) {
         if (result && result.tenant_id) {
             cachedServerInfo = cachedServerInfo || {};
             cachedServerInfo.tenant_id = result.tenant_id;
+            cachedServerInfo.tenant_name = result.tenant_name || result.tenant_id;
             updateHeaderInfoBar();
         }
-        window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Joined server. Tenant: ' + (result.tenant_id || 'unknown'), 'success', 4000);
+        const tenantDisplay = (result && result.tenant_name) || (result && result.tenant_id) || 'unknown';
+        window.__pm_shared && window.__pm_shared.showToast && window.__pm_shared.showToast('Joined server. Tenant: ' + tenantDisplay, 'success', 4000);
         updateDeviceAuthStatusBadge('approved', 'Join complete');
         setDeviceAuthMessage('Joined server successfully.', 'success');
         try {
