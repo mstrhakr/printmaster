@@ -8,30 +8,30 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: PrintMaster Agent APT Repository
-Date: Thu, 25 Dec 2025 20:52:52 +0000
+Date: Thu, 25 Dec 2025 23:14:15 +0000
 MD5Sum:
- 21014cbb631b3a7babec5cdbf5d28caf 948 main/binary-amd64/Packages
- 0c1dc610dff41bd3476e182a3cb53bfe 597 main/binary-amd64/Packages.gz
- 4d1a7e70fa7b9cf4caf83312d6827977 948 main/binary-arm64/Packages
- 81e1aa09b48a536e1a122dda1f8d5643 598 main/binary-arm64/Packages.gz
+ bd6b3723609db6dad9c1e388fc7ce2b3 948 main/binary-amd64/Packages
+ 23b519ea8e94354ce0cbd800f5d9493f 595 main/binary-amd64/Packages.gz
+ 38d98a9041e237757521dcfea64ed840 948 main/binary-arm64/Packages
+ ea56bc788a93321329f420d86310ecff 596 main/binary-arm64/Packages.gz
 SHA256:
- d8b1381464d375b7a1fb2f7e27c9e3c3cd153276db7edd31effa8869419fab33 948 main/binary-amd64/Packages
- 81fbd25b5cc9f10393f7b54e93461f8fe383be3ad397c03778c33fef4aece8af 597 main/binary-amd64/Packages.gz
- 105049939d5efd7eb67eed19db2dc9e628d38ca398f138faccb43cc959a5400e 948 main/binary-arm64/Packages
- 3b0a27f43deba90083c50883af367729216b372eeff0bc45f0167de8bace7711 598 main/binary-arm64/Packages.gz
+ 02366a9eb6f8d09d3b42750da0a914d7d575acacc9d8cc9a7f15fadf6b75d9b5 948 main/binary-amd64/Packages
+ a8316922402f67cb50d0989cfce9dcf30ef6f7e0bc4179b59e68957aa0a0698c 595 main/binary-amd64/Packages.gz
+ d5e422b90709b853e1d549b61ab906a74c1f25b162bc4348d1b3d32c022c743c 948 main/binary-arm64/Packages
+ d8cbe2ade559ba466ad0ef749075e0aa47aa4fb529d7264ef591ceba091f5d3e 596 main/binary-arm64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEQcsUrxW4IxLeXtLq9c9pJAf/998FAmlNpCQACgkQ9c9pJAf/
-99/vkw//YD5nPLbnz1CFTw97KL1cfPwk3xZUsSsQI9ZKeLtyMcgZ+mFYVu+FvBfp
-p8yRxkTRkz5P/w6/2enwn5MSWJ2gDU3wpgev0dDbk17MYqL8LteTQ1ewhWS8bV3V
-vBJ9E7FGEppedMtb+x+k1z7KwKUafu61YpxEo9pSuxQl006tkgoOaCJkaOzCNMXu
-RVYt9f7tGComM4FihWyS8rfgNf1L6fkEsUWohHd1ZVVpahK5tbP7e90Puvp/gpbo
-lqcCrq653SdKZdcwYSBz0q8X5EuZgJf4HP9aXWwKUNlUJg95RV3CIiPjN6kLd7Tg
-/1qUMwtKQcN7XwWPIpxMK7bKOw2w0uGNlYjDLlPu0Pj+lGFgsdDPd+z3CtuRIOEr
-bCWopt5ZoxJPde0/1z/fCeS/WVLvBgufMr+Py5ZY9UFNHotJOPYbyUIl7Il0+7ST
-WBCVlG9VGU46BWmdY8yXWXNduV6NvUefVpZ3Agzxr0+MLBEOMB4S3DLOm4cmk5ce
-dQJDSmL1uw1RB8x1iRnPzgFTmydO7qz36ifuHzUYoOqVOrysOz5LSHsBCy6vqqvb
-R/pZxDjmsapV5OpXf/52b37cYXEpOXBqzOv4/jjBdu9wf6XFaaAfeshP6tnPnmu9
-lwgcUsf9kQG/OnqLlbNDshNhbk/F/xYDvYoL1el+BILznDx7GLk=
-=D4Mg
+iQIzBAEBCgAdFiEEQcsUrxW4IxLeXtLq9c9pJAf/998FAmlNxUcACgkQ9c9pJAf/
+99+pcRAAseQgtG92ue1BPNBBctgfgGCYR5NfXFyMxE4TWl2UOFyu7JmA3EdQzzRL
+ivORlmcXGViRPGALOUWBaBvhs9twoCcXnyjUR5H65Y1b7EgdcZIV3q7yNS96/IO8
+rL+yTkSzvemYaKL7t0B35SANe+Nbml04AtBBOBr4iHyvlvnkYngT3MiYktQ/RrsH
+aB57IzcrX3/QKH4HLSeKWDklKeuQ7zSfte4nrn44sFplxayCI5x2BE8JFeXu+Hcq
+IuYsRA2EpuZtL0lMF/q5jWU+6/oZb0VhWGGMfA9DwL1dGtdmo2Q1VsqbbtgkBvDh
+Vn1XjDEN0gR2LS4mqH5AcajCpqdwItXbyOIHXXodx5eF2nCj5lyhE1G36+GE88gN
+mlmYxr6jrqAU0RrIg4SQWX+I9hJFrCadmwfpvWeLzNZDm50vbRHI7RhGAGuYnRYW
+eyL7Z9e1ljuk4gv7YCtzwAkUO2nZW6hxpAHXem3YJltmj8SsA7Llc/g5rmFhTax2
++88kh6cxvgJ0CDrk05O3Fcn33QU9u2uzoVrqdgK+bVdPBsIrSmvYukb3eqkgJxhr
+k0YRjRCEng2lFtIOKbm3Re0+aceC9lii5n7IFrmcpBtznra8qUTeyXzzLUIhc+KS
+RUmHbCzhbhH3ORpMZWn0XyhzRKyYvs1bMGfiLckjM+Dtkgjb6/0=
+=768g
 -----END PGP SIGNATURE-----
