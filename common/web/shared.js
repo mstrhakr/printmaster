@@ -352,6 +352,13 @@ function showPrinterDetails(identifier, source) {
     }
 }
     function showToast(message, type = 'info', duration = 3000) {
+        // Log error toasts to console for debugging
+        if (type === 'error') {
+            try { window.__pm_shared.error('[TOAST ERROR]', message); } catch (e) { console.error('[TOAST ERROR]', message); }
+        } else if (type === 'warning') {
+            try { window.__pm_shared.warn('[TOAST WARNING]', message); } catch (e) { console.warn('[TOAST WARNING]', message); }
+        }
+
         const container = document.getElementById('toast_container');
         if (!container) return;
 
