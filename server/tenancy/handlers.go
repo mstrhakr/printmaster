@@ -160,12 +160,6 @@ type installEntry struct {
 	OneTime   bool
 }
 
-type joinTokenInfo struct {
-	ID        string
-	ExpiresAt time.Time
-	OneTime   bool
-}
-
 type tenantPayload struct {
 	ID           string `json:"id,omitempty"`
 	Name         string `json:"name"`
@@ -1480,17 +1474,6 @@ func installCleanupLoop() {
 	}
 }
 
-func buildBootstrapConfig(serverURL, token string) []byte {
-	var b strings.Builder
-	b.WriteString("[server]\n")
-	b.WriteString("enabled = true\n")
-	b.WriteString(fmt.Sprintf("url = %q\n", serverURL))
-	b.WriteString("name = \"\"\n")
-	b.WriteString(fmt.Sprintf("token = %q\n", token))
-	b.WriteString("insecure_skip_verify = true\n")
-	return []byte(b.String())
-}
-
 func buildBootstrapScript(platform, serverURL, token string) (string, string) {
 	switch normalizePlatform(platform) {
 	case "windows":
@@ -1794,27 +1777,6 @@ func normalizePlatform(input string) string {
 	default:
 		return strings.ToLower(strings.TrimSpace(input))
 	}
-}
-
-func normalizeArch(input, platform string) string {
-	arch := strings.ToLower(strings.TrimSpace(input))
-	switch arch {
-	case "", "x86_64":
-		arch = "amd64"
-	case "aarch64", "arm64":
-		arch = "arm64"
-	case "armv7":
-		arch = "armv7"
-	}
-	if arch == "" {
-		switch normalizePlatform(platform) {
-		case "darwin":
-			arch = "arm64"
-		default:
-			arch = "amd64"
-		}
-	}
-	return arch
 }
 
 func writeJSONError(w http.ResponseWriter, status int, message string) {
