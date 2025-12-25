@@ -3419,35 +3419,9 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/logs/clear", requireWebAuth(handleLogsClear))
 	http.HandleFunc("/api/audit/logs", requireWebAuth(handleAuditLogs))
 
-	// Provide a lightweight proxy/compat endpoint for web UI credentials so the
-	// server UI doesn't 404 when the shared cards call /device/webui-credentials.
-	// If the server does not have credentials for the device, respond with
-	// exists:false — agent UIs will use their own endpoint.
-	http.HandleFunc("/device/webui-credentials", requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			// Query param: serial
-			serial := r.URL.Query().Get("serial")
-			if serial == "" {
-				w.WriteHeader(http.StatusBadRequest)
-				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(`{"error":"serial required"}`))
-				return
-			}
-			// Server does not centrally store per-device webui creds yet; return exists:false
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"exists": false}`))
-			return
-		case http.MethodPost:
-			// For now, accept and acknowledge but do not persist
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"success": false, "message": "server cannot store credentials"}`))
-			return
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-	}))
+	// Proxy web UI credentials requests to the device's agent so credentials are
+	// stored on the agent and used for auto-login when proxying device web UIs.
+	http.HandleFunc("/device/webui-credentials", requireWebAuth(handleDeviceCredentialsProxy))
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -4397,6 +4371,98 @@ func handleLegacyDeviceProxy(w http.ResponseWriter, r *http.Request) {
 
 	targetPath = appendQueryToPath(targetPath, r.URL.RawQuery)
 	proxyDeviceRequest(w, r, serial, targetPath)
+}
+
+// handleDeviceCredentialsProxy proxies web UI credential requests to the device's agent.
+// This allows the server UI to manage credentials stored on the agent for auto-login.
+func handleDeviceCredentialsProxy(w http.ResponseWriter, r *http.Request) {
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	ctx := r.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	// Extract serial from query (GET) or body (POST)
+	var serial string
+	if r.Method == http.MethodGet {
+		serial = r.URL.Query().Get("serial")
+	} else if r.Method == http.MethodPost {
+		// Peek at body to get serial, then re-wrap for forwarding
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+		var reqBody struct {
+			Serial string `json:"serial"`
+		}
+		if err := json.Unmarshal(bodyBytes, &reqBody); err == nil {
+			serial = reqBody.Serial
+		}
+	}
+
+	if serial == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"error": "serial required"})
+		return
+	}
+
+	// Look up device to find its agent
+	device, err := serverStore.GetDevice(ctx, serial)
+	if err != nil {
+		logWarn("Credentials proxy: device lookup failed", "serial", serial, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"exists": false, "error": "device not found"})
+		return
+	}
+	if device == nil || device.AgentID == "" {
+		logWarn("Credentials proxy: device has no agent", "serial", serial)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"exists": false, "error": "device has no associated agent"})
+		return
+	}
+
+	// Check tenant access
+	agent, err := serverStore.GetAgent(ctx, device.AgentID)
+	if err != nil {
+		logWarn("Credentials proxy: agent lookup failed", "serial", serial, "agent_id", device.AgentID, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"exists": false, "error": "agent not found"})
+		return
+	}
+	if !tenantAllowed(scope, agent.TenantID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Check agent is connected
+	if !isAgentConnectedWS(device.AgentID) {
+		logWarn("Credentials proxy: agent offline", "serial", serial, "agent_id", device.AgentID)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"exists": false, "error": "agent not connected"})
+		return
+	}
+
+	// Build agent URL for credentials endpoint
+	agentURL := "http://localhost:8080/device/webui-credentials"
+	if r.Method == http.MethodGet {
+		agentURL += "?serial=" + url.QueryEscape(serial)
+	}
+
+	// Proxy through WebSocket to agent
+	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
 }
 
 func proxyDeviceRequest(w http.ResponseWriter, r *http.Request, serial string, targetPath string) {

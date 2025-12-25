@@ -728,6 +728,46 @@
     networkInfo += '</div>';
     html += renderInfoCard('Network', networkInfo);
 
+        // Web UI Credentials Card (for proxy auto-login)
+        // Determine default username based on manufacturer
+        const mfg = (p.manufacturer || '').toLowerCase();
+        let defaultUser = 'admin';
+        let passwordHint = 'Serial Number';
+        if (mfg.includes('kyocera')) {
+            defaultUser = 'Admin'; // Capital A for Kyocera
+        } else if (mfg.includes('epson')) {
+            defaultUser = 'EPSON';
+            passwordHint = 'Serial Number (default)';
+        } else if (mfg.includes('hp')) {
+            passwordHint = 'Blank (default) or set password';
+        }
+
+        // Render credentials card (server will proxy to agent)
+        let credsInfo = '<div style="color:var(--muted);font-size:12px;margin-bottom:8px">For automatic proxy login. Password is encrypted at rest.</div>';
+        credsInfo += '<div style="display:grid;gap:6px">';
+        credsInfo += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">';
+        credsInfo += '<div style="color:var(--muted)">Username:</div>';
+        credsInfo += '<input id="cred_username" type="text" placeholder="' + defaultUser + '" style="width:100%">';
+        credsInfo += '</div>';
+        credsInfo += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">';
+        credsInfo += '<div style="color:var(--muted)">Password:</div>';
+        credsInfo += '<input id="cred_password" type="password" placeholder="' + passwordHint + '" style="width:100%">';
+        credsInfo += '</div>';
+        credsInfo += '<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 8px;align-items:center">';
+        credsInfo += '<div style="color:var(--muted)">Auth Type:</div>';
+        credsInfo += '<select id="cred_auth_type" style="width:100%"><option value="basic">HTTP Basic</option><option value="form">Form Login</option></select>';
+        credsInfo += '</div>';
+        credsInfo += '<div style="display:flex;align-items:center;gap:8px;margin-top:4px">';
+        credsInfo += '<input type="checkbox" id="cred_auto_login">';
+        credsInfo += '<label for="cred_auto_login" style="color:var(--text);cursor:pointer">Enable auto-login when using proxy</label>';
+        credsInfo += '</div>';
+        credsInfo += '<div style="display:flex;gap:8px;margin-top:4px">';
+        credsInfo += '<button id="save_creds_btn" style="flex:1">Save Credentials</button>';
+        credsInfo += '<span id="creds_status" style="color:var(--muted);align-self:center;font-size:12px"></span>';
+        credsInfo += '</div>';
+        credsInfo += '</div>';
+        html += renderInfoCard('Web UI Credentials (optional)', credsInfo);
+
         // Consumables (render as its own card). If we don't have explicit
         // consumable information yet, include a placeholder `printer_consumables_card`
         // which can later be populated from the latest metrics snapshot.
