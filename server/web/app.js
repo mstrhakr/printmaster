@@ -2533,7 +2533,7 @@ function addEscalationStep(afterMinutes = 15, channelId = '') {
     stepDiv.innerHTML = `
         <span style="color:var(--text-muted);min-width:60px;">Step ${stepNum}</span>
         <span style="color:var(--text-muted);">After</span>
-        <input type="number" class="step-delay" value="${afterMinutes}" min="1" max="1440" style="width:70px;" title="Minutes to wait before escalating" />
+        <input type="number" class="step-delay" value="${afterMinutes}" min="1" max="1440" style="width:70px;" title="Minutes to wait before escalating" autocomplete="off" data-1p-ignore data-lpignore="true" />
         <span style="color:var(--text-muted);">min, notify</span>
         <select class="step-channel" style="flex:1;min-width:150px;">
             <option value="">-- Select Channel --</option>
@@ -3458,7 +3458,7 @@ function renderServerSettingsField(sectionKey, field) {
         const inputMode = field.type === 'number' ? 'inputmode="numeric" pattern="[0-9]*"' : '';
         control = `
             <input data-settings-input="true" data-section="${sectionKey}" data-key="${field.key}" id="${inputId}" type="${typeAttr}" ${minAttr} ${maxAttr} ${inputMode} ${disabledAttr}
-                value="${escapeHtml(value)}" placeholder="${field.placeholder ? escapeHtml(field.placeholder) : ''}" />
+                value="${escapeHtml(value)}" placeholder="${field.placeholder ? escapeHtml(field.placeholder) : ''}" autocomplete="off" data-1p-ignore data-lpignore="true" />
         `;
     }
     const helper = field.helper ? `<div style="font-size:12px;color:var(--muted);">${escapeHtml(field.helper)}</div>` : '';
@@ -6402,7 +6402,7 @@ function renderSiteFilterRules() {
         return `
             <div class="site-filter-rule" data-index="${index}">
                 <select class="rule-type">${typeOptions}</select>
-                <input type="text" class="rule-pattern" value="${escapeHtml(rule.pattern)}" placeholder="${placeholder}" />
+                <input type="text" class="rule-pattern" value="${escapeHtml(rule.pattern)}" placeholder="${placeholder}" autocomplete="off" data-1p-ignore data-lpignore="true" />
                 <button type="button" class="remove-rule-btn" title="Remove rule">&times;</button>
             </div>
         `;
@@ -8073,7 +8073,7 @@ function _attachAgentDetailsNameEditor(agent) {
             const displayEl = document.getElementById('agent_details_name_display');
             if (!displayEl) return;
             const current = displayEl.textContent || '';
-            displayEl.innerHTML = ` <input id="agent_details_name_input" value="${(agent.name||'').replace(/"/g,'&quot;')}" style="width:70%" /> <button id="agent_details_save_name">Save</button> <button id="agent_details_cancel_name">Cancel</button>`;
+            displayEl.innerHTML = ` <input id="agent_details_name_input" value="${(agent.name||'').replace(/"/g,'&quot;')}" style="width:70%" autocomplete="off" data-1p-ignore data-lpignore="true" /> <button id="agent_details_save_name">Save</button> <button id="agent_details_cancel_name">Cancel</button>`;
 
             const saveBtn = document.getElementById('agent_details_save_name');
             const cancelBtn = document.getElementById('agent_details_cancel_name');
@@ -10379,7 +10379,7 @@ function renderAgentUpdatePolicyInUpdatesTab(root, enabled, policy) {
         
         // Check cadence
         html += buildUpdatesTabPolicyRow('Check cadence (days)', 'Set to 0 to pause unattended update checks.',
-            `<input type="number" class="policy-input" id="updates_policy_check_days" value="${policy.update_check_days || 1}" min="0" max="365" ${disabled} data-policy-field="update_check_days">`);
+            `<input type="number" class="policy-input" id="updates_policy_check_days" value="${policy.update_check_days || 1}" min="0" max="365" ${disabled} data-policy-field="update_check_days" autocomplete="off" data-1p-ignore data-lpignore="true">`);
 
         // Version pin strategy
         const pinOptions = POLICY_VERSION_PIN_OPTIONS.map(opt => 
@@ -10397,7 +10397,7 @@ function renderAgentUpdatePolicyInUpdatesTab(root, enabled, policy) {
 
         // Target version
         html += buildUpdatesTabPolicyRow('Target version (optional)', 'Provide an exact semantic version to pin the fleet.',
-            `<input type="text" class="policy-input" id="updates_policy_target" value="${policy.target_version || ''}" placeholder="e.g., 1.2.3" ${disabled} data-policy-field="target_version">`);
+            `<input type="text" class="policy-input" id="updates_policy_target" value="${policy.target_version || ''}" placeholder="e.g., 1.2.3" ${disabled} data-policy-field="target_version" autocomplete="off" data-1p-ignore data-lpignore="true">`);
 
         // Collect telemetry
         html += buildUpdatesTabPolicyRow('Collect telemetry during rollout', 'Allows the server to gather anonymized update metrics.',
@@ -14129,7 +14129,7 @@ function renderAddAgentStep(step){
                 </select>
 
                 <label style="font-weight:600">Join token TTL (minutes)</label>
-                <input id="add_agent_ttl" type="number" value="${escapeHtml(String(ttlValue))}" min="1" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:120px;" />
+                <input id="add_agent_ttl" type="number" value="${escapeHtml(String(ttlValue))}" min="1" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:120px;" autocomplete="off" data-1p-ignore data-lpignore="true" />
 
                 <label style="display:flex;align-items:center;gap:8px;">
                     <input id="add_agent_one_time" type="checkbox" ${oneTimeChecked ? 'checked' : ''} />

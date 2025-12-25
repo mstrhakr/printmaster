@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html data-lpignore="true" data-1p-ignore data-form-type="other">
 
 <head>
     <meta charset="UTF-8">
@@ -123,7 +123,7 @@
                 <div class="agents-toolbar-left">
                     <label class="field">
                         <span>Search</span>
-                        <input type="text" id="agents_search" placeholder="Search name, hostname, ID…" />
+                        <input type="text" id="agents_search" placeholder="Search name, hostname, ID…" autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
                     <label class="field">
                         <span>Version</span>
@@ -240,7 +240,7 @@
                 <div class="devices-toolbar-left">
                     <label class="field">
                         <span>Search</span>
-                        <input type="text" id="devices_search" placeholder="Search serial, IP, model…" />
+                        <input type="text" id="devices_search" placeholder="Search serial, IP, model…" autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
                     <label class="field">
                         <span>Agent</span>
@@ -664,20 +664,20 @@
                                 </label>
                                 <label class="log-control column">
                                     <span>Actor ID</span>
-                                    <input type="text" id="audit_actor_filter" placeholder="Optional actor identifier" />
+                                    <input type="text" id="audit_actor_filter" placeholder="Optional actor identifier" autocomplete="off" data-1p-ignore data-lpignore="true" />
                                 </label>
                                 <label class="log-control column">
                                     <span>Tenant</span>
-                                    <input type="text" id="audit_tenant_filter" placeholder="Tenant ID or name" />
+                                    <input type="text" id="audit_tenant_filter" placeholder="Tenant ID or name" autocomplete="off" data-1p-ignore data-lpignore="true" />
                                 </label>
                                 <label class="log-control column">
                                     <span>Action</span>
-                                    <input type="text" id="audit_action_filter" list="audit_action_suggestions" placeholder="Filter by action keyword" />
+                                    <input type="text" id="audit_action_filter" list="audit_action_suggestions" placeholder="Filter by action keyword" autocomplete="off" data-1p-ignore data-lpignore="true" />
                                     <datalist id="audit_action_suggestions"></datalist>
                                 </label>
                                 <label class="log-control column">
                                     <span>Search</span>
-                                    <input type="text" id="audit_search_filter" placeholder="Search actor, target, IP, metadata..." />
+                                    <input type="text" id="audit_search_filter" placeholder="Search actor, target, IP, metadata..." autocomplete="off" data-1p-ignore data-lpignore="true" />
                                 </label>
                                 <div class="audit-severity-group">
                                     <span>Severity</span>
@@ -1248,7 +1248,7 @@
                                 </label>
                                 <label class="field">
                                     <span>Search</span>
-                                    <input type="text" id="alerts_history_search" placeholder="Search alerts..." />
+                                    <input type="text" id="alerts_history_search" placeholder="Search alerts..." autocomplete="off" data-1p-ignore data-lpignore="true" />
                                 </label>
                             </div>
                             <div class="alerts-toolbar-right">
@@ -1367,7 +1367,7 @@
                         <option value="DEBUG">DEBUG</option>
                         <option value="TRACE">TRACE</option>
                     </select>
-                    <input type="text" id="log_search_filter" placeholder="Search logs..." />
+                    <input type="text" id="log_search_filter" placeholder="Search logs..." autocomplete="off" data-1p-ignore data-lpignore="true" />
                     <button id="copy_logs_btn">Copy Logs</button>
                     <button id="download_logs_btn">Download Logs</button>
                     <button id="clear_log_btn">Clear Log</button>
@@ -1519,11 +1519,11 @@
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
                         <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                             <span>Display Name</span>
-                            <input id="sso_display_name" type="text" required style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Acme SSO" />
+                            <input id="sso_display_name" type="text" required style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Acme SSO" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                             <span>Slug</span>
-                            <input id="sso_slug" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="acme" />
+                            <input id="sso_slug" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="acme" autocomplete="off" data-1p-ignore data-lpignore="true" />
                             <small style="color:var(--muted);">Lowercase letters, numbers, and hyphen.</small>
                         </label>
                         <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
@@ -1541,39 +1541,39 @@
                     </div>
                     <label class="preset-section preset-generic" data-display="flex" style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Issuer URL</span>
-                        <input id="sso_issuer" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://login.microsoftonline.com/..." />
+                        <input id="sso_issuer" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://login.microsoftonline.com/..." autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
                     <label class="preset-section preset-entra" data-display="flex" style="display:none;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Microsoft Entra Tenant (Directory) ID</span>
-                        <input id="sso_entra_tenant" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="11111111-2222-3333-4444-555555555555" />
+                        <input id="sso_entra_tenant" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="11111111-2222-3333-4444-555555555555" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         <small style="color:var(--muted);">We derive the issuer URL from this tenant ID.</small>
                     </label>
                     <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Client ID</span>
-                        <input id="sso_client_id" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" />
+                        <input id="sso_client_id" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
                     <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Client Secret</span>
-                        <input id="sso_client_secret" type="password" style="padding:8px;border-radius:4px;border:1px solid var(--border);" />
+                        <input id="sso_client_secret" type="password" style="padding:8px;border-radius:4px;border:1px solid var(--border);" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         <small style="color:var(--muted);">Leave blank to keep the existing secret when editing.</small>
                     </label>
                     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
                         <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                             <span>Button Text</span>
-                            <input id="sso_button_text" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Sign in with Contoso" />
+                            <input id="sso_button_text" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Sign in with Contoso" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                             <span>Icon URL</span>
-                            <input id="sso_icon" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://.../logo.svg" />
+                            <input id="sso_icon" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://.../logo.svg" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                     </div>
                     <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Button Style (optional CSS classes)</span>
-                        <input id="sso_button_style" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="btn btn-accent" />
+                        <input id="sso_button_style" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="btn btn-accent" autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
                     <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
                         <span>Scopes</span>
-                        <input id="sso_scopes" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" />
+                        <input id="sso_scopes" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         <small style="color:var(--muted);">Separate scopes with spaces or commas. "openid" is always included.</small>
                     </label>
                     <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
@@ -1613,11 +1613,11 @@
                         <h4 class="user-form-section-title">Account Details</h4>
                         <label class="user-form-label">
                             <span>Username <span class="required">*</span></span>
-                            <input id="user_username" type="text" class="user-form-input" placeholder="johndoe" />
+                            <input id="user_username" type="text" class="user-form-input" placeholder="johndoe" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label class="user-form-label">
                             <span>Email</span>
-                            <input id="user_email" type="email" class="user-form-input" placeholder="john@example.com" />
+                            <input id="user_email" type="email" class="user-form-input" placeholder="john@example.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label class="user-form-label">
                             <span>Role</span>
@@ -1697,11 +1697,11 @@
                 <div class="user-form-section" style="margin-top:20px;">
                     <label class="user-form-label">
                         <span>Email Address <span class="required">*</span></span>
-                        <input id="invite_email" type="email" class="user-form-input" placeholder="john@example.com" />
+                        <input id="invite_email" type="email" class="user-form-input" placeholder="john@example.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
                     <label class="user-form-label">
                         <span>Username</span>
-                        <input id="invite_username" type="text" class="user-form-input" placeholder="Leave blank to use email prefix" />
+                        <input id="invite_username" type="text" class="user-form-input" placeholder="Leave blank to use email prefix" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         <span class="user-form-helper">Optional. If blank, username will be derived from email address.</span>
                     </label>
                     <label class="user-form-label">
@@ -1749,16 +1749,16 @@
                         <div class="tenant-section-title">Tenant Information</div>
                         <label class="tenant-form-label">
                             <span>Tenant Name <span class="required">*</span></span>
-                            <input id="tenant_name" type="text" class="tenant-form-input" placeholder="Acme Corp" />
+                            <input id="tenant_name" type="text" class="tenant-form-input" placeholder="Acme Corp" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label class="tenant-form-label">
                             <span>Billing / Reference Code</span>
-                            <input id="tenant_billing_code" type="text" class="tenant-form-input" placeholder="ACME-OPS-01" />
+                            <input id="tenant_billing_code" type="text" class="tenant-form-input" placeholder="ACME-OPS-01" autocomplete="off" data-1p-ignore data-lpignore="true" />
                             <span class="tenant-form-helper">Internal reference for invoicing or tracking</span>
                         </label>
                         <label class="tenant-form-label">
                             <span>Login Domain (SSO)</span>
-                            <input id="tenant_login_domain" type="text" class="tenant-form-input" placeholder="example.com" />
+                            <input id="tenant_login_domain" type="text" class="tenant-form-input" placeholder="example.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
                             <span class="tenant-form-helper">Email domain for automatic tenant detection during SSO</span>
                         </label>
                     </div>
@@ -1767,15 +1767,15 @@
                         <div class="tenant-section-title">Primary Contact</div>
                         <label class="tenant-form-label">
                             <span>Contact Name</span>
-                            <input id="tenant_contact_name" type="text" class="tenant-form-input" placeholder="Jane Smith" />
+                            <input id="tenant_contact_name" type="text" class="tenant-form-input" placeholder="Jane Smith" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label class="tenant-form-label">
                             <span>Contact Email</span>
-                            <input id="tenant_contact_email" type="email" class="tenant-form-input" placeholder="jane@example.com" />
+                            <input id="tenant_contact_email" type="email" class="tenant-form-input" placeholder="jane@example.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label class="tenant-form-label">
                             <span>Contact Phone</span>
-                            <input id="tenant_contact_phone" type="text" class="tenant-form-input" placeholder="+1 800 555 1234" />
+                            <input id="tenant_contact_phone" type="text" class="tenant-form-input" placeholder="+1 800 555 1234" autocomplete="off" data-1p-ignore data-lpignore="true" />
                         </label>
                         <label class="tenant-form-label">
                             <span>Address</span>
