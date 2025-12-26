@@ -466,7 +466,7 @@ jobs:
     - name: Import GPG key
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
       run: |
         if [ -n "$GPG_PRIVATE_KEY" ]; then
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
@@ -578,7 +578,7 @@ jobs:
     - name: Sign Release file
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
       run: |
         # Normalize passphrase (treat whitespace-only as empty)
         GPG_PASSPHRASE="$(echo "$GPG_PASSPHRASE" | xargs)"
@@ -604,7 +604,7 @@ jobs:
     - name: Sign RPM packages
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
       run: |
         # Normalize passphrase (treat whitespace-only as empty)
         GPG_PASSPHRASE="$(echo "$GPG_PASSPHRASE" | xargs)"
@@ -678,7 +678,7 @@ jobs:
     - name: Sign RPM repository metadata
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
       run: |
         # Normalize passphrase (treat whitespace-only as empty)
         GPG_PASSPHRASE="$(echo "$GPG_PASSPHRASE" | xargs)"
