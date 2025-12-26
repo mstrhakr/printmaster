@@ -191,6 +191,16 @@ body::before {
   align-items: center;
 }
 
+.modal::before, .modal-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--logo-pattern);
+  background-size: var(--logo-pattern-size) var(--logo-pattern-size);
+  opacity: 0.08;
+  pointer-events: none;
+}
+
 .modal-content {
   background: var(--panel);
   border: 1px solid var(--border);
