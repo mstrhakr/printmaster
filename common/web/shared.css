@@ -122,8 +122,22 @@ body.light-mode {
 /* ============================================================================
    BASE STYLES
    ============================================================================ */
+
+/* Logo pattern as embossed background texture - dark mode version */
+:root {
+  --logo-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' width='32' height='32' opacity='0.03'%3E%3Crect x='16' y='8' width='32' height='12' fill='%2393a1a1' rx='2'/%3E%3Crect x='12' y='20' width='40' height='24' fill='%2393a1a1' rx='3'/%3E%3Crect x='16' y='24' width='32' height='16' fill='%23586e75' rx='2'/%3E%3Crect x='20' y='28' width='8' height='2' fill='%2393a1a1'/%3E%3Crect x='20' y='32' width='12' height='2' fill='%2393a1a1'/%3E%3Crect x='20' y='36' width='10' height='2' fill='%2393a1a1'/%3E%3Ccircle cx='46' cy='32' r='3' fill='%2393a1a1'/%3E%3Crect x='16' y='44' width='32' height='12' fill='%2393a1a1' rx='2'/%3E%3Crect x='20' y='48' width='24' height='4' fill='%23586e75'/%3E%3C/svg%3E");
+}
+
+/* Light mode pattern override */
+body.light-mode {
+  --logo-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' width='32' height='32' opacity='0.04'%3E%3Crect x='16' y='8' width='32' height='12' fill='%23586e75' rx='2'/%3E%3Crect x='12' y='20' width='40' height='24' fill='%23586e75' rx='3'/%3E%3Crect x='16' y='24' width='32' height='16' fill='%2393a1a1' rx='2'/%3E%3Crect x='20' y='28' width='8' height='2' fill='%23586e75'/%3E%3Crect x='20' y='32' width='12' height='2' fill='%23586e75'/%3E%3Crect x='20' y='36' width='10' height='2' fill='%23586e75'/%3E%3Ccircle cx='46' cy='32' r='3' fill='%23586e75'/%3E%3Crect x='16' y='44' width='32' height='12' fill='%23586e75' rx='2'/%3E%3Crect x='20' y='48' width='24' height='4' fill='%2393a1a1'/%3E%3C/svg%3E");
+}
+
 body {
   background: var(--bg);
+  background-image: var(--logo-pattern);
+  background-size: 48px 48px;
+  background-attachment: fixed;
   color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   transition: background 0.4s ease, color 0.4s ease;
