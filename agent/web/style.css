@@ -1212,76 +1212,14 @@ details[open] {
   cursor: pointer;
 }
 
-/* Toggle switch styling (replaces checkboxes) - Clean modern design */
-input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 44px;
-  height: 24px;
-  background: linear-gradient(180deg, var(--toggle-off-bg-start) 0%, var(--toggle-off-bg-end) 100%);
-  border: 1px solid var(--toggle-off-border);
-  border-radius: 12px;
-  position: relative;
-  cursor: pointer;
-  transition: var(--transition-smooth);
-  flex-shrink: 0;
-  margin: 0;
-  padding: 0;
-  vertical-align: middle;
-  box-shadow: var(--shadow-inset-sm), var(--shadow-sm);
-}
-
-input[type="checkbox"]::before {
-  content: '';
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  top: 2px;
-  left: 2px;
-  background: linear-gradient(180deg, var(--toggle-knob-off-start) 0%, var(--toggle-knob-off-end) 100%);
-  transition: var(--transition-smooth);
-  box-shadow: var(--shadow-md), var(--shadow-sm);
-}
-
-input[type="checkbox"]:hover:not(:disabled) {
-  box-shadow: var(--shadow-inset-sm), var(--shadow-md);
-  transform: translateY(-1px);
-}
-
-input[type="checkbox"]:active:not(:disabled)::before {
-  width: 20px;
-}
-
-input[type="checkbox"]:checked {
-  background: linear-gradient(180deg, var(--toggle-on-bg-start) 0%, var(--toggle-on-bg-end) 100%);
-  border-color: var(--toggle-on-border);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 8px var(--toggle-on-glow);
-}
-
-input[type="checkbox"]:checked::before {
-  left: 22px;
-  background: linear-gradient(180deg, var(--toggle-knob-on-start) 0%, var(--toggle-knob-on-end) 100%);
-  box-shadow: var(--shadow-lg), var(--shadow-md);
-}
-
-input[type="checkbox"]:checked:active:not(:disabled)::before {
-  width: 20px;
-  left: 20px;
-}
-
-input[type="checkbox"]:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
+/* Indeterminate toggle state (agent-specific) */
 input[type="checkbox"]:indeterminate {
   background: linear-gradient(180deg, var(--toggle-indeterminate-start) 0%, var(--toggle-indeterminate-end) 100%);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 8px var(--toggle-indeterminate-glow);
 }
 
 input[type="checkbox"]:indeterminate::before {
-  left: 12px;
+  left: 13px;
 }
 
 /* Mini toggle containers (for sub-settings) */
