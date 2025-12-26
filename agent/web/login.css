@@ -8,7 +8,12 @@ body.login-body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at top, rgba(38, 139, 210, 0.25), rgba(0, 43, 54, 0.9));
+  /* Layer gradient over the logo pattern from shared.css */
+  background: 
+    radial-gradient(circle at top, rgba(38, 139, 210, 0.20), rgba(0, 43, 54, 0.85)),
+    var(--logo-pattern),
+    var(--bg);
+  background-attachment: fixed, fixed, fixed;
   color: var(--text);
   margin: 0;
   padding: 32px 16px;
