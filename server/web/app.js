@@ -1161,6 +1161,7 @@ function ensureAdminViewReady(view) {
         case 'fleet':
             initSettingsUI();
             loadAgentUpdatePolicyForUpdatesTab();
+            loadReleaseArtifacts();
             break;
         case 'server':
             loadServerSettings();
@@ -3190,15 +3191,19 @@ function ensureSettingsViewReady(view) {
     if (view === 'server') {
         // Placeholder: fetch and render server settings into server_settings_container
         loadServerSettings();
+        loadSelfUpdateRuns();
         return;
     }
     if (view === 'updates') {
         loadSelfUpdateRuns();
         loadAgentUpdatePolicyForUpdatesTab();
+        loadReleaseArtifacts();
         return;
     }
     // fleet
     initSettingsUI();
+    loadAgentUpdatePolicyForUpdatesTab();
+    loadReleaseArtifacts();
 }
 
 async function loadServerSettings(forceRefresh = false) {
@@ -4055,7 +4060,10 @@ async function triggerReleasesSync() {
         if (resp.ok) {
             showToast('Release sync completed', 'success');
             // Reload to show updated artifacts
-            setTimeout(() => loadSelfUpdateRuns(), 500);
+            setTimeout(() => {
+                loadReleaseArtifacts();
+                loadSelfUpdateRuns();
+            }, 500);
         } else {
             showToast(data.error || 'Failed to sync releases', 'error');
         }
@@ -4067,6 +4075,38 @@ async function triggerReleasesSync() {
             btn.disabled = false;
             btn.textContent = 'Sync from GitHub';
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Release Artifacts Loading (shared between Fleet and Server tabs)
+// ---------------------------------------------------------------------------
+let releaseArtifactsInitialized = false;
+
+async function loadReleaseArtifacts() {
+    const artifactsContainer = document.getElementById('releases_artifacts_container');
+    if (!artifactsContainer) return;
+
+    // Initialize sync button handler once
+    if (!releaseArtifactsInitialized) {
+        releaseArtifactsInitialized = true;
+        const syncBtn = document.getElementById('releases_sync_btn');
+        if (syncBtn) {
+            syncBtn.addEventListener('click', () => triggerReleasesSync());
+        }
+    }
+
+    try {
+        const artifactsResp = await fetchJSON('/api/v1/releases/artifacts');
+        if (artifactsResp.error) {
+            artifactsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load artifacts: ${artifactsResp.error}</div>`;
+        } else {
+            const artifacts = Array.isArray(artifactsResp.artifacts) ? artifactsResp.artifacts : [];
+            renderReleaseArtifacts(artifactsContainer, artifacts);
+        }
+    } catch (err) {
+        const message = err && err.message ? err.message : err;
+        artifactsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load artifacts: ${message}</div>`;
     }
 }
 

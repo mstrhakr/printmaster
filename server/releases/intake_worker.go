@@ -183,21 +183,31 @@ func (w *IntakeWorker) runOnce(ctx context.Context) error {
 		return err
 	}
 
+	w.logInfo("Processing releases from GitHub", "count", len(releases))
+
 	processed := map[string]int{}
 	for _, rel := range releases {
 		component, version := parseTag(rel.TagName)
-		if component == "" || version == "" || rel.Draft || rel.Prerelease {
+		if component == "" || version == "" {
+			w.logInfo("Skipping release with unparseable tag", "tag", rel.TagName)
+			continue
+		}
+		if rel.Draft || rel.Prerelease {
+			w.logInfo("Skipping draft/prerelease", "tag", rel.TagName, "draft", rel.Draft, "prerelease", rel.Prerelease)
 			continue
 		}
 		if processed[component] >= w.maxReleases {
 			continue
 		}
+		w.logInfo("Processing release", "component", component, "version", version, "assets", len(rel.Assets))
 		if err := w.processRelease(ctx, component, version, rel); err != nil {
 			w.logWarn("release processing failed", "component", component, "version", version, "error", err)
 			continue
 		}
 		processed[component]++
 	}
+
+	w.logInfo("Release processing complete", "processed", processed)
 
 	// Prune old artifacts if retention is configured
 	if w.retentionVersions > 0 {
@@ -246,18 +256,25 @@ func (w *IntakeWorker) fetchReleases(ctx context.Context) ([]ghRelease, error) {
 }
 
 func (w *IntakeWorker) processRelease(ctx context.Context, component, version string, rel ghRelease) error {
+	w.logInfo("Processing release assets", "component", component, "version", version, "asset_count", len(rel.Assets))
+	matchedAssets := 0
 	for _, asset := range rel.Assets {
 		if asset.BrowserDownloadURL == "" {
+			w.logInfo("Asset has no download URL", "asset", asset.Name)
 			continue
 		}
 		desc, ok := buildDescriptor(component, version, asset.Name)
 		if !ok {
+			w.logInfo("Asset name didn't match pattern", "asset", asset.Name, "expected_prefix", fmt.Sprintf("printmaster-%s-v%s-", component, version))
 			continue
 		}
+		matchedAssets++
+		w.logInfo("Matched asset", "component", component, "version", version, "asset", asset.Name, "platform", desc.platform, "arch", desc.arch)
 		if err := w.ensureArtifact(ctx, desc, rel, asset); err != nil {
 			w.logWarn("artifact processing failed", "component", component, "version", version, "asset", asset.Name, "error", err)
 		}
 	}
+	w.logInfo("Release processing summary", "component", component, "version", version, "matched_assets", matchedAssets, "total_assets", len(rel.Assets))
 	return nil
 }
 
