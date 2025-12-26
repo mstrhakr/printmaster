@@ -337,6 +337,22 @@ select {
   font-size: 14px;
 }
 
+/* Prevent Grammarly and similar extensions from adding UI to our inputs */
+textarea,
+input[type="text"],
+input[type="email"],
+input[type="url"],
+input[type="search"] {
+  /* Grammarly */
+  -webkit-writing-mode: horizontal-tb !important;
+}
+
+/* Data attributes to disable writing assistants (set via HTML) */
+textarea[data-gramm="false"],
+input[data-gramm="false"] {
+  /* Grammarly respects this attribute */
+}
+
 input:hover,
 textarea:hover,
 select:hover {
