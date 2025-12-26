@@ -469,7 +469,7 @@ func ParsePaperTrays(pdus []gosnmp.SnmpPDU) []PaperTray {
 }
 
 // determineTrayStatus returns a human-readable status based on level values
-func determineTrayStatus(currentLevel, maxCapacity, levelPercent int) string {
+func determineTrayStatus(currentLevel, _ /* maxCapacity */, levelPercent int) string {
 	// Check for special SNMP values
 	if currentLevel == -1 || currentLevel == -2 {
 		return "unknown"
