@@ -84,6 +84,9 @@ tmp/
 temp/
 *.tmp
 
+# Debug/profiling artifacts
+debug/
+
 # Build output
 dist/
 build/
