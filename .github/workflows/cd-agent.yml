@@ -196,7 +196,6 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
       with:
-        install: true
         driver-opts: |
           image=moby/buildkit:latest
     
@@ -467,7 +466,7 @@ jobs:
     - name: Import GPG key
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
       run: |
         if [ -n "$GPG_PRIVATE_KEY" ]; then
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
@@ -579,7 +578,7 @@ jobs:
     - name: Sign Release file
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
       run: |
         if [ -z "$GPG_PRIVATE_KEY" ]; then
           echo "No GPG key configured, skipping signing"
