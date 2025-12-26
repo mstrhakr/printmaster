@@ -2805,6 +2805,14 @@ select:focus {
   color: var(--muted);
 }
 
+/* Override column layout for inline checkboxes in toolbars */
+.devices-toolbar .field.inline-check,
+.agents-toolbar .field.inline-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
 .devices-toolbar .field input,
 .devices-toolbar .field select,
 .agents-toolbar .field input,
