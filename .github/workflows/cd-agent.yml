@@ -580,6 +580,9 @@ jobs:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
       run: |
+        # Normalize passphrase (treat whitespace-only as empty)
+        GPG_PASSPHRASE="$(echo "$GPG_PASSPHRASE" | xargs)"
+        
         if [ -z "$GPG_PRIVATE_KEY" ]; then
           echo "No GPG key configured, skipping signing"
           exit 0
@@ -601,8 +604,11 @@ jobs:
     - name: Sign RPM packages
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
       run: |
+        # Normalize passphrase (treat whitespace-only as empty)
+        GPG_PASSPHRASE="$(echo "$GPG_PASSPHRASE" | xargs)"
+        
         if [ -z "$GPG_PRIVATE_KEY" ]; then
           echo "No GPG key configured, skipping RPM signing"
           exit 0
@@ -672,8 +678,11 @@ jobs:
     - name: Sign RPM repository metadata
       env:
         GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE || '' }}
       run: |
+        # Normalize passphrase (treat whitespace-only as empty)
+        GPG_PASSPHRASE="$(echo "$GPG_PASSPHRASE" | xargs)"
+        
         if [ -z "$GPG_PRIVATE_KEY" ]; then
           echo "No GPG key configured, skipping RPM signing"
           exit 0
