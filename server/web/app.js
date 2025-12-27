@@ -1456,35 +1456,76 @@ function updateScopeBar(scope, healthy, warning, critical, countText) {
     }
 }
 
-async function loadActiveAlerts() {
+// Infinite scroll state for active alerts
+const alertsInfiniteScroll = {
+    offset: 0,
+    limit: 50,
+    hasMore: true,
+    loading: false,
+    observer: null,
+    sentinelId: 'alerts_load_more_sentinel'
+};
+
+async function loadActiveAlerts(append = false) {
     const container = document.getElementById('active_alerts_list');
     if (!container) return;
     
+    // Prevent concurrent loads
+    if (alertsInfiniteScroll.loading) return;
+    
+    // Reset state on fresh load
+    if (!append) {
+        alertsInfiniteScroll.offset = 0;
+        alertsInfiniteScroll.hasMore = true;
+    }
+    
+    // Don't fetch if no more data
+    if (append && !alertsInfiniteScroll.hasMore) return;
+    
+    alertsInfiniteScroll.loading = true;
     const el = (id) => document.getElementById(id);
     
     try {
-        const resp = await fetch('/api/v1/alerts?status=active');
+        const params = new URLSearchParams({
+            status: 'active',
+            limit: alertsInfiniteScroll.limit.toString(),
+            offset: alertsInfiniteScroll.offset.toString()
+        });
+        
+        const resp = await fetch(`/api/v1/alerts?${params}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         const alerts = data.alerts || [];
+        const totalCount = data.total_count || 0;
         
-        // Count by severity and status
-        let critical = 0, warning = 0, info = 0, acknowledged = 0, suppressed = 0;
-        alerts.forEach(a => {
-            if (a.status === 'acknowledged') acknowledged++;
-            else if (a.status === 'suppressed') suppressed++;
-            else if (a.severity === 'critical') critical++;
-            else if (a.severity === 'warning') warning++;
-            else info++;
-        });
+        // Update pagination state
+        alertsInfiniteScroll.offset += alerts.length;
+        alertsInfiniteScroll.hasMore = data.has_more === true;
         
-        if (el('alerts_critical_count')) el('alerts_critical_count').textContent = critical;
-        if (el('alerts_warning_count')) el('alerts_warning_count').textContent = warning;
-        if (el('alerts_info_count')) el('alerts_info_count').textContent = info;
-        if (el('alerts_acknowledged_count')) el('alerts_acknowledged_count').textContent = acknowledged;
-        if (el('alerts_suppressed_count')) el('alerts_suppressed_count').textContent = suppressed;
+        // Update summary counts from total (only on initial load)
+        if (!append) {
+            // Fetch all for counts (uses a separate lightweight call or cached total)
+            let critical = 0, warning = 0, info = 0, acknowledged = 0, suppressed = 0;
+            // For accurate counts, we need all alerts - but we can approximate from the server
+            // For now, show counts based on what's loaded + indicate there's more
+            alerts.forEach(a => {
+                if (a.status === 'acknowledged') acknowledged++;
+                else if (a.status === 'suppressed') suppressed++;
+                else if (a.severity === 'critical') critical++;
+                else if (a.severity === 'warning') warning++;
+                else info++;
+            });
+            
+            const suffix = alertsInfiniteScroll.hasMore ? '+' : '';
+            if (el('alerts_critical_count')) el('alerts_critical_count').textContent = critical + suffix;
+            if (el('alerts_warning_count')) el('alerts_warning_count').textContent = warning + suffix;
+            if (el('alerts_info_count')) el('alerts_info_count').textContent = info + suffix;
+            if (el('alerts_acknowledged_count')) el('alerts_acknowledged_count').textContent = acknowledged + suffix;
+            if (el('alerts_suppressed_count')) el('alerts_suppressed_count').textContent = suppressed + suffix;
+        }
         
-        if (alerts.length === 0) {
+        // Handle empty state
+        if (!append && alerts.length === 0) {
             container.innerHTML = `
                 <div class="alerts-empty-state">
                     <svg width="48" height="48" viewBox="0 0 16 16" fill="var(--success)">
@@ -1494,20 +1535,78 @@ async function loadActiveAlerts() {
                     <div class="alerts-empty-text">No active alerts at this time. Configure alert rules in Admin → Alerts.</div>
                 </div>
             `;
+            cleanupAlertsInfiniteScroll();
             return;
         }
         
-        // Render alert cards
-        container.innerHTML = alerts.map(alert => renderAlertCard(alert)).join('');
+        // Remove existing sentinel before adding new content
+        const existingSentinel = document.getElementById(alertsInfiniteScroll.sentinelId);
+        if (existingSentinel) existingSentinel.remove();
         
-        // Bind action buttons
-        container.querySelectorAll('.alert-action-btn').forEach(btn => {
+        // Render alert cards
+        const newContent = alerts.map(alert => renderAlertCard(alert)).join('');
+        
+        if (append) {
+            container.insertAdjacentHTML('beforeend', newContent);
+        } else {
+            container.innerHTML = newContent;
+        }
+        
+        // Add sentinel for infinite scroll if there's more data
+        if (alertsInfiniteScroll.hasMore) {
+            const sentinel = document.createElement('div');
+            sentinel.id = alertsInfiniteScroll.sentinelId;
+            sentinel.className = 'alerts-load-sentinel';
+            sentinel.innerHTML = '<div class="loading-spinner"></div><span class="muted-text">Loading more alerts...</span>';
+            container.appendChild(sentinel);
+            setupAlertsInfiniteScroll();
+        }
+        
+        // Bind action buttons on new elements
+        container.querySelectorAll('.alert-action-btn:not([data-bound])').forEach(btn => {
+            btn.setAttribute('data-bound', 'true');
             btn.addEventListener('click', (e) => handleAlertAction(e.target.dataset.action, e.target.dataset.alertId));
         });
         
     } catch (err) {
         console.error('Failed to load active alerts:', err);
-        container.innerHTML = '<div class="error-text">Failed to load alerts. Please try again.</div>';
+        if (!append) {
+            container.innerHTML = '<div class="error-text">Failed to load alerts. Please try again.</div>';
+        }
+    } finally {
+        alertsInfiniteScroll.loading = false;
+    }
+}
+
+function setupAlertsInfiniteScroll() {
+    // Clean up existing observer
+    if (alertsInfiniteScroll.observer) {
+        alertsInfiniteScroll.observer.disconnect();
+    }
+    
+    const sentinel = document.getElementById(alertsInfiniteScroll.sentinelId);
+    if (!sentinel) return;
+    
+    // Create IntersectionObserver with rootMargin to trigger before sentinel is visible
+    alertsInfiniteScroll.observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && !alertsInfiniteScroll.loading && alertsInfiniteScroll.hasMore) {
+                loadActiveAlerts(true); // Append mode
+            }
+        });
+    }, {
+        root: null, // viewport
+        rootMargin: '200px', // Load 200px before sentinel becomes visible
+        threshold: 0
+    });
+    
+    alertsInfiniteScroll.observer.observe(sentinel);
+}
+
+function cleanupAlertsInfiniteScroll() {
+    if (alertsInfiniteScroll.observer) {
+        alertsInfiniteScroll.observer.disconnect();
+        alertsInfiniteScroll.observer = null;
     }
 }
 

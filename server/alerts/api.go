@@ -245,6 +245,22 @@ func (api *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 			filters.Limit = l
 		}
 	}
+	if offset := r.URL.Query().Get("offset"); offset != "" {
+		if o, err := strconv.Atoi(offset); err == nil && o >= 0 {
+			filters.Offset = o
+		}
+	}
+
+	// Get total count for pagination (without limit/offset)
+	countFilters := filters
+	countFilters.Limit = 0
+	countFilters.Offset = 0
+	allAlerts, err := api.store.ListActiveAlerts(r.Context(), countFilters)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to count alerts")
+		return
+	}
+	totalCount := len(allAlerts)
 
 	alerts, err := api.store.ListActiveAlerts(r.Context(), filters)
 	if err != nil {
@@ -253,8 +269,12 @@ func (api *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"alerts": alerts,
-		"count":  len(alerts),
+		"alerts":      alerts,
+		"count":       len(alerts),
+		"total_count": totalCount,
+		"offset":      filters.Offset,
+		"limit":       filters.Limit,
+		"has_more":    filters.Limit > 0 && filters.Offset+len(alerts) < totalCount,
 	})
 }
 
