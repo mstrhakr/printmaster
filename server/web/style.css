@@ -5146,72 +5146,7 @@ input[type="checkbox"]:indeterminate::before {
   background: rgba(38, 139, 210, 0.08);
 }
 
-.toggle-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.toggle-label {
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.toggle-description {
-  font-size: 11px;
-  color: var(--muted);
-}
-
-.toggle-switch {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.toggle-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  display: block;
-  width: 48px;
-  height: 26px;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 13px;
-  position: relative;
-  transition: background 0.2s, border-color 0.2s;
-  cursor: pointer;
-}
-
-.toggle-slider::after {
-  content: '';
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  left: 2px;
-  top: 2px;
-  background: var(--text);
-  border-radius: 50%;
-  transition: transform 0.2s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background: var(--highlight);
-  border-color: var(--highlight);
-}
-
-.toggle-switch input:checked + .toggle-slider::after {
-  transform: translateX(22px);
-}
-
-.toggle-switch input:disabled + .toggle-slider {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+/* Toggle styles are now in common/web/shared.css */
 
 /* Section disabled state when not managed */
 .settings-section-panel.section-disabled {
