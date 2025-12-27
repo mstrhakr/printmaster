@@ -426,7 +426,8 @@ func TestHeartbeatReturnsSettingsSnapshotWhenVersionDiffers(t *testing.T) {
 		t.Fatalf("failed to seed agent: %v", err)
 	}
 
-	settingsResolver, err := serversettings.NewResolver(store)
+	var err error
+	settingsResolver, err = serversettings.NewResolver(store)
 	if err != nil {
 		t.Fatalf("failed to create settings resolver: %v", err)
 	}
