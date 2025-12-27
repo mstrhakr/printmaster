@@ -615,6 +615,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // Initialize tabs (after dynamic tabs injected)
         initTabs();
         initLogSubTabs();
+        
+        // Initialize hash-based navigation (enables browser back/forward buttons)
+        initHashNavigation();
 
         // Check config status and show warning if needed
         checkConfigStatus();
@@ -4077,7 +4080,7 @@ function discardServerSettingsChanges() {
     window.__pm_shared.showToast('Server settings reverted.', 'info');
 }
 
-function switchTab(targetTab) {
+function switchTab(targetTab, updateHash = true) {
     // Hide all tabs
     document.querySelectorAll('[data-tab]').forEach(tab => {
         tab.classList.add('hidden');
@@ -4103,6 +4106,14 @@ function switchTab(targetTab) {
     const label = document.getElementById('current_tab_label');
     if (label) {
         label.textContent = 'Menu - ' + getTabLabel(targetTab);
+    }
+    
+    // Update URL hash for browser history (enables back button)
+    if (updateHash && targetTab) {
+        const newHash = '#' + targetTab;
+        if (window.location.hash !== newHash) {
+            history.pushState({ tab: targetTab }, '', newHash);
+        }
     }
     
     // Load data for specific tabs
@@ -4151,15 +4162,50 @@ function isTabSelectable(targetTab) {
     return buttons.some(btn => btn.offsetParent !== null);
 }
 
+function getTabFromHash() {
+    const hash = window.location.hash;
+    if (!hash || hash.length < 2) {
+        return null;
+    }
+    return hash.substring(1); // Remove the '#'
+}
+
 function restorePreferredTab() {
+    // First priority: URL hash (enables back button navigation)
+    const hashTab = getTabFromHash();
+    if (hashTab && isTabSelectable(hashTab)) {
+        switchTab(hashTab, false); // Don't push to history since we're restoring
+        return;
+    }
+    
+    // Second priority: localStorage saved tab
     const stored = getPersistedUIState(SERVER_UI_STATE_KEYS.ACTIVE_TAB, null);
-    if (!stored) {
+    if (stored && isTabSelectable(stored)) {
+        switchTab(stored);
         return;
     }
-    if (!isTabSelectable(stored)) {
-        return;
-    }
-    switchTab(stored);
+    
+    // Default: dashboard
+    switchTab('dashboard');
+}
+
+// Handle browser back/forward button navigation
+function initHashNavigation() {
+    window.addEventListener('popstate', (event) => {
+        let targetTab = null;
+        
+        // Try to get tab from state first (more reliable)
+        if (event.state && event.state.tab) {
+            targetTab = event.state.tab;
+        } else {
+            // Fall back to hash
+            targetTab = getTabFromHash();
+        }
+        
+        if (targetTab && isTabSelectable(targetTab)) {
+            switchTab(targetTab, false); // Don't push new history entry
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
