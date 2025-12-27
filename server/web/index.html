@@ -62,7 +62,7 @@
             <!-- Hamburger menu for mobile -->
             <div class="hamburger-menu">
                 <div class="hamburger-header">
-                    <span id="current_tab_label">Menu - Agents</span>
+                    <span id="current_tab_label">Menu - Dashboard</span>
                     <div class="hamburger-icon">
                         <div></div>
                         <div></div>
@@ -71,22 +71,162 @@
                 </div>
             </div>
             <div class="mobile-nav" id="mobile_nav">
-                <button class="tab active" data-target="agents">Agents</button>
+                <button class="tab active" data-target="dashboard">Dashboard</button>
+                <button class="tab" data-target="agents">Agents</button>
                 <button class="tab" data-target="devices">Devices</button>
                 <button class="tab" data-target="metrics">Metrics</button>
                 <button class="tab" data-target="logs">Logs</button>
             </div>
             <!-- Desktop tabs -->
             <div class="desktop-tabs" id="desktop_tabs">
-                <button class="tab active" data-target="agents">Agents</button>
+                <button class="tab active" data-target="dashboard">Dashboard</button>
+                <button class="tab" data-target="agents">Agents</button>
                 <button class="tab" data-target="devices">Devices</button>
                 <button class="tab" data-target="metrics">Metrics</button>
                 <button class="tab" data-target="logs">Logs</button>
             </div>
         </div>
 
+        <!-- Dashboard Tab -->
+        <div style="margin-top:12px;" data-tab="dashboard">
+            <div class="dashboard-layout">
+                <!-- Sidebar for search and filters -->
+                <aside class="dashboard-sidebar" id="dashboard_sidebar">
+                    <div class="dashboard-sidebar-header">
+                        <h4>Search & Filter</h4>
+                        <button class="ghost-btn dashboard-sidebar-toggle" id="dashboard_sidebar_toggle" title="Toggle sidebar">
+                            <span>◀</span>
+                        </button>
+                    </div>
+                    
+                    <div class="dashboard-sidebar-content">
+                        <!-- Search box -->
+                        <div class="dashboard-search-section">
+                            <label class="field">
+                                <span>Search</span>
+                                <input type="text" id="dashboard_search" placeholder="Search tenants, agents, devices…" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                            <div id="dashboard_search_results" class="dashboard-search-results hidden">
+                                <span class="muted-text">No results</span>
+                            </div>
+                        </div>
+
+                        <!-- Quick filters -->
+                        <div class="dashboard-filter-section">
+                            <div class="dashboard-filter-group">
+                                <div class="filter-label">Show Levels</div>
+                                <div class="dashboard-level-toggles">
+                                    <label class="dashboard-level-toggle">
+                                        <input type="checkbox" id="dashboard_show_tenants" checked />
+                                        <span>Tenants</span>
+                                    </label>
+                                    <label class="dashboard-level-toggle">
+                                        <input type="checkbox" id="dashboard_show_agents" checked />
+                                        <span>Agents</span>
+                                    </label>
+                                    <label class="dashboard-level-toggle">
+                                        <input type="checkbox" id="dashboard_show_devices" checked />
+                                        <span>Devices</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="dashboard-filter-group">
+                                <div class="filter-label">Agent Status</div>
+                                <div id="dashboard_agent_status_filter" class="pill-toggle-group compact" role="group">
+                                    <button class="pill active" data-status="active" title="Active agents">Active</button>
+                                    <button class="pill active" data-status="inactive" title="Inactive agents">Inactive</button>
+                                    <button class="pill active" data-status="offline" title="Offline agents">Offline</button>
+                                </div>
+                            </div>
+
+                            <div class="dashboard-filter-group">
+                                <div class="filter-label">Device Supplies</div>
+                                <div id="dashboard_supply_filter" class="pill-toggle-group compact" role="group">
+                                    <button class="pill active" data-band="critical" title="Critical (≤10%)">Critical</button>
+                                    <button class="pill active" data-band="low" title="Low (11-25%)">Low</button>
+                                    <button class="pill active" data-band="medium" title="Medium (26-50%)">Medium</button>
+                                    <button class="pill active" data-band="high" title="High (>50%)">High</button>
+                                    <button class="pill active" data-band="unknown" title="Unknown supply level">Unknown</button>
+                                </div>
+                            </div>
+
+                            <div class="dashboard-filter-group">
+                                <div class="filter-label">Device Status</div>
+                                <div id="dashboard_device_status_filter" class="pill-toggle-group compact" role="group">
+                                    <button class="pill active" data-status="healthy" title="Healthy devices">Healthy</button>
+                                    <button class="pill active" data-status="warning" title="Warning status">Warning</button>
+                                    <button class="pill active" data-status="error" title="Error status">Error</button>
+                                    <button class="pill active" data-status="jam" title="Paper jam">Jam</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Active filters display -->
+                        <div id="dashboard_active_filters" class="filter-chip-row"></div>
+
+                        <div class="dashboard-filter-actions">
+                            <button id="dashboard_reset_filters" class="ghost-btn">Reset Filters</button>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Main dashboard content -->
+                <main class="dashboard-main">
+                    <!-- Fleet overview summary cards -->
+                    <div class="dashboard-summary" id="dashboard_summary">
+                        <div class="dashboard-summary-card">
+                            <div class="dashboard-summary-value" id="dashboard_tenant_count">-</div>
+                            <div class="dashboard-summary-label">Tenants</div>
+                        </div>
+                        <div class="dashboard-summary-card">
+                            <div class="dashboard-summary-value" id="dashboard_agent_count">-</div>
+                            <div class="dashboard-summary-label">Agents</div>
+                        </div>
+                        <div class="dashboard-summary-card">
+                            <div class="dashboard-summary-value" id="dashboard_device_count">-</div>
+                            <div class="dashboard-summary-label">Devices</div>
+                        </div>
+                        <div class="dashboard-summary-card warning" id="dashboard_critical_card">
+                            <div class="dashboard-summary-value" id="dashboard_critical_count">-</div>
+                            <div class="dashboard-summary-label">Critical Supplies</div>
+                        </div>
+                        <div class="dashboard-summary-card" id="dashboard_low_card">
+                            <div class="dashboard-summary-value" id="dashboard_low_count">-</div>
+                            <div class="dashboard-summary-label">Low Supplies</div>
+                        </div>
+                        <div class="dashboard-summary-card">
+                            <div class="dashboard-summary-value" id="dashboard_pages_count">-</div>
+                            <div class="dashboard-summary-label">Total Pages</div>
+                        </div>
+                    </div>
+
+                    <!-- Tree controls -->
+                    <div class="dashboard-tree-controls">
+                        <div class="dashboard-tree-controls-left">
+                            <button id="dashboard_expand_all" class="ghost-btn" title="Expand all nodes">Expand All</button>
+                            <button id="dashboard_collapse_all" class="ghost-btn" title="Collapse all nodes">Collapse All</button>
+                        </div>
+                        <div class="dashboard-tree-controls-right">
+                            <button id="dashboard_refresh" class="ghost-btn" title="Refresh dashboard data">
+                                <span class="refresh-icon">↻</span> Refresh
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Tree view container -->
+                    <div class="dashboard-tree-container" id="dashboard_tree">
+                        <div class="dashboard-loading">
+                            <div class="loading-spinner"></div>
+                            <span>Loading fleet hierarchy…</span>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+
         <!-- Agents Tab -->
-        <div style="margin-top:12px;" data-tab="agents">
+        <div style="margin-top:12px;" data-tab="agents" class="hidden">
             <div class="metrics-header agents-header">
                 <div>
                     <h3 style="margin-bottom:4px;">Fleet Agents</h3>

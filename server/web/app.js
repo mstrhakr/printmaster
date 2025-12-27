@@ -2,6 +2,7 @@
 
 const DEFAULT_ROLE_PRIORITY = { admin: 3, operator: 2, viewer: 1 };
 const BASE_TAB_LABELS = {
+    dashboard: 'Dashboard',
     agents: 'Agents',
     devices: 'Devices',
     metrics: 'Metrics',
@@ -4052,7 +4053,10 @@ function switchTab(targetTab) {
     }
     
     // Load data for specific tabs
-    if (targetTab === 'agents') {
+    if (targetTab === 'dashboard') {
+        initDashboard();
+        loadDashboard();
+    } else if (targetTab === 'agents') {
         initAgentsUI();
         initPendingRegistrationsUI();
         loadAgents();
@@ -4103,6 +4107,609 @@ function restorePreferredTab() {
         return;
     }
     switchTab(stored);
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard - Fleet Hierarchy Tree View
+// ---------------------------------------------------------------------------
+let dashboardInitialized = false;
+let dashboardData = null;
+let dashboardExpandedNodes = new Set();
+let dashboardSearchQuery = '';
+let dashboardFilters = {
+    showTenants: true,
+    showAgents: true,
+    showDevices: true,
+    agentStatus: new Set(['active', 'inactive', 'offline']),
+    supplyBand: new Set(['critical', 'low', 'medium', 'high', 'unknown']),
+    deviceStatus: new Set(['healthy', 'warning', 'error', 'jam'])
+};
+
+function initDashboard() {
+    if (dashboardInitialized) return;
+    dashboardInitialized = true;
+
+    // Sidebar toggle
+    const sidebarToggle = document.getElementById('dashboard_sidebar_toggle');
+    const sidebar = document.getElementById('dashboard_sidebar');
+    if (sidebarToggle && sidebar) {
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+        });
+    }
+
+    // Search input
+    const searchInput = document.getElementById('dashboard_search');
+    if (searchInput) {
+        let searchTimeout;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                dashboardSearchQuery = searchInput.value.toLowerCase().trim();
+                renderDashboardTree();
+                updateDashboardSearchResults();
+            }, 150);
+        });
+    }
+
+    // Level toggles
+    ['tenants', 'agents', 'devices'].forEach(level => {
+        const checkbox = document.getElementById(`dashboard_show_${level}`);
+        if (checkbox) {
+            checkbox.addEventListener('change', () => {
+                dashboardFilters[`show${level.charAt(0).toUpperCase() + level.slice(1)}`] = checkbox.checked;
+                renderDashboardTree();
+            });
+        }
+    });
+
+    // Pill toggle filters
+    initDashboardPillFilter('dashboard_agent_status_filter', 'agentStatus');
+    initDashboardPillFilter('dashboard_supply_filter', 'supplyBand');
+    initDashboardPillFilter('dashboard_device_status_filter', 'deviceStatus');
+
+    // Reset filters
+    const resetBtn = document.getElementById('dashboard_reset_filters');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetDashboardFilters);
+    }
+
+    // Tree controls
+    const expandAllBtn = document.getElementById('dashboard_expand_all');
+    if (expandAllBtn) {
+        expandAllBtn.addEventListener('click', () => {
+            expandAllDashboardNodes();
+            renderDashboardTree();
+        });
+    }
+
+    const collapseAllBtn = document.getElementById('dashboard_collapse_all');
+    if (collapseAllBtn) {
+        collapseAllBtn.addEventListener('click', () => {
+            dashboardExpandedNodes.clear();
+            renderDashboardTree();
+        });
+    }
+
+    const refreshBtn = document.getElementById('dashboard_refresh');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => loadDashboard());
+    }
+}
+
+function initDashboardPillFilter(containerId, filterKey) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.querySelectorAll('.pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+            pill.classList.toggle('active');
+            const value = pill.dataset.status || pill.dataset.band;
+            if (pill.classList.contains('active')) {
+                dashboardFilters[filterKey].add(value);
+            } else {
+                dashboardFilters[filterKey].delete(value);
+            }
+            renderDashboardTree();
+            updateDashboardActiveFilters();
+        });
+    });
+}
+
+function resetDashboardFilters() {
+    dashboardSearchQuery = '';
+    const searchInput = document.getElementById('dashboard_search');
+    if (searchInput) searchInput.value = '';
+
+    dashboardFilters = {
+        showTenants: true,
+        showAgents: true,
+        showDevices: true,
+        agentStatus: new Set(['active', 'inactive', 'offline']),
+        supplyBand: new Set(['critical', 'low', 'medium', 'high', 'unknown']),
+        deviceStatus: new Set(['healthy', 'warning', 'error', 'jam'])
+    };
+
+    // Update checkboxes
+    ['tenants', 'agents', 'devices'].forEach(level => {
+        const checkbox = document.getElementById(`dashboard_show_${level}`);
+        if (checkbox) checkbox.checked = true;
+    });
+
+    // Update pills
+    document.querySelectorAll('#dashboard_agent_status_filter .pill, #dashboard_supply_filter .pill, #dashboard_device_status_filter .pill').forEach(pill => {
+        pill.classList.add('active');
+    });
+
+    updateDashboardActiveFilters();
+    updateDashboardSearchResults();
+    renderDashboardTree();
+}
+
+function updateDashboardActiveFilters() {
+    const container = document.getElementById('dashboard_active_filters');
+    if (!container) return;
+
+    const chips = [];
+
+    // Check if any agent status is filtered
+    if (dashboardFilters.agentStatus.size < 3) {
+        const missing = ['active', 'inactive', 'offline'].filter(s => !dashboardFilters.agentStatus.has(s));
+        missing.forEach(s => {
+            chips.push(`<span class="filter-chip">Hiding ${s} agents <button data-filter="agentStatus" data-value="${s}">×</button></span>`);
+        });
+    }
+
+    // Check if any supply band is filtered
+    if (dashboardFilters.supplyBand.size < 5) {
+        const missing = ['critical', 'low', 'medium', 'high', 'unknown'].filter(s => !dashboardFilters.supplyBand.has(s));
+        missing.forEach(s => {
+            chips.push(`<span class="filter-chip">Hiding ${s} supplies <button data-filter="supplyBand" data-value="${s}">×</button></span>`);
+        });
+    }
+
+    container.innerHTML = chips.join('');
+
+    // Add click handlers for chip removal
+    container.querySelectorAll('button').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const filterKey = btn.dataset.filter;
+            const value = btn.dataset.value;
+            dashboardFilters[filterKey].add(value);
+            // Update corresponding pill
+            const pill = document.querySelector(`[data-status="${value}"], [data-band="${value}"]`);
+            if (pill) pill.classList.add('active');
+            updateDashboardActiveFilters();
+            renderDashboardTree();
+        });
+    });
+}
+
+function updateDashboardSearchResults() {
+    const container = document.getElementById('dashboard_search_results');
+    if (!container) return;
+
+    if (!dashboardSearchQuery || !dashboardData) {
+        container.classList.add('hidden');
+        return;
+    }
+
+    const matches = countDashboardMatches();
+    if (matches.total > 0) {
+        container.classList.remove('hidden');
+        const parts = [];
+        if (matches.tenants > 0) parts.push(`${matches.tenants} tenant${matches.tenants !== 1 ? 's' : ''}`);
+        if (matches.agents > 0) parts.push(`${matches.agents} agent${matches.agents !== 1 ? 's' : ''}`);
+        if (matches.devices > 0) parts.push(`${matches.devices} device${matches.devices !== 1 ? 's' : ''}`);
+        container.innerHTML = `<span style="color:var(--success);">Found ${parts.join(', ')}</span>`;
+    } else {
+        container.classList.remove('hidden');
+        container.innerHTML = `<span class="muted-text">No matches found</span>`;
+    }
+}
+
+function countDashboardMatches() {
+    const result = { tenants: 0, agents: 0, devices: 0, total: 0 };
+    if (!dashboardData || !dashboardSearchQuery) return result;
+
+    for (const tenant of dashboardData.tenants || []) {
+        if (matchesSearch(tenant.name) || matchesSearch(tenant.id)) {
+            result.tenants++;
+        }
+        for (const agent of tenant.agents || []) {
+            if (matchesSearch(agent.name) || matchesSearch(agent.agent_id)) {
+                result.agents++;
+            }
+            for (const device of agent.devices || []) {
+                if (matchesSearch(device.serial) || matchesSearch(device.manufacturer) || 
+                    matchesSearch(device.model) || matchesSearch(device.ip) || matchesSearch(device.location)) {
+                    result.devices++;
+                }
+            }
+        }
+    }
+
+    result.total = result.tenants + result.agents + result.devices;
+    return result;
+}
+
+function matchesSearch(value) {
+    if (!dashboardSearchQuery || !value) return false;
+    return String(value).toLowerCase().includes(dashboardSearchQuery);
+}
+
+function expandAllDashboardNodes() {
+    if (!dashboardData) return;
+    for (const tenant of dashboardData.tenants || []) {
+        dashboardExpandedNodes.add(`tenant-${tenant.id}`);
+        for (const agent of tenant.agents || []) {
+            dashboardExpandedNodes.add(`agent-${agent.agent_id}`);
+        }
+    }
+}
+
+async function loadDashboard() {
+    const container = document.getElementById('dashboard_tree');
+    const refreshBtn = document.getElementById('dashboard_refresh');
+    
+    if (refreshBtn) {
+        refreshBtn.classList.add('refreshing');
+    }
+
+    if (container) {
+        container.innerHTML = `
+            <div class="dashboard-loading">
+                <div class="loading-spinner"></div>
+                <span>Loading fleet hierarchy…</span>
+            </div>
+        `;
+    }
+
+    try {
+        const resp = await fetchJSON('/api/v1/dashboard/tree');
+        dashboardData = resp;
+        renderDashboardSummary();
+        renderDashboardTree();
+        updateDashboardSearchResults();
+    } catch (err) {
+        console.error('Failed to load dashboard:', err);
+        if (container) {
+            container.innerHTML = `
+                <div class="dashboard-empty">
+                    <div class="dashboard-empty-icon">⚠️</div>
+                    <div>Failed to load dashboard data</div>
+                    <div class="muted-text">${err.message || err}</div>
+                </div>
+            `;
+        }
+    } finally {
+        if (refreshBtn) {
+            refreshBtn.classList.remove('refreshing');
+        }
+    }
+}
+
+function renderDashboardSummary() {
+    if (!dashboardData || !dashboardData.summary) return;
+
+    const s = dashboardData.summary;
+    const setVal = (id, val) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = typeof val === 'number' ? val.toLocaleString() : val;
+    };
+
+    setVal('dashboard_tenant_count', s.tenant_count || 0);
+    setVal('dashboard_agent_count', s.agent_count || 0);
+    setVal('dashboard_device_count', s.device_count || 0);
+    setVal('dashboard_critical_count', s.critical_supplies || 0);
+    setVal('dashboard_low_count', s.low_supplies || 0);
+    setVal('dashboard_pages_count', s.total_pages || 0);
+
+    // Highlight critical card if there are critical supplies
+    const criticalCard = document.getElementById('dashboard_critical_card');
+    if (criticalCard) {
+        criticalCard.classList.toggle('warning', (s.critical_supplies || 0) > 0);
+    }
+}
+
+function renderDashboardTree() {
+    const container = document.getElementById('dashboard_tree');
+    if (!container || !dashboardData) return;
+
+    const tenants = dashboardData.tenants || [];
+
+    if (tenants.length === 0) {
+        container.innerHTML = `
+            <div class="dashboard-empty">
+                <div class="dashboard-empty-icon">📭</div>
+                <div>No tenants or agents found</div>
+                <div class="muted-text">Add an agent to get started</div>
+            </div>
+        `;
+        return;
+    }
+
+    // Filter and build tree HTML
+    const html = buildDashboardTreeHTML(tenants);
+    container.innerHTML = html || `
+        <div class="dashboard-empty">
+            <div class="dashboard-empty-icon">🔍</div>
+            <div>No matches found</div>
+            <div class="muted-text">Try adjusting your filters</div>
+        </div>
+    `;
+
+    // Attach event listeners
+    attachDashboardTreeListeners(container);
+}
+
+function buildDashboardTreeHTML(tenants) {
+    let html = '<ul class="dashboard-tree">';
+    let hasContent = false;
+
+    for (const tenant of tenants) {
+        const tenantNodeId = `tenant-${tenant.id}`;
+        const isExpanded = dashboardExpandedNodes.has(tenantNodeId);
+        const tenantMatches = matchesSearch(tenant.name) || matchesSearch(tenant.id);
+
+        // Filter agents
+        const filteredAgents = (tenant.agents || []).filter(agent => {
+            if (!dashboardFilters.agentStatus.has(agent.status)) return false;
+            return true;
+        });
+
+        // Check if any content matches search (for auto-expand)
+        const hasMatchingContent = tenantMatches || filteredAgents.some(agent => {
+            if (matchesSearch(agent.name) || matchesSearch(agent.agent_id)) return true;
+            return (agent.devices || []).some(d => 
+                matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
+                matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
+            );
+        });
+
+        // Skip tenant if no matching content when searching
+        if (dashboardSearchQuery && !hasMatchingContent) continue;
+
+        // Auto-expand when searching
+        if (dashboardSearchQuery && hasMatchingContent && !tenantMatches) {
+            dashboardExpandedNodes.add(tenantNodeId);
+        }
+
+        if (dashboardFilters.showTenants) {
+            hasContent = true;
+            html += buildTenantNodeHTML(tenant, filteredAgents, tenantMatches);
+        } else {
+            // Show agents directly without tenant wrapper
+            for (const agent of filteredAgents) {
+                const agentHTML = buildAgentNodeHTML(agent, tenant.id);
+                if (agentHTML) {
+                    hasContent = true;
+                    html += agentHTML;
+                }
+            }
+        }
+    }
+
+    html += '</ul>';
+    return hasContent ? html : '';
+}
+
+function buildTenantNodeHTML(tenant, agents, isMatch) {
+    const nodeId = `tenant-${tenant.id}`;
+    const isExpanded = dashboardExpandedNodes.has(nodeId);
+    const hasChildren = agents.length > 0;
+    const m = tenant.metrics || {};
+
+    let html = `<li class="dashboard-tree-node" data-node-id="${nodeId}">`;
+    html += `<div class="dashboard-tree-row${isMatch ? ' match' : ''}" data-type="tenant" data-id="${tenant.id}">`;
+    html += `<button class="dashboard-tree-toggle${isExpanded ? ' expanded' : ''}${hasChildren ? '' : ' no-children'}" aria-expanded="${isExpanded}">▶</button>`;
+    html += `<span class="dashboard-tree-icon tenant">🏢</span>`;
+    html += `<div class="dashboard-tree-content">`;
+    html += `<span class="dashboard-tree-name">${highlightMatch(escapeHtml(tenant.name))}</span>`;
+    html += `</div>`;
+    html += `<div class="dashboard-tree-metrics">`;
+    html += `<span class="dashboard-tree-metric" title="Agents">${m.agent_count || 0} agents</span>`;
+    html += `<span class="dashboard-tree-metric" title="Devices">${m.device_count || 0} devices</span>`;
+    if (m.critical_supplies > 0) {
+        html += `<span class="dashboard-tree-metric critical" title="Critical supplies">⚠️ ${m.critical_supplies}</span>`;
+    }
+    html += `</div>`;
+    html += `</div>`;
+
+    // Children (agents)
+    if (dashboardFilters.showAgents && hasChildren) {
+        html += `<div class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
+        for (const agent of agents) {
+            const agentHTML = buildAgentNodeHTML(agent, tenant.id);
+            if (agentHTML) html += agentHTML;
+        }
+        html += `</div>`;
+    }
+
+    html += `</li>`;
+    return html;
+}
+
+function buildAgentNodeHTML(agent, tenantId) {
+    const nodeId = `agent-${agent.agent_id}`;
+    const isExpanded = dashboardExpandedNodes.has(nodeId);
+    const agentMatches = matchesSearch(agent.name) || matchesSearch(agent.agent_id);
+
+    // Filter devices
+    const filteredDevices = (agent.devices || []).filter(device => {
+        if (!dashboardFilters.supplyBand.has(device.supply_status)) return false;
+        if (!dashboardFilters.deviceStatus.has(device.status)) return false;
+        return true;
+    });
+
+    // Check if any device matches search
+    const hasMatchingDevice = filteredDevices.some(d => 
+        matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
+        matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
+    );
+
+    // Skip if searching and no matches
+    if (dashboardSearchQuery && !agentMatches && !hasMatchingDevice) return '';
+
+    // Auto-expand when searching
+    if (dashboardSearchQuery && hasMatchingDevice && !agentMatches) {
+        dashboardExpandedNodes.add(nodeId);
+    }
+
+    const hasChildren = filteredDevices.length > 0;
+    const m = agent.metrics || {};
+    const statusClass = agent.status || 'offline';
+
+    let html = `<li class="dashboard-tree-node" data-node-id="${nodeId}">`;
+    html += `<div class="dashboard-tree-row${agentMatches ? ' match' : ''}" data-type="agent" data-id="${agent.agent_id}" data-tenant="${tenantId}">`;
+    html += `<button class="dashboard-tree-toggle${isExpanded ? ' expanded' : ''}${hasChildren ? '' : ' no-children'}" aria-expanded="${isExpanded}">▶</button>`;
+    html += `<span class="dashboard-tree-icon agent">💻</span>`;
+    html += `<div class="dashboard-tree-content">`;
+    html += `<span class="dashboard-tree-name">${highlightMatch(escapeHtml(agent.name || agent.agent_id))}</span>`;
+    html += `<span class="dashboard-status-badge ${statusClass}"><span class="dashboard-status-dot"></span>${statusClass}</span>`;
+    html += `</div>`;
+    html += `<div class="dashboard-tree-metrics">`;
+    html += `<span class="dashboard-tree-metric" title="Devices">${m.device_count || 0} devices</span>`;
+    if (agent.version) {
+        html += `<span class="dashboard-tree-metric" title="Version">v${escapeHtml(agent.version)}</span>`;
+    }
+    if (m.critical_supplies > 0) {
+        html += `<span class="dashboard-tree-metric critical" title="Critical supplies">⚠️ ${m.critical_supplies}</span>`;
+    }
+    html += `</div>`;
+    html += `</div>`;
+
+    // Children (devices)
+    if (dashboardFilters.showDevices && hasChildren) {
+        html += `<div class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
+        for (const device of filteredDevices) {
+            const deviceMatches = matchesSearch(device.serial) || matchesSearch(device.manufacturer) || 
+                                   matchesSearch(device.model) || matchesSearch(device.ip) || matchesSearch(device.location);
+            
+            // Skip if searching and this device doesn't match
+            if (dashboardSearchQuery && !deviceMatches && !agentMatches) continue;
+            
+            html += buildDeviceNodeHTML(device, agent.agent_id, deviceMatches);
+        }
+        html += `</div>`;
+    }
+
+    html += `</li>`;
+    return html;
+}
+
+function buildDeviceNodeHTML(device, agentId, isMatch) {
+    const supplyLevel = device.lowest_supply >= 0 ? device.lowest_supply : -1;
+    const supplyStatus = device.supply_status || 'unknown';
+    const deviceStatus = device.status || 'healthy';
+    const displayName = [device.manufacturer, device.model].filter(Boolean).join(' ') || 'Unknown Device';
+
+    let html = `<li class="dashboard-tree-node">`;
+    html += `<div class="dashboard-tree-row${isMatch ? ' match' : ''}" data-type="device" data-serial="${device.serial}" data-agent="${agentId}">`;
+    html += `<span class="dashboard-tree-toggle no-children"></span>`;
+    html += `<span class="dashboard-tree-icon device">🖨️</span>`;
+    html += `<div class="dashboard-tree-content">`;
+    html += `<span class="dashboard-tree-name">${highlightMatch(escapeHtml(displayName))}</span>`;
+    html += `<span class="dashboard-tree-subtitle">${highlightMatch(escapeHtml(device.serial))}</span>`;
+    html += `</div>`;
+    html += `<div class="dashboard-tree-metrics">`;
+    
+    // Status badge
+    if (deviceStatus !== 'healthy') {
+        html += `<span class="dashboard-status-badge ${deviceStatus}">${deviceStatus}</span>`;
+    }
+    
+    // Supply indicator
+    if (supplyLevel >= 0) {
+        html += `<div class="dashboard-supply-indicator" title="Lowest supply: ${supplyLevel}%">`;
+        html += `<div class="dashboard-supply-bar"><div class="dashboard-supply-fill ${supplyStatus}" style="width:${supplyLevel}%"></div></div>`;
+        html += `<span>${supplyLevel}%</span>`;
+        html += `</div>`;
+    }
+    
+    if (device.page_count > 0) {
+        html += `<span class="dashboard-tree-metric" title="Page count">${device.page_count.toLocaleString()} pages</span>`;
+    }
+    html += `</div>`;
+    html += `</div>`;
+    html += `</li>`;
+    return html;
+}
+
+function highlightMatch(text) {
+    if (!dashboardSearchQuery || !text) return text;
+    const regex = new RegExp(`(${escapeRegex(dashboardSearchQuery)})`, 'gi');
+    return text.replace(regex, '<span class="highlight">$1</span>');
+}
+
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function attachDashboardTreeListeners(container) {
+    // Toggle expand/collapse
+    container.querySelectorAll('.dashboard-tree-toggle').forEach(toggle => {
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const node = toggle.closest('.dashboard-tree-node');
+            const nodeId = node?.dataset.nodeId;
+            if (!nodeId) return;
+
+            const children = node.querySelector('.dashboard-tree-children');
+            if (!children) return;
+
+            if (dashboardExpandedNodes.has(nodeId)) {
+                dashboardExpandedNodes.delete(nodeId);
+                children.classList.add('collapsed');
+                toggle.classList.remove('expanded');
+                toggle.setAttribute('aria-expanded', 'false');
+            } else {
+                dashboardExpandedNodes.add(nodeId);
+                children.classList.remove('collapsed');
+                toggle.classList.add('expanded');
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+        });
+    });
+
+    // Row click handlers
+    container.querySelectorAll('.dashboard-tree-row').forEach(row => {
+        row.addEventListener('click', () => {
+            const type = row.dataset.type;
+            
+            if (type === 'tenant') {
+                // Could navigate to tenant detail or filter devices by tenant
+                const tenantId = row.dataset.id;
+                console.log('Clicked tenant:', tenantId);
+            } else if (type === 'agent') {
+                // Navigate to agents tab filtered by this agent
+                const agentId = row.dataset.id;
+                switchTab('agents');
+                const searchInput = document.getElementById('agents_search');
+                if (searchInput) {
+                    searchInput.value = agentId;
+                    searchInput.dispatchEvent(new Event('input'));
+                }
+            } else if (type === 'device') {
+                // Navigate to devices tab filtered by this device
+                const serial = row.dataset.serial;
+                switchTab('devices');
+                const searchInput = document.getElementById('devices_search');
+                if (searchInput) {
+                    searchInput.value = serial;
+                    searchInput.dispatchEvent(new Event('input'));
+                }
+            }
+        });
+
+        // Double-click to toggle expand
+        row.addEventListener('dblclick', () => {
+            const toggle = row.querySelector('.dashboard-tree-toggle');
+            if (toggle && !toggle.classList.contains('no-children')) {
+                toggle.click();
+            }
+        });
+    });
 }
 
 // ---------------------------------------------------------------------------

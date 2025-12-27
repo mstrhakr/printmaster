@@ -3491,6 +3491,9 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/api/v1/devices/list", requireWebAuth(handleDevicesList)) // List all devices (for UI)
 	http.HandleFunc("/api/v1/metrics/batch", requireAuth(handleMetricsBatch))
 
+	// Dashboard API - hierarchical tenant/agent/device tree view
+	http.HandleFunc("/api/v1/dashboard/tree", requireWebAuth(handleDashboardTree))
+
 	// Device management endpoints that proxy to agent (for server UI Details modal)
 	http.HandleFunc("/devices/preview", requireWebAuth(handleDevicePreviewProxy))
 	http.HandleFunc("/devices/metrics/collect", requireWebAuth(handleDeviceMetricsCollectProxy))
@@ -5776,6 +5779,371 @@ func enrichDevicesWithMetrics(ctx context.Context, devices []*storage.Device) []
 	}
 
 	return result
+}
+
+// DashboardTreeResponse represents the hierarchical dashboard data
+type DashboardTreeResponse struct {
+	Summary DashboardSummary  `json:"summary"`
+	Tenants []DashboardTenant `json:"tenants"`
+}
+
+type DashboardSummary struct {
+	TenantCount      int   `json:"tenant_count"`
+	AgentCount       int   `json:"agent_count"`
+	DeviceCount      int   `json:"device_count"`
+	ActiveAlerts     int   `json:"active_alerts"`
+	CriticalSupplies int   `json:"critical_supplies"`
+	LowSupplies      int   `json:"low_supplies"`
+	TotalPages       int64 `json:"total_pages"`
+}
+
+type DashboardTenant struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Metrics struct {
+		AgentCount       int   `json:"agent_count"`
+		DeviceCount      int   `json:"device_count"`
+		ActiveAlerts     int   `json:"active_alerts"`
+		OnlineAgents     int   `json:"online_agents"`
+		CriticalSupplies int   `json:"critical_supplies"`
+		LowSupplies      int   `json:"low_supplies"`
+		TotalPages       int64 `json:"total_pages"`
+	} `json:"metrics"`
+	Agents []DashboardAgent `json:"agents"`
+}
+
+type DashboardAgent struct {
+	AgentID        string `json:"agent_id"`
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	ConnectionType string `json:"connection_type"`
+	Version        string `json:"version"`
+	Platform       string `json:"platform"`
+	Metrics        struct {
+		DeviceCount      int   `json:"device_count"`
+		CriticalSupplies int   `json:"critical_supplies"`
+		LowSupplies      int   `json:"low_supplies"`
+		TotalPages       int64 `json:"total_pages"`
+	} `json:"metrics"`
+	LastSeen time.Time                `json:"last_seen"`
+	Devices  []DashboardDeviceSummary `json:"devices,omitempty"`
+}
+
+type DashboardDeviceSummary struct {
+	Serial       string    `json:"serial"`
+	Manufacturer string    `json:"manufacturer"`
+	Model        string    `json:"model"`
+	IP           string    `json:"ip"`
+	Status       string    `json:"status"`
+	LowestSupply int       `json:"lowest_supply"` // 0-100 percentage
+	SupplyStatus string    `json:"supply_status"` // critical, low, medium, high, unknown
+	PageCount    int       `json:"page_count"`
+	Location     string    `json:"location"`
+	LastSeen     time.Time `json:"last_seen"`
+}
+
+// handleDashboardTree returns hierarchical tenant -> agent -> device data for dashboard
+func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeOrReject(w, r, authz.ActionDevicesRead, authz.ResourceRef{}) {
+		return
+	}
+
+	principal := getPrincipal(r)
+	if principal == nil {
+		http.Error(w, "unauthenticated", http.StatusUnauthorized)
+		return
+	}
+	scope, ok := tenantScope(principal)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Check if we should include devices (can be disabled for faster loading)
+	includeDevices := r.URL.Query().Get("include_devices") != "false"
+
+	// Get all tenants
+	allTenants, err := serverStore.ListTenants(ctx)
+	if err != nil {
+		logError("Dashboard: failed to list tenants", "error", err)
+		http.Error(w, "Failed to load dashboard data", http.StatusInternalServerError)
+		return
+	}
+
+	// Get all agents
+	allAgents, err := serverStore.ListAgents(ctx)
+	if err != nil {
+		logError("Dashboard: failed to list agents", "error", err)
+		http.Error(w, "Failed to load dashboard data", http.StatusInternalServerError)
+		return
+	}
+
+	// Filter agents by tenant scope
+	var agents []*storage.Agent
+	if scope != nil {
+		for _, a := range allAgents {
+			if a != nil && tenantAllowed(scope, a.TenantID) {
+				agents = append(agents, a)
+			}
+		}
+	} else {
+		agents = allAgents
+	}
+
+	// Get all devices
+	allDevices, err := serverStore.ListAllDevices(ctx)
+	if err != nil {
+		logError("Dashboard: failed to list devices", "error", err)
+		http.Error(w, "Failed to load dashboard data", http.StatusInternalServerError)
+		return
+	}
+
+	// Build agent ID set for filtering devices
+	agentIDSet := make(map[string]struct{}, len(agents))
+	for _, a := range agents {
+		if a != nil {
+			agentIDSet[a.AgentID] = struct{}{}
+		}
+	}
+
+	// Filter devices to those belonging to visible agents
+	var devices []*storage.Device
+	for _, d := range allDevices {
+		if d != nil {
+			if _, ok := agentIDSet[d.AgentID]; ok {
+				devices = append(devices, d)
+			}
+		}
+	}
+
+	// Enrich devices with metrics
+	enrichedDevices := enrichDevicesWithMetrics(ctx, devices)
+
+	// Build lookup maps
+	agentsByTenant := make(map[string][]*storage.Agent)
+	for _, a := range agents {
+		if a == nil {
+			continue
+		}
+		tid := a.TenantID
+		if tid == "" {
+			tid = "__unassigned__"
+		}
+		agentsByTenant[tid] = append(agentsByTenant[tid], a)
+	}
+
+	devicesByAgent := make(map[string][]*storage.DeviceWithMetrics)
+	for _, d := range enrichedDevices {
+		if d == nil {
+			continue
+		}
+		devicesByAgent[d.AgentID] = append(devicesByAgent[d.AgentID], d)
+	}
+
+	// Filter tenants by scope and build response
+	var tenants []*storage.Tenant
+	if scope != nil {
+		for _, t := range allTenants {
+			if t != nil && tenantAllowed(scope, t.ID) {
+				tenants = append(tenants, t)
+			}
+		}
+	} else {
+		tenants = allTenants
+	}
+
+	// Add synthetic "Unassigned" tenant if there are unassigned agents
+	hasUnassigned := len(agentsByTenant["__unassigned__"]) > 0
+	if hasUnassigned && (scope == nil || tenantAllowed(scope, "")) {
+		tenants = append(tenants, &storage.Tenant{
+			ID:   "__unassigned__",
+			Name: "Unassigned",
+		})
+	}
+
+	// Build response
+	resp := DashboardTreeResponse{}
+
+	// Summary metrics
+	resp.Summary.TenantCount = len(tenants)
+	resp.Summary.AgentCount = len(agents)
+	resp.Summary.DeviceCount = len(devices)
+
+	// Count supplies and pages for summary
+	for _, d := range enrichedDevices {
+		lowest := getLowestSupplyLevel(d.TonerLevels)
+		if lowest >= 0 && lowest <= 10 {
+			resp.Summary.CriticalSupplies++
+		} else if lowest > 10 && lowest <= 25 {
+			resp.Summary.LowSupplies++
+		}
+		resp.Summary.TotalPages += int64(d.PageCount)
+	}
+
+	// Build tenant tree
+	resp.Tenants = make([]DashboardTenant, 0, len(tenants))
+	for _, t := range tenants {
+		if t == nil {
+			continue
+		}
+		dt := DashboardTenant{
+			ID:   t.ID,
+			Name: t.Name,
+		}
+
+		tenantAgents := agentsByTenant[t.ID]
+		dt.Metrics.AgentCount = len(tenantAgents)
+
+		// Build agent list for this tenant
+		dt.Agents = make([]DashboardAgent, 0, len(tenantAgents))
+		for _, a := range tenantAgents {
+			if a == nil {
+				continue
+			}
+			da := DashboardAgent{
+				AgentID:        a.AgentID,
+				Name:           a.Name,
+				Status:         a.Status,
+				ConnectionType: deriveAgentConnectionType(a),
+				Version:        a.Version,
+				Platform:       a.Platform,
+				LastSeen:       a.LastSeen,
+			}
+
+			agentDevices := devicesByAgent[a.AgentID]
+			da.Metrics.DeviceCount = len(agentDevices)
+			dt.Metrics.DeviceCount += len(agentDevices)
+
+			// Aggregate device metrics for this agent
+			for _, d := range agentDevices {
+				lowest := getLowestSupplyLevel(d.TonerLevels)
+				if lowest >= 0 && lowest <= 10 {
+					da.Metrics.CriticalSupplies++
+					dt.Metrics.CriticalSupplies++
+				} else if lowest > 10 && lowest <= 25 {
+					da.Metrics.LowSupplies++
+					dt.Metrics.LowSupplies++
+				}
+				da.Metrics.TotalPages += int64(d.PageCount)
+				dt.Metrics.TotalPages += int64(d.PageCount)
+			}
+
+			// Include device summaries if requested
+			if includeDevices {
+				da.Devices = make([]DashboardDeviceSummary, 0, len(agentDevices))
+				for _, d := range agentDevices {
+					lowest := getLowestSupplyLevel(d.TonerLevels)
+					ds := DashboardDeviceSummary{
+						Serial:       d.Serial,
+						Manufacturer: d.Manufacturer,
+						Model:        d.Model,
+						IP:           d.IP,
+						Status:       deriveDeviceStatus(&d.Device),
+						LowestSupply: lowest,
+						SupplyStatus: deriveSupplyStatus(lowest),
+						PageCount:    d.PageCount,
+						Location:     d.Location,
+						LastSeen:     d.LastSeen,
+					}
+					da.Devices = append(da.Devices, ds)
+				}
+			}
+
+			// Count online agents
+			if a.Status == "active" {
+				dt.Metrics.OnlineAgents++
+			}
+
+			dt.Agents = append(dt.Agents, da)
+		}
+
+		resp.Tenants = append(resp.Tenants, dt)
+	}
+
+	// Sort tenants by name (with Unassigned at end)
+	sort.Slice(resp.Tenants, func(i, j int) bool {
+		if resp.Tenants[i].ID == "__unassigned__" {
+			return false
+		}
+		if resp.Tenants[j].ID == "__unassigned__" {
+			return true
+		}
+		return strings.ToLower(resp.Tenants[i].Name) < strings.ToLower(resp.Tenants[j].Name)
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// getLowestSupplyLevel returns the lowest supply percentage from toner levels map
+// Returns -1 if no valid supply levels found
+func getLowestSupplyLevel(tonerLevels map[string]interface{}) int {
+	if len(tonerLevels) == 0 {
+		return -1
+	}
+	lowest := 101
+	for _, v := range tonerLevels {
+		var level int
+		switch val := v.(type) {
+		case float64:
+			level = int(val)
+		case int:
+			level = val
+		case int64:
+			level = int(val)
+		default:
+			continue
+		}
+		if level >= 0 && level < lowest {
+			lowest = level
+		}
+	}
+	if lowest > 100 {
+		return -1
+	}
+	return lowest
+}
+
+// deriveSupplyStatus returns a status string based on supply level
+func deriveSupplyStatus(level int) string {
+	if level < 0 {
+		return "unknown"
+	}
+	if level <= 10 {
+		return "critical"
+	}
+	if level <= 25 {
+		return "low"
+	}
+	if level <= 50 {
+		return "medium"
+	}
+	return "high"
+}
+
+// deriveDeviceStatus returns a status string based on device state
+func deriveDeviceStatus(d *storage.Device) string {
+	if d == nil {
+		return "unknown"
+	}
+	// Check for explicit status fields in raw data if available
+	if d.RawData != nil {
+		if errStr, ok := d.RawData["error"].(string); ok && errStr != "" {
+			return "error"
+		}
+		if jamStr, ok := d.RawData["paper_jam"].(bool); ok && jamStr {
+			return "jam"
+		}
+	}
+	// Default to healthy for now - more sophisticated status could be derived
+	// from printer-specific OIDs
+	return "healthy"
 }
 
 // handleMetricsSummary returns a lightweight metrics summary for the UI
