@@ -303,7 +303,9 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 					logDebug("Agent reconnected during debounce window, skipping offline mark", "agent_id", agentID)
 					return
 				}
-				ctx := context.Background()
+				// Use timeout context to prevent hanging database operations
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
 				if err := serverStore.UpdateAgentHeartbeat(ctx, agentID, "offline"); err != nil {
 					logWarn("Failed to mark agent offline after WS disconnect", "agent_id", agentID, "error", err)
 				}
@@ -384,7 +386,9 @@ func handleWSHeartbeat(conn *wscommon.Conn, agent *storage.Agent, msg wscommon.M
 		DeviceCount:     deviceCount,
 	}
 
-	ctx := context.Background()
+	// Use timeout context to prevent database operations from hanging indefinitely
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	if agentUpdate := hbData.BuildAgentUpdate(agent.AgentID); agentUpdate != nil {
 		if err := serverStore.UpdateAgentInfo(ctx, agentUpdate); err != nil {
 			logError("Failed to update agent metadata after WebSocket heartbeat", "agent_id", agent.AgentID, "error", err)

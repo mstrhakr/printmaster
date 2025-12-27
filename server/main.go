@@ -64,6 +64,14 @@ const (
 const (
 	uiLogLineLimit       = 500
 	httpRecencyThreshold = 90 * time.Second
+
+	// HTTP server timeout settings to prevent slowloris and resource exhaustion attacks
+	httpReadTimeout  = 30 * time.Second
+	httpWriteTimeout = 60 * time.Second
+	httpIdleTimeout  = 120 * time.Second
+
+	// Maximum request body size (1MB) to prevent denial-of-service via oversized payloads
+	maxRequestBodySize = 1 << 20 // 1MB
 )
 
 // Principal represents the authenticated user along with cached authorization helpers.
@@ -1186,12 +1194,15 @@ func startReverseProxyMode(ctx context.Context, tlsConfig *TLSConfig) {
 		logInfo("Reverse proxy terminates outer TLS, server uses inner TLS")
 		logInfo("Server ready to accept agent connections")
 
-		// Create HTTPS server
+		// Create HTTPS server with timeouts to prevent slowloris attacks
 		httpsServer := &http.Server{
-			Addr:      addr,
-			TLSConfig: tlsCfg,
-			Handler:   handler,
-			ErrorLog:  log.New(logBridgeWriter{level: logger.ERROR}, "[HTTPS] ", 0),
+			Addr:         addr,
+			TLSConfig:    tlsCfg,
+			Handler:      handler,
+			ReadTimeout:  httpReadTimeout,
+			WriteTimeout: httpWriteTimeout,
+			IdleTimeout:  httpIdleTimeout,
+			ErrorLog:     log.New(logBridgeWriter{level: logger.ERROR}, "[HTTPS] ", 0),
 			ConnState: func(conn net.Conn, state http.ConnState) {
 				if state == http.StateNew {
 					logDebug("New connection", "remote_addr", conn.RemoteAddr().String())
@@ -1233,11 +1244,14 @@ func startReverseProxyMode(ctx context.Context, tlsConfig *TLSConfig) {
 		logInfo("HTTPS termination handled by nginx/reverse proxy")
 		logInfo("Server ready to accept agent connections")
 
-		// Create HTTP server
+		// Create HTTP server with timeouts to prevent slowloris attacks
 		httpServer := &http.Server{
-			Addr:     addr,
-			Handler:  handler,
-			ErrorLog: log.New(logBridgeWriter{level: logger.ERROR}, "[HTTP] ", 0),
+			Addr:         addr,
+			Handler:      handler,
+			ReadTimeout:  httpReadTimeout,
+			WriteTimeout: httpWriteTimeout,
+			IdleTimeout:  httpIdleTimeout,
+			ErrorLog:     log.New(logBridgeWriter{level: logger.ERROR}, "[HTTP] ", 0),
 		}
 
 		// Start server in goroutine
@@ -1302,12 +1316,15 @@ func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
 
 	logInfo("Server ready to accept agent connections (HTTPS only)")
 
-	// Create HTTPS server with security headers
+	// Create HTTPS server with security headers and timeouts to prevent slowloris attacks
 	httpsServer := &http.Server{
-		Addr:      httpsAddr,
-		TLSConfig: tlsCfg,
-		Handler:   loggingMiddleware(securityHeadersMiddleware(http.DefaultServeMux)),
-		ErrorLog:  log.New(logBridgeWriter{level: logger.ERROR}, "[HTTPS] ", 0),
+		Addr:         httpsAddr,
+		TLSConfig:    tlsCfg,
+		Handler:      loggingMiddleware(securityHeadersMiddleware(http.DefaultServeMux)),
+		ReadTimeout:  httpReadTimeout,
+		WriteTimeout: httpWriteTimeout,
+		IdleTimeout:  httpIdleTimeout,
+		ErrorLog:     log.New(logBridgeWriter{level: logger.ERROR}, "[HTTPS] ", 0),
 		ConnState: func(conn net.Conn, state http.ConnState) {
 			if state == http.StateNew {
 				logDebug("New connection", "remote_addr", conn.RemoteAddr().String())
@@ -1635,6 +1652,13 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// decodeJSONBody decodes JSON from the request body with a size limit to prevent
+// denial-of-service attacks via oversized payloads. Returns an error if the body
+// exceeds maxRequestBodySize (1MB) or if JSON decoding fails.
+func decodeJSONBody(r *http.Request, v interface{}) error {
+	return json.NewDecoder(io.LimitReader(r.Body, maxRequestBodySize)).Decode(v)
+}
+
 // handleAuthLogin handles local username/password login and returns a session token
 func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1645,7 +1669,7 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -1873,7 +1897,7 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 			TenantIDs []string `json:"tenant_ids,omitempty"`
 			Email     string   `json:"email,omitempty"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(r, &req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -2154,7 +2178,7 @@ func handleAgentAuthCallback(w http.ResponseWriter, r *http.Request) {
 		AgentID     string `json:"agent_id"`
 		CallbackURL string `json:"callback_url"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -2230,7 +2254,7 @@ func handleAgentAuthCallbackValidate(w http.ResponseWriter, r *http.Request) {
 		Token   string `json:"token"`
 		AgentID string `json:"agent_id,omitempty"` // Optional: for extra validation
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -2385,7 +2409,7 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 			Email     string   `json:"email"`
 			Password  string   `json:"password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(r, &req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -2664,7 +2688,7 @@ func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -2750,7 +2774,7 @@ func handlePasswordResetConfirm(w http.ResponseWriter, r *http.Request) {
 		Token    string `json:"token"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -2817,7 +2841,7 @@ func handleUserInvite(w http.ResponseWriter, r *http.Request) {
 		Role     string `json:"role"`
 		TenantID string `json:"tenant_id,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -3007,7 +3031,7 @@ func handleInviteAccept(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -3905,7 +3929,7 @@ func handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		GitCommit       string `json:"git_commit,omitempty"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -4256,7 +4280,7 @@ func handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 		Command string                 `json:"command"`
 		Data    map[string]interface{} `json:"data,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
@@ -4429,7 +4453,7 @@ func handleAgentDetails(w http.ResponseWriter, r *http.Request) {
 			var req struct {
 				Name string `json:"name"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if err := decodeJSONBody(r, &req); err != nil {
 				http.Error(w, "Invalid JSON", http.StatusBadRequest)
 				return
 			}
@@ -4720,7 +4744,7 @@ func handleDeviceCredentials(w http.ResponseWriter, r *http.Request) {
 			AuthType  string `json:"auth_type"`
 			AutoLogin bool   `json:"auto_login"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(r, &req); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
@@ -5520,7 +5544,7 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		Devices   []map[string]interface{} `json:"devices"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		logWarn("Invalid JSON in devices batch", "error", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -6781,7 +6805,7 @@ func handleMetricsBatch(w http.ResponseWriter, r *http.Request) {
 		Metrics   []map[string]interface{} `json:"metrics"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		logWarn("Invalid JSON in metrics batch", "error", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -7364,7 +7388,7 @@ func handleServerSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req serverSettingsRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(r, &req); err != nil {
 			http.Error(w, "invalid JSON payload", http.StatusBadRequest)
 			return
 		}
@@ -8073,7 +8097,7 @@ func handleAgentUpdateManifest(w http.ResponseWriter, r *http.Request) {
 		Arch      string `json:"arch"`
 		Channel   string `json:"channel"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -8221,7 +8245,7 @@ func handleAgentUpdateTelemetry(w http.ResponseWriter, r *http.Request) {
 		Timestamp      time.Time              `json:"timestamp"`
 		Metadata       map[string]interface{} `json:"metadata,omitempty"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSONBody(r, &req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
