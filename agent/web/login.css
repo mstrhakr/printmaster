@@ -39,13 +39,11 @@ body.login-body {
   height: 52px;
   border-radius: 16px;
   background: linear-gradient(135deg, var(--highlight), var(--success));
-  color: #fff;
-  font-weight: 700;
-  font-size: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: var(--shadow-md);
+  padding: 6px;
 }
 
 .login-brand h1 {
