@@ -3003,6 +3003,30 @@ select:focus {
     flex: 1 1 200px;
     min-width: 150px;
   }
+  
+  /* Stack header actions below totals on mobile */
+  .agents-main-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .agents-main-header > div:first-child {
+    margin-bottom: 8px;
+  }
+  
+  .agents-main-actions {
+    justify-content: flex-start;
+  }
+  
+  /* Taller table rows for touch targets */
+  .agents-main .simple-table td {
+    padding: 14px 12px;
+    min-height: 56px;
+  }
+  
+  .agents-main .simple-table tbody tr {
+    min-height: 56px;
+  }
 }
 
 /* ========================================
@@ -3168,6 +3192,30 @@ select:focus {
   .devices-main {
     height: auto;
     min-height: 0;
+  }
+  
+  /* Stack header actions below totals on mobile */
+  .devices-main-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .devices-main-header > div:first-child {
+    margin-bottom: 8px;
+  }
+  
+  .devices-main-actions {
+    justify-content: flex-start;
+  }
+  
+  /* Taller table rows for touch targets */
+  .devices-main .simple-table td {
+    padding: 14px 12px;
+    min-height: 56px;
+  }
+  
+  .devices-main .simple-table tbody tr {
+    min-height: 56px;
   }
 }
 
