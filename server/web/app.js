@@ -578,7 +578,7 @@ document.addEventListener('DOMContentLoaded', function () {
     window.__pm_shared.log('PrintMaster Server UI loaded');
 
     // Before initializing the UI, ensure user is authenticated (shared auth util)
-    window.__pm_auth.ensureAuth().then(user => {
+    window.__pm_auth.ensureAuth().then(async user => {
         if (!user) {
             // ensureAuthenticated will redirect to login for us
             return;
@@ -593,14 +593,23 @@ document.addEventListener('DOMContentLoaded', function () {
         // Initialize tabs (after dynamic tabs injected)
         initTabs();
         initLogSubTabs();
-        restorePreferredTab();
 
         // Check config status and show warning if needed
         checkConfigStatus();
 
+        // Load server status first (sets tenancy_enabled flag needed by other components)
+        await loadServerStatus();
+
+        // Now restore preferred tab (which may trigger loadPendingRegistrations that needs tenancy flag)
+        restorePreferredTab();
+
         // Load initial data
-        loadServerStatus();
         loadAgents();
+        // Also load pending registrations if agents tab is active (in case restorePreferredTab didn't trigger it)
+        if (document.querySelector('[data-tab="agents"]:not(.hidden)')) {
+            initPendingRegistrationsUI();
+            loadPendingRegistrations();
+        }
         initMetricsRangeControls();
         loadMetrics();
         window._metricsInterval = setInterval(() => {
@@ -612,6 +621,13 @@ document.addEventListener('DOMContentLoaded', function () {
         // Set up periodic refresh for server status only
         // Keep the interval ID so we can cancel polling when WebSocket is active
         window._serverStatusInterval = setInterval(loadServerStatus, 30000); // Every 30 seconds
+
+        // Periodically refresh pending registrations when on agents tab
+        window._pendingRegsInterval = setInterval(() => {
+            if (document.querySelector('[data-tab="agents"]:not(.hidden)')) {
+                loadPendingRegistrations();
+            }
+        }, 30000); // Every 30 seconds
 
         // Try WebSocket first for low-latency liveness; fallback to SSE if WS not available
         connectWS();
