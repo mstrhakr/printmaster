@@ -87,9 +87,9 @@ type API struct {
 }
 
 // NewAPI builds a new alerts API instance.
-func NewAPI(store Store, opts APIOptions) *API {
+func NewAPI(store Store, opts APIOptions) (*API, error) {
 	if store == nil {
-		panic("alerts API requires a store")
+		return nil, errors.New("alerts API requires a store")
 	}
 	return &API{
 		store:         store,
@@ -97,7 +97,7 @@ func NewAPI(store Store, opts APIOptions) *API {
 		authorizer:    opts.Authorizer,
 		actorResolver: opts.ActorResolver,
 		auditLogger:   opts.AuditLogger,
-	}
+	}, nil
 }
 
 // RegisterRoutes wires all alert endpoints.

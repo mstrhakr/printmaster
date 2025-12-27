@@ -642,7 +642,10 @@ func runServer(ctx context.Context, configFlag string) {
 		logFatal("Failed to initialize database", "error", err)
 	}
 	defer serverStore.Close()
-	settingsResolver = serversettings.NewResolver(serverStore)
+	settingsResolver, err = serversettings.NewResolver(serverStore)
+	if err != nil {
+		logFatal("Failed to initialize settings resolver", "error", err)
+	}
 	tenancy.SetAgentSettingsBuilder(func(ctx context.Context, tenantID string, agentID string) (string, interface{}, error) {
 		snapshot, err := serversettings.BuildAgentSnapshot(ctx, settingsResolver, tenantID, agentID)
 		if err != nil {
@@ -3372,7 +3375,7 @@ func setupRoutes(cfg *Config) {
 	tenancy.RegisterRoutes(serverStore)
 	logInfo("Tenancy routes registered", "enabled", featureEnabled)
 
-	settingsAPI := serversettings.NewAPI(serverStore, settingsResolver, serversettings.APIOptions{
+	settingsAPI, err := serversettings.NewAPI(serverStore, settingsResolver, serversettings.APIOptions{
 		AuthMiddleware: requireWebAuth,
 		Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
 			return authorizeRequest(r, action, resource)
@@ -3391,6 +3394,9 @@ func setupRoutes(cfg *Config) {
 			return configSourceTracker.EnvKeys
 		},
 	})
+	if err != nil {
+		logFatal("Failed to initialize settings API", "error", err)
+	}
 	settingsAPI.RegisterRoutes(serversettings.RouteConfig{
 		Mux:                 http.DefaultServeMux,
 		FeatureEnabled:      featureEnabled,
@@ -3398,7 +3404,7 @@ func setupRoutes(cfg *Config) {
 	})
 	logInfo("Settings routes registered", "enabled", featureEnabled)
 
-	updatePolicyAPI := updatepolicy.NewAPI(serverStore, updatepolicy.APIOptions{
+	updatePolicyAPI, err := updatepolicy.NewAPI(serverStore, updatepolicy.APIOptions{
 		AuthMiddleware: requireWebAuth,
 		Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
 			return authorizeRequest(r, action, resource)
@@ -3411,6 +3417,9 @@ func setupRoutes(cfg *Config) {
 		},
 		AuditLogger: logRequestAudit,
 	})
+	if err != nil {
+		logFatal("Failed to initialize update policy API", "error", err)
+	}
 	updatePolicyAPI.RegisterRoutes(updatepolicy.RouteConfig{
 		Mux:                 http.DefaultServeMux,
 		FeatureEnabled:      featureEnabled,
@@ -3419,7 +3428,7 @@ func setupRoutes(cfg *Config) {
 	logInfo("Update policy routes registered", "enabled", featureEnabled)
 
 	// Alerts API routes
-	alertsAPI := alertsapi.NewAPI(serverStore, alertsapi.APIOptions{
+	alertsAPI, err := alertsapi.NewAPI(serverStore, alertsapi.APIOptions{
 		AuthMiddleware: requireWebAuth,
 		Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
 			return authorizeRequest(r, action, resource)
@@ -3432,6 +3441,9 @@ func setupRoutes(cfg *Config) {
 		},
 		AuditLogger: logRequestAudit,
 	})
+	if err != nil {
+		logFatal("Failed to initialize alerts API", "error", err)
+	}
 	alertsAPI.RegisterRoutes(alertsapi.RouteConfig{
 		Mux:            http.DefaultServeMux,
 		FeatureEnabled: true, // Alerts always enabled
