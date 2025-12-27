@@ -847,6 +847,20 @@ func runServer(ctx context.Context, configFlag string) {
 		}
 	}()
 
+	// Start expired session cleanup goroutine
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanupExpiredSessions()
+			}
+		}
+	}()
+
 	// Start server metrics collector for Netdata-style dashboards
 	metricsCollector = metricsapi.NewCollector(serverStore, metricsapi.CollectorConfig{
 		CollectionInterval:  10 * time.Second,
@@ -2107,6 +2121,19 @@ func cleanupExpiredAgentCallbackTokens() {
 	}
 }
 
+// cleanupExpiredSessions removes expired sessions periodically.
+func cleanupExpiredSessions() {
+	ctx := context.Background()
+	count, err := serverStore.DeleteExpiredSessions(ctx)
+	if err != nil {
+		serverLogger.Error("Failed to cleanup expired sessions", "error", err)
+		return
+	}
+	if count > 0 {
+		serverLogger.Info("Cleaned up expired sessions", "count", count)
+	}
+}
+
 // handleAgentAuthCallback handles POST /api/v1/auth/agent-callback
 // Creates a callback token for redirecting back to an agent with authentication.
 // Requires an authenticated session.
@@ -2498,11 +2525,16 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session key required", http.StatusBadRequest)
 		return
 	}
+	serverLogger.Debug("Deleting session", "key_prefix", key[:min(12, len(key))], "key_len", len(key))
 	ctx := context.Background()
-	if err := serverStore.DeleteSessionByHash(ctx, key); err != nil {
+	deleted, err := serverStore.DeleteSessionByHashWithCount(ctx, key)
+	if err != nil {
 		serverLogger.Error("Failed to delete session", "key", key, "error", err)
 		http.Error(w, "failed to delete session", http.StatusInternalServerError)
 		return
+	}
+	if deleted == 0 {
+		serverLogger.Warn("Session not found for deletion", "key_prefix", key[:min(12, len(key))])
 	}
 	actorType, actorID, actorName, actorTenant := auditActorFromPrincipal(r)
 	logAuditEntry(ctx, &storage.AuditEntry{

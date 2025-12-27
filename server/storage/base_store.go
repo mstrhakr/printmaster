@@ -1570,6 +1570,24 @@ func (s *BaseStore) DeleteSessionByHash(ctx context.Context, tokenHash string) e
 	return err
 }
 
+// DeleteSessionByHashWithCount removes a session by its stored hash and returns the number of rows deleted
+func (s *BaseStore) DeleteSessionByHashWithCount(ctx context.Context, tokenHash string) (int64, error) {
+	result, err := s.execContext(ctx, `DELETE FROM sessions WHERE token = ?`, tokenHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// DeleteExpiredSessions removes all expired sessions and returns the count deleted
+func (s *BaseStore) DeleteExpiredSessions(ctx context.Context) (int64, error) {
+	result, err := s.execContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, time.Now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // ListSessions returns all sessions
 func (s *BaseStore) ListSessions(ctx context.Context) ([]*Session, error) {
 	query := `

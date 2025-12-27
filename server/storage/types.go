@@ -726,6 +726,10 @@ type Store interface {
 	ListSessions(ctx context.Context) ([]*Session, error)
 	// DeleteSessionByHash deletes a session by its stored token hash (DB-side key)
 	DeleteSessionByHash(ctx context.Context, tokenHash string) error
+	// DeleteSessionByHashWithCount deletes a session by hash and returns the number of rows affected
+	DeleteSessionByHashWithCount(ctx context.Context, tokenHash string) (int64, error)
+	// DeleteExpiredSessions removes all expired sessions and returns the count deleted
+	DeleteExpiredSessions(ctx context.Context) (int64, error)
 	GetUserByID(ctx context.Context, id int64) (*User, error)
 	// ListUsers returns all local users (admin UI)
 	ListUsers(ctx context.Context) ([]*User, error)
