@@ -3335,6 +3335,16 @@ func setupRoutes(cfg *Config) {
 		sseHub.Broadcast(SSEEvent{Type: eventType, Data: data})
 	})
 	tenancy.SetAuditLogger(logRequestAudit)
+	tenancy.SetEmailSender(sendHTMLEmail)
+	tenancy.SetEmailThemeGetter(getEmailTheme)
+	tenancy.SetUserFromContextGetter(func(ctx context.Context) *storage.User {
+		if v := ctx.Value(userContextKey); v != nil {
+			if u, ok := v.(*storage.User); ok {
+				return u
+			}
+		}
+		return nil
+	})
 	tenancy.RegisterRoutes(serverStore)
 	logInfo("Tenancy routes registered", "enabled", featureEnabled)
 

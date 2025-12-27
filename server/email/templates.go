@@ -88,6 +88,19 @@ type PasswordResetEmailData struct {
 	ExpiresIn string
 }
 
+// AgentDeploymentEmailData holds data for the agent deployment script email
+type AgentDeploymentEmailData struct {
+	RecipientEmail string // The email address receiving this
+	Platform       string // linux, windows, darwin
+	OneLiner       string // The one-liner command to run
+	Script         string // The full bootstrap script
+	DownloadURL    string // The hosted URL for the script
+	ExpiresIn      string // Human-readable TTL
+	TenantName     string // Tenant/customer name
+	ServerURL      string // Server base URL
+	SentBy         string // Name of the user who sent this
+}
+
 // GenerateInviteEmail generates a themed HTML invitation email
 func GenerateInviteEmail(theme Theme, data InviteEmailData) (htmlBody, textBody string, err error) {
 	colors := getThemeColors(theme)
@@ -139,6 +152,38 @@ func GeneratePasswordResetEmail(theme Theme, data PasswordResetEmailData) (htmlB
 		Theme:                  theme,
 		DarkColors:             darkColors,
 		LightColors:            lightColors,
+	}
+
+	var htmlBuf, textBuf bytes.Buffer
+	if err := htmlTmpl.Execute(&htmlBuf, tmplData); err != nil {
+		return "", "", fmt.Errorf("html template: %w", err)
+	}
+	if err := textTmpl.Execute(&textBuf, tmplData); err != nil {
+		return "", "", fmt.Errorf("text template: %w", err)
+	}
+
+	return htmlBuf.String(), textBuf.String(), nil
+}
+
+// GenerateAgentDeploymentEmail generates a themed HTML email with agent deployment instructions
+func GenerateAgentDeploymentEmail(theme Theme, data AgentDeploymentEmailData) (htmlBody, textBody string, err error) {
+	colors := getThemeColors(theme)
+
+	htmlTmpl := template.Must(template.New("deploy").Parse(agentDeployHTMLTemplate))
+	textTmpl := template.Must(template.New("deployText").Parse(agentDeployTextTemplate))
+
+	tmplData := struct {
+		AgentDeploymentEmailData
+		themeColors
+		Theme       Theme
+		DarkColors  themeColors
+		LightColors themeColors
+	}{
+		AgentDeploymentEmailData: data,
+		themeColors:              colors,
+		Theme:                    theme,
+		DarkColors:               darkColors,
+		LightColors:              lightColors,
 	}
 
 	var htmlBuf, textBuf bytes.Buffer
@@ -212,6 +257,30 @@ Use the following link to reset your password:
 This link is valid for {{.ExpiresIn}}.
 
 If you did not request this, ignore this message.
+
+---
+PrintMaster - Printer Fleet Management
+`
+
+// Plain text agent deployment template
+const agentDeployTextTemplate = `Hello,
+
+{{if .SentBy}}{{.SentBy}} has sent{{else}}You have been sent{{end}} PrintMaster agent installation instructions{{if .TenantName}} for {{.TenantName}}{{end}}.
+
+Platform: {{.Platform}}
+
+=== QUICK INSTALL (one-liner) ===
+{{.OneLiner}}
+
+=== DOWNLOAD URL ===
+{{.DownloadURL}}
+
+=== FULL SCRIPT ===
+{{.Script}}
+
+This installation script expires in {{.ExpiresIn}}.{{if .ServerURL}}
+
+Server: {{.ServerURL}}{{end}}
 
 ---
 PrintMaster - Printer Fleet Management
@@ -766,6 +835,307 @@ const resetHTMLTemplate = `<!DOCTYPE html>
                                         <p class="email-muted" style="margin: 0; font-size: 13px; line-height: 1.5;">
                                             This is an automated message from PrintMaster. Please do not reply to this email.
                                         </p>
+                                        <p class="email-muted" style="margin: 12px 0 0 0; font-size: 12px;">
+                                            PrintMaster - Printer Fleet Management
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`
+
+// HTML agent deployment template with responsive design
+const agentDeployHTMLTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="{{if eq .Theme "light"}}light{{else if eq .Theme "dark"}}dark{{else}}light dark{{end}}">
+    <title>PrintMaster Agent Installation</title>
+    <!--[if mso]>
+    <noscript>
+        <xml>
+            <o:OfficeDocumentSettings>
+                <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+        </xml>
+    </noscript>
+    <![endif]-->
+    <style>
+        /* Reset and base styles */
+        body, table, td, p, a, li {
+            -webkit-text-size-adjust: 100%;
+            -ms-text-size-adjust: 100%;
+        }
+        table, td {
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+        }
+        img {
+            -ms-interpolation-mode: bicubic;
+            border: 0;
+            height: auto;
+            line-height: 100%;
+            outline: none;
+            text-decoration: none;
+        }
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        }
+        a {
+            text-decoration: none;
+        }
+        
+        /* Theme styles */
+        {{if eq .Theme "auto"}}
+        /* Light mode (default for most email clients) */
+        .email-body {
+            background-color: {{.LightColors.Background}};
+        }
+        .email-container {
+            background-color: {{.LightColors.Panel}};
+            border-color: {{.LightColors.Border}};
+        }
+        .email-header {
+            border-bottom-color: {{.LightColors.Border}};
+        }
+        .email-title {
+            color: {{.LightColors.Accent}};
+        }
+        .email-text {
+            color: {{.LightColors.Text}};
+        }
+        .email-muted {
+            color: {{.LightColors.TextMuted}};
+        }
+        .email-button {
+            background-color: {{.LightColors.ButtonBg}};
+            color: {{.LightColors.ButtonText}} !important;
+        }
+        .email-link {
+            color: {{.LightColors.Highlight}};
+        }
+        .email-footer {
+            border-top-color: {{.LightColors.Border}};
+        }
+        .email-code-box {
+            background-color: {{.LightColors.PreBackground}};
+            border-color: {{.LightColors.Border}};
+            color: {{.LightColors.Text}};
+        }
+        .email-platform-badge {
+            background-color: {{.LightColors.Background}};
+            color: {{.LightColors.Accent}};
+            border-color: {{.LightColors.Accent}};
+        }
+        
+        /* Dark mode override */
+        @media (prefers-color-scheme: dark) {
+            .email-body {
+                background-color: {{.DarkColors.Background}} !important;
+            }
+            .email-container {
+                background-color: {{.DarkColors.Panel}} !important;
+                border-color: {{.DarkColors.Border}} !important;
+            }
+            .email-header {
+                border-bottom-color: {{.DarkColors.Border}} !important;
+            }
+            .email-title {
+                color: {{.DarkColors.Accent}} !important;
+            }
+            .email-text {
+                color: {{.DarkColors.Text}} !important;
+            }
+            .email-muted {
+                color: {{.DarkColors.TextMuted}} !important;
+            }
+            .email-button {
+                background-color: {{.DarkColors.ButtonBg}} !important;
+                color: {{.DarkColors.ButtonText}} !important;
+            }
+            .email-link {
+                color: {{.DarkColors.Highlight}} !important;
+            }
+            .email-footer {
+                border-top-color: {{.DarkColors.Border}} !important;
+            }
+            .email-code-box {
+                background-color: {{.DarkColors.PreBackground}} !important;
+                border-color: {{.DarkColors.Border}} !important;
+                color: {{.DarkColors.Text}} !important;
+            }
+            .email-platform-badge {
+                background-color: {{.DarkColors.Background}} !important;
+                color: {{.DarkColors.Accent}} !important;
+                border-color: {{.DarkColors.Accent}} !important;
+            }
+        }
+        {{else}}
+        /* Static theme */
+        .email-body {
+            background-color: {{.Background}};
+        }
+        .email-container {
+            background-color: {{.Panel}};
+            border-color: {{.Border}};
+        }
+        .email-header {
+            border-bottom-color: {{.Border}};
+        }
+        .email-title {
+            color: {{.Accent}};
+        }
+        .email-text {
+            color: {{.Text}};
+        }
+        .email-muted {
+            color: {{.TextMuted}};
+        }
+        .email-button {
+            background-color: {{.ButtonBg}};
+            color: {{.ButtonText}} !important;
+        }
+        .email-link {
+            color: {{.Highlight}};
+        }
+        .email-footer {
+            border-top-color: {{.Border}};
+        }
+        .email-code-box {
+            background-color: {{.PreBackground}};
+            border-color: {{.Border}};
+            color: {{.Text}};
+        }
+        .email-platform-badge {
+            background-color: {{.Background}};
+            color: {{.Accent}};
+            border-color: {{.Accent}};
+        }
+        {{end}}
+    </style>
+</head>
+<body class="email-body" style="margin: 0; padding: 0;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" class="email-body">
+        <tr>
+            <td align="center" style="padding: 40px 20px;">
+                <!-- Email container -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width: 600px;" class="email-container" style="border-radius: 12px; border-width: 1px; border-style: solid;">
+                    <tr>
+                        <td style="border-radius: 12px; overflow: hidden;">
+                            <!-- Header -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td class="email-header" style="padding: 30px 40px; border-bottom-width: 1px; border-bottom-style: solid;">
+                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                            <tr>
+                                                <td>
+                                                    <h1 class="email-title" style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px;">
+                                                        🖨️ PrintMaster
+                                                    </h1>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Body -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td style="padding: 40px;">
+                                        <h2 class="email-text" style="margin: 0 0 20px 0; font-size: 22px; font-weight: 600;">
+                                            Agent Installation Instructions
+                                        </h2>
+                                        
+                                        <p class="email-text" style="margin: 0 0 20px 0; font-size: 16px; line-height: 1.6;">
+                                            {{if .SentBy}}<strong>{{.SentBy}}</strong> has sent{{else}}You have been sent{{end}} agent installation instructions{{if .TenantName}} for <strong>{{.TenantName}}</strong>{{end}}.
+                                        </p>
+                                        
+                                        <!-- Platform badge -->
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 30px 0;">
+                                            <tr>
+                                                <td class="email-platform-badge" style="padding: 8px 16px; border-radius: 20px; border-width: 1px; border-style: solid; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                                                    {{.Platform}}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        
+                                        <!-- Quick Install Section -->
+                                        <h3 class="email-text" style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600;">
+                                            ⚡ Quick Install (One-liner)
+                                        </h3>
+                                        <p class="email-muted" style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.6;">
+                                            Run this command in {{if eq .Platform "windows"}}an elevated PowerShell terminal{{else}}your terminal{{end}}:
+                                        </p>
+                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 30px 0;">
+                                            <tr>
+                                                <td class="email-code-box" style="padding: 16px; border-radius: 8px; border-width: 1px; border-style: solid; word-break: break-all;">
+                                                    <code style="font-size: 13px; font-family: 'SF Mono', Monaco, 'Courier New', monospace; white-space: pre-wrap;">{{.OneLiner}}</code>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                        <!-- Download URL Section -->
+                                        {{if .DownloadURL}}
+                                        <h3 class="email-text" style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600;">
+                                            📥 Download URL
+                                        </h3>
+                                        <p class="email-muted" style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.6;">
+                                            Or download the script directly:
+                                        </p>
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 30px 0;">
+                                            <tr>
+                                                <td class="email-button" style="border-radius: 8px;">
+                                                    <a href="{{.DownloadURL}}" class="email-button" style="display: inline-block; padding: 14px 32px; font-size: 16px; font-weight: 600; text-decoration: none; border-radius: 8px;">
+                                                        Download Script
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        {{end}}
+                                        
+                                        <!-- Full Script Section -->
+                                        <h3 class="email-text" style="margin: 0 0 12px 0; font-size: 18px; font-weight: 600;">
+                                            📜 Full Script
+                                        </h3>
+                                        <p class="email-muted" style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.6;">
+                                            If you prefer, save this script to a file and run it manually:
+                                        </p>
+                                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin: 0 0 30px 0;">
+                                            <tr>
+                                                <td class="email-code-box" style="padding: 16px; border-radius: 8px; border-width: 1px; border-style: solid; max-height: 300px; overflow: auto;">
+                                                    <pre style="margin: 0; font-size: 11px; font-family: 'SF Mono', Monaco, 'Courier New', monospace; white-space: pre-wrap; word-wrap: break-word;">{{.Script}}</pre>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        
+                                        <p class="email-muted" style="margin: 0; font-size: 14px; line-height: 1.6;">
+                                            ⏱️ This installation script expires in <strong>{{.ExpiresIn}}</strong>.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Footer -->
+                            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td class="email-footer" style="padding: 24px 40px; border-top-width: 1px; border-top-style: solid;">
+                                        <p class="email-muted" style="margin: 0; font-size: 13px; line-height: 1.5;">
+                                            If you did not expect these instructions, you can safely ignore this email.
+                                        </p>
+                                        {{if .ServerURL}}<p class="email-muted" style="margin: 12px 0 0 0; font-size: 12px;">
+                                            Server: <a href="{{.ServerURL}}" class="email-link" style="font-size: 12px;">{{.ServerURL}}</a>
+                                        </p>{{end}}
                                         <p class="email-muted" style="margin: 12px 0 0 0; font-size: 12px;">
                                             PrintMaster - Printer Fleet Management
                                         </p>

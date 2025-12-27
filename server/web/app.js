@@ -14301,6 +14301,36 @@ async function handleAddAgentPrimary(){
             }catch(err){
                 window.__pm_shared.showAlert('Failed to generate bootstrap script: ' + (err && err.message ? err.message : err), 'Error', true, false);
             }
+        } else if(action === 'email'){
+            // Send bootstrap script via email
+            const emailEl = document.getElementById('add_agent_email');
+            const emailAddr = emailEl ? emailEl.value.trim() : '';
+            if(!emailAddr){
+                window.__pm_shared.showAlert('Please enter a recipient email address.', 'Missing email', true, false);
+                return;
+            }
+            // Basic email validation
+            if(!emailAddr.includes('@') || !emailAddr.includes('.')){
+                window.__pm_shared.showAlert('Please enter a valid email address.', 'Invalid email', true, false);
+                return;
+            }
+            try{
+                const payload = { tenant_id: tenantID, platform: platform, email: emailAddr, ttl_minutes: ttl };
+                const r = await fetch('/api/v1/packages/send-email', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+                if(!r.ok) {
+                    const errText = await r.text();
+                    throw new Error(errText);
+                }
+                const data = await r.json();
+                st.emailSent = true;
+                st.emailTo = emailAddr;
+                st.mode = 'email';
+                st.step = 2;
+                window._addAgentState = st;
+                renderAddAgentStep(2);
+            }catch(err){
+                window.__pm_shared.showAlert('Failed to send deployment email: ' + (err && err.message ? err.message : err), 'Error', true, false);
+            }
         } else {
             window.__pm_shared.showAlert('Unsupported onboarding option selected.', 'Error', true, false);
         }
@@ -14324,6 +14354,7 @@ function renderAddAgentStep(step){
             const mode = (window._addAgentState && window._addAgentState.mode) ? window._addAgentState.mode : 'token';
             let label = 'Token (shown once)';
             if(mode === 'script') label = 'Bootstrap script';
+            else if(mode === 'email') label = 'Email sent';
             indicator.textContent = 'Step 2/2 — ' + label;
         }
     }
@@ -14366,11 +14397,17 @@ function renderAddAgentStep(step){
                     <div style="font-weight:600;margin-bottom:6px;">Onboarding method</div>
                     <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="token" ${state.mode === 'token' || !state.mode ? 'checked' : ''} /> Show raw token</label>
                     <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="script" ${state.mode === 'script' ? 'checked' : ''} /> Generate bootstrap script</label>
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="radio" name="add_agent_action" value="email" ${state.mode === 'email' ? 'checked' : ''} /> Send via email</label>
                     <div id="add_agent_platform_row" style="margin-top:8px;display:none;">
                         <label style="font-weight:600">Target platform</label>
                         <select id="add_agent_platform" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:180px;">
                             ${platformOptions}
                         </select>
+                    </div>
+                    <div id="add_agent_email_row" style="margin-top:8px;display:none;">
+                        <label style="font-weight:600">Recipient email</label>
+                        <input id="add_agent_email" type="email" placeholder="user@example.com" style="padding:8px;border-radius:4px;border:1px solid var(--border);width:280px;" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        <div style="color:var(--muted);font-size:12px;margin-top:4px;">The recipient will receive an HTML email with the installation one-liner and full script.</div>
                     </div>
                 </div>
 
@@ -14420,16 +14457,19 @@ function renderAddAgentStep(step){
 
         const actionRadios = content.querySelectorAll('input[name="add_agent_action"]');
         const platRow = content.querySelector('#add_agent_platform_row');
+        const emailRow = content.querySelector('#add_agent_email_row');
         const updatePrimaryLabel = () => {
             const sel = content.querySelector('input[name="add_agent_action"]:checked');
             if(!sel || !primaryBtn) return;
             if(sel.value === 'script') primaryBtn.textContent = 'Generate Script';
+            else if(sel.value === 'email') primaryBtn.textContent = 'Send Email';
             else primaryBtn.textContent = 'Create Token';
         };
         const updateFieldVisibility = () => {
             const sel = content.querySelector('input[name="add_agent_action"]:checked');
             const mode = sel ? sel.value : 'token';
-            if(platRow) platRow.style.display = mode === 'token' ? 'none' : '';
+            if(platRow) platRow.style.display = (mode === 'script' || mode === 'email') ? '' : 'none';
+            if(emailRow) emailRow.style.display = mode === 'email' ? '' : 'none';
         };
         actionRadios.forEach(r => r.addEventListener('change', ()=>{
             state.mode = r.value;
@@ -14439,12 +14479,25 @@ function renderAddAgentStep(step){
         updatePrimaryLabel();
         updateFieldVisibility();
     } else {
-        // Step 2: show token
+        // Step 2: show token, script, or email confirmation
         const token = (window._addAgentState && window._addAgentState.token) ? window._addAgentState.token : '';
         const mode = (window._addAgentState && window._addAgentState.mode) ? window._addAgentState.mode : 'token';
         const script = (window._addAgentState && window._addAgentState.script) ? window._addAgentState.script : null;
         const filename = (window._addAgentState && window._addAgentState.scriptFilename) ? window._addAgentState.scriptFilename : 'bootstrap';
-        if(script && mode === 'script'){
+        const emailSent = (window._addAgentState && window._addAgentState.emailSent) ? window._addAgentState.emailSent : false;
+        const emailTo = (window._addAgentState && window._addAgentState.emailTo) ? window._addAgentState.emailTo : '';
+        
+        if(emailSent && mode === 'email'){
+            content.innerHTML = `
+                <div style="display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center;padding:20px;">
+                    <div style="font-size:48px;">✉️</div>
+                    <h3 style="margin:0;color:var(--text);">Email Sent Successfully</h3>
+                    <p style="color:var(--muted);margin:0;">Agent deployment instructions have been sent to:</p>
+                    <div style="font-family:monospace;padding:12px 24px;background:var(--panel);border-radius:6px;border:1px solid var(--border);font-weight:600;">${escapeHtml(emailTo)}</div>
+                    <p style="color:var(--muted);font-size:13px;margin:0;">The email contains the one-liner command and full bootstrap script for the selected platform. The recipient can follow the instructions to install and register the agent.</p>
+                </div>
+            `;
+        } else if(script && mode === 'script'){
             const oneLiner = (window._addAgentState && window._addAgentState.oneLiner) ? window._addAgentState.oneLiner : null;
             content.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:12px;">

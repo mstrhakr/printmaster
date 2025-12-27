@@ -16,6 +16,7 @@ import (
 	"time"
 
 	authz "printmaster/server/authz"
+	"printmaster/server/email"
 	"printmaster/server/storage"
 
 	"printmaster/common/logger"
@@ -83,6 +84,16 @@ var agentSettingsBuilder func(context.Context, string, string) (string, interfac
 
 var auditLogger func(*http.Request, *storage.AuditEntry)
 
+// emailSender, when configured, sends themed HTML emails for agent deployment.
+// Parameters: to, subject, htmlBody, textBody; returns error.
+var emailSender func(to, subject, htmlBody, textBody string) error
+
+// emailThemeGetter, when configured, returns the configured email theme.
+var emailThemeGetter func() string
+
+// getUserFromContext, when configured, retrieves the current user from request context.
+var getUserFromContext func(ctx context.Context) *storage.User
+
 var (
 	releaseAssetBaseURL   = "https://github.com/mstrhakr/printmaster/releases/download"
 	releaseDownloadClient = &http.Client{Timeout: 2 * time.Minute}
@@ -101,6 +112,37 @@ func SetAgentSettingsBuilder(builder func(context.Context, string, string) (stri
 // SetAuditLogger wires an audit sink so tenancy actions appear in the central audit log.
 func SetAuditLogger(logger func(*http.Request, *storage.AuditEntry)) {
 	auditLogger = logger
+}
+
+// SetEmailSender wires the function used to send themed HTML emails for agent deployment.
+func SetEmailSender(sender func(to, subject, htmlBody, textBody string) error) {
+	emailSender = sender
+}
+
+// SetEmailThemeGetter wires the function that returns the configured email theme.
+func SetEmailThemeGetter(getter func() string) {
+	emailThemeGetter = getter
+}
+
+// SetUserFromContextGetter wires the function that retrieves the current user from context.
+func SetUserFromContextGetter(getter func(ctx context.Context) *storage.User) {
+	getUserFromContext = getter
+}
+
+// generateDeploymentEmail generates HTML and text versions of the deployment email.
+func generateDeploymentEmail(theme, recipientEmail, platform, oneLiner, script, downloadURL, expiresIn, tenantName, serverURL, senderName string) (string, string, error) {
+	data := email.AgentDeploymentEmailData{
+		RecipientEmail: recipientEmail,
+		Platform:       platform,
+		OneLiner:       oneLiner,
+		Script:         script,
+		DownloadURL:    downloadURL,
+		ExpiresIn:      expiresIn,
+		TenantName:     tenantName,
+		ServerURL:      serverURL,
+		SentBy:         senderName,
+	}
+	return email.GenerateAgentDeploymentEmail(email.NormalizeTheme(theme), data)
 }
 
 func recordAudit(r *http.Request, entry *storage.AuditEntry) {
@@ -248,6 +290,7 @@ func RegisterRoutesOnMux(mux *http.ServeMux, s storage.Store) {
 	mux.HandleFunc("/api/v1/pending-registrations/", wrap(handlePendingRegistrationByID)) // GET/POST/DELETE by ID
 	// Package generation (bootstrap script) - admin only
 	mux.HandleFunc("/api/v1/packages", wrap(handleGeneratePackage))
+	mux.HandleFunc("/api/v1/packages/send-email", wrap(handleSendDeploymentEmail))
 	// Public redirect to latest agent binary on GitHub releases. This chooses
 	// the release based on the running server version (set by main via
 	// SetServerVersion) and redirects to the appropriate asset for the
@@ -1421,6 +1464,192 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "unsupported installer_type (only 'script' is supported)")
 		return
 	}
+}
+
+// handleSendDeploymentEmail generates a bootstrap script and sends it via email.
+// Request (POST) JSON:
+// {"tenant_id":"...","platform":"linux|windows|darwin","email":"user@example.com","ttl_minutes":60}
+func handleSendDeploymentEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !requireTenancyEnabled(w, r) {
+		return
+	}
+	// Check email sender is configured
+	if emailSender == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "email sending not configured (SMTP not enabled)")
+		return
+	}
+
+	var in struct {
+		TenantID   string `json:"tenant_id"`
+		Platform   string `json:"platform"`
+		Email      string `json:"email"`
+		TTLMinutes int    `json:"ttl_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	if in.TenantID == "" {
+		writeJSONError(w, http.StatusBadRequest, "tenant_id required")
+		return
+	}
+	if in.Email == "" {
+		writeJSONError(w, http.StatusBadRequest, "email address required")
+		return
+	}
+	if in.TTLMinutes <= 0 {
+		in.TTLMinutes = 60
+	}
+
+	platform := normalizePlatform(in.Platform)
+	if platform == "" {
+		platform = "linux"
+	}
+
+	// Authorize the request (same permission as package generation)
+	if !authorizeOrReject(w, r, authz.ActionPackagesGenerate, authz.ResourceRef{TenantIDs: []string{in.TenantID}}) {
+		return
+	}
+
+	// Fetch tenant info for email context
+	ctx := r.Context()
+	tenantName := ""
+	if dbStore != nil {
+		tenant, err := dbStore.GetTenant(ctx, in.TenantID)
+		if err != nil {
+			writeJSONError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		tenantName = tenant.Name
+	} else {
+		store.mu.Lock()
+		t, ok := store.tenants[in.TenantID]
+		store.mu.Unlock()
+		if !ok {
+			writeJSONError(w, http.StatusNotFound, "tenant not found")
+			return
+		}
+		tenantName = t.Name
+	}
+
+	// Determine server URL
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	serverURL := scheme + "://" + r.Host
+
+	// Create a join token
+	var rawToken string
+	if dbStore != nil {
+		_, rt, err := dbStore.CreateJoinToken(ctx, in.TenantID, in.TTLMinutes, true)
+		if err != nil {
+			logError("failed to create join token for email send", "error", err, "tenant_id", in.TenantID)
+			writeJSONError(w, http.StatusInternalServerError, "failed to create join token: "+err.Error())
+			return
+		}
+		rawToken = rt
+	} else {
+		jt, err := store.CreateJoinToken(in.TenantID, in.TTLMinutes, true)
+		if err != nil {
+			logError("failed to create join token for email send", "error", err, "tenant_id", in.TenantID)
+			writeJSONError(w, http.StatusInternalServerError, "failed to create join token: "+err.Error())
+			return
+		}
+		rawToken = jt.Token
+	}
+
+	// Build the bootstrap script
+	script, filename := buildBootstrapScript(platform, serverURL, rawToken)
+	if script == "" {
+		writeJSONError(w, http.StatusInternalServerError, "failed to generate bootstrap script")
+		return
+	}
+
+	// Store for download URL (not one-time since email may be opened multiple times)
+	code := randomHex(12)
+	expiresAt := time.Now().UTC().Add(time.Duration(in.TTLMinutes) * time.Minute)
+	installStore.mu.Lock()
+	installStore.m[code] = installEntry{Script: script, Filename: filename, ExpiresAt: expiresAt, OneTime: false}
+	installStore.mu.Unlock()
+
+	downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
+	oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
+	if platform == "windows" {
+		oneLiner = fmt.Sprintf("irm %q | iex", downloadURL)
+	}
+
+	// Get the sender name from the request context (user who initiated)
+	senderName := ""
+	if getUserFromContext != nil {
+		if user := getUserFromContext(r.Context()); user != nil {
+			senderName = user.Username
+		}
+	}
+
+	// Generate email content
+	expiresIn := fmt.Sprintf("%d minutes", in.TTLMinutes)
+	if in.TTLMinutes >= 60 {
+		hours := in.TTLMinutes / 60
+		mins := in.TTLMinutes % 60
+		if mins == 0 {
+			expiresIn = fmt.Sprintf("%d hour(s)", hours)
+		} else {
+			expiresIn = fmt.Sprintf("%d hour(s) %d minutes", hours, mins)
+		}
+	}
+
+	// Get theme setting
+	theme := "auto"
+	if emailThemeGetter != nil {
+		theme = emailThemeGetter()
+	}
+
+	// Generate the email HTML/text using the email package
+	htmlBody, textBody, err := generateDeploymentEmail(theme, in.Email, platform, oneLiner, script, downloadURL, expiresIn, tenantName, serverURL, senderName)
+	if err != nil {
+		logError("failed to generate deployment email", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to generate email: "+err.Error())
+		return
+	}
+
+	// Send the email
+	subject := "PrintMaster Agent Installation Instructions"
+	if tenantName != "" {
+		subject = fmt.Sprintf("PrintMaster Agent Installation - %s", tenantName)
+	}
+	if err := emailSender(in.Email, subject, htmlBody, textBody); err != nil {
+		logError("failed to send deployment email", "error", err, "email", in.Email)
+		writeJSONError(w, http.StatusInternalServerError, "failed to send email: "+err.Error())
+		return
+	}
+
+	// Record audit
+	recordAudit(r, &storage.AuditEntry{
+		Action:     "deployment_email.send",
+		TargetType: "agent_deployment",
+		TargetID:   in.Email,
+		TenantID:   in.TenantID,
+		Details:    "Agent deployment instructions emailed",
+		Metadata: map[string]interface{}{
+			"tenant_id":   in.TenantID,
+			"platform":    platform,
+			"email":       in.Email,
+			"ttl_minutes": in.TTLMinutes,
+		},
+	})
+
+	logInfo("deployment email sent", "email", in.Email, "tenant_id", in.TenantID, "platform", platform)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("Deployment instructions sent to %s", in.Email),
+	})
 }
 
 // handleInstall serves hosted install scripts by short code. URL: /install/{code}/{filename}
