@@ -15,8 +15,14 @@ describe('clipboard helpers', () => {
     });
 
     test('copyToClipboard handles rejection and returns false', async () => {
+        // Suppress expected error logging during this test
+        const origError = window.__pm_shared.error;
+        window.__pm_shared.error = jest.fn();
+        
         window.navigator.clipboard.writeText.mockRejectedValueOnce(new Error('fail'));
         const res = await window.__pm_shared.copyToClipboard('abc');
         expect(res).toBe(false);
+        
+        window.__pm_shared.error = origError;
     });
 });

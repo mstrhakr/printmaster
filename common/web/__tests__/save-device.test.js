@@ -28,6 +28,10 @@ describe('saveDiscoveredDevice', () => {
     });
 
     test('throws on failed save', async () => {
+        // Suppress expected error logging during this test
+        const origError = window.__pm_shared.error;
+        window.__pm_shared.error = jest.fn();
+
         global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'boom' });
         window.__agent_saveDiscoveredDevice = async (ipOrSerial, autosave, updateUI) => {
             const resp = await fetch('/devices/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: ipOrSerial }) });
@@ -38,5 +42,7 @@ describe('saveDiscoveredDevice', () => {
             return;
         };
         await expect(window.__pm_shared.saveDiscoveredDevice('SN123', false, false)).rejects.toThrow(/Failed to save device/);
+
+        window.__pm_shared.error = origError;
     });
 });
