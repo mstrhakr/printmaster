@@ -8011,6 +8011,10 @@ select:hover {
   color: var(--accent);
 }
 
+.dashboard-tree-icon.site {
+  color: var(--warning);
+}
+
 .dashboard-tree-icon.agent {
   color: var(--highlight);
 }

@@ -5789,6 +5789,7 @@ type DashboardTreeResponse struct {
 
 type DashboardSummary struct {
 	TenantCount      int   `json:"tenant_count"`
+	SiteCount        int   `json:"site_count"`
 	AgentCount       int   `json:"agent_count"`
 	DeviceCount      int   `json:"device_count"`
 	ActiveAlerts     int   `json:"active_alerts"`
@@ -5801,9 +5802,27 @@ type DashboardTenant struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Metrics struct {
+		SiteCount        int   `json:"site_count"`
 		AgentCount       int   `json:"agent_count"`
 		DeviceCount      int   `json:"device_count"`
 		ActiveAlerts     int   `json:"active_alerts"`
+		OnlineAgents     int   `json:"online_agents"`
+		CriticalSupplies int   `json:"critical_supplies"`
+		LowSupplies      int   `json:"low_supplies"`
+		TotalPages       int64 `json:"total_pages"`
+	} `json:"metrics"`
+	Sites  []DashboardSite  `json:"sites"`
+	Agents []DashboardAgent `json:"agents"` // Agents not assigned to any site
+}
+
+type DashboardSite struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Address     string `json:"address,omitempty"`
+	Metrics     struct {
+		AgentCount       int   `json:"agent_count"`
+		DeviceCount      int   `json:"device_count"`
 		OnlineAgents     int   `json:"online_agents"`
 		CriticalSupplies int   `json:"critical_supplies"`
 		LowSupplies      int   `json:"low_supplies"`
@@ -5926,24 +5945,22 @@ func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
 	enrichedDevices := enrichDevicesWithMetrics(ctx, devices)
 
 	// Build lookup maps
-	agentsByTenant := make(map[string][]*storage.Agent)
-	for _, a := range agents {
-		if a == nil {
-			continue
-		}
-		tid := a.TenantID
-		if tid == "" {
-			tid = "__unassigned__"
-		}
-		agentsByTenant[tid] = append(agentsByTenant[tid], a)
-	}
-
 	devicesByAgent := make(map[string][]*storage.DeviceWithMetrics)
 	for _, d := range enrichedDevices {
 		if d == nil {
 			continue
 		}
 		devicesByAgent[d.AgentID] = append(devicesByAgent[d.AgentID], d)
+	}
+
+	// Get agent site assignments
+	agentSiteIDs := make(map[string][]string) // agentID -> list of site IDs
+	for _, a := range agents {
+		if a == nil {
+			continue
+		}
+		siteIDs, _ := serverStore.GetAgentSiteIDs(ctx, a.AgentID)
+		agentSiteIDs[a.AgentID] = siteIDs
 	}
 
 	// Filter tenants by scope and build response
@@ -5958,8 +5975,14 @@ func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
 		tenants = allTenants
 	}
 
-	// Add synthetic "Unassigned" tenant if there are unassigned agents
-	hasUnassigned := len(agentsByTenant["__unassigned__"]) > 0
+	// Check for unassigned agents
+	var unassignedAgents []*storage.Agent
+	for _, a := range agents {
+		if a != nil && a.TenantID == "" {
+			unassignedAgents = append(unassignedAgents, a)
+		}
+	}
+	hasUnassigned := len(unassignedAgents) > 0
 	if hasUnassigned && (scope == nil || tenantAllowed(scope, "")) {
 		tenants = append(tenants, &storage.Tenant{
 			ID:   "__unassigned__",
@@ -5970,7 +5993,7 @@ func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
 	// Build response
 	resp := DashboardTreeResponse{}
 
-	// Summary metrics
+	// Summary metrics - will be aggregated as we build the tree
 	resp.Summary.TenantCount = len(tenants)
 	resp.Summary.AgentCount = len(agents)
 	resp.Summary.DeviceCount = len(devices)
@@ -5988,6 +6011,8 @@ func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
 
 	// Build tenant tree
 	resp.Tenants = make([]DashboardTenant, 0, len(tenants))
+	totalSiteCount := 0
+
 	for _, t := range tenants {
 		if t == nil {
 			continue
@@ -5997,74 +6022,111 @@ func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
 			Name: t.Name,
 		}
 
-		tenantAgents := agentsByTenant[t.ID]
+		// Get sites for this tenant
+		var tenantSites []*storage.Site
+		if t.ID != "__unassigned__" {
+			tenantSites, _ = serverStore.ListSitesByTenant(ctx, t.ID)
+		}
+		dt.Metrics.SiteCount = len(tenantSites)
+		totalSiteCount += len(tenantSites)
+
+		// Get agents for this tenant
+		var tenantAgents []*storage.Agent
+		if t.ID == "__unassigned__" {
+			tenantAgents = unassignedAgents
+		} else {
+			for _, a := range agents {
+				if a != nil && a.TenantID == t.ID {
+					tenantAgents = append(tenantAgents, a)
+				}
+			}
+		}
 		dt.Metrics.AgentCount = len(tenantAgents)
 
-		// Build agent list for this tenant
-		dt.Agents = make([]DashboardAgent, 0, len(tenantAgents))
+		// Build site-to-agents mapping
+		agentsBySite := make(map[string][]*storage.Agent)
+		agentsWithoutSite := make([]*storage.Agent, 0)
+
 		for _, a := range tenantAgents {
 			if a == nil {
 				continue
 			}
-			da := DashboardAgent{
-				AgentID:        a.AgentID,
-				Name:           a.Name,
-				Status:         a.Status,
-				ConnectionType: deriveAgentConnectionType(a),
-				Version:        a.Version,
-				Platform:       a.Platform,
-				LastSeen:       a.LastSeen,
-			}
-
-			agentDevices := devicesByAgent[a.AgentID]
-			da.Metrics.DeviceCount = len(agentDevices)
-			dt.Metrics.DeviceCount += len(agentDevices)
-
-			// Aggregate device metrics for this agent
-			for _, d := range agentDevices {
-				lowest := getLowestSupplyLevel(d.TonerLevels)
-				if lowest >= 0 && lowest <= 10 {
-					da.Metrics.CriticalSupplies++
-					dt.Metrics.CriticalSupplies++
-				} else if lowest > 10 && lowest <= 25 {
-					da.Metrics.LowSupplies++
-					dt.Metrics.LowSupplies++
-				}
-				da.Metrics.TotalPages += int64(d.PageCount)
-				dt.Metrics.TotalPages += int64(d.PageCount)
-			}
-
-			// Include device summaries if requested
-			if includeDevices {
-				da.Devices = make([]DashboardDeviceSummary, 0, len(agentDevices))
-				for _, d := range agentDevices {
-					lowest := getLowestSupplyLevel(d.TonerLevels)
-					ds := DashboardDeviceSummary{
-						Serial:       d.Serial,
-						Manufacturer: d.Manufacturer,
-						Model:        d.Model,
-						IP:           d.IP,
-						Status:       deriveDeviceStatus(&d.Device),
-						LowestSupply: lowest,
-						SupplyStatus: deriveSupplyStatus(lowest),
-						PageCount:    d.PageCount,
-						Location:     d.Location,
-						LastSeen:     d.LastSeen,
-					}
-					da.Devices = append(da.Devices, ds)
+			siteIDs := agentSiteIDs[a.AgentID]
+			if len(siteIDs) == 0 {
+				// Agent not assigned to any site
+				agentsWithoutSite = append(agentsWithoutSite, a)
+			} else {
+				// Agent assigned to one or more sites
+				for _, siteID := range siteIDs {
+					agentsBySite[siteID] = append(agentsBySite[siteID], a)
 				}
 			}
+		}
 
-			// Count online agents
+		// Build sites list
+		dt.Sites = make([]DashboardSite, 0, len(tenantSites))
+		for _, site := range tenantSites {
+			if site == nil {
+				continue
+			}
+			ds := DashboardSite{
+				ID:          site.ID,
+				Name:        site.Name,
+				Description: site.Description,
+				Address:     site.Address,
+			}
+
+			siteAgents := agentsBySite[site.ID]
+			ds.Metrics.AgentCount = len(siteAgents)
+
+			// Build agents list for this site
+			ds.Agents = make([]DashboardAgent, 0, len(siteAgents))
+			for _, a := range siteAgents {
+				da := buildDashboardAgent(a, devicesByAgent[a.AgentID], includeDevices)
+				ds.Agents = append(ds.Agents, da)
+
+				// Aggregate to site metrics
+				ds.Metrics.DeviceCount += da.Metrics.DeviceCount
+				ds.Metrics.CriticalSupplies += da.Metrics.CriticalSupplies
+				ds.Metrics.LowSupplies += da.Metrics.LowSupplies
+				ds.Metrics.TotalPages += da.Metrics.TotalPages
+				if a.Status == "active" {
+					ds.Metrics.OnlineAgents++
+				}
+
+				// Aggregate to tenant metrics
+				dt.Metrics.DeviceCount += da.Metrics.DeviceCount
+				dt.Metrics.CriticalSupplies += da.Metrics.CriticalSupplies
+				dt.Metrics.LowSupplies += da.Metrics.LowSupplies
+				dt.Metrics.TotalPages += da.Metrics.TotalPages
+				if a.Status == "active" {
+					dt.Metrics.OnlineAgents++
+				}
+			}
+
+			dt.Sites = append(dt.Sites, ds)
+		}
+
+		// Build agents without site assignment (shown directly under tenant)
+		dt.Agents = make([]DashboardAgent, 0, len(agentsWithoutSite))
+		for _, a := range agentsWithoutSite {
+			da := buildDashboardAgent(a, devicesByAgent[a.AgentID], includeDevices)
+			dt.Agents = append(dt.Agents, da)
+
+			// Aggregate to tenant metrics
+			dt.Metrics.DeviceCount += da.Metrics.DeviceCount
+			dt.Metrics.CriticalSupplies += da.Metrics.CriticalSupplies
+			dt.Metrics.LowSupplies += da.Metrics.LowSupplies
+			dt.Metrics.TotalPages += da.Metrics.TotalPages
 			if a.Status == "active" {
 				dt.Metrics.OnlineAgents++
 			}
-
-			dt.Agents = append(dt.Agents, da)
 		}
 
 		resp.Tenants = append(resp.Tenants, dt)
 	}
+
+	resp.Summary.SiteCount = totalSiteCount
 
 	// Sort tenants by name (with Unassigned at end)
 	sort.Slice(resp.Tenants, func(i, j int) bool {
@@ -6079,6 +6141,55 @@ func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+// buildDashboardAgent creates a DashboardAgent from an Agent and its devices
+func buildDashboardAgent(a *storage.Agent, agentDevices []*storage.DeviceWithMetrics, includeDevices bool) DashboardAgent {
+	da := DashboardAgent{
+		AgentID:        a.AgentID,
+		Name:           a.Name,
+		Status:         a.Status,
+		ConnectionType: deriveAgentConnectionType(a),
+		Version:        a.Version,
+		Platform:       a.Platform,
+		LastSeen:       a.LastSeen,
+	}
+
+	da.Metrics.DeviceCount = len(agentDevices)
+
+	// Aggregate device metrics for this agent
+	for _, d := range agentDevices {
+		lowest := getLowestSupplyLevel(d.TonerLevels)
+		if lowest >= 0 && lowest <= 10 {
+			da.Metrics.CriticalSupplies++
+		} else if lowest > 10 && lowest <= 25 {
+			da.Metrics.LowSupplies++
+		}
+		da.Metrics.TotalPages += int64(d.PageCount)
+	}
+
+	// Include device summaries if requested
+	if includeDevices {
+		da.Devices = make([]DashboardDeviceSummary, 0, len(agentDevices))
+		for _, d := range agentDevices {
+			lowest := getLowestSupplyLevel(d.TonerLevels)
+			ds := DashboardDeviceSummary{
+				Serial:       d.Serial,
+				Manufacturer: d.Manufacturer,
+				Model:        d.Model,
+				IP:           d.IP,
+				Status:       deriveDeviceStatus(&d.Device),
+				LowestSupply: lowest,
+				SupplyStatus: deriveSupplyStatus(lowest),
+				PageCount:    d.PageCount,
+				Location:     d.Location,
+				LastSeen:     d.LastSeen,
+			}
+			da.Devices = append(da.Devices, ds)
+		}
+	}
+
+	return da
 }
 
 // getLowestSupplyLevel returns the lowest supply percentage from toner levels map

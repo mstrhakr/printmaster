@@ -4118,6 +4118,7 @@ let dashboardExpandedNodes = new Set();
 let dashboardSearchQuery = '';
 let dashboardFilters = {
     showTenants: true,
+    showSites: true,
     showAgents: true,
     showDevices: true,
     agentStatus: new Set(['active', 'inactive', 'offline']),
@@ -4223,6 +4224,7 @@ function resetDashboardFilters() {
 
     dashboardFilters = {
         showTenants: true,
+        showSites: true,
         showAgents: true,
         showDevices: true,
         agentStatus: new Set(['active', 'inactive', 'offline']),
@@ -4231,7 +4233,7 @@ function resetDashboardFilters() {
     };
 
     // Update checkboxes
-    ['tenants', 'agents', 'devices'].forEach(level => {
+    ['tenants', 'sites', 'agents', 'devices'].forEach(level => {
         const checkbox = document.getElementById(`dashboard_show_${level}`);
         if (checkbox) checkbox.checked = true;
     });
@@ -4399,6 +4401,7 @@ function renderDashboardSummary() {
     };
 
     setVal('dashboard_tenant_count', s.tenant_count || 0);
+    setVal('dashboard_site_count', s.site_count || 0);
     setVal('dashboard_agent_count', s.agent_count || 0);
     setVal('dashboard_device_count', s.device_count || 0);
     setVal('dashboard_critical_count', s.critical_supplies || 0);
@@ -4449,23 +4452,34 @@ function buildDashboardTreeHTML(tenants) {
 
     for (const tenant of tenants) {
         const tenantNodeId = `tenant-${tenant.id}`;
-        const isExpanded = dashboardExpandedNodes.has(tenantNodeId);
         const tenantMatches = matchesSearch(tenant.name) || matchesSearch(tenant.id);
 
-        // Filter agents
-        const filteredAgents = (tenant.agents || []).filter(agent => {
-            if (!dashboardFilters.agentStatus.has(agent.status)) return false;
-            return true;
+        // Collect all agents (from sites + unassigned)
+        const allTenantAgents = [];
+        for (const site of (tenant.sites || [])) {
+            for (const agent of (site.agents || [])) {
+                allTenantAgents.push(agent);
+            }
+        }
+        for (const agent of (tenant.agents || [])) {
+            allTenantAgents.push(agent);
+        }
+
+        // Filter agents by status
+        const filteredAgents = allTenantAgents.filter(agent => {
+            return dashboardFilters.agentStatus.has(agent.status);
         });
 
         // Check if any content matches search (for auto-expand)
-        const hasMatchingContent = tenantMatches || filteredAgents.some(agent => {
-            if (matchesSearch(agent.name) || matchesSearch(agent.agent_id)) return true;
-            return (agent.devices || []).some(d => 
-                matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
-                matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
-            );
-        });
+        const hasMatchingContent = tenantMatches || 
+            (tenant.sites || []).some(site => matchesSearch(site.name) || matchesSearch(site.description)) ||
+            filteredAgents.some(agent => {
+                if (matchesSearch(agent.name) || matchesSearch(agent.agent_id)) return true;
+                return (agent.devices || []).some(d => 
+                    matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
+                    matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
+                );
+            });
 
         // Skip tenant if no matching content when searching
         if (dashboardSearchQuery && !hasMatchingContent) continue;
@@ -4477,11 +4491,29 @@ function buildDashboardTreeHTML(tenants) {
 
         if (dashboardFilters.showTenants) {
             hasContent = true;
-            html += buildTenantNodeHTML(tenant, filteredAgents, tenantMatches);
+            html += buildTenantNodeHTML(tenant, tenantMatches);
+        } else if (dashboardFilters.showSites) {
+            // Show sites directly without tenant wrapper
+            for (const site of (tenant.sites || [])) {
+                const siteHTML = buildSiteNodeHTML(site, tenant.id);
+                if (siteHTML) {
+                    hasContent = true;
+                    html += siteHTML;
+                }
+            }
+            // Also show unassigned agents
+            for (const agent of (tenant.agents || [])) {
+                if (!dashboardFilters.agentStatus.has(agent.status)) continue;
+                const agentHTML = buildAgentNodeHTML(agent, tenant.id, null);
+                if (agentHTML) {
+                    hasContent = true;
+                    html += agentHTML;
+                }
+            }
         } else {
-            // Show agents directly without tenant wrapper
+            // Show agents directly without tenant/site wrapper
             for (const agent of filteredAgents) {
-                const agentHTML = buildAgentNodeHTML(agent, tenant.id);
+                const agentHTML = buildAgentNodeHTML(agent, tenant.id, null);
                 if (agentHTML) {
                     hasContent = true;
                     html += agentHTML;
@@ -4494,10 +4526,12 @@ function buildDashboardTreeHTML(tenants) {
     return hasContent ? html : '';
 }
 
-function buildTenantNodeHTML(tenant, agents, isMatch) {
+function buildTenantNodeHTML(tenant, isMatch) {
     const nodeId = `tenant-${tenant.id}`;
     const isExpanded = dashboardExpandedNodes.has(nodeId);
-    const hasChildren = agents.length > 0;
+    const sites = tenant.sites || [];
+    const unassignedAgents = (tenant.agents || []).filter(a => dashboardFilters.agentStatus.has(a.status));
+    const hasChildren = sites.length > 0 || unassignedAgents.length > 0;
     const m = tenant.metrics || {};
 
     let html = `<li class="dashboard-tree-node" data-node-id="${nodeId}">`;
@@ -4506,6 +4540,94 @@ function buildTenantNodeHTML(tenant, agents, isMatch) {
     html += `<span class="dashboard-tree-icon tenant">🏢</span>`;
     html += `<div class="dashboard-tree-content">`;
     html += `<span class="dashboard-tree-name">${highlightMatch(escapeHtml(tenant.name))}</span>`;
+    html += `</div>`;
+    html += `<div class="dashboard-tree-metrics">`;
+    if (m.site_count > 0) {
+        html += `<span class="dashboard-tree-metric" title="Sites">${m.site_count} sites</span>`;
+    }
+    html += `<span class="dashboard-tree-metric" title="Agents">${m.agent_count || 0} agents</span>`;
+    html += `<span class="dashboard-tree-metric" title="Devices">${m.device_count || 0} devices</span>`;
+    if (m.critical_supplies > 0) {
+        html += `<span class="dashboard-tree-metric critical" title="Critical supplies">⚠️ ${m.critical_supplies}</span>`;
+    }
+    html += `</div>`;
+    html += `</div>`;
+
+    // Children (sites + unassigned agents)
+    if (hasChildren) {
+        html += `<div class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
+        
+        // Sites first
+        if (dashboardFilters.showSites) {
+            for (const site of sites) {
+                const siteHTML = buildSiteNodeHTML(site, tenant.id);
+                if (siteHTML) html += siteHTML;
+            }
+        } else if (dashboardFilters.showAgents) {
+            // If sites hidden but agents shown, show agents from sites directly
+            for (const site of sites) {
+                for (const agent of (site.agents || [])) {
+                    if (!dashboardFilters.agentStatus.has(agent.status)) continue;
+                    const agentHTML = buildAgentNodeHTML(agent, tenant.id, site.id);
+                    if (agentHTML) html += agentHTML;
+                }
+            }
+        }
+        
+        // Unassigned agents (shown at tenant level)
+        if (dashboardFilters.showAgents) {
+            for (const agent of unassignedAgents) {
+                const agentHTML = buildAgentNodeHTML(agent, tenant.id, null);
+                if (agentHTML) html += agentHTML;
+            }
+        }
+        
+        html += `</div>`;
+    }
+
+    html += `</li>`;
+    return html;
+}
+
+function buildSiteNodeHTML(site, tenantId) {
+    const nodeId = `site-${site.id}`;
+    const isExpanded = dashboardExpandedNodes.has(nodeId);
+    const siteMatches = matchesSearch(site.name) || matchesSearch(site.description) || matchesSearch(site.address);
+
+    // Filter agents
+    const filteredAgents = (site.agents || []).filter(agent => {
+        return dashboardFilters.agentStatus.has(agent.status);
+    });
+
+    // Check if any agent matches search
+    const hasMatchingAgent = filteredAgents.some(agent => {
+        if (matchesSearch(agent.name) || matchesSearch(agent.agent_id)) return true;
+        return (agent.devices || []).some(d => 
+            matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
+            matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
+        );
+    });
+
+    // Skip if searching and no matches
+    if (dashboardSearchQuery && !siteMatches && !hasMatchingAgent) return '';
+
+    // Auto-expand when searching
+    if (dashboardSearchQuery && hasMatchingAgent && !siteMatches) {
+        dashboardExpandedNodes.add(nodeId);
+    }
+
+    const hasChildren = filteredAgents.length > 0;
+    const m = site.metrics || {};
+
+    let html = `<li class="dashboard-tree-node" data-node-id="${nodeId}">`;
+    html += `<div class="dashboard-tree-row${siteMatches ? ' match' : ''}" data-type="site" data-id="${site.id}" data-tenant="${tenantId}">`;
+    html += `<button class="dashboard-tree-toggle${isExpanded ? ' expanded' : ''}${hasChildren ? '' : ' no-children'}" aria-expanded="${isExpanded}">▶</button>`;
+    html += `<span class="dashboard-tree-icon site">📍</span>`;
+    html += `<div class="dashboard-tree-content">`;
+    html += `<span class="dashboard-tree-name">${highlightMatch(escapeHtml(site.name))}</span>`;
+    if (site.address) {
+        html += `<span class="dashboard-tree-subtitle">${highlightMatch(escapeHtml(site.address))}</span>`;
+    }
     html += `</div>`;
     html += `<div class="dashboard-tree-metrics">`;
     html += `<span class="dashboard-tree-metric" title="Agents">${m.agent_count || 0} agents</span>`;
@@ -4519,8 +4641,8 @@ function buildTenantNodeHTML(tenant, agents, isMatch) {
     // Children (agents)
     if (dashboardFilters.showAgents && hasChildren) {
         html += `<div class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
-        for (const agent of agents) {
-            const agentHTML = buildAgentNodeHTML(agent, tenant.id);
+        for (const agent of filteredAgents) {
+            const agentHTML = buildAgentNodeHTML(agent, tenantId, site.id);
             if (agentHTML) html += agentHTML;
         }
         html += `</div>`;
@@ -4530,7 +4652,7 @@ function buildTenantNodeHTML(tenant, agents, isMatch) {
     return html;
 }
 
-function buildAgentNodeHTML(agent, tenantId) {
+function buildAgentNodeHTML(agent, tenantId, siteId) {
     const nodeId = `agent-${agent.agent_id}`;
     const isExpanded = dashboardExpandedNodes.has(nodeId);
     const agentMatches = matchesSearch(agent.name) || matchesSearch(agent.agent_id);
@@ -4561,7 +4683,7 @@ function buildAgentNodeHTML(agent, tenantId) {
     const statusClass = agent.status || 'offline';
 
     let html = `<li class="dashboard-tree-node" data-node-id="${nodeId}">`;
-    html += `<div class="dashboard-tree-row${agentMatches ? ' match' : ''}" data-type="agent" data-id="${agent.agent_id}" data-tenant="${tenantId}">`;
+    html += `<div class="dashboard-tree-row${agentMatches ? ' match' : ''}" data-type="agent" data-id="${agent.agent_id}" data-tenant="${tenantId}"${siteId ? ` data-site="${siteId}"` : ''}>`;
     html += `<button class="dashboard-tree-toggle${isExpanded ? ' expanded' : ''}${hasChildren ? '' : ' no-children'}" aria-expanded="${isExpanded}">▶</button>`;
     html += `<span class="dashboard-tree-icon agent">💻</span>`;
     html += `<div class="dashboard-tree-content">`;
