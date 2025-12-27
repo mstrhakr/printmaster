@@ -25,7 +25,10 @@ func TestBuildAgentSnapshotStripsAgentLocalFields(t *testing.T) {
 		UpdatedAt:     time.Unix(100, 0),
 	}
 
-	resolver := NewResolver(store)
+	resolver, err := NewResolver(store)
+	if err != nil {
+		t.Fatalf("NewResolver failed: %v", err)
+	}
 	snapshot, err := BuildAgentSnapshot(context.Background(), resolver, "", "")
 	if err != nil {
 		t.Fatalf("build snapshot failed: %v", err)
@@ -69,7 +72,10 @@ func TestBuildAgentSnapshotResolvesTenantOverrides(t *testing.T) {
 		UpdatedAt: time.Unix(200, 0),
 	}
 
-	resolver := NewResolver(store)
+	resolver, err := NewResolver(store)
+	if err != nil {
+		t.Fatalf("NewResolver failed: %v", err)
+	}
 	snapshot, err := BuildAgentSnapshot(context.Background(), resolver, "tenant-1", "")
 	if err != nil {
 		t.Fatalf("build snapshot failed: %v", err)

@@ -118,7 +118,10 @@ func allowAllAuthorizer(_ *http.Request, _ authz.Action, _ authz.ResourceRef) er
 
 func TestResolverResolveGlobalDefaults(t *testing.T) {
 	store := newFakeStore()
-	resolver := NewResolver(store)
+	resolver, err := NewResolver(store)
+	if err != nil {
+		t.Fatalf("NewResolver failed: %v", err)
+	}
 	snap, err := resolver.ResolveGlobal(context.Background())
 	if err != nil {
 		t.Fatalf("resolve global failed: %v", err)
@@ -144,7 +147,10 @@ func TestResolverResolveForTenantOverrides(t *testing.T) {
 		UpdatedAt: time.Unix(200, 0),
 		UpdatedBy: "tester",
 	}
-	resolver := NewResolver(store)
+	resolver, err := NewResolver(store)
+	if err != nil {
+		t.Fatalf("NewResolver failed: %v", err)
+	}
 	snap, err := resolver.ResolveForTenant(context.Background(), "tenant-a")
 	if err != nil {
 		t.Fatalf("resolve tenant failed: %v", err)
@@ -162,10 +168,13 @@ func TestResolverResolveForTenantOverrides(t *testing.T) {
 
 func TestAPIHandleGlobalPutPersistsSettings(t *testing.T) {
 	store := newFakeStore()
-	api := NewAPI(store, nil, APIOptions{
+	api, err := NewAPI(store, nil, APIOptions{
 		Authorizer:    allowAllAuthorizer,
 		ActorResolver: func(*http.Request) string { return "alice" },
 	})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	payload := pmsettings.DefaultSettings()
 	payload.SNMP.TimeoutMS = 1234
 	body, _ := json.Marshal(payload)
@@ -190,10 +199,13 @@ func TestAPIHandleTenantPutStoresOverrides(t *testing.T) {
 	store := newFakeStore()
 	store.global = &storage.SettingsRecord{SchemaVersion: "v1", Settings: pmsettings.DefaultSettings()}
 	store.tenants["tenant-a"] = &storage.Tenant{ID: "tenant-a", Name: "Tenant A"}
-	api := NewAPI(store, nil, APIOptions{
+	api, err := NewAPI(store, nil, APIOptions{
 		Authorizer:    allowAllAuthorizer,
 		ActorResolver: func(*http.Request) string { return "bob" },
 	})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	patch := map[string]interface{}{
 		"discovery": map[string]interface{}{"snmp_enabled": false},
 	}

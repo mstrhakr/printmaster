@@ -426,7 +426,10 @@ func TestHeartbeatReturnsSettingsSnapshotWhenVersionDiffers(t *testing.T) {
 		t.Fatalf("failed to seed agent: %v", err)
 	}
 
-	settingsResolver = serversettings.NewResolver(store)
+	settingsResolver, err := serversettings.NewResolver(store)
+	if err != nil {
+		t.Fatalf("failed to create settings resolver: %v", err)
+	}
 	t.Cleanup(func() { settingsResolver = nil })
 
 	cfg := pmsettings.DefaultSettings()

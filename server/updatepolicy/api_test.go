@@ -69,7 +69,10 @@ func allowAllAuthorizer(_ *http.Request, _ authz.Action, _ authz.ResourceRef) er
 
 func TestHandleTenantPolicyGetNotFound(t *testing.T) {
 	store := newFakeStore()
-	api := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	api, err := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/update-policies/tenant-a", nil)
 	rr := httptest.NewRecorder()
 	api.handlePolicyRoute(rr, req)
@@ -80,10 +83,13 @@ func TestHandleTenantPolicyGetNotFound(t *testing.T) {
 
 func TestHandleTenantPolicyPutPersists(t *testing.T) {
 	store := newFakeStore()
-	api := NewAPI(store, APIOptions{
+	api, err := NewAPI(store, APIOptions{
 		Authorizer:    allowAllAuthorizer,
 		ActorResolver: func(*http.Request) string { return "alice" },
 	})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	payload := map[string]interface{}{
 		"policy": map[string]interface{}{
 			"update_check_days":    7,
@@ -130,7 +136,10 @@ func TestHandleTenantPolicyPutPersists(t *testing.T) {
 
 func TestHandleTenantPolicyPutValidation(t *testing.T) {
 	store := newFakeStore()
-	api := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	api, err := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	payload := map[string]interface{}{
 		"policy": map[string]interface{}{
 			"update_check_days": 7,
@@ -154,7 +163,10 @@ func TestHandleTenantPolicyPutValidation(t *testing.T) {
 func TestHandleTenantPolicyDelete(t *testing.T) {
 	store := newFakeStore()
 	store.policies["tenant-a"] = &storage.FleetUpdatePolicy{TenantID: "tenant-a"}
-	api := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	api, err := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/update-policies/tenant-a", nil)
 	rr := httptest.NewRecorder()
 	api.handlePolicyRoute(rr, req)
@@ -170,7 +182,10 @@ func TestHandleListPolicies(t *testing.T) {
 	store := newFakeStore()
 	store.policies["tenant-b"] = &storage.FleetUpdatePolicy{TenantID: "tenant-b", PolicySpec: updatepolicy.PolicySpec{UpdateCheckDays: 3}}
 	store.policies["tenant-a"] = &storage.FleetUpdatePolicy{TenantID: "tenant-a", PolicySpec: updatepolicy.PolicySpec{UpdateCheckDays: 5}}
-	api := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	api, err := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/update-policies", nil)
 	rr := httptest.NewRecorder()
 	api.handleListPolicies(rr, req)
@@ -191,10 +206,13 @@ func TestHandleListPolicies(t *testing.T) {
 
 func TestHandleGlobalPolicyRoundTrip(t *testing.T) {
 	store := newFakeStore()
-	api := NewAPI(store, APIOptions{
+	api, err := NewAPI(store, APIOptions{
 		Authorizer:    allowAllAuthorizer,
 		ActorResolver: func(*http.Request) string { return "carol" },
 	})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 
 	// GET before configured should 404
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/update-policies/global", nil)
@@ -244,7 +262,10 @@ func TestHandleListPoliciesIncludesGlobal(t *testing.T) {
 	store := newFakeStore()
 	store.policies[storage.GlobalFleetPolicyTenantID] = &storage.FleetUpdatePolicy{TenantID: storage.GlobalFleetPolicyTenantID, PolicySpec: updatepolicy.PolicySpec{UpdateCheckDays: 10}}
 	store.policies["tenant-a"] = &storage.FleetUpdatePolicy{TenantID: "tenant-a", PolicySpec: updatepolicy.PolicySpec{UpdateCheckDays: 5}}
-	api := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	api, err := NewAPI(store, APIOptions{Authorizer: allowAllAuthorizer})
+	if err != nil {
+		t.Fatalf("NewAPI failed: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/update-policies", nil)
 	rr := httptest.NewRecorder()
 	api.handleListPolicies(rr, req)
