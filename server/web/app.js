@@ -4975,14 +4975,15 @@ function handleTenantDropdownChange(e) {
 function openTenantModal(tenant){
     const modal = document.getElementById('tenant_modal');
     if (!modal) return;
-    if (tenant && tenant.id) {
+    const isEdit = tenant && tenant.id;
+    if (isEdit) {
         modal.setAttribute('data-edit-id', tenant.id);
         document.getElementById('tenant_modal_title').textContent = 'Edit Tenant';
         document.getElementById('tenant_save').textContent = 'Save Changes';
     } else {
         modal.removeAttribute('data-edit-id');
-        document.getElementById('tenant_modal_title').textContent = 'New Tenant';
-        document.getElementById('tenant_save').textContent = 'Create Tenant';
+        document.getElementById('tenant_modal_title').textContent = 'New Customer';
+        document.getElementById('tenant_save').textContent = 'Create & Onboard';
     }
     const safe = (key) => (tenant && tenant[key]) ? tenant[key] : '';
     document.getElementById('tenant_name').value = safe('name');
@@ -4995,10 +4996,98 @@ function openTenantModal(tenant){
     document.getElementById('tenant_description').value = safe('description');
     const errEl = document.getElementById('tenant_error');
     if (errEl) errEl.textContent = '';
+    
+    // Show/hide onboarding section based on new vs edit mode
+    const onboardingSection = document.getElementById('tenant_onboarding_section');
+    if (onboardingSection) {
+        onboardingSection.style.display = isEdit ? 'none' : 'block';
+    }
+    
+    // Reset onboarding toggles and fields
+    const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
+    const agentToggle = document.getElementById('tenant_send_agent_toggle');
+    const inviteFields = document.getElementById('tenant_invite_admin_fields');
+    const agentFields = document.getElementById('tenant_send_agent_fields');
+    const smtpWarning = document.getElementById('tenant_smtp_warning');
+    
+    if (inviteToggle) {
+        inviteToggle.checked = false;
+        inviteToggle.onchange = () => {
+            if (inviteFields) inviteFields.style.display = inviteToggle.checked ? 'flex' : 'none';
+            updateOnboardingSMTPWarning();
+        };
+    }
+    if (agentToggle) {
+        agentToggle.checked = false;
+        agentToggle.onchange = () => {
+            if (agentFields) agentFields.style.display = agentToggle.checked ? 'flex' : 'none';
+            updateOnboardingSMTPWarning();
+        };
+    }
+    if (inviteFields) inviteFields.style.display = 'none';
+    if (agentFields) agentFields.style.display = 'none';
+    
+    // Reset onboarding field values
+    const adminEmailEl = document.getElementById('tenant_admin_email');
+    const adminUsernameEl = document.getElementById('tenant_admin_username');
+    const agentEmailEl = document.getElementById('tenant_agent_email');
+    const agentPlatformEl = document.getElementById('tenant_agent_platform');
+    if (adminEmailEl) adminEmailEl.value = '';
+    if (adminUsernameEl) adminUsernameEl.value = '';
+    if (agentEmailEl) agentEmailEl.value = '';
+    if (agentPlatformEl) agentPlatformEl.value = 'windows';
+    
+    // Auto-populate from contact email if available
+    const contactEmail = safe('contact_email');
+    if (!isEdit && contactEmail) {
+        if (adminEmailEl) adminEmailEl.value = contactEmail;
+        if (agentEmailEl) agentEmailEl.value = contactEmail;
+    }
+    
+    // Auto-sync contact email to onboarding fields when changed (for new tenants only)
+    const contactEmailEl = document.getElementById('tenant_contact_email');
+    if (!isEdit && contactEmailEl) {
+        contactEmailEl.oninput = () => {
+            const val = contactEmailEl.value.trim();
+            // Only auto-fill if the onboarding fields haven't been manually edited
+            if (adminEmailEl && !adminEmailEl.dataset.manuallyEdited) {
+                adminEmailEl.value = val;
+            }
+            if (agentEmailEl && !agentEmailEl.dataset.manuallyEdited) {
+                agentEmailEl.value = val;
+            }
+        };
+    }
+    
+    // Track manual edits to onboarding email fields
+    if (adminEmailEl) {
+        adminEmailEl.dataset.manuallyEdited = '';
+        adminEmailEl.oninput = () => { adminEmailEl.dataset.manuallyEdited = 'true'; };
+    }
+    if (agentEmailEl) {
+        agentEmailEl.dataset.manuallyEdited = '';
+        agentEmailEl.oninput = () => { agentEmailEl.dataset.manuallyEdited = 'true'; };
+    }
+    
+    // Update SMTP warning visibility
+    updateOnboardingSMTPWarning();
+    
     modal.style.display = 'flex';
     setTimeout(()=>{
         try { document.getElementById('tenant_name').focus(); } catch (e) {}
     }, 10);
+}
+
+// Update SMTP warning for onboarding section
+function updateOnboardingSMTPWarning(){
+    const smtpWarning = document.getElementById('tenant_smtp_warning');
+    const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
+    const agentToggle = document.getElementById('tenant_send_agent_toggle');
+    
+    if (!smtpWarning) return;
+    
+    const needsSMTP = (inviteToggle && inviteToggle.checked) || (agentToggle && agentToggle.checked);
+    smtpWarning.style.display = (!smtpEnabled && needsSMTP) ? 'flex' : 'none';
 }
 
 function closeTenantModal(){
@@ -5008,6 +5097,17 @@ function closeTenantModal(){
     modal.removeAttribute('data-edit-id');
     const errEl = document.getElementById('tenant_error');
     if (errEl) errEl.textContent = '';
+    
+    // Reset onboarding fields
+    const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
+    const agentToggle = document.getElementById('tenant_send_agent_toggle');
+    const inviteFields = document.getElementById('tenant_invite_admin_fields');
+    const agentFields = document.getElementById('tenant_send_agent_fields');
+    
+    if (inviteToggle) inviteToggle.checked = false;
+    if (agentToggle) agentToggle.checked = false;
+    if (inviteFields) inviteFields.style.display = 'none';
+    if (agentFields) agentFields.style.display = 'none';
 }
 
 function collectTenantFormData(){
@@ -5036,15 +5136,127 @@ async function submitTenantForm(){
         return;
     }
     const editId = modal ? modal.getAttribute('data-edit-id') : '';
+    
+    // Collect onboarding options (only for new tenants)
+    const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
+    const agentToggle = document.getElementById('tenant_send_agent_toggle');
+    const inviteAdmin = !editId && inviteToggle && inviteToggle.checked;
+    const sendAgentEmail = !editId && agentToggle && agentToggle.checked;
+    
+    // Validate onboarding fields if enabled
+    if (inviteAdmin) {
+        const adminEmail = (document.getElementById('tenant_admin_email').value || '').trim();
+        if (!adminEmail) {
+            if (errEl) {
+                errEl.textContent = 'Admin email is required when inviting an admin';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+        if (!adminEmail.includes('@') || !adminEmail.includes('.')) {
+            if (errEl) {
+                errEl.textContent = 'Please enter a valid admin email address';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+    }
+    
+    if (sendAgentEmail) {
+        const agentEmail = (document.getElementById('tenant_agent_email').value || '').trim();
+        if (!agentEmail) {
+            if (errEl) {
+                errEl.textContent = 'Recipient email is required when sending agent deployment email';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+        if (!agentEmail.includes('@') || !agentEmail.includes('.')) {
+            if (errEl) {
+                errEl.textContent = 'Please enter a valid recipient email address';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+    }
+    
     try {
         let newTenantId = null;
+        let tenantName = payload.name;
+        
         if (editId) {
             await updateTenant(editId, payload);
             window.__pm_shared.showToast('Tenant updated', 'success');
         } else {
             const result = await createTenant(payload);
             newTenantId = result && result.id ? result.id : null;
-            window.__pm_shared.showToast('Tenant created', 'success');
+            window.__pm_shared.showToast('Customer created', 'success');
+            
+            // Handle onboarding actions after tenant is created
+            if (newTenantId) {
+                const onboardingResults = [];
+                
+                // Invite admin if enabled
+                if (inviteAdmin && smtpEnabled) {
+                    const adminEmail = (document.getElementById('tenant_admin_email').value || '').trim();
+                    const adminUsername = (document.getElementById('tenant_admin_username').value || '').trim();
+                    try {
+                        const invitePayload = { 
+                            email: adminEmail, 
+                            role: 'admin', 
+                            tenant_id: newTenantId 
+                        };
+                        if (adminUsername) invitePayload.username = adminUsername;
+                        
+                        const r = await fetch('/api/v1/users/invite', { 
+                            method: 'POST', 
+                            headers: {'content-type':'application/json'}, 
+                            body: JSON.stringify(invitePayload) 
+                        });
+                        if (r.ok) {
+                            onboardingResults.push({ type: 'invite', success: true, email: adminEmail });
+                        } else {
+                            const errText = await r.text();
+                            onboardingResults.push({ type: 'invite', success: false, email: adminEmail, error: errText });
+                        }
+                    } catch (invErr) {
+                        onboardingResults.push({ type: 'invite', success: false, email: adminEmail, error: invErr.message || 'Unknown error' });
+                    }
+                }
+                
+                // Send agent deployment email if enabled
+                if (sendAgentEmail && smtpEnabled) {
+                    const agentEmail = (document.getElementById('tenant_agent_email').value || '').trim();
+                    const agentPlatform = document.getElementById('tenant_agent_platform').value || 'windows';
+                    try {
+                        const agentPayload = { 
+                            tenant_id: newTenantId, 
+                            platform: agentPlatform, 
+                            email: agentEmail, 
+                            ttl_minutes: 1440 // 24 hours
+                        };
+                        
+                        const r = await fetch('/api/v1/packages/send-email', { 
+                            method: 'POST', 
+                            headers: {'content-type':'application/json'}, 
+                            body: JSON.stringify(agentPayload) 
+                        });
+                        if (r.ok) {
+                            onboardingResults.push({ type: 'agent', success: true, email: agentEmail });
+                        } else {
+                            const errText = await r.text();
+                            onboardingResults.push({ type: 'agent', success: false, email: agentEmail, error: errText });
+                        }
+                    } catch (agErr) {
+                        onboardingResults.push({ type: 'agent', success: false, email: agentEmail, error: agErr.message || 'Unknown error' });
+                    }
+                }
+                
+                // Show onboarding results summary
+                if (onboardingResults.length > 0) {
+                    showOnboardingResults(tenantName, onboardingResults);
+                }
+            }
         }
         closeTenantModal();
         await loadTenants();
@@ -5063,6 +5275,45 @@ async function submitTenantForm(){
             errEl.textContent = message;
             errEl.style.display = 'block';
         }
+    }
+}
+
+// Show onboarding results summary
+function showOnboardingResults(tenantName, results) {
+    const successes = results.filter(r => r.success);
+    const failures = results.filter(r => !r.success);
+    
+    let message = '';
+    
+    if (successes.length > 0 && failures.length === 0) {
+        // All successful
+        const parts = [];
+        const invite = successes.find(r => r.type === 'invite');
+        const agent = successes.find(r => r.type === 'agent');
+        if (invite) parts.push(`Admin invitation sent to ${invite.email}`);
+        if (agent) parts.push(`Agent deployment email sent to ${agent.email}`);
+        message = parts.join('. ') + '.';
+        window.__pm_shared.showToast(message, 'success');
+    } else if (failures.length > 0 && successes.length === 0) {
+        // All failed
+        const parts = [];
+        for (const f of failures) {
+            const label = f.type === 'invite' ? 'Admin invite' : 'Agent email';
+            parts.push(`${label} failed: ${f.error}`);
+        }
+        window.__pm_shared.showAlert(parts.join('\n\n'), 'Onboarding Errors', true, false);
+    } else {
+        // Mixed results
+        let msg = 'Onboarding partially completed:\n\n';
+        for (const s of successes) {
+            const label = s.type === 'invite' ? 'Admin invitation' : 'Agent deployment email';
+            msg += `✓ ${label} sent to ${s.email}\n`;
+        }
+        for (const f of failures) {
+            const label = f.type === 'invite' ? 'Admin invite' : 'Agent email';
+            msg += `✗ ${label} to ${f.email} failed: ${f.error}\n`;
+        }
+        window.__pm_shared.showAlert(msg, 'Onboarding Results', false, false);
     }
 }
 

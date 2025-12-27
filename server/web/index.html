@@ -1788,6 +1788,74 @@
                         <textarea id="tenant_description" rows="2" class="tenant-form-input" placeholder="Additional notes about this tenant..."></textarea>
                     </label>
                 </div>
+                
+                <!-- Onboarding Options (shown only for new tenants) -->
+                <div id="tenant_onboarding_section" class="tenant-onboarding-section" style="display:none;">
+                    <div class="tenant-section-title" style="margin-bottom:12px;">Customer Onboarding <span class="onboarding-optional">(optional)</span></div>
+                    
+                    <!-- Invite Admin Toggle -->
+                    <div class="onboarding-option">
+                        <label class="onboarding-toggle">
+                            <input type="checkbox" id="tenant_invite_admin_toggle" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <div class="onboarding-option-info">
+                            <div class="onboarding-option-title">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11 6a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"/><path d="M2 13c0-2.21 2.686-4 6-4s6 1.79 6 4v1H2v-1z"/></svg>
+                                Invite Initial Admin
+                            </div>
+                            <div class="onboarding-option-desc">Send an invitation email to create the first admin user for this customer</div>
+                        </div>
+                    </div>
+                    <div id="tenant_invite_admin_fields" class="onboarding-fields" style="display:none;">
+                        <label class="tenant-form-label">
+                            <span>Admin Email <span class="required">*</span></span>
+                            <input id="tenant_admin_email" type="email" class="tenant-form-input" placeholder="admin@customer.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                        <label class="tenant-form-label">
+                            <span>Admin Username</span>
+                            <input id="tenant_admin_username" type="text" class="tenant-form-input" placeholder="Leave blank to derive from email" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <span class="tenant-form-helper">Optional. If blank, username will be derived from email address.</span>
+                        </label>
+                    </div>
+                    
+                    <!-- Send Agent Email Toggle -->
+                    <div class="onboarding-option" style="margin-top:16px;">
+                        <label class="onboarding-toggle">
+                            <input type="checkbox" id="tenant_send_agent_toggle" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <div class="onboarding-option-info">
+                            <div class="onboarding-option-title">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M.05 3.555A2 2 0 0 1 2 2h12a2 2 0 0 1 1.95 1.555L8 8.414.05 3.555zM0 4.697v7.104l5.803-3.558L0 4.697zM6.761 8.83l-6.57 4.027A2 2 0 0 0 2 14h12a2 2 0 0 0 1.808-1.144l-6.57-4.027L8 9.586l-1.239-.757zM16 4.697v7.104l-5.803-3.558L16 4.697z"/></svg>
+                                Send Agent Deployment Email
+                            </div>
+                            <div class="onboarding-option-desc">Email installation instructions for setting up the PrintMaster agent</div>
+                        </div>
+                    </div>
+                    <div id="tenant_send_agent_fields" class="onboarding-fields" style="display:none;">
+                        <label class="tenant-form-label">
+                            <span>Recipient Email <span class="required">*</span></span>
+                            <input id="tenant_agent_email" type="email" class="tenant-form-input" placeholder="it@customer.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <span class="tenant-form-helper">This person will receive the agent bootstrap script with installation instructions.</span>
+                        </label>
+                        <label class="tenant-form-label">
+                            <span>Target Platform</span>
+                            <select id="tenant_agent_platform" class="tenant-form-input">
+                                <option value="windows">Windows</option>
+                                <option value="linux">Linux</option>
+                                <option value="darwin">macOS</option>
+                            </select>
+                        </label>
+                    </div>
+                    
+                    <!-- SMTP Warning -->
+                    <div id="tenant_smtp_warning" class="onboarding-smtp-warning" style="display:none;">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
+                        <span>SMTP is not configured. Email invitations cannot be sent. <a href="#settings/email">Configure email settings</a></span>
+                    </div>
+                </div>
+                
                 <div id="tenant_error" class="tenant-form-error"></div>
             </div>
             <div class="modal-footer tenant-modal-footer">
