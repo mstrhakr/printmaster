@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -30,11 +31,12 @@ type Resolver struct {
 }
 
 // NewResolver builds a resolver using the provided store.
-func NewResolver(store Store) *Resolver {
+// Returns an error if store is nil.
+func NewResolver(store Store) (*Resolver, error) {
 	if store == nil {
-		panic("settings resolver requires a store")
+		return nil, errors.New("settings resolver requires a store")
 	}
-	return &Resolver{store: store}
+	return &Resolver{store: store}, nil
 }
 
 // ResolveGlobal returns the canonical global settings snapshot.

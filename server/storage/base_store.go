@@ -1515,14 +1515,17 @@ func (s *BaseStore) loadUserTenantIDs(ctx context.Context, userID int64) ([]stri
 
 // CreateSession creates a new session token
 func (s *BaseStore) CreateSession(ctx context.Context, userID int64, ttlMinutes int) (*Session, error) {
-	rawToken := generateSecureToken(32)
+	rawToken, err := generateSecureToken(32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate session token: %w", err)
+	}
 	tokenHash := hashSHA256(rawToken)
 
 	expiresAt := time.Now().UTC().Add(time.Duration(ttlMinutes) * time.Minute)
 	createdAt := time.Now().UTC()
 
 	query := `INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)`
-	_, err := s.execContext(ctx, query, tokenHash, userID, expiresAt, createdAt)
+	_, err = s.execContext(ctx, query, tokenHash, userID, expiresAt, createdAt)
 	if err != nil {
 		return nil, err
 	}
@@ -1801,7 +1804,11 @@ func (s *BaseStore) CreateJoinToken(ctx context.Context, tenantID string, ttlMin
 
 	now := time.Now().UTC()
 	expiresAt := now.Add(time.Duration(ttlMinutes) * time.Minute)
-	tokenID := generateSecureToken(16)
+	tokenID, err := generateSecureToken(16)
+	if err != nil {
+		logWarn("CreateJoinToken: failed to generate token ID", "error", err)
+		return nil, "", fmt.Errorf("failed to generate token ID: %w", err)
+	}
 
 	query := `INSERT INTO join_tokens (id, token_hash, tenant_id, expires_at, one_time, created_at) VALUES (?, ?, ?, ?, ?, ?)`
 	_, err = s.execContext(ctx, query, tokenID, tokenHash, tenantID, expiresAt, boolToInt(oneTime), now)
@@ -1845,7 +1852,11 @@ func (s *BaseStore) CreateJoinTokenWithSecret(ctx context.Context, jt *JoinToken
 
 	now := time.Now().UTC()
 	if jt.ID == "" {
-		jt.ID = generateSecureToken(16)
+		var err error
+		jt.ID, err = generateSecureToken(16)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate token ID: %w", err)
+		}
 	}
 	if jt.CreatedAt.IsZero() {
 		jt.CreatedAt = now

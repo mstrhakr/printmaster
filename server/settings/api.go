@@ -44,12 +44,17 @@ type API struct {
 }
 
 // NewAPI builds an API backed by the provided store/resolver.
-func NewAPI(store Store, resolver *Resolver, opts APIOptions) *API {
+// Returns an error if store is nil.
+func NewAPI(store Store, resolver *Resolver, opts APIOptions) (*API, error) {
 	if store == nil {
-		panic("settings API requires a store")
+		return nil, errors.New("settings API requires a store")
 	}
 	if resolver == nil {
-		resolver = NewResolver(store)
+		var err error
+		resolver, err = NewResolver(store)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create resolver: %w", err)
+		}
 	}
 	return &API{
 		store:             store,
@@ -59,7 +64,7 @@ func NewAPI(store Store, resolver *Resolver, opts APIOptions) *API {
 		actorResolver:     opts.ActorResolver,
 		auditLogger:       opts.AuditLogger,
 		lockedKeysChecker: opts.LockedKeysChecker,
-	}
+	}, nil
 }
 
 // RegisterRoutes wires the HTTP handlers onto the mux based on the provided config.

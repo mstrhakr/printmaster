@@ -52,9 +52,10 @@ type API struct {
 }
 
 // NewAPI builds a new fleet update policy API instance.
-func NewAPI(store Store, opts APIOptions) *API {
+// Returns an error if store is nil.
+func NewAPI(store Store, opts APIOptions) (*API, error) {
 	if store == nil {
-		panic("update policy API requires a store")
+		return nil, errors.New("update policy API requires a store")
 	}
 	return &API{
 		store:         store,
@@ -62,7 +63,7 @@ func NewAPI(store Store, opts APIOptions) *API {
 		authorizer:    opts.Authorizer,
 		actorResolver: opts.ActorResolver,
 		auditLogger:   opts.AuditLogger,
-	}
+	}, nil
 }
 
 // RegisterRoutes wires all update policy endpoints when the feature is enabled.

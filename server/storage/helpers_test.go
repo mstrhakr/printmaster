@@ -155,7 +155,10 @@ func TestGenerateSecureToken(t *testing.T) {
 	// Test various lengths
 	lengths := []int{16, 24, 32}
 	for _, length := range lengths {
-		token := generateSecureToken(length)
+		token, err := generateSecureToken(length)
+		if err != nil {
+			t.Fatalf("generateSecureToken(%d) error = %v", length, err)
+		}
 		if token == "" {
 			t.Errorf("generateSecureToken(%d) returned empty string", length)
 		}
@@ -168,7 +171,10 @@ func TestGenerateSecureToken(t *testing.T) {
 	// Test uniqueness
 	tokens := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		token := generateSecureToken(32)
+		token, err := generateSecureToken(32)
+		if err != nil {
+			t.Fatalf("generateSecureToken(32) error = %v", err)
+		}
 		if tokens[token] {
 			t.Error("generateSecureToken produced duplicate token")
 		}

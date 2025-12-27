@@ -74,13 +74,24 @@ func nullTime(t time.Time) sql.NullTime {
 // ============================================================================
 
 // generateSecureToken creates a cryptographically secure random token
-// encoded as URL-safe base64.
-func generateSecureToken(length int) string {
+// encoded as URL-safe base64. Returns an error if entropy is unavailable.
+func generateSecureToken(length int) (string, error) {
 	b := make([]byte, length)
 	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
+}
+
+// mustGenerateSecureToken calls generateSecureToken and panics on failure.
+// Use only during initialization where errors cannot be propagated.
+// In production, crypto/rand failures indicate a critical system issue.
+func mustGenerateSecureToken(length int) string {
+	token, err := generateSecureToken(length)
+	if err != nil {
 		panic("failed to generate secure token: " + err.Error())
 	}
-	return base64.URLEncoding.EncodeToString(b)
+	return token
 }
 
 // hashSHA256 returns the hex-encoded SHA-256 hash of a string.
