@@ -290,6 +290,24 @@ const agentsVM = {
     uiInitialized: false,
 };
 
+const tenantsVM = {
+    loading: false,
+    loaded: false,
+    error: null,
+    items: [],
+    filtered: [],
+    filters: {
+        query: '',
+        sortKey: 'name',
+        sortDir: 'asc',
+    },
+    stats: {
+        total: 0,
+        filtered: 0,
+    },
+    uiInitialized: false,
+};
+
 const agentDirectory = {
     items: [],
     byId: new Map(),
@@ -5600,11 +5618,132 @@ function initTenantsUI(){
     initTenantsSubTabs();
     initSitesUI();
     switchTenantsView(activeTenantsView, true);
+    
+    // Sidebar toggle
+    const sidebarToggle = document.getElementById('tenants_sidebar_toggle');
+    const sidebar = document.querySelector('.tenants-sidebar');
+    if (sidebarToggle && sidebar) {
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+        });
+    }
+    
+    // Search filter
+    const searchInput = document.getElementById('tenants_search');
+    if (searchInput) {
+        searchInput.value = tenantsVM.filters.query;
+        const handleSearch = debounce((event) => {
+            tenantsVM.filters.query = (event.target.value || '').trim().toLowerCase();
+            applyTenantFilters();
+        }, 200);
+        searchInput.addEventListener('input', handleSearch);
+    }
+    
+    // Sort dropdown
+    const sortSelect = document.getElementById('tenants_sort_select');
+    if (sortSelect) {
+        sortSelect.value = tenantsVM.filters.sortKey;
+        sortSelect.addEventListener('change', (event) => {
+            tenantsVM.filters.sortKey = event.target.value;
+            applyTenantFilters();
+        });
+    }
+    
+    // Sort direction button
+    const sortDirBtn = document.getElementById('tenants_sort_dir_btn');
+    if (sortDirBtn) {
+        updateTenantSortDirButton();
+        sortDirBtn.addEventListener('click', () => {
+            tenantsVM.filters.sortDir = tenantsVM.filters.sortDir === 'asc' ? 'desc' : 'asc';
+            updateTenantSortDirButton();
+            applyTenantFilters();
+        });
+    }
+    
+    // Reset filters button
+    const resetBtn = document.getElementById('tenants_reset_filters');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            tenantsVM.filters.query = '';
+            tenantsVM.filters.sortKey = 'name';
+            tenantsVM.filters.sortDir = 'asc';
+            if (searchInput) searchInput.value = '';
+            if (sortSelect) sortSelect.value = 'name';
+            updateTenantSortDirButton();
+            applyTenantFilters();
+        });
+    }
+    
     const btn = document.getElementById('new_tenant_btn');
     if(btn){
         btn.addEventListener('click', ()=> openTenantModal());
     }
     loadTenants();
+}
+
+function updateTenantSortDirButton() {
+    const btn = document.getElementById('tenants_sort_dir_btn');
+    if (btn) {
+        btn.textContent = tenantsVM.filters.sortDir === 'asc' ? '↑' : '↓';
+        btn.title = tenantsVM.filters.sortDir === 'asc' ? 'Ascending' : 'Descending';
+    }
+}
+
+function applyTenantFilters() {
+    const { query, sortKey, sortDir } = tenantsVM.filters;
+    let filtered = [...tenantsVM.items];
+    
+    // Text search
+    if (query) {
+        filtered = filtered.filter(t => {
+            const searchText = [
+                t.name || '',
+                t.business_unit || '',
+                t.description || '',
+                t.contact_name || '',
+                t.contact_email || '',
+                t.id || '',
+                t.login_domain || '',
+            ].join(' ').toLowerCase();
+            return searchText.includes(query);
+        });
+    }
+    
+    // Sort
+    filtered.sort((a, b) => {
+        let aVal, bVal;
+        switch (sortKey) {
+            case 'name':
+                aVal = (a.name || '').toLowerCase();
+                bVal = (b.name || '').toLowerCase();
+                break;
+            case 'created':
+                aVal = a.created_at || '';
+                bVal = b.created_at || '';
+                break;
+            case 'contact':
+                aVal = (a.contact_name || '').toLowerCase();
+                bVal = (b.contact_name || '').toLowerCase();
+                break;
+            default:
+                aVal = (a.name || '').toLowerCase();
+                bVal = (b.name || '').toLowerCase();
+        }
+        if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+        if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+    });
+    
+    tenantsVM.filtered = filtered;
+    tenantsVM.stats.filtered = filtered.length;
+    
+    // Update counts
+    const totalEl = document.getElementById('tenants_total_count');
+    const showingEl = document.getElementById('tenants_showing_count');
+    if (totalEl) totalEl.textContent = tenantsVM.stats.total;
+    if (showingEl) showingEl.textContent = tenantsVM.stats.filtered;
+    
+    renderTenantsFiltered();
 }
 
 function initTenantModal(){
@@ -6951,7 +7090,13 @@ async function loadTenants(){
         // Cache tenants for use in other UI flows (e.g. add-agent modal)
         updateTenantDirectory(Array.isArray(data) ? data : []);
         syncSSOTenants(data);
-        renderTenants(data);
+        
+        // Store in view model and apply filters
+        tenantsVM.items = Array.isArray(data) ? data : [];
+        tenantsVM.stats.total = tenantsVM.items.length;
+        tenantsVM.loaded = true;
+        applyTenantFilters();
+        
         notifyManagedSettingsTenantDirectory(data);
     }catch(err){
         el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
@@ -7090,6 +7235,24 @@ function renderTenants(list){
             openTenantModal(tenant || null);
         });
     });
+}
+
+function renderTenantsFiltered() {
+    const list = tenantsVM.filtered;
+    const el = document.getElementById('tenants_list');
+    if (!el) return;
+    
+    if (!Array.isArray(list) || list.length === 0) {
+        if (tenantsVM.stats.total === 0) {
+            el.innerHTML = '<div class="muted-text">No tenants yet. Click + New Tenant to add one.</div>';
+        } else {
+            el.innerHTML = '<div class="muted-text">No tenants match your filters.</div>';
+        }
+        return;
+    }
+    
+    // Use the existing renderTenants for the actual rendering
+    renderTenants(list);
 }
 
 async function createTenant(body){

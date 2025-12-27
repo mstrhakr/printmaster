@@ -3219,6 +3219,196 @@ select:focus {
   }
 }
 
+/* ========================================
+   Tenants Tab - Sidebar Layout
+   ======================================== */
+
+.tenants-layout {
+  display: flex;
+  gap: 0;
+  min-height: calc(100vh - 220px);
+}
+
+.tenants-sidebar {
+  width: 280px;
+  background: var(--bg-darker);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.3s ease;
+  position: sticky;
+  top: 0;
+  height: calc(100vh - 220px);
+  overflow: hidden;
+}
+
+.tenants-sidebar.collapsed {
+  width: 48px;
+}
+
+.tenants-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.tenants-sidebar-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.tenants-sidebar.collapsed .tenants-sidebar-header h4 {
+  opacity: 0;
+  visibility: hidden;
+  width: 0;
+}
+
+.tenants-sidebar-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.tenants-sidebar-toggle:hover {
+  background: var(--accent-dim);
+  color: var(--fg);
+}
+
+.tenants-sidebar-toggle span {
+  font-size: 10px;
+  transition: transform 0.3s ease;
+}
+
+.tenants-sidebar.collapsed .tenants-sidebar-toggle span {
+  transform: rotate(180deg);
+}
+
+.tenants-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.tenants-sidebar.collapsed .tenants-sidebar-content {
+  opacity: 0;
+  visibility: hidden;
+  padding: 0;
+}
+
+.tenants-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  overflow-y: auto;
+  height: calc(100vh - 220px);
+}
+
+.tenants-main-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.tenants-main-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.tenants-main-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Mobile: tenants sidebar becomes top filter bar */
+@media (max-width: 900px) {
+  .tenants-layout {
+    flex-direction: column;
+  }
+  
+  .tenants-sidebar {
+    width: 100%;
+    position: static;
+    height: auto;
+  }
+  
+  .tenants-sidebar.collapsed {
+    width: 100%;
+    padding: 12px;
+  }
+  
+  .tenants-sidebar.collapsed .tenants-sidebar-content {
+    display: none;
+  }
+  
+  .tenants-sidebar.collapsed .tenants-sidebar-header h4 {
+    opacity: 1;
+    visibility: visible;
+  }
+  
+  .tenants-sidebar-toggle span {
+    transform: rotate(-90deg);
+    display: inline-block;
+  }
+  
+  .tenants-sidebar.collapsed .tenants-sidebar-toggle span {
+    transform: rotate(90deg);
+  }
+  
+  .tenants-main {
+    height: auto;
+    min-height: 0;
+  }
+  
+  /* Stack header actions below totals on mobile */
+  .tenants-main-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .tenants-main-header > div:first-child {
+    margin-bottom: 8px;
+  }
+  
+  .tenants-main-actions {
+    justify-content: flex-start;
+  }
+  
+  /* Taller table rows for touch targets */
+  .tenants-main .simple-table td {
+    padding: 14px 12px;
+    min-height: 56px;
+  }
+  
+  .tenants-main .simple-table tbody tr {
+    min-height: 56px;
+  }
+}
+
 /* Legacy toolbar styles kept for devices (will refactor later) */
 .devices-toolbar,
 .agents-toolbar {

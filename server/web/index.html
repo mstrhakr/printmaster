@@ -746,14 +746,57 @@
                 <!-- Tenants Sub-tab -->
                 <div class="admin-view-panel hidden" data-adminview-panel="tenants">
                     <div class="tenants-view-panel" data-tenantsview-panel="directory">
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
-                            <div style="color:var(--muted);">Manage tenants and onboarding tokens</div>
-                            <div>
-                                <button id="new_tenant_btn">New Tenant</button>
-                            </div>
-                        </div>
-                        <div id="tenants_list">
-                            <div style="color:var(--muted);">Loading tenants...</div>
+                        <div class="tenants-layout">
+                            <!-- Sidebar with filters -->
+                            <aside class="tenants-sidebar">
+                                <div class="tenants-sidebar-header">
+                                    <h4>Filters</h4>
+                                    <button class="tenants-sidebar-toggle" id="tenants_sidebar_toggle" title="Toggle sidebar">
+                                        <span>◀</span>
+                                    </button>
+                                </div>
+                                <div class="tenants-sidebar-content">
+                                    <div class="sidebar-filter-section">
+                                        <!-- Search -->
+                                        <div class="sidebar-filter-group">
+                                            <label for="tenants_search">Search</label>
+                                            <input type="text" id="tenants_search" placeholder="Name, contact, ID...">
+                                        </div>
+                                        
+                                        <!-- Sort -->
+                                        <div class="sidebar-filter-group">
+                                            <label for="tenants_sort_select">Sort By</label>
+                                            <div class="sort-row">
+                                                <select id="tenants_sort_select">
+                                                    <option value="name">Name</option>
+                                                    <option value="created">Created Date</option>
+                                                    <option value="contact">Contact Name</option>
+                                                </select>
+                                                <button id="tenants_sort_dir_btn" class="sort-dir-btn" title="Toggle sort direction">↑</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Reset -->
+                                    <button id="tenants_reset_filters" class="ghost-btn" style="width:100%;margin-top:12px;">Reset Filters</button>
+                                </div>
+                            </aside>
+                            
+                            <!-- Main content -->
+                            <main class="tenants-main">
+                                <div class="tenants-main-header">
+                                    <div>
+                                        <span class="count-label">Total:</span> <span id="tenants_total_count">0</span>
+                                        <span class="count-label" style="margin-left:12px;">Showing:</span> <span id="tenants_showing_count">0</span>
+                                    </div>
+                                    <div class="tenants-main-actions">
+                                        <button id="new_tenant_btn">+ New Tenant</button>
+                                    </div>
+                                </div>
+                                <div id="tenants_list">
+                                    <div style="color:var(--muted);">Loading tenants...</div>
+                                </div>
+                            </main>
                         </div>
                     </div>
                 </div>
