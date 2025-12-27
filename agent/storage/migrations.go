@@ -206,6 +206,20 @@ func (s *SQLiteStore) getCurrentVersion() int {
 // detectAndFixSchema compares actual schema with expected and applies fixes
 func (s *SQLiteStore) detectAndFixSchema() error {
 	for tableName, expectedCols := range expectedSchema {
+		// Check if the table exists first
+		exists, err := s.tableExists(tableName)
+		if err != nil {
+			return fmt.Errorf("failed to check if table %s exists: %w", tableName, err)
+		}
+		if !exists {
+			// Table doesn't exist - skip it (it will be created by base schema or is
+			// an obsolete table reference like metrics_history after rename to metrics_raw)
+			if storageLogger != nil {
+				storageLogger.Debug("Skipping non-existent table in schema check", "table", tableName)
+			}
+			continue
+		}
+
 		// Get actual columns
 		actualCols, err := s.getTableColumns(tableName)
 		if err != nil {
@@ -267,6 +281,16 @@ func (s *SQLiteStore) detectAndFixSchema() error {
 	}
 
 	return nil
+}
+
+// tableExists checks if a table exists in the database
+func (s *SQLiteStore) tableExists(tableName string) (bool, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // getTableColumns returns the list of column names for a table
