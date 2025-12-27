@@ -235,273 +235,339 @@
 
         <!-- Agents Tab -->
         <div style="margin-top:12px;" data-tab="agents" class="hidden">
-            <div class="metrics-header agents-header">
-                <div>
-                    <h3 style="margin-bottom:4px;">Fleet Agents</h3>
-                    <div class="muted-text">Track connectivity, versions, and last-seen activity across every deployment.</div>
-                </div>
-                <div class="view-toggle" id="agents_view_toggle" role="group" aria-label="Agents view">
-                    <button class="ghost-btn active" data-view="cards">Card View</button>
-                    <button class="ghost-btn" data-view="table">Table View</button>
-                </div>
-            </div>
-
-            <!-- Pending Registrations Banner (hidden by default, shown when tenancy enabled and pending regs exist) -->
-            <div id="pending_registrations_section" class="pending-registrations-section hidden">
-                <div class="pending-registrations-header">
-                    <div class="pending-registrations-title">
-                        <span class="pending-registrations-icon">⚠️</span>
-                        <span>Pending Agent Registrations</span>
-                        <span class="pending-registrations-count" id="pending_registrations_count"></span>
+            <div class="agents-layout">
+                <!-- Sidebar for search and filters -->
+                <aside class="agents-sidebar" id="agents_sidebar">
+                    <div class="agents-sidebar-header">
+                        <h4>Search & Filter</h4>
+                        <button class="ghost-btn agents-sidebar-toggle" id="agents_sidebar_toggle" title="Toggle sidebar">
+                            <span>◀</span>
+                        </button>
                     </div>
-                    <div class="pending-registrations-actions">
-                        <button class="ghost-btn" id="pending_registrations_refresh">Refresh</button>
-                        <button class="ghost-btn" id="pending_registrations_toggle" aria-expanded="false">Show Details</button>
-                    </div>
-                </div>
-                <div class="pending-registrations-body hidden" id="pending_registrations_body">
-                    <div class="pending-registrations-info">
-                        <p>These agents attempted to connect using expired join tokens. Review and approve them to assign to a tenant, or reject if unauthorized.</p>
-                    </div>
-                    <div class="table-wrapper">
-                        <table class="simple-table pending-registrations-table" id="pending_registrations_table">
-                            <thead>
-                                <tr>
-                                    <th>Agent</th>
-                                    <th>Platform</th>
-                                    <th>IP Address</th>
-                                    <th>Original Tenant</th>
-                                    <th>Requested</th>
-                                    <th>Status</th>
-                                    <th class="actions-col">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pending_registrations_tbody">
-                                <tr><td colspan="7" class="muted-text">Loading…</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div id="agents_overview_metrics" class="metrics-overview-grid compact" style="margin-bottom:16px;">
-                <div class="metric-card loading">Loading agent metrics…</div>
-            </div>
-
-            <div class="agents-toolbar">
-                <div class="agents-toolbar-left">
-                    <label class="field">
-                        <span>Search</span>
-                        <input type="text" id="agents_search" placeholder="Search name, hostname, ID…" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                    </label>
-                    <label class="field">
-                        <span>Version</span>
-                        <select id="agents_version_filter">
-                            <option value="">All Versions</option>
-                        </select>
-                    </label>
-                    <label class="field">
-                        <span>Platform</span>
-                        <select id="agents_platform_filter">
-                            <option value="">All Platforms</option>
-                        </select>
-                    </label>
-                    <label class="field">
-                        <span>Tenant</span>
-                        <select id="agents_tenant_filter">
-                            <option value="">All Tenants</option>
-                        </select>
-                    </label>
-                    <label class="field sort-field">
-                        <span>Sort</span>
-                        <div class="sort-select">
-                            <select id="agents_sort_select">
-                                <option value="last_seen">Last Seen</option>
-                                <option value="name">Agent Name</option>
-                                <option value="status">Status</option>
-                                <option value="connection">Connection</option>
-                                <option value="version">Version</option>
-                                <option value="tenant">Tenant</option>
-                            </select>
-                            <button id="agents_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
-                                <span id="agents_sort_dir_icon">↓</span>
-                            </button>
+                    
+                    <div class="agents-sidebar-content">
+                        <!-- Search box -->
+                        <div class="sidebar-search-section">
+                            <label class="field">
+                                <span>Search</span>
+                                <input type="text" id="agents_search" placeholder="Search name, hostname, ID…" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
                         </div>
-                    </label>
-                </div>
-                <div class="agents-toolbar-actions">
-                    <label class="field inline-check" title="Automatically check for agent updates when loading this page">
-                        <input type="checkbox" id="agents_check_updates_toggle" checked />
-                        <span>Auto-check updates</span>
-                    </label>
-                    <button id="agents_check_updates_btn" class="ghost-btn">Check for Updates</button>
-                    <button id="agents_reset_filters" class="ghost-btn">Reset Filters</button>
-                </div>
-            </div>
 
-            <div class="agents-quick-filters">
-                <div class="filter-block">
-                    <div class="filter-label">Status</div>
-                    <div id="agents_status_filter" class="pill-toggle-group" role="group" aria-label="Status filters">
-                        <button class="pill active" data-status="active" data-label="Active">Active</button>
-                        <button class="pill active" data-status="inactive" data-label="Inactive">Inactive</button>
-                        <button class="pill active" data-status="offline" data-label="Offline">Offline</button>
+                        <!-- Dropdown filters -->
+                        <div class="sidebar-filter-section">
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Version</span>
+                                    <select id="agents_version_filter">
+                                        <option value="">All Versions</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Platform</span>
+                                    <select id="agents_platform_filter">
+                                        <option value="">All Platforms</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Tenant</span>
+                                    <select id="agents_tenant_filter">
+                                        <option value="">All Tenants</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Sort By</span>
+                                    <div class="sort-select">
+                                        <select id="agents_sort_select">
+                                            <option value="last_seen">Last Seen</option>
+                                            <option value="name">Agent Name</option>
+                                            <option value="status">Status</option>
+                                            <option value="connection">Connection</option>
+                                            <option value="version">Version</option>
+                                            <option value="tenant">Tenant</option>
+                                        </select>
+                                        <button id="agents_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
+                                            <span id="agents_sort_dir_icon">↓</span>
+                                        </button>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Status filters -->
+                        <div class="sidebar-filter-section">
+                            <div class="sidebar-filter-group">
+                                <div class="filter-label">Status</div>
+                                <div id="agents_status_filter" class="pill-toggle-group compact" role="group" aria-label="Status filters">
+                                    <button class="pill active" data-status="active" data-label="Active">Active</button>
+                                    <button class="pill active" data-status="inactive" data-label="Inactive">Inactive</button>
+                                    <button class="pill active" data-status="offline" data-label="Offline">Offline</button>
+                                </div>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <div class="filter-label">Connection</div>
+                                <div id="agents_connection_filter" class="pill-toggle-group compact" role="group" aria-label="Connection filters">
+                                    <button class="pill active" data-connection="ws" data-label="Live WS">Live WS</button>
+                                    <button class="pill active" data-connection="http" data-label="HTTP">HTTP</button>
+                                    <button class="pill active" data-connection="none" data-label="Offline">Offline</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Active filters display -->
+                        <div id="agents_active_filters" class="filter-chip-row"></div>
+
+                        <div class="sidebar-filter-actions">
+                            <button id="agents_reset_filters" class="ghost-btn" style="width:100%;">Reset Filters</button>
+                        </div>
                     </div>
-                </div>
-                <div class="filter-block">
-                    <div class="filter-label">Connection</div>
-                    <div id="agents_connection_filter" class="pill-toggle-group" role="group" aria-label="Connection filters">
-                        <button class="pill active" data-connection="ws" data-label="Live WS">Live WS</button>
-                        <button class="pill active" data-connection="http" data-label="HTTP Fallback">HTTP Fallback</button>
-                        <button class="pill active" data-connection="none" data-label="Offline">Offline</button>
+                </aside>
+
+                <!-- Main agents content -->
+                <main class="agents-main">
+                    <div class="agents-main-header">
+                        <div>
+                            <h3 style="margin-bottom:4px;">Fleet Agents</h3>
+                            <div class="muted-text">Track connectivity, versions, and last-seen activity across every deployment.</div>
+                        </div>
+                        <div class="agents-main-actions">
+                            <label class="field inline-check" title="Automatically check for agent updates when loading this page">
+                                <input type="checkbox" id="agents_check_updates_toggle" checked />
+                                <span>Auto-check</span>
+                            </label>
+                            <button id="agents_check_updates_btn" class="ghost-btn">Check Updates</button>
+                            <div class="view-toggle" id="agents_view_toggle" role="group" aria-label="Agents view">
+                                <button class="ghost-btn active" data-view="cards">Cards</button>
+                                <button class="ghost-btn" data-view="table">Table</button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
 
-            <div id="agents_active_filters" class="filter-chip-row"></div>
+                    <!-- Pending Registrations Banner (hidden by default, shown when tenancy enabled and pending regs exist) -->
+                    <div id="pending_registrations_section" class="pending-registrations-section hidden">
+                        <div class="pending-registrations-header">
+                            <div class="pending-registrations-title">
+                                <span class="pending-registrations-icon">⚠️</span>
+                                <span>Pending Agent Registrations</span>
+                                <span class="pending-registrations-count" id="pending_registrations_count"></span>
+                            </div>
+                            <div class="pending-registrations-actions">
+                                <button class="ghost-btn" id="pending_registrations_refresh">Refresh</button>
+                                <button class="ghost-btn" id="pending_registrations_toggle" aria-expanded="false">Show Details</button>
+                            </div>
+                        </div>
+                        <div class="pending-registrations-body hidden" id="pending_registrations_body">
+                            <div class="pending-registrations-info">
+                                <p>These agents attempted to connect using expired join tokens. Review and approve them to assign to a tenant, or reject if unauthorized.</p>
+                            </div>
+                            <div class="table-wrapper">
+                                <table class="simple-table pending-registrations-table" id="pending_registrations_table">
+                                    <thead>
+                                        <tr>
+                                            <th>Agent</th>
+                                            <th>Platform</th>
+                                            <th>IP Address</th>
+                                            <th>Original Tenant</th>
+                                            <th>Requested</th>
+                                            <th>Status</th>
+                                            <th class="actions-col">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="pending_registrations_tbody">
+                                        <tr><td colspan="7" class="muted-text">Loading…</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
 
-            <div id="agents_stats" class="agents-inline-stats"></div>
+                    <div id="agents_overview_metrics" class="metrics-overview-grid compact" style="margin-bottom:12px;">
+                        <div class="metric-card loading">Loading agent metrics…</div>
+                    </div>
 
-            <div class="device-cards-container" id="agents_cards"></div>
-            <div id="agents_table_wrapper" class="hidden">
-                <div class="table-wrapper">
-                    <table class="simple-table" id="agents_table">
-                        <thead>
-                            <tr>
-                                <th data-sort-key="name">Agent</th>
-                                <th data-sort-key="tenant">Tenant</th>
-                                <th data-sort-key="status">Status</th>
-                                <th data-sort-key="connection">Connection</th>
-                                <th data-sort-key="platform">Platform</th>
-                                <th data-sort-key="version">Version</th>
-                                <th data-sort-key="last_seen">Last Seen</th>
-                                <th class="actions-col">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td colspan="8" class="muted-text">Loading agents…</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                    <div id="agents_stats" class="agents-inline-stats"></div>
+
+                    <div class="device-cards-container" id="agents_cards"></div>
+                    <div id="agents_table_wrapper" class="hidden">
+                        <div class="table-wrapper">
+                            <table class="simple-table" id="agents_table">
+                                <thead>
+                                    <tr>
+                                        <th data-sort-key="name">Agent</th>
+                                        <th data-sort-key="tenant">Tenant</th>
+                                        <th data-sort-key="status">Status</th>
+                                        <th data-sort-key="connection">Connection</th>
+                                        <th data-sort-key="platform">Platform</th>
+                                        <th data-sort-key="version">Version</th>
+                                        <th data-sort-key="last_seen">Last Seen</th>
+                                        <th class="actions-col">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="8" class="muted-text">Loading agents…</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </main>
             </div>
         </div>
 
         <!-- Devices Tab -->
         <div style="margin-top:12px;" data-tab="devices" class="hidden">
-            <div class="metrics-header devices-header">
-                <div>
-                    <h3 style="margin-bottom:4px;">Fleet Devices</h3>
-                    <div class="muted-text">Monitor connectivity, alerts, and consumables across every agent.</div>
-                </div>
-                <div class="view-toggle" id="devices_view_toggle" role="group" aria-label="Devices view">
-                    <button class="ghost-btn active" data-view="cards">Card View</button>
-                    <button class="ghost-btn" data-view="table">Table View</button>
-                </div>
-            </div>
-
-            <div id="devices_overview_metrics" class="metrics-overview-grid compact" style="margin-bottom:16px;">
-                <div class="metric-card loading">Loading fleet metrics…</div>
-            </div>
-
-            <div class="devices-toolbar">
-                <div class="devices-toolbar-left">
-                    <label class="field">
-                        <span>Search</span>
-                        <input type="text" id="devices_search" placeholder="Search serial, IP, model…" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                    </label>
-                    <label class="field">
-                        <span>Agent</span>
-                        <select id="devices_agent_filter">
-                            <option value="">All Agents</option>
-                        </select>
-                    </label>
-                    <label class="field">
-                        <span>Tenant</span>
-                        <select id="devices_tenant_filter">
-                            <option value="">All Tenants</option>
-                        </select>
-                    </label>
-                    <label class="field">
-                        <span>Manufacturer</span>
-                        <select id="devices_manufacturer_filter">
-                            <option value="">All Manufacturers</option>
-                        </select>
-                    </label>
-                    <label class="field sort-field">
-                        <span>Sort</span>
-                        <div class="sort-select">
-                            <select id="devices_sort_select">
-                                <option value="last_seen">Last Seen</option>
-                                <option value="manufacturer">Manufacturer</option>
-                                <option value="agent">Agent</option>
-                                <option value="tenant">Tenant</option>
-                                <option value="status">Status</option>
-                                <option value="ip">Network</option>
-                                <option value="location">Location</option>
-                            </select>
-                            <button id="devices_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
-                                <span id="devices_sort_dir_icon">↓</span>
-                            </button>
+            <div class="devices-layout">
+                <!-- Sidebar for search and filters -->
+                <aside class="devices-sidebar" id="devices_sidebar">
+                    <div class="devices-sidebar-header">
+                        <h4>Search & Filter</h4>
+                        <button class="ghost-btn devices-sidebar-toggle" id="devices_sidebar_toggle" title="Toggle sidebar">
+                            <span>◀</span>
+                        </button>
+                    </div>
+                    
+                    <div class="devices-sidebar-content">
+                        <!-- Search box -->
+                        <div class="sidebar-search-section">
+                            <label class="field">
+                                <span>Search</span>
+                                <input type="text" id="devices_search" placeholder="Search serial, IP, model…" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
                         </div>
-                    </label>
-                </div>
-                <div class="devices-toolbar-actions">
-                    <button id="devices_reset_filters" class="ghost-btn">Reset Filters</button>
-                </div>
-            </div>
 
-            <div class="devices-quick-filters">
-                <div class="filter-block">
-                    <div class="filter-label">Status</div>
-                    <div id="devices_status_filter" class="pill-toggle-group" role="group" aria-label="Status filters">
-                        <button class="pill active" data-status="healthy" data-label="Healthy">Healthy</button>
-                        <button class="pill active" data-status="warning" data-label="Warning">Warning</button>
-                        <button class="pill active" data-status="error" data-label="Error">Error</button>
-                        <button class="pill active" data-status="jam" data-label="Jam">Jam</button>
+                        <!-- Dropdown filters -->
+                        <div class="sidebar-filter-section">
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Agent</span>
+                                    <select id="devices_agent_filter">
+                                        <option value="">All Agents</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Tenant</span>
+                                    <select id="devices_tenant_filter">
+                                        <option value="">All Tenants</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Manufacturer</span>
+                                    <select id="devices_manufacturer_filter">
+                                        <option value="">All Manufacturers</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Sort By</span>
+                                    <div class="sort-select">
+                                        <select id="devices_sort_select">
+                                            <option value="last_seen">Last Seen</option>
+                                            <option value="manufacturer">Manufacturer</option>
+                                            <option value="agent">Agent</option>
+                                            <option value="tenant">Tenant</option>
+                                            <option value="status">Status</option>
+                                            <option value="ip">Network</option>
+                                            <option value="location">Location</option>
+                                        </select>
+                                        <button id="devices_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
+                                            <span id="devices_sort_dir_icon">↓</span>
+                                        </button>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Status filters -->
+                        <div class="sidebar-filter-section">
+                            <div class="sidebar-filter-group">
+                                <div class="filter-label">Status</div>
+                                <div id="devices_status_filter" class="pill-toggle-group compact" role="group" aria-label="Status filters">
+                                    <button class="pill active" data-status="healthy" data-label="Healthy">Healthy</button>
+                                    <button class="pill active" data-status="warning" data-label="Warning">Warning</button>
+                                    <button class="pill active" data-status="error" data-label="Error">Error</button>
+                                    <button class="pill active" data-status="jam" data-label="Jam">Jam</button>
+                                </div>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <div class="filter-label">Consumables</div>
+                                <div id="devices_consumable_filter" class="pill-toggle-group compact" role="group" aria-label="Consumable filters">
+                                    <button class="pill active" data-band="critical" data-label="Critical">Critical</button>
+                                    <button class="pill active" data-band="low" data-label="Low">Low</button>
+                                    <button class="pill active" data-band="medium" data-label="Medium">Medium</button>
+                                    <button class="pill active" data-band="high" data-label="High">High</button>
+                                    <button class="pill active" data-band="unknown" data-label="Unknown">Unknown</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Active filters display -->
+                        <div id="devices_active_filters" class="filter-chip-row"></div>
+
+                        <div class="sidebar-filter-actions">
+                            <button id="devices_reset_filters" class="ghost-btn" style="width:100%;">Reset Filters</button>
+                        </div>
                     </div>
-                </div>
-                <div class="filter-block">
-                    <div class="filter-label">Consumables</div>
-                    <div id="devices_consumable_filter" class="pill-toggle-group" role="group" aria-label="Consumable filters">
-                        <button class="pill active" data-band="critical" data-label="Critical">Critical</button>
-                        <button class="pill active" data-band="low" data-label="Low">Low</button>
-                        <button class="pill active" data-band="medium" data-label="Medium">Medium</button>
-                        <button class="pill active" data-band="high" data-label="High">High</button>
-                        <button class="pill active" data-band="unknown" data-label="Unknown">Unknown</button>
+                </aside>
+
+                <!-- Main devices content -->
+                <main class="devices-main">
+                    <div class="devices-main-header">
+                        <div>
+                            <h3 style="margin-bottom:4px;">Fleet Devices</h3>
+                            <div class="muted-text">Monitor connectivity, alerts, and consumables across every agent.</div>
+                        </div>
+                        <div class="devices-main-actions">
+                            <div class="view-toggle" id="devices_view_toggle" role="group" aria-label="Devices view">
+                                <button class="ghost-btn active" data-view="cards">Cards</button>
+                                <button class="ghost-btn" data-view="table">Table</button>
+                            </div>
+                        </div>
                     </div>
-                </div>
-            </div>
 
-            <div id="devices_active_filters" class="filter-chip-row"></div>
+                    <div id="devices_overview_metrics" class="metrics-overview-grid compact" style="margin-bottom:12px;">
+                        <div class="metric-card loading">Loading fleet metrics…</div>
+                    </div>
 
-            <div id="devices_stats" class="devices-inline-stats"></div>
+                    <div id="devices_stats" class="devices-inline-stats"></div>
 
-            <div class="device-cards-container" id="devices_cards"></div>
-            <div id="devices_table_wrapper" class="hidden">
-                <div class="table-wrapper">
-                    <table class="simple-table" id="devices_table">
-                        <thead>
-                            <tr>
-                                <th data-sort-key="manufacturer">Device</th>
-                                <th data-sort-key="status">Status</th>
-                                <th data-sort-key="consumables">Consumables</th>
-                                <th data-sort-key="agent">Agent</th>
-                                <th data-sort-key="tenant">Tenant</th>
-                                <th data-sort-key="ip">Network</th>
-                                <th data-sort-key="location">Location</th>
-                                <th data-sort-key="last_seen">Last Seen</th>
-                                <th class="actions-col">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td colspan="9" class="muted-text">Loading devices…</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+                    <div class="device-cards-container" id="devices_cards"></div>
+                    <div id="devices_table_wrapper" class="hidden">
+                        <div class="table-wrapper">
+                            <table class="simple-table" id="devices_table">
+                                <thead>
+                                    <tr>
+                                        <th data-sort-key="manufacturer">Device</th>
+                                        <th data-sort-key="status">Status</th>
+                                        <th data-sort-key="consumables">Consumables</th>
+                                        <th data-sort-key="agent">Agent</th>
+                                        <th data-sort-key="tenant">Tenant</th>
+                                        <th data-sort-key="ip">Network</th>
+                                        <th data-sort-key="location">Location</th>
+                                        <th data-sort-key="last_seen">Last Seen</th>
+                                        <th class="actions-col">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="9" class="muted-text">Loading devices…</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </main>
             </div>
         </div>
 

@@ -7725,6 +7725,15 @@ function initAgentsUI() {
     }
     agentsVM.uiInitialized = true;
 
+    // Sidebar toggle
+    const sidebarToggle = document.getElementById('agents_sidebar_toggle');
+    const sidebar = document.getElementById('agents_sidebar');
+    if (sidebarToggle && sidebar) {
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+        });
+    }
+
     const searchInput = document.getElementById('agents_search');
     if (searchInput) {
         searchInput.value = agentsVM.filters.query;
@@ -9646,6 +9655,15 @@ function initDevicesUI() {
         return;
     }
     devicesVM.uiInitialized = true;
+
+    // Sidebar toggle
+    const sidebarToggle = document.getElementById('devices_sidebar_toggle');
+    const sidebar = document.querySelector('.devices-sidebar');
+    if (sidebarToggle && sidebar) {
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+        });
+    }
 
     const searchInput = document.getElementById('devices_search');
     if (searchInput) {
