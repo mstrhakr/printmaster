@@ -59,7 +59,7 @@
     <!-- Main content container with floating appearance -->
     <div class="content-container">
         <div class="tabbar">
-            <!-- Hamburger menu for mobile -->
+            <!-- Hamburger menu for mobile (legacy - hidden, using floating nav now) -->
             <div class="hamburger-menu">
                 <div class="hamburger-header">
                     <span id="current_tab_label">Menu - Dashboard</span>
@@ -2479,6 +2479,14 @@
             </div>
         </div>
     </div>
+
+    <!-- Mobile navigation overlay and floating toggle button -->
+    <div class="mobile-nav-overlay" id="mobile_nav_overlay"></div>
+    <button class="mobile-nav-toggle" id="mobile_nav_toggle" title="Menu" aria-label="Toggle navigation menu">
+        <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+        </svg>
+    </button>
 
     <script src="/static/sso-admin.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
     <script src="/static/rbac.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>

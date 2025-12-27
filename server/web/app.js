@@ -565,10 +565,8 @@ function registerTabButton(tab) {
     tab.dataset.tabRegistered = 'true';
     tab.addEventListener('click', () => {
         switchTab(tab.dataset.target);
-        const mobileNav = document.getElementById('mobile_nav');
-        if (mobileNav) {
-            mobileNav.classList.remove('active');
-        }
+        // Close mobile nav drawer when tab is selected
+        closeMobileNav();
     });
 }
 
@@ -966,15 +964,52 @@ function initTabs() {
     const allTabs = document.querySelectorAll('.tabbar .tab');
     const hamburger = document.querySelector('.hamburger-icon');
     const mobileNav = document.getElementById('mobile_nav');
+    const mobileNavToggle = document.getElementById('mobile_nav_toggle');
+    const mobileNavOverlay = document.getElementById('mobile_nav_overlay');
     
     allTabs.forEach(registerTabButton);
     
-    // Hamburger menu
+    // Legacy hamburger menu (kept for backwards compatibility)
     if (hamburger) {
         hamburger.addEventListener('click', () => {
             mobileNav.classList.toggle('active');
         });
     }
+
+    // New floating toggle button for mobile navigation
+    if (mobileNavToggle && mobileNav) {
+        mobileNavToggle.addEventListener('click', () => {
+            const isActive = mobileNav.classList.toggle('active');
+            mobileNavToggle.classList.toggle('active', isActive);
+            if (mobileNavOverlay) {
+                mobileNavOverlay.classList.toggle('active', isActive);
+            }
+        });
+    }
+
+    // Close mobile nav when clicking overlay
+    if (mobileNavOverlay) {
+        mobileNavOverlay.addEventListener('click', () => {
+            closeMobileNav();
+        });
+    }
+
+    // Close mobile nav on escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && mobileNav && mobileNav.classList.contains('active')) {
+            closeMobileNav();
+        }
+    });
+}
+
+function closeMobileNav() {
+    const mobileNav = document.getElementById('mobile_nav');
+    const mobileNavToggle = document.getElementById('mobile_nav_toggle');
+    const mobileNavOverlay = document.getElementById('mobile_nav_overlay');
+    
+    if (mobileNav) mobileNav.classList.remove('active');
+    if (mobileNavToggle) mobileNavToggle.classList.remove('active');
+    if (mobileNavOverlay) mobileNavOverlay.classList.remove('active');
 }
 
 function initLogSubTabs() {
@@ -4555,7 +4590,7 @@ function buildTenantNodeHTML(tenant, isMatch) {
 
     // Children (sites + unassigned agents)
     if (hasChildren) {
-        html += `<div class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
+        html += `<ul class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
         
         // Sites first
         if (dashboardFilters.showSites) {
@@ -4582,7 +4617,7 @@ function buildTenantNodeHTML(tenant, isMatch) {
             }
         }
         
-        html += `</div>`;
+        html += `</ul>`;
     }
 
     html += `</li>`;
@@ -4640,12 +4675,12 @@ function buildSiteNodeHTML(site, tenantId) {
 
     // Children (agents)
     if (dashboardFilters.showAgents && hasChildren) {
-        html += `<div class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
+        html += `<ul class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
         for (const agent of filteredAgents) {
             const agentHTML = buildAgentNodeHTML(agent, tenantId, site.id);
             if (agentHTML) html += agentHTML;
         }
-        html += `</div>`;
+        html += `</ul>`;
     }
 
     html += `</li>`;
@@ -4703,7 +4738,7 @@ function buildAgentNodeHTML(agent, tenantId, siteId) {
 
     // Children (devices)
     if (dashboardFilters.showDevices && hasChildren) {
-        html += `<div class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
+        html += `<ul class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
         for (const device of filteredDevices) {
             const deviceMatches = matchesSearch(device.serial) || matchesSearch(device.manufacturer) || 
                                    matchesSearch(device.model) || matchesSearch(device.ip) || matchesSearch(device.location);
@@ -4713,7 +4748,7 @@ function buildAgentNodeHTML(agent, tenantId, siteId) {
             
             html += buildDeviceNodeHTML(device, agent.agent_id, deviceMatches);
         }
-        html += `</div>`;
+        html += `</ul>`;
     }
 
     html += `</li>`;

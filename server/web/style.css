@@ -6815,7 +6815,7 @@ input[type="checkbox"]:indeterminate::before {
   font-size: 13px;
 }
 
-/* Hamburger menu for mobile */
+/* Hamburger menu for mobile - floating toggle button */
 .hamburger-menu {
   display: none;
   cursor: pointer;
@@ -6844,6 +6844,73 @@ input[type="checkbox"]:indeterminate::before {
   font-size: 16px;
   color: var(--text);
   font-weight: 500;
+}
+
+/* Mobile navigation floating toggle button */
+.mobile-nav-toggle {
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--highlight), var(--success));
+  border: none;
+  cursor: pointer;
+  z-index: 1001;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 3px rgba(38, 139, 210, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-nav-toggle:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), 0 0 0 4px rgba(38, 139, 210, 0.3);
+}
+
+.mobile-nav-toggle:active {
+  transform: scale(0.95);
+}
+
+.mobile-nav-toggle svg {
+  width: 24px;
+  height: 24px;
+  fill: white;
+  transition: transform 0.3s ease;
+}
+
+.mobile-nav-toggle.active svg {
+  transform: rotate(90deg);
+}
+
+/* Notification dot on toggle button */
+.mobile-nav-toggle .nav-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--warning);
+  border: 2px solid var(--panel);
+  display: none;
+}
+
+/* Mobile navigation drawer overlay */
+.mobile-nav-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.mobile-nav-overlay.active {
+  opacity: 1;
 }
 
 /* Flatpickr custom theme (Solarized Dark) */
@@ -6964,15 +7031,70 @@ span.flatpickr-weekday {
   display: flex;
 }
 
-/* Position mobile nav dropdown on mobile */
+/* Position mobile nav as slide-out drawer on mobile */
 @media (max-width: 768px) {
+  .mobile-nav-toggle {
+    display: flex;
+  }
+
+  .mobile-nav-overlay.active {
+    display: block;
+  }
+
   .mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 90px;
+    right: 20px;
+    width: auto;
+    min-width: 200px;
+    max-width: calc(100vw - 40px);
     background: var(--panel);
     border: 1px solid var(--border);
-    border-top: none;
-    border-radius: 0 0 6px 6px;
-    padding: 8px;
-    box-shadow: var(--shadow-md);
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  }
+
+  .mobile-nav.active {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-nav .tab {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    text-align: left;
+    padding: 12px 16px;
+    margin: 0;
+    font-size: 15px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    color: var(--text);
+    transition: background 0.15s ease;
+  }
+
+  .mobile-nav .tab:hover {
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .mobile-nav .tab.active {
+    background: rgba(38, 139, 210, 0.2);
+    color: var(--highlight);
+  }
+
+  /* Hide the old hamburger menu header on mobile */
+  .hamburger-menu {
+    display: none !important;
   }
 }
 
@@ -7058,39 +7180,17 @@ span.flatpickr-weekday {
     padding: 14px !important;
   }
 
-  /* Hamburger menu for tabs */
+  /* Mobile navigation - hide desktop tabs */
   .tabbar {
     position: relative;
     width: 100%;
     max-width: 100%;
   }
 
-  .hamburger-menu {
-    display: block;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-  }
-
-  .tabbar>.tab {
+  .tabbar>.tab,
+  .desktop-tabs {
     display: none !important;
-    /* Hide regular tabs on mobile */
-  }
-
-  .mobile-nav .tab {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 14px 16px;
-    margin: 0;
-    font-size: 16px;
-    border: 1px solid #004b56;
-    background: var(--panel);
-  }
-
-  .mobile-nav .tab.active {
-    background: rgba(0, 180, 140, 0.15);
-    border-color: #005b4a;
+    /* Hide regular tabs on mobile - using floating nav drawer instead */
   }
 
   button {
@@ -8162,16 +8262,22 @@ select:hover {
 
 /* Children container */
 .dashboard-tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 12px;
   margin-left: 28px;
-  padding-left: 12px;
   border-left: 1px dashed var(--border);
   overflow: hidden;
+  max-height: 5000px; /* Large enough for any realistic tree */
+  opacity: 1;
   transition: max-height 0.3s ease, opacity 0.2s ease;
 }
 
 .dashboard-tree-children.collapsed {
   max-height: 0;
   opacity: 0;
+  padding: 0;
+  margin: 0;
 }
 
 /* Empty state */
