@@ -2,7 +2,7 @@ package scanner
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"strconv"
 	"sync"
@@ -82,7 +82,7 @@ func StartLivenessPool(ctx context.Context, cfg ScannerConfig, jobs <-chan ScanJ
 		go func() {
 			defer wg.Done()
 			// staggered startup to avoid thundering herd
-			jitterMs := 100 + rand.Intn(151)
+			jitterMs := 100 + rand.IntN(151)
 			select {
 			case <-ctx.Done():
 				return
@@ -156,7 +156,7 @@ func StartDetectionPool(ctx context.Context, cfg ScannerConfig, in <-chan Livene
 		go func() {
 			defer wg.Done()
 			// staggered startup
-			jitterMs := 50 + rand.Intn(201)
+			jitterMs := 50 + rand.IntN(201)
 			select {
 			case <-ctx.Done():
 				return
@@ -217,7 +217,7 @@ func StartDeepScanPool(ctx context.Context, cfg ScannerConfig, in <-chan Detecti
 		go func() {
 			defer wg.Done()
 			// staggered startup
-			jitterMs := 50 + rand.Intn(201)
+			jitterMs := 50 + rand.IntN(201)
 			select {
 			case <-ctx.Done():
 				return
