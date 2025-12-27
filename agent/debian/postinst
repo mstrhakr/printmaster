@@ -25,6 +25,12 @@ case "$1" in
             chmod 640 /etc/printmaster/agent.toml
         fi
 
+        # Ensure sudoers file has correct permissions
+        if [ -f /etc/sudoers.d/printmaster-agent ]; then
+            chmod 440 /etc/sudoers.d/printmaster-agent
+            chown root:root /etc/sudoers.d/printmaster-agent
+        fi
+
         # Reload systemd, enable and start/restart service
         systemctl daemon-reload
         systemctl enable printmaster-agent.service || true

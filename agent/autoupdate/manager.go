@@ -896,10 +896,11 @@ func (m *Manager) applyUpdateViaPackageManager() error {
 
 // applyUpdateViaApt uses apt-get to update the package when the binary was installed via dpkg.
 // This is the proper way to update on Debian/Ubuntu systems with package-managed binaries.
+// Note: Requires sudoers configuration installed by the .deb package in /etc/sudoers.d/printmaster-agent
 func (m *Manager) applyUpdateViaApt() error {
 	// First, update the package lists to get the latest version info
-	m.logDebug("Running apt-get update")
-	updateCmd := exec.Command("apt-get", "update", "-qq")
+	m.logDebug("Running sudo apt-get update")
+	updateCmd := exec.Command("sudo", "apt-get", "update", "-qq")
 	updateCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	if output, err := updateCmd.CombinedOutput(); err != nil {
 		m.logWarn("apt-get update failed (continuing anyway)", "error", err, "output", string(output))
@@ -907,8 +908,8 @@ func (m *Manager) applyUpdateViaApt() error {
 	}
 
 	// Now upgrade the specific package
-	m.logInfo("Running apt-get install", "package", m.packageName)
-	installCmd := exec.Command("apt-get", "install", "-y", "-qq", "--only-upgrade", m.packageName)
+	m.logInfo("Running sudo apt-get install", "package", m.packageName)
+	installCmd := exec.Command("sudo", "apt-get", "install", "-y", "-qq", "--only-upgrade", m.packageName)
 	installCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	output, err := installCmd.CombinedOutput()
 	if err != nil {
@@ -924,16 +925,17 @@ func (m *Manager) applyUpdateViaApt() error {
 
 // applyUpdateViaDnf uses dnf to update the package when the binary was installed via rpm.
 // This is the proper way to update on Fedora/RHEL 8+ systems with package-managed binaries.
+// Note: Requires sudoers configuration installed by the .rpm package in /etc/sudoers.d/printmaster-agent
 func (m *Manager) applyUpdateViaDnf() error {
 	// Refresh package metadata
-	m.logDebug("Running dnf check-update")
+	m.logDebug("Running sudo dnf check-update")
 	// dnf check-update returns exit code 100 if updates are available, 0 if none, 1 on error
-	checkCmd := exec.Command("dnf", "check-update", "-q", m.packageName)
+	checkCmd := exec.Command("sudo", "dnf", "check-update", "-q", m.packageName)
 	checkCmd.Run() // Ignore exit code, just refreshes cache
 
 	// Now upgrade the specific package
-	m.logInfo("Running dnf upgrade", "package", m.packageName)
-	upgradeCmd := exec.Command("dnf", "upgrade", "-y", "-q", m.packageName)
+	m.logInfo("Running sudo dnf upgrade", "package", m.packageName)
+	upgradeCmd := exec.Command("sudo", "dnf", "upgrade", "-y", "-q", m.packageName)
 	output, err := upgradeCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("dnf upgrade failed: %w (output: %s)", err, string(output))
@@ -948,15 +950,16 @@ func (m *Manager) applyUpdateViaDnf() error {
 
 // applyUpdateViaYum uses yum to update the package when the binary was installed via rpm.
 // This is for older RHEL/CentOS systems that don't have dnf.
+// Note: Requires sudoers configuration installed by the .rpm package in /etc/sudoers.d/printmaster-agent
 func (m *Manager) applyUpdateViaYum() error {
 	// Refresh package metadata
-	m.logDebug("Running yum check-update")
-	checkCmd := exec.Command("yum", "check-update", "-q", m.packageName)
+	m.logDebug("Running sudo yum check-update")
+	checkCmd := exec.Command("sudo", "yum", "check-update", "-q", m.packageName)
 	checkCmd.Run() // Ignore exit code, just refreshes cache
 
 	// Now upgrade the specific package
-	m.logInfo("Running yum upgrade", "package", m.packageName)
-	upgradeCmd := exec.Command("yum", "upgrade", "-y", "-q", m.packageName)
+	m.logInfo("Running sudo yum upgrade", "package", m.packageName)
+	upgradeCmd := exec.Command("sudo", "yum", "upgrade", "-y", "-q", m.packageName)
 	output, err := upgradeCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("yum upgrade failed: %w (output: %s)", err, string(output))

@@ -67,6 +67,19 @@ mkdir -p "$PKG_DIR/var/log/printmaster"
 cp "$BINARY" "$PKG_DIR/usr/bin/printmaster-agent"
 chmod 755 "$PKG_DIR/usr/bin/printmaster-agent"
 
+# Create sudoers.d directory and file for package manager auto-update
+mkdir -p "$PKG_DIR/etc/sudoers.d"
+cat > "$PKG_DIR/etc/sudoers.d/printmaster-agent" << 'SUDOERS'
+# PrintMaster Agent - Allow auto-update via package manager
+# This file allows the printmaster service user to update only the printmaster-agent package
+# Remove this file to disable automatic package updates
+
+# Debian/Ubuntu apt-get commands
+printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get update -qq
+printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get install -y -qq --only-upgrade printmaster-agent
+SUDOERS
+chmod 440 "$PKG_DIR/etc/sudoers.d/printmaster-agent"
+
 # Copy systemd service (modify path for /usr/bin)
 sed 's|/usr/local/bin/printmaster-agent|/usr/bin/printmaster-agent|g' \
     "$AGENT_DIR/printmaster-agent.service" > "$PKG_DIR/lib/systemd/system/printmaster-agent.service"
@@ -191,6 +204,9 @@ case "$1" in
         rm -rf /var/lib/printmaster
         rm -rf /var/log/printmaster
         rm -rf /etc/printmaster
+        
+        # Remove sudoers file
+        rm -f /etc/sudoers.d/printmaster-agent
         
         # Remove user and group
         if getent passwd printmaster >/dev/null 2>&1; then

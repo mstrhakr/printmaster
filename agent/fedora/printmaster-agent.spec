@@ -39,11 +39,28 @@ Features:
 install -d %{buildroot}%{_bindir}
 install -d %{buildroot}%{_unitdir}
 install -d %{buildroot}%{_sysconfdir}/printmaster
+install -d %{buildroot}%{_sysconfdir}/sudoers.d
 install -d %{buildroot}%{_sharedstatedir}/printmaster
 install -d %{buildroot}%{_localstatedir}/log/printmaster
 
 # Install binary
 install -m 755 %{getenv:PRINTMASTER_BINARY} %{buildroot}%{_bindir}/printmaster-agent
+
+# Install sudoers file for package manager auto-update
+cat > %{buildroot}%{_sysconfdir}/sudoers.d/printmaster-agent << 'EOF'
+# PrintMaster Agent - Allow auto-update via package manager
+# This file allows the printmaster service user to update only the printmaster-agent package
+# Remove this file to disable automatic package updates
+
+# Fedora/RHEL dnf commands
+printmaster ALL=(root) NOPASSWD: /usr/bin/dnf check-update -q printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/dnf upgrade -y -q printmaster-agent
+
+# RHEL/CentOS yum commands (fallback for older systems)
+printmaster ALL=(root) NOPASSWD: /usr/bin/yum check-update -q printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/yum upgrade -y -q printmaster-agent
+EOF
+chmod 440 %{buildroot}%{_sysconfdir}/sudoers.d/printmaster-agent
 
 # Install systemd service
 cat > %{buildroot}%{_unitdir}/printmaster-agent.service << 'EOF'
@@ -153,6 +170,7 @@ fi
 %{_unitdir}/printmaster-agent.service
 %dir %{_sysconfdir}/printmaster
 %config(noreplace) %{_sysconfdir}/printmaster/agent.toml.example
+%config(noreplace) %attr(440,root,root) %{_sysconfdir}/sudoers.d/printmaster-agent
 %dir %attr(750,printmaster,printmaster) %{_sharedstatedir}/printmaster
 %dir %attr(750,printmaster,printmaster) %{_localstatedir}/log/printmaster
 
