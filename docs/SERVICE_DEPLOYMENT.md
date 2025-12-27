@@ -155,12 +155,10 @@ StandardError=journal
 SyslogIdentifier=printmaster-agent
 
 # Security hardening
-# Note: NoNewPrivileges is NOT set to allow sudo for package manager auto-updates
+# Note: NoNewPrivileges and ProtectSystem are NOT set to allow sudo for package manager auto-updates
 # The sudoers.d/printmaster-agent file restricts sudo to only specific update commands
 PrivateTmp=true
-ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/printmaster /var/log/printmaster
 
 # Optional: raw socket capability for ARP/ping (uncomment if needed)
 # AmbientCapabilities=CAP_NET_RAW

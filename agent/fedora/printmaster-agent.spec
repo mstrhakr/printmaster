@@ -87,11 +87,9 @@ Environment=PRINTMASTER_DATA_DIR=/var/lib/printmaster
 SELinuxContext=system_u:system_r:unconfined_service_t:s0
 
 # Security hardening (systemd-level, independent of SELinux)
-# Note: NoNewPrivileges is NOT set to allow sudo for package manager auto-updates
+# Note: NoNewPrivileges and ProtectSystem are NOT set to allow sudo for package manager auto-updates
 # The sudoers.d/printmaster-agent file restricts sudo to only specific update commands
-ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/printmaster /var/log/printmaster
 PrivateTmp=true
 
 [Install]
