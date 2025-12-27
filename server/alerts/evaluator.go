@@ -204,7 +204,8 @@ func (e *Evaluator) evaluateDeviceRules(ctx context.Context, rules []storage.Ale
 			}
 
 			// Check if alert already exists
-			key := alertKey(rule.Type, rule.Scope, device.Serial, "", "", "")
+			// Key must match what's stored: includes AgentID for device alerts
+			key := alertKey(rule.Type, rule.Scope, device.Serial, device.AgentID, "", "")
 			if _, exists := existing[key]; exists {
 				continue // Already alerting
 			}

@@ -268,7 +268,7 @@ func TestEvaluator_NoDuplicateAlerts(t *testing.T) {
 		},
 	}
 
-	// Simulate existing active alert
+	// Simulate existing active alert (with AgentID to match key format)
 	store.alerts = []storage.Alert{
 		{
 			ID:           1,
@@ -276,6 +276,7 @@ func TestEvaluator_NoDuplicateAlerts(t *testing.T) {
 			Scope:        storage.AlertScopeDevice,
 			Status:       storage.AlertStatusActive,
 			DeviceSerial: "DEV001",
+			AgentID:      "agent-1",
 		},
 	}
 
