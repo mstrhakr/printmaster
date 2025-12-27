@@ -91,12 +91,13 @@ type TenancyConfig struct {
 
 // SMTPConfig holds SMTP settings for outgoing mail
 type SMTPConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Host    string `toml:"host"`
-	Port    int    `toml:"port"`
-	User    string `toml:"user"`
-	Pass    string `toml:"pass"`
-	From    string `toml:"from"`
+	Enabled    bool   `toml:"enabled"`
+	Host       string `toml:"host"`
+	Port       int    `toml:"port"`
+	User       string `toml:"user"`
+	Pass       string `toml:"pass"`
+	From       string `toml:"from"`
+	EmailTheme string `toml:"email_theme"` // "dark", "light", or "auto" (default)
 }
 
 // LetsEncryptConfig holds Let's Encrypt specific settings
@@ -149,12 +150,13 @@ func DefaultConfig() *Config {
 			Enabled: true,
 		},
 		SMTP: SMTPConfig{
-			Enabled: false,
-			Host:    "",
-			Port:    587,
-			User:    "",
-			Pass:    "",
-			From:    "",
+			Enabled:    false,
+			Host:       "",
+			Port:       587,
+			User:       "",
+			Pass:       "",
+			From:       "",
+			EmailTheme: "auto",
 		},
 		Releases: ReleasesConfig{
 			MaxReleases:         6,
@@ -329,6 +331,10 @@ func applyEnvOverrides(cfg *Config, tracker *ConfigSourceTracker) {
 	if val := os.Getenv("SMTP_FROM"); val != "" {
 		cfg.SMTP.From = val
 		tracker.EnvKeys["smtp.from"] = true
+	}
+	if val := os.Getenv("SMTP_EMAIL_THEME"); val != "" {
+		cfg.SMTP.EmailTheme = val
+		tracker.EnvKeys["smtp.email_theme"] = true
 	}
 
 	// Logging env overrides with tracking (check prefixed first, then generic)

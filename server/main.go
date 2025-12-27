@@ -34,6 +34,7 @@ import (
 	wscommon "printmaster/common/ws"
 	alertsapi "printmaster/server/alerts"
 	authz "printmaster/server/authz"
+	emailtpl "printmaster/server/email"
 	metricsapi "printmaster/server/metrics"
 	releases "printmaster/server/releases"
 	selfupdate "printmaster/server/selfupdate"
@@ -2555,10 +2556,10 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
-// sendEmail sends a simple plain-text email using SMTP settings.
-// It prefers the runtime `serverConfig.SMTP` settings (if present and enabled),
-// falling back to environment variables for compatibility.
-func sendEmail(to string, subject string, body string) error {
+// sendHTMLEmail sends an email with optional HTML and plain-text content.
+// If htmlBody is empty, sends plain text only. If textBody is empty, sends HTML only.
+// If both are provided, sends multipart/alternative (most email clients prefer HTML but fall back to text).
+func sendHTMLEmail(to string, subject string, htmlBody string, textBody string) error {
 	var host, user, pass, from string
 	var port int
 
@@ -2601,13 +2602,57 @@ func sendEmail(to string, subject string, body string) error {
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	auth := smtp.PlainAuth("", user, pass, host)
-	msg := "From: " + from + "\r\n" +
+
+	// Build email message
+	var msg string
+	headers := "From: " + from + "\r\n" +
 		"To: " + to + "\r\n" +
 		"Subject: " + subject + "\r\n" +
-		"MIME-Version: 1.0\r\n" +
-		"Content-Type: text/plain; charset=utf-8\r\n" +
-		"\r\n" + body
+		"MIME-Version: 1.0\r\n"
+
+	if htmlBody != "" && textBody != "" {
+		// Multipart alternative (HTML + plain text fallback)
+		boundary := "----=_PrintMaster_" + fmt.Sprintf("%d", time.Now().UnixNano())
+		msg = headers +
+			"Content-Type: multipart/alternative; boundary=\"" + boundary + "\"\r\n" +
+			"\r\n" +
+			"--" + boundary + "\r\n" +
+			"Content-Type: text/plain; charset=utf-8\r\n" +
+			"Content-Transfer-Encoding: 8bit\r\n" +
+			"\r\n" +
+			textBody + "\r\n" +
+			"\r\n" +
+			"--" + boundary + "\r\n" +
+			"Content-Type: text/html; charset=utf-8\r\n" +
+			"Content-Transfer-Encoding: 8bit\r\n" +
+			"\r\n" +
+			htmlBody + "\r\n" +
+			"\r\n" +
+			"--" + boundary + "--\r\n"
+	} else if htmlBody != "" {
+		// HTML only
+		msg = headers +
+			"Content-Type: text/html; charset=utf-8\r\n" +
+			"\r\n" + htmlBody
+	} else {
+		// Plain text only
+		msg = headers +
+			"Content-Type: text/plain; charset=utf-8\r\n" +
+			"\r\n" + textBody
+	}
+
 	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+}
+
+// getEmailTheme returns the configured email theme, defaulting to "auto"
+func getEmailTheme() string {
+	if serverConfig != nil && serverConfig.SMTP.EmailTheme != "" {
+		return serverConfig.SMTP.EmailTheme
+	}
+	if theme := os.Getenv("SMTP_EMAIL_THEME"); theme != "" {
+		return theme
+	}
+	return "auto"
 }
 
 // handlePasswordResetRequest accepts {email} and sends a reset token by email (if configured)
@@ -2675,8 +2720,22 @@ func handlePasswordResetRequest(w http.ResponseWriter, r *http.Request) {
 		scheme = "http"
 	}
 	resetURL := fmt.Sprintf("%s://%s/reset?token=%s", scheme, r.Host, token)
-	body := fmt.Sprintf("You requested a password reset for %s\n\nUse the following link to reset your password (valid 60 minutes):\n\n%s\n\nIf you did not request this, ignore this message.", req.Email, resetURL)
-	_ = sendEmail(req.Email, "PrintMaster Password Reset", body)
+
+	// Generate themed HTML email
+	theme := emailtpl.NormalizeTheme(getEmailTheme())
+	htmlBody, textBody, err := emailtpl.GeneratePasswordResetEmail(theme, emailtpl.PasswordResetEmailData{
+		Email:     req.Email,
+		ResetURL:  resetURL,
+		ExpiresIn: "60 minutes",
+	})
+	if err != nil {
+		serverLogger.Error("Failed to generate password reset email template", "error", err)
+		// Fall back to plain text
+		textBody = fmt.Sprintf("You requested a password reset for %s\n\nUse the following link to reset your password (valid 60 minutes):\n\n%s\n\nIf you did not request this, ignore this message.", req.Email, resetURL)
+		htmlBody = ""
+	}
+
+	_ = sendHTMLEmail(req.Email, "PrintMaster Password Reset", htmlBody, textBody)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"sent": true})
 }
@@ -2799,23 +2858,63 @@ func handleUserInvite(w http.ResponseWriter, r *http.Request) {
 		scheme = "http"
 	}
 	host := r.Host
-	inviteURL := fmt.Sprintf("%s://%s/accept-invite?token=%s", scheme, host, token)
+	serverURL := fmt.Sprintf("%s://%s", scheme, host)
+	inviteURL := fmt.Sprintf("%s/accept-invite?token=%s", serverURL, token)
 
-	// Send email
-	subject := "You've been invited to PrintMaster"
-	body := fmt.Sprintf(`Hello,
+	// Get tenant name if applicable
+	var tenantName string
+	if req.TenantID != "" {
+		if t, err := serverStore.GetTenant(ctx, req.TenantID); err == nil && t != nil {
+			tenantName = t.Name
+		}
+	}
 
-You have been invited to join PrintMaster as a %s.
+	// Generate themed HTML email
+	theme := emailtpl.NormalizeTheme(getEmailTheme())
+	htmlBody, textBody, err := emailtpl.GenerateInviteEmail(theme, emailtpl.InviteEmailData{
+		Email:      req.Email,
+		Role:       string(inv.Role),
+		InviteURL:  inviteURL,
+		ExpiresIn:  "48 hours",
+		InvitedBy:  actorName,
+		TenantName: tenantName,
+		ServerURL:  serverURL,
+	})
+	if err != nil {
+		serverLogger.Error("Failed to generate invite email template", "error", err)
+		// Fall back to plain text
+		inviterInfo := ""
+		if actorName != "" {
+			inviterInfo = actorName + " has invited you to join "
+		} else {
+			inviterInfo = "You have been invited to join "
+		}
+		tenantInfo := ""
+		if tenantName != "" {
+			tenantInfo = tenantName + " on "
+		}
+		textBody = fmt.Sprintf(`Hello,
+
+%s%sPrintMaster as a %s.
 
 Click the link below to set up your account:
 %s
 
 This invitation expires in 48 hours.
 
-If you did not expect this invitation, you can safely ignore this email.
-`, req.Role, inviteURL)
+Server: %s
 
-	if err := sendEmail(req.Email, subject, body); err != nil {
+If you did not expect this invitation, you can safely ignore this email.
+`, inviterInfo, tenantInfo, inv.Role, inviteURL, serverURL)
+		htmlBody = ""
+	}
+
+	// Send email
+	subject := "You've been invited to PrintMaster"
+	if tenantName != "" {
+		subject = fmt.Sprintf("You've been invited to %s on PrintMaster", tenantName)
+	}
+	if err := sendHTMLEmail(req.Email, subject, htmlBody, textBody); err != nil {
 		// Log failure but still return success (invitation is created, just email failed)
 		logAuditEntry(ctx, &storage.AuditEntry{
 			ActorType:  actorType,

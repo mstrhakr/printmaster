@@ -405,7 +405,12 @@ const SERVER_SETTINGS_SCHEMA = [
             { key: 'port', label: 'SMTP Port', type: 'number', min: 1, max: 65535, helper: 'Port used to connect to your SMTP server.', configKey: 'smtp.port' },
             { key: 'user', label: 'SMTP Username', type: 'text', helper: 'Leave blank if your relay allows anonymous auth.', configKey: 'smtp.user' },
             { key: 'pass', label: 'SMTP Password', type: 'password', placeholder: 'Leave blank to keep existing secret', helper: 'Value is only stored if you provide a new password.', configKey: 'smtp.pass' },
-            { key: 'from', label: 'From Address', type: 'text', placeholder: 'printmaster@yourdomain.com', helper: 'Default sender for outbound email.', configKey: 'smtp.from' }
+            { key: 'from', label: 'From Address', type: 'text', placeholder: 'printmaster@yourdomain.com', helper: 'Default sender for outbound email.', configKey: 'smtp.from' },
+            { key: 'email_theme', label: 'Email Theme', type: 'select', options: [
+                { value: 'auto', label: 'Auto (follows user preference)' },
+                { value: 'dark', label: 'Dark (Solarized Dark)' },
+                { value: 'light', label: 'Light (Solarized Light)' }
+            ], helper: 'Color theme for HTML emails (invites, password resets).', configKey: 'smtp.email_theme' }
         ]
     }
 ];
@@ -3561,6 +3566,7 @@ function normalizeServerSettings(raw) {
             user: safeStr(smtpSection.user || ''),
             pass: '',
             from: safeStr(smtpSection.from || ''),
+            email_theme: safeStr(smtpSection.email_theme || 'auto') || 'auto',
         },
         releases: {
             max_releases: safeStr(releasesSection.max_releases),
