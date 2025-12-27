@@ -636,6 +636,8 @@ type Store interface {
 	GetAgent(ctx context.Context, agentID string) (*Agent, error)
 	GetAgentByToken(ctx context.Context, token string) (*Agent, error)
 	ListAgents(ctx context.Context) ([]*Agent, error)
+	ListAgentsPaginated(ctx context.Context, limit, offset int, tenantIDs []string) ([]*Agent, error)
+	CountAgents(ctx context.Context, tenantIDs []string) (int64, error)
 	UpdateAgentHeartbeat(ctx context.Context, agentID string, status string) error
 	// UpdateAgentInfo updates agent metadata (version, platform, etc.) typically on heartbeat
 	UpdateAgentInfo(ctx context.Context, agent *Agent) error
@@ -648,6 +650,8 @@ type Store interface {
 	GetDevice(ctx context.Context, serial string) (*Device, error)
 	ListDevices(ctx context.Context, agentID string) ([]*Device, error)
 	ListAllDevices(ctx context.Context) ([]*Device, error)
+	ListAllDevicesPaginated(ctx context.Context, limit, offset int, agentIDs []string) ([]*Device, error)
+	CountDevices(ctx context.Context, agentIDs []string) (int64, error)
 
 	// Metrics
 	SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) error
@@ -664,6 +668,8 @@ type Store interface {
 	// Audit logging
 	SaveAuditEntry(ctx context.Context, entry *AuditEntry) error
 	GetAuditLog(ctx context.Context, actorID string, since time.Time) ([]*AuditEntry, error)
+	GetAuditLogPaginated(ctx context.Context, actorID string, since time.Time, limit, offset int) ([]*AuditEntry, error)
+	CountAuditLog(ctx context.Context, actorID string, since time.Time) (int64, error)
 
 	// Utility
 	Close() error

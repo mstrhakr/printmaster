@@ -3968,6 +3968,79 @@ func handleAgentsList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
+
+	// Parse pagination params
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	// If pagination is requested, use paginated endpoint
+	if limitStr != "" {
+		limit, _ := strconv.Atoi(limitStr)
+		offset, _ := strconv.Atoi(offsetStr)
+		if limit <= 0 {
+			limit = 50
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		if offset < 0 {
+			offset = 0
+		}
+
+		// Get allowed tenant IDs for filtering
+		var tenantIDs []string
+		if scope != nil {
+			tenantIDs = make([]string, 0, len(scope))
+			for id := range scope {
+				tenantIDs = append(tenantIDs, id)
+			}
+		}
+
+		// Get total count
+		totalCount, err := serverStore.CountAgents(ctx, tenantIDs)
+		if err != nil {
+			logError("Failed to count agents", "error", err)
+			http.Error(w, "Failed to count agents", http.StatusInternalServerError)
+			return
+		}
+
+		// Get paginated results
+		agents, err := serverStore.ListAgentsPaginated(ctx, limit, offset, tenantIDs)
+		if err != nil {
+			logError("Failed to list agents", "error", err)
+			http.Error(w, "Failed to list agents", http.StatusInternalServerError)
+			return
+		}
+
+		// Build response
+		type agentView struct {
+			*storage.Agent
+			ConnectionType string   `json:"connection_type"`
+			SiteIDs        []string `json:"site_ids,omitempty"`
+		}
+
+		items := make([]agentView, 0, len(agents))
+		for _, agent := range agents {
+			agent.Token = ""
+			connType := deriveAgentConnectionType(agent)
+			siteIDs, _ := serverStore.GetAgentSiteIDs(ctx, agent.AgentID)
+			items = append(items, agentView{Agent: agent, ConnectionType: connType, SiteIDs: siteIDs})
+		}
+
+		hasMore := int64(offset+len(agents)) < totalCount
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"agents":      items,
+			"total_count": totalCount,
+			"has_more":    hasMore,
+			"limit":       limit,
+			"offset":      offset,
+		})
+		return
+	}
+
+	// Legacy: return all agents (for backwards compatibility)
 	agents, err := serverStore.ListAgents(ctx)
 	if err != nil {
 		logError("Failed to list agents", "error", err)
@@ -5423,7 +5496,72 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	// Get all devices across all agents (will filter below for tenant users)
+	// Parse pagination params
+	limitStr := r.URL.Query().Get("limit")
+	offsetStr := r.URL.Query().Get("offset")
+
+	// Build list of allowed agent IDs for tenant-scoped users
+	var allowedAgentIDs []string
+	if scope != nil {
+		agents, err := serverStore.ListAgents(ctx)
+		if err != nil {
+			logError("Failed to list agents for scope filter", "error", err)
+			http.Error(w, "Failed to list devices", http.StatusInternalServerError)
+			return
+		}
+		for _, a := range agents {
+			if a != nil && tenantAllowed(scope, a.TenantID) {
+				allowedAgentIDs = append(allowedAgentIDs, a.AgentID)
+			}
+		}
+	}
+
+	// If pagination is requested, use paginated endpoint
+	if limitStr != "" {
+		limit, _ := strconv.Atoi(limitStr)
+		offset, _ := strconv.Atoi(offsetStr)
+		if limit <= 0 {
+			limit = 50
+		}
+		if limit > 200 {
+			limit = 200
+		}
+		if offset < 0 {
+			offset = 0
+		}
+
+		// Get total count
+		totalCount, err := serverStore.CountDevices(ctx, allowedAgentIDs)
+		if err != nil {
+			logError("Failed to count devices", "error", err)
+			http.Error(w, "Failed to count devices", http.StatusInternalServerError)
+			return
+		}
+
+		// Get paginated results
+		devices, err := serverStore.ListAllDevicesPaginated(ctx, limit, offset, allowedAgentIDs)
+		if err != nil {
+			logError("Failed to list devices", "error", err)
+			http.Error(w, "Failed to list devices", http.StatusInternalServerError)
+			return
+		}
+
+		// Enrich with metrics
+		enriched := enrichDevicesWithMetrics(ctx, devices)
+		hasMore := int64(offset+len(devices)) < totalCount
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"devices":     enriched,
+			"total_count": totalCount,
+			"has_more":    hasMore,
+			"limit":       limit,
+			"offset":      offset,
+		})
+		return
+	}
+
+	// Legacy: return all devices (for backwards compatibility)
 	devices, err := serverStore.ListAllDevices(ctx)
 	if err != nil {
 		logError("Failed to list devices", "error", err)
@@ -5431,28 +5569,11 @@ func handleDevicesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If scoped, filter agents/devices to tenant scope
-	if scope != nil {
-		agents, err := serverStore.ListAgents(ctx)
-		if err != nil {
-			logError("Failed to list agents", "error", err)
-			http.Error(w, "Failed to list devices", http.StatusInternalServerError)
-			return
-		}
-
-		fAgents := make([]*storage.Agent, 0)
-		for _, a := range agents {
-			if a != nil && tenantAllowed(scope, a.TenantID) {
-				fAgents = append(fAgents, a)
-			}
-		}
-		agents = fAgents
-
-		agentAllowed := make(map[string]struct{}, len(agents))
-		for _, a := range agents {
-			if a != nil {
-				agentAllowed[a.AgentID] = struct{}{}
-			}
+	// If scoped, filter devices to tenant scope
+	if scope != nil && len(allowedAgentIDs) > 0 {
+		agentAllowed := make(map[string]struct{}, len(allowedAgentIDs))
+		for _, id := range allowedAgentIDs {
+			agentAllowed[id] = struct{}{}
 		}
 		fDevices := make([]*storage.Device, 0)
 		for _, d := range devices {
@@ -6419,6 +6540,7 @@ func tailServerLogFile(limit int) []string {
 //   - hours: lookback window (default 24)
 //   - since: RFC3339 timestamp overriding hours
 //   - agent_id: filter entries for a specific agent UUID
+//   - limit/offset: pagination
 func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "GET only", http.StatusMethodNotAllowed)
@@ -6452,6 +6574,64 @@ func handleAuditLogs(w http.ResponseWriter, r *http.Request) {
 		since = parsed
 	}
 
+	// Parse pagination params
+	limitStr := query.Get("limit")
+	offsetStr := query.Get("offset")
+
+	// If pagination is requested
+	if limitStr != "" {
+		limit, _ := strconv.Atoi(limitStr)
+		offset, _ := strconv.Atoi(offsetStr)
+		if limit <= 0 {
+			limit = 100
+		}
+		if limit > 500 {
+			limit = 500
+		}
+		if offset < 0 {
+			offset = 0
+		}
+
+		// Get total count
+		totalCount, err := serverStore.CountAuditLog(r.Context(), actorID, since)
+		if err != nil {
+			logError("Failed to count audit log", "actor_id", actorID, "error", err)
+			http.Error(w, "failed to count audit log", http.StatusInternalServerError)
+			return
+		}
+
+		// Get paginated entries
+		entries, err := serverStore.GetAuditLogPaginated(r.Context(), actorID, since, limit, offset)
+		if err != nil {
+			logError("Failed to load audit log", "actor_id", actorID, "error", err)
+			http.Error(w, "failed to load audit log", http.StatusInternalServerError)
+			return
+		}
+
+		hasMore := int64(offset+len(entries)) < totalCount
+
+		response := map[string]interface{}{
+			"entries":     entries,
+			"actor_id":    actorID,
+			"since":       since.UTC(),
+			"total_count": totalCount,
+			"has_more":    hasMore,
+			"limit":       limit,
+			"offset":      offset,
+		}
+
+		if actorID != "" {
+			response["agent_id"] = actorID
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			logError("Failed to encode audit log response", "error", err)
+		}
+		return
+	}
+
+	// Legacy: return all entries without pagination
 	entries, err := serverStore.GetAuditLog(r.Context(), actorID, since)
 	if err != nil {
 		logError("Failed to load audit log", "actor_id", actorID, "error", err)

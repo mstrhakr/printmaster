@@ -344,6 +344,79 @@ func (s *BaseStore) ListAgents(ctx context.Context) ([]*Agent, error) {
 	return agents, rows.Err()
 }
 
+// CountAgents returns the total number of agents (optionally filtered by tenant)
+func (s *BaseStore) CountAgents(ctx context.Context, tenantIDs []string) (int64, error) {
+	var count int64
+	if len(tenantIDs) == 0 {
+		err := s.queryRowContext(ctx, `SELECT COUNT(*) FROM agents`).Scan(&count)
+		return count, err
+	}
+	placeholders := make([]string, len(tenantIDs))
+	args := make([]interface{}, len(tenantIDs))
+	for i, t := range tenantIDs {
+		placeholders[i] = "?"
+		args[i] = t
+	}
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM agents WHERE tenant_id IN (%s)`, strings.Join(placeholders, ","))
+	err := s.queryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// ListAgentsPaginated returns agents with limit/offset pagination
+func (s *BaseStore) ListAgentsPaginated(ctx context.Context, limit, offset int, tenantIDs []string) ([]*Agent, error) {
+	var query string
+	var args []interface{}
+
+	if len(tenantIDs) == 0 {
+		query = `
+			SELECT id, agent_id, name, hostname, ip, platform, version, protocol_version,
+			       token, tenant_id, registered_at, last_seen, status,
+			       os_version, go_version, architecture, num_cpu, total_memory_mb,
+			       build_type, git_commit, last_heartbeat, device_count,
+			       last_device_sync, last_metrics_sync
+			FROM agents
+			ORDER BY last_seen DESC
+			LIMIT ? OFFSET ?
+		`
+		args = []interface{}{limit, offset}
+	} else {
+		placeholders := make([]string, len(tenantIDs))
+		for i, t := range tenantIDs {
+			placeholders[i] = "?"
+			args = append(args, t)
+		}
+		query = fmt.Sprintf(`
+			SELECT id, agent_id, name, hostname, ip, platform, version, protocol_version,
+			       token, tenant_id, registered_at, last_seen, status,
+			       os_version, go_version, architecture, num_cpu, total_memory_mb,
+			       build_type, git_commit, last_heartbeat, device_count,
+			       last_device_sync, last_metrics_sync
+			FROM agents
+			WHERE tenant_id IN (%s)
+			ORDER BY last_seen DESC
+			LIMIT ? OFFSET ?
+		`, strings.Join(placeholders, ","))
+		args = append(args, limit, offset)
+	}
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agents []*Agent
+	for rows.Next() {
+		agent, err := s.scanAgent(rows)
+		if err != nil {
+			return nil, err
+		}
+		agents = append(agents, agent)
+	}
+
+	return agents, rows.Err()
+}
+
 // scanAgent scans an agent from a row scanner (works with both *sql.Row and *sql.Rows)
 func (s *BaseStore) scanAgent(rows *sql.Rows) (*Agent, error) {
 	var agent Agent
@@ -585,6 +658,68 @@ func (s *BaseStore) ListAllDevices(ctx context.Context) ([]*Device, error) {
 	`
 
 	rows, err := s.queryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return s.scanDevices(rows)
+}
+
+// CountDevices returns the total number of devices (optionally filtered by agent IDs)
+func (s *BaseStore) CountDevices(ctx context.Context, agentIDs []string) (int64, error) {
+	var count int64
+	if len(agentIDs) == 0 {
+		err := s.queryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&count)
+		return count, err
+	}
+	placeholders := make([]string, len(agentIDs))
+	args := make([]interface{}, len(agentIDs))
+	for i, a := range agentIDs {
+		placeholders[i] = "?"
+		args[i] = a
+	}
+	query := fmt.Sprintf(`SELECT COUNT(*) FROM devices WHERE agent_id IN (%s)`, strings.Join(placeholders, ","))
+	err := s.queryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// ListAllDevicesPaginated returns devices with limit/offset pagination
+func (s *BaseStore) ListAllDevicesPaginated(ctx context.Context, limit, offset int, agentIDs []string) ([]*Device, error) {
+	var query string
+	var args []interface{}
+
+	if len(agentIDs) == 0 {
+		query = `
+			SELECT serial, agent_id, ip, manufacturer, model, hostname, firmware,
+			       mac_address, subnet_mask, gateway, consumables, status_messages,
+			       last_seen, first_seen, created_at, discovery_method,
+			       asset_number, location, description, web_ui_url, raw_data
+			FROM devices
+			ORDER BY last_seen DESC
+			LIMIT ? OFFSET ?
+		`
+		args = []interface{}{limit, offset}
+	} else {
+		placeholders := make([]string, len(agentIDs))
+		for i, a := range agentIDs {
+			placeholders[i] = "?"
+			args = append(args, a)
+		}
+		query = fmt.Sprintf(`
+			SELECT serial, agent_id, ip, manufacturer, model, hostname, firmware,
+			       mac_address, subnet_mask, gateway, consumables, status_messages,
+			       last_seen, first_seen, created_at, discovery_method,
+			       asset_number, location, description, web_ui_url, raw_data
+			FROM devices
+			WHERE agent_id IN (%s)
+			ORDER BY last_seen DESC
+			LIMIT ? OFFSET ?
+		`, strings.Join(placeholders, ","))
+		args = append(args, limit, offset)
+	}
+
+	rows, err := s.queryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1524,6 +1659,74 @@ func (s *BaseStore) GetAuditLog(ctx context.Context, actorID string, since time.
 			ORDER BY timestamp DESC
 		`
 		args = []interface{}{actorID, since}
+	}
+
+	rows, err := s.queryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []*AuditEntry
+	for rows.Next() {
+		var e AuditEntry
+		var metadataJSON sql.NullString
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.ActorType, &e.ActorID, &e.ActorName, &e.Action,
+			&e.TargetType, &e.TargetID, &e.TenantID, &e.Severity, &e.Details, &metadataJSON,
+			&e.IPAddress, &e.UserAgent, &e.RequestID); err != nil {
+			return nil, err
+		}
+		if metadataJSON.Valid {
+			json.Unmarshal([]byte(metadataJSON.String), &e.Metadata)
+		}
+		entries = append(entries, &e)
+	}
+	return entries, rows.Err()
+}
+
+// CountAuditLog returns the total number of audit entries matching the filter
+func (s *BaseStore) CountAuditLog(ctx context.Context, actorID string, since time.Time) (int64, error) {
+	var count int64
+	var query string
+	var args []interface{}
+
+	if actorID == "" {
+		query = `SELECT COUNT(*) FROM audit_log WHERE timestamp >= ?`
+		args = []interface{}{since}
+	} else {
+		query = `SELECT COUNT(*) FROM audit_log WHERE actor_id = ? AND timestamp >= ?`
+		args = []interface{}{actorID, since}
+	}
+
+	err := s.queryRowContext(ctx, query, args...).Scan(&count)
+	return count, err
+}
+
+// GetAuditLogPaginated retrieves paginated audit entries
+func (s *BaseStore) GetAuditLogPaginated(ctx context.Context, actorID string, since time.Time, limit, offset int) ([]*AuditEntry, error) {
+	var query string
+	var args []interface{}
+
+	if actorID == "" {
+		query = `
+			SELECT id, timestamp, actor_type, actor_id, actor_name, action, target_type, target_id,
+			       tenant_id, severity, details, metadata, ip_address, user_agent, request_id
+			FROM audit_log
+			WHERE timestamp >= ?
+			ORDER BY timestamp DESC
+			LIMIT ? OFFSET ?
+		`
+		args = []interface{}{since, limit, offset}
+	} else {
+		query = `
+			SELECT id, timestamp, actor_type, actor_id, actor_name, action, target_type, target_id,
+			       tenant_id, severity, details, metadata, ip_address, user_agent, request_id
+			FROM audit_log
+			WHERE actor_id = ? AND timestamp >= ?
+			ORDER BY timestamp DESC
+			LIMIT ? OFFSET ?
+		`
+		args = []interface{}{actorID, since, limit, offset}
 	}
 
 	rows, err := s.queryContext(ctx, query, args...)

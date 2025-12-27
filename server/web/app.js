@@ -143,7 +143,23 @@ let auditFiltersInitialized = false;
 let auditAutoRefreshHandle = null;
 let auditLastUpdated = null;
 let auditLiveRequested = false;
+// Progressive rendering state for audit logs
+const auditRenderState = {
+    displayed: 0,
+    pageSize: 50,
+    observer: null,
+    filteredEntries: [],
+};
 let auditDataLoaded = false;
+
+// Progressive rendering state for alert history
+const alertHistoryRenderState = {
+    displayed: 0,
+    pageSize: 50,
+    observer: null,
+    filteredAlerts: [],
+    allAlerts: [],
+};
 
 const METRICS_RANGE_WINDOWS = {
     '24h': 24 * 60 * 60 * 1000,
@@ -226,6 +242,12 @@ const devicesVM = {
         filteredStatuses: {},
     },
     uiInitialized: false,
+    // Progressive rendering state
+    render: {
+        displayed: 0,
+        pageSize: 50,
+        observer: null,
+    },
 };
 
 const agentsVM = {
@@ -1301,6 +1323,40 @@ function initAlertsSubTabs() {
             btn.addEventListener('click', () => generateReport(type));
         }
     });
+
+    // Alert history filters - use applyAlertHistoryFilters for in-memory filtering
+    const historyTimeFilter = document.getElementById('alerts_history_time_filter');
+    const historyStatusFilter = document.getElementById('alerts_history_status_filter');
+    const historyScopeFilter = document.getElementById('alerts_history_scope_filter');
+    const historySearchFilter = document.getElementById('alerts_history_search');
+    
+    // Time filter triggers full reload (changes API query)
+    if (historyTimeFilter) {
+        historyTimeFilter.addEventListener('change', loadAlertHistory);
+    }
+    // Other filters apply in-memory if data loaded, otherwise reload
+    [historyStatusFilter, historyScopeFilter].forEach(el => {
+        if (el) {
+            el.addEventListener('change', () => {
+                if (alertHistoryRenderState.allAlerts.length > 0) {
+                    applyAlertHistoryFilters();
+                } else {
+                    loadAlertHistory();
+                }
+            });
+        }
+    });
+    if (historySearchFilter) {
+        let searchTimeout;
+        historySearchFilter.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                if (alertHistoryRenderState.allAlerts.length > 0) {
+                    applyAlertHistoryFilters();
+                }
+            }, 150);
+        });
+    }
 }
 
 function switchAlertsView(view, force = false) {
@@ -1674,86 +1730,178 @@ async function loadAlertHistory() {
         const data = await resp.json();
         const alerts = data.alerts || [];
         
+        // Store all alerts
+        alertHistoryRenderState.allAlerts = alerts;
+        
         if (alerts.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="alert-history-empty">No alert history available. Alerts will appear here once resolved.</td></tr>';
+            cleanupAlertHistoryInfiniteScroll();
             return;
         }
         
-        // Get filter values
-        const severityFilter = document.getElementById('alerts_history_severity');
-        const scopeFilter = document.getElementById('alerts_history_scope');
-        const searchFilter = document.getElementById('alerts_history_search');
-        const filterSeverity = severityFilter ? severityFilter.value : '';
-        const filterScope = scopeFilter ? scopeFilter.value : '';
-        const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
-        
-        // Apply filters
-        const filteredAlerts = alerts.filter(a => {
-            if (filterSeverity && a.severity !== filterSeverity) return false;
-            if (filterScope && a.scope !== filterScope) return false;
-            if (filterSearch) {
-                const searchStr = (a.title || '') + ' ' + (a.message || '') + ' ' + (a.target_id || '');
-                if (!searchStr.toLowerCase().includes(filterSearch)) return false;
-            }
-            return true;
-        });
-        
-        if (filteredAlerts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="alert-history-empty">No alerts match the current filters</td></tr>';
-            return;
-        }
-        
-        // Render table rows in styled format
-        const rows = filteredAlerts.map(a => {
-            const triggeredAt = a.triggered_at ? new Date(a.triggered_at) : null;
-            const resolvedAt = a.resolved_at ? new Date(a.resolved_at) : null;
-            const duration = resolvedAt && triggeredAt ? resolvedAt - triggeredAt : null;
-            
-            const timeHtml = triggeredAt
-                ? `<span class="ah-time-date">${formatDateShort(triggeredAt)}</span>${formatTimeShort(triggeredAt)}`
-                : '<span class="ah-time">—</span>';
-            
-            const severityClass = `ah-severity-${(a.severity || 'info').toLowerCase()}`;
-            const severityHtml = `<span class="ah-severity ${severityClass}">${escapeHtml((a.severity || 'info').toUpperCase())}</span>`;
-            
-            const scopeIcon = getScopeIcon(a.scope);
-            const scopeHtml = `<span class="ah-scope">${scopeIcon}${escapeHtml(a.scope || 'device')}</span>`;
-            
-            const durationHtml = duration !== null
-                ? `<span class="ah-duration">${formatDuration(duration)}</span>`
-                : '<span class="ah-duration">—</span>';
-            
-            const resolvedHtml = resolvedAt
-                ? `<span class="ah-resolved">${formatRelativeTime(resolvedAt)}</span>`
-                : '<span class="ah-resolved">—</span>';
-            
-            // Build context tags for target info
-            const contextTags = [];
-            if (a.target_id) {
-                contextTags.push(`<span class="ah-context-tag"><span class="tag-key">target</span>=<span class="tag-value">${escapeHtml(a.target_id)}</span></span>`);
-            }
-            if (a.rule_name) {
-                contextTags.push(`<span class="ah-context-tag"><span class="tag-key">rule</span>=<span class="tag-value">${escapeHtml(a.rule_name)}</span></span>`);
-            }
-            
-            return `<tr>
-                <td class="ah-time">${timeHtml}</td>
-                <td>${severityHtml}</td>
-                <td class="ah-title">
-                    <div class="ah-title-text">${escapeHtml(a.title || 'Untitled')}</div>
-                    ${contextTags.length > 0 ? `<div class="ah-context">${contextTags.join('')}</div>` : ''}
-                </td>
-                <td>${scopeHtml}</td>
-                <td>${durationHtml}</td>
-                <td>${resolvedHtml}</td>
-            </tr>`;
-        });
-        
-        tbody.innerHTML = rows.join('');
+        // Apply filters and render
+        applyAlertHistoryFilters();
     } catch (err) {
         console.error('Failed to load alert history:', err);
         tbody.innerHTML = '<tr><td colspan="6" class="alert-history-empty error-text">Failed to load alert history.</td></tr>';
+        cleanupAlertHistoryInfiniteScroll();
     }
+}
+
+function applyAlertHistoryFilters() {
+    const alerts = alertHistoryRenderState.allAlerts;
+    
+    // Get filter values
+    const statusFilter = document.getElementById('alerts_history_status_filter');
+    const scopeFilter = document.getElementById('alerts_history_scope_filter');
+    const searchFilter = document.getElementById('alerts_history_search');
+    const filterStatus = statusFilter ? statusFilter.value : '';
+    const filterScope = scopeFilter ? scopeFilter.value : '';
+    const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
+    
+    // Apply filters
+    const filteredAlerts = alerts.filter(a => {
+        if (filterStatus && a.status !== filterStatus) return false;
+        if (filterScope && a.scope !== filterScope) return false;
+        if (filterSearch) {
+            const searchStr = (a.title || '') + ' ' + (a.message || '') + ' ' + (a.target_id || '');
+            if (!searchStr.toLowerCase().includes(filterSearch)) return false;
+        }
+        return true;
+    });
+    
+    // Store filtered alerts and reset display state
+    alertHistoryRenderState.filteredAlerts = filteredAlerts;
+    alertHistoryRenderState.displayed = 0;
+    
+    // Render the filtered alerts
+    renderAlertHistoryTable(filteredAlerts);
+}
+
+function renderAlertHistoryRow(a) {
+    const triggeredAt = a.triggered_at ? new Date(a.triggered_at) : null;
+    const resolvedAt = a.resolved_at ? new Date(a.resolved_at) : null;
+    const duration = resolvedAt && triggeredAt ? resolvedAt - triggeredAt : null;
+    
+    const timeHtml = triggeredAt
+        ? `<span class="ah-time-date">${formatDateShort(triggeredAt)}</span>${formatTimeShort(triggeredAt)}`
+        : '<span class="ah-time">—</span>';
+    
+    const severityClass = `ah-severity-${(a.severity || 'info').toLowerCase()}`;
+    const severityHtml = `<span class="ah-severity ${severityClass}">${escapeHtml((a.severity || 'info').toUpperCase())}</span>`;
+    
+    const scopeIcon = getScopeIcon(a.scope);
+    const scopeHtml = `<span class="ah-scope">${scopeIcon}${escapeHtml(a.scope || 'device')}</span>`;
+    
+    const durationHtml = duration !== null
+        ? `<span class="ah-duration">${formatDuration(duration)}</span>`
+        : '<span class="ah-duration">—</span>';
+    
+    const resolvedHtml = resolvedAt
+        ? `<span class="ah-resolved">${formatRelativeTime(resolvedAt)}</span>`
+        : '<span class="ah-resolved">—</span>';
+    
+    // Build context tags for target info
+    const contextTags = [];
+    if (a.target_id) {
+        contextTags.push(`<span class="ah-context-tag"><span class="tag-key">target</span>=<span class="tag-value">${escapeHtml(a.target_id)}</span></span>`);
+    }
+    if (a.rule_name) {
+        contextTags.push(`<span class="ah-context-tag"><span class="tag-key">rule</span>=<span class="tag-value">${escapeHtml(a.rule_name)}</span></span>`);
+    }
+    
+    return `<tr>
+        <td class="ah-time">${timeHtml}</td>
+        <td>${severityHtml}</td>
+        <td class="ah-title">
+            <div class="ah-title-text">${escapeHtml(a.title || 'Untitled')}</div>
+            ${contextTags.length > 0 ? `<div class="ah-context">${contextTags.join('')}</div>` : ''}
+        </td>
+        <td>${scopeHtml}</td>
+        <td>${durationHtml}</td>
+        <td>${resolvedHtml}</td>
+    </tr>`;
+}
+
+function renderAlertHistoryTable(alerts, append = false) {
+    const tbody = document.getElementById('alerts_history_body');
+    if (!tbody) return;
+    
+    if (!Array.isArray(alerts) || alerts.length === 0) {
+        const hasFilters = alertHistoryRenderState.allAlerts.length > 0;
+        const message = hasFilters 
+            ? 'No alerts match the current filters' 
+            : 'No alert history available. Alerts will appear here once resolved.';
+        tbody.innerHTML = `<tr><td colspan="6" class="alert-history-empty">${message}</td></tr>`;
+        cleanupAlertHistoryInfiniteScroll();
+        return;
+    }
+    
+    // Progressive rendering - only render a page at a time
+    if (!append) {
+        alertHistoryRenderState.displayed = 0;
+        tbody.innerHTML = '';
+    }
+    
+    const startIdx = alertHistoryRenderState.displayed;
+    const endIdx = Math.min(startIdx + alertHistoryRenderState.pageSize, alerts.length);
+    const pageAlerts = alerts.slice(startIdx, endIdx);
+    
+    // Remove existing sentinel
+    const existingSentinel = document.getElementById('alert_history_load_more_sentinel');
+    if (existingSentinel) existingSentinel.remove();
+    
+    // Render the rows
+    const rows = pageAlerts.map(a => renderAlertHistoryRow(a)).join('');
+    tbody.insertAdjacentHTML('beforeend', rows);
+    alertHistoryRenderState.displayed = endIdx;
+    
+    // Add sentinel row if more items available
+    if (endIdx < alerts.length) {
+        const sentinelRow = document.createElement('tr');
+        sentinelRow.id = 'alert_history_load_more_sentinel';
+        sentinelRow.className = 'alert-history-load-sentinel';
+        sentinelRow.innerHTML = '<td colspan="6" style="text-align:center;padding:16px;"><div class="loading-spinner" style="display:inline-block;margin-right:8px;"></div><span class="muted-text">Loading more alerts...</span></td>';
+        tbody.appendChild(sentinelRow);
+        setupAlertHistoryInfiniteScroll();
+    } else {
+        cleanupAlertHistoryInfiniteScroll();
+    }
+}
+
+// Setup IntersectionObserver for alert history infinite scroll
+function setupAlertHistoryInfiniteScroll() {
+    cleanupAlertHistoryInfiniteScroll();
+    
+    const sentinel = document.getElementById('alert_history_load_more_sentinel');
+    if (!sentinel) return;
+    
+    alertHistoryRenderState.observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && alertHistoryRenderState.displayed < alertHistoryRenderState.filteredAlerts.length) {
+                loadMoreAlertHistory();
+            }
+        });
+    }, {
+        root: null,
+        rootMargin: '200px',
+        threshold: 0
+    });
+    
+    alertHistoryRenderState.observer.observe(sentinel);
+}
+
+// Cleanup the alert history infinite scroll observer
+function cleanupAlertHistoryInfiniteScroll() {
+    if (alertHistoryRenderState.observer) {
+        alertHistoryRenderState.observer.disconnect();
+        alertHistoryRenderState.observer = null;
+    }
+}
+
+// Load more alert history for infinite scroll
+function loadMoreAlertHistory() {
+    renderAlertHistoryTable(alertHistoryRenderState.filteredAlerts, true);
 }
 
 function getScopeIcon(scope) {
@@ -8882,7 +9030,7 @@ function buildSortableIpValue(rawValue) {
     return 'v6-' + value.toLowerCase();
 }
 
-function renderDeviceCards(devices) {
+function renderDeviceCards(devices, append = false) {
     const cards = document.getElementById('devices_cards');
     const tableWrapper = document.getElementById('devices_table_wrapper');
     if (!cards) return;
@@ -8890,14 +9038,46 @@ function renderDeviceCards(devices) {
         tableWrapper.classList.add('hidden');
     }
     cards.classList.remove('hidden');
+    
     if (!devices || devices.length === 0) {
         cards.innerHTML = '<div class="muted-text">No devices match the current filters.</div>';
+        cleanupDevicesInfiniteScroll();
         return;
     }
-    cards.innerHTML = devices.map(device => renderServerDeviceCard(device)).join('');
+    
+    // Progressive rendering - only render a page at a time
+    if (!append) {
+        devicesVM.render.displayed = 0;
+        cards.innerHTML = '';
+    }
+    
+    const startIdx = devicesVM.render.displayed;
+    const endIdx = Math.min(startIdx + devicesVM.render.pageSize, devices.length);
+    const pageDevices = devices.slice(startIdx, endIdx);
+    
+    // Remove existing sentinel
+    const existingSentinel = document.getElementById('devices_load_more_sentinel');
+    if (existingSentinel) existingSentinel.remove();
+    
+    // Render this page
+    const html = pageDevices.map(device => renderServerDeviceCard(device)).join('');
+    cards.insertAdjacentHTML('beforeend', html);
+    devicesVM.render.displayed = endIdx;
+    
+    // Add sentinel if more items available
+    if (endIdx < devices.length) {
+        const sentinel = document.createElement('div');
+        sentinel.id = 'devices_load_more_sentinel';
+        sentinel.className = 'devices-load-sentinel';
+        sentinel.innerHTML = '<div class="loading-spinner"></div><span class="muted-text">Loading more devices...</span>';
+        cards.appendChild(sentinel);
+        setupDevicesInfiniteScroll();
+    } else {
+        cleanupDevicesInfiniteScroll();
+    }
 }
 
-function renderDeviceTable(devices) {
+function renderDeviceTable(devices, append = false) {
     const cards = document.getElementById('devices_cards');
     const wrapper = document.getElementById('devices_table_wrapper');
     if (!wrapper) return;
@@ -8907,11 +9087,28 @@ function renderDeviceTable(devices) {
     wrapper.classList.remove('hidden');
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
+    
     if (!devices || devices.length === 0) {
         tbody.innerHTML = '<tr><td colspan="9" class="muted-text">No devices match the current filters.</td></tr>';
+        cleanupDevicesInfiniteScroll();
         return;
     }
-    const rows = devices.map(device => {
+    
+    // Progressive rendering - only render a page at a time
+    if (!append) {
+        devicesVM.render.displayed = 0;
+        tbody.innerHTML = '';
+    }
+    
+    const startIdx = devicesVM.render.displayed;
+    const endIdx = Math.min(startIdx + devicesVM.render.pageSize, devices.length);
+    const pageDevices = devices.slice(startIdx, endIdx);
+    
+    // Remove existing sentinel
+    const existingSentinel = document.getElementById('devices_load_more_sentinel');
+    if (existingSentinel) existingSentinel.remove();
+    
+    const rows = pageDevices.map(device => {
         const meta = device.__meta || {};
         const tenantLabel = formatTenantDisplay(meta.tenantId || device.tenant_id || '');
         return `
@@ -8944,7 +9141,59 @@ function renderDeviceTable(devices) {
             </tr>
         `;
     }).join('');
-    tbody.innerHTML = rows;
+    tbody.insertAdjacentHTML('beforeend', rows);
+    devicesVM.render.displayed = endIdx;
+    
+    // Add sentinel row if more items available
+    if (endIdx < devices.length) {
+        const sentinelRow = document.createElement('tr');
+        sentinelRow.id = 'devices_load_more_sentinel';
+        sentinelRow.className = 'devices-load-sentinel';
+        sentinelRow.innerHTML = '<td colspan="9" style="text-align:center;padding:16px;"><div class="loading-spinner" style="display:inline-block;margin-right:8px;"></div><span class="muted-text">Loading more devices...</span></td>';
+        tbody.appendChild(sentinelRow);
+        setupDevicesInfiniteScroll();
+    } else {
+        cleanupDevicesInfiniteScroll();
+    }
+}
+
+// Setup IntersectionObserver for devices infinite scroll
+function setupDevicesInfiniteScroll() {
+    cleanupDevicesInfiniteScroll();
+    
+    const sentinel = document.getElementById('devices_load_more_sentinel');
+    if (!sentinel) return;
+    
+    devicesVM.render.observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && devicesVM.render.displayed < devicesVM.filtered.length) {
+                loadMoreDevices();
+            }
+        });
+    }, {
+        root: null,
+        rootMargin: '200px',
+        threshold: 0
+    });
+    
+    devicesVM.render.observer.observe(sentinel);
+}
+
+// Cleanup the devices infinite scroll observer
+function cleanupDevicesInfiniteScroll() {
+    if (devicesVM.render.observer) {
+        devicesVM.render.observer.disconnect();
+        devicesVM.render.observer = null;
+    }
+}
+
+// Load more devices for infinite scroll
+function loadMoreDevices() {
+    if (devicesVM.view === 'table') {
+        renderDeviceTable(devicesVM.filtered, true);
+    } else {
+        renderDeviceCards(devicesVM.filtered, true);
+    }
 }
 
 function renderServerDeviceCard(device) {
@@ -12390,6 +12639,9 @@ function applyAuditFilters() {
         return true;
     });
 
+    // Store filtered entries for progressive rendering and reset display state
+    auditRenderState.filteredEntries = filtered;
+    auditRenderState.displayed = 0;
     renderAuditLogs(filtered, { filtersActive: hasActiveAuditFilters() });
     updateAuditSummary(entries.length, filtered.length);
 }
@@ -13659,16 +13911,50 @@ function renderAuditLogs(entries, options = {}) {
         window.__pm_shared.warn('renderAuditLogs: container not found');
         return;
     }
+    
+    const append = Boolean(options.append);
 
     if (!Array.isArray(entries) || entries.length === 0) {
         const message = options.filtersActive
             ? 'No audit entries match the current filters.'
             : 'No audit entries in this window.';
         container.innerHTML = `<div class="muted-text" style="padding:12px;">${message}</div>`;
+        cleanupAuditInfiniteScroll();
         return;
     }
 
-    const rows = entries.map(entry => {
+    // Progressive rendering - only render a page at a time
+    if (!append) {
+        auditRenderState.displayed = 0;
+        // Initialize the table structure
+        container.innerHTML = `
+            <table class="simple-table">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Actor</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        `;
+    }
+    
+    const tbody = container.querySelector('tbody');
+    if (!tbody) return;
+    
+    const startIdx = auditRenderState.displayed;
+    const endIdx = Math.min(startIdx + auditRenderState.pageSize, entries.length);
+    const pageEntries = entries.slice(startIdx, endIdx);
+    
+    // Remove existing sentinel
+    const existingSentinel = document.getElementById('audit_load_more_sentinel');
+    if (existingSentinel) existingSentinel.remove();
+
+    const rows = pageEntries.map(entry => {
         const ts = escapeHtml(formatDateTime(entry.timestamp));
         const rel = escapeHtml(formatRelativeTime(entry.timestamp));
         const actorName = entry.actor_name || entry.actor_id || '—';
@@ -13734,23 +14020,56 @@ function renderAuditLogs(entries, options = {}) {
             </tr>
         `;
     }).join('');
+    
+    tbody.insertAdjacentHTML('beforeend', rows);
+    auditRenderState.displayed = endIdx;
+    
+    // Add sentinel row if more items available
+    if (endIdx < entries.length) {
+        const sentinelRow = document.createElement('tr');
+        sentinelRow.id = 'audit_load_more_sentinel';
+        sentinelRow.className = 'audit-load-sentinel';
+        sentinelRow.innerHTML = '<td colspan="5" style="text-align:center;padding:16px;"><div class="loading-spinner" style="display:inline-block;margin-right:8px;"></div><span class="muted-text">Loading more audit entries...</span></td>';
+        tbody.appendChild(sentinelRow);
+        setupAuditInfiniteScroll();
+    } else {
+        cleanupAuditInfiniteScroll();
+    }
+}
 
-    container.innerHTML = `
-        <table class="simple-table">
-            <thead>
-                <tr>
-                    <th>Timestamp</th>
-                    <th>Actor</th>
-                    <th>Action</th>
-                    <th>Target</th>
-                    <th>Details</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows}
-            </tbody>
-        </table>
-    `;
+// Setup IntersectionObserver for audit logs infinite scroll
+function setupAuditInfiniteScroll() {
+    cleanupAuditInfiniteScroll();
+    
+    const sentinel = document.getElementById('audit_load_more_sentinel');
+    if (!sentinel) return;
+    
+    auditRenderState.observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && auditRenderState.displayed < auditRenderState.filteredEntries.length) {
+                loadMoreAuditLogs();
+            }
+        });
+    }, {
+        root: null,
+        rootMargin: '200px',
+        threshold: 0
+    });
+    
+    auditRenderState.observer.observe(sentinel);
+}
+
+// Cleanup the audit logs infinite scroll observer
+function cleanupAuditInfiniteScroll() {
+    if (auditRenderState.observer) {
+        auditRenderState.observer.disconnect();
+        auditRenderState.observer = null;
+    }
+}
+
+// Load more audit logs for infinite scroll
+function loadMoreAuditLogs() {
+    renderAuditLogs(auditRenderState.filteredEntries, { append: true, filtersActive: hasActiveAuditFilters() });
 }
 
 function getSeverityBadgeClass(severity) {
