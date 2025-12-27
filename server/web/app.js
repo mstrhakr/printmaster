@@ -7203,7 +7203,7 @@ function renderSitesTree(tenantId, sites, agents) {
                     ${siteAgentList.map(a => `
                         <div class="agent-leaf">
                             <span class="agent-icon">🖥️</span>
-                            <span class="agent-name">${escapeHtml(a.name || a.id)}</span>
+                            <span class="agent-name">${escapeHtml(a.name || a.hostname || a.agent_id || 'Agent ' + a.id)}</span>
                             <span class="agent-status ${a.status || 'unknown'}">${a.status || 'unknown'}</span>
                         </div>
                     `).join('')}
@@ -7226,7 +7226,7 @@ function renderSitesTree(tenantId, sites, agents) {
                     ${unassignedAgents.map(a => `
                         <div class="agent-leaf">
                             <span class="agent-icon">🖥️</span>
-                            <span class="agent-name">${escapeHtml(a.name || a.id)}</span>
+                            <span class="agent-name">${escapeHtml(a.name || a.hostname || a.agent_id || 'Agent ' + a.id)}</span>
                             <span class="agent-status ${a.status || 'unknown'}">${a.status || 'unknown'}</span>
                         </div>
                     `).join('')}
