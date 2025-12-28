@@ -89,10 +89,10 @@ func (api *HealthAPI) HandleVersion(w http.ResponseWriter, r *http.Request) {
 
 // HealthCheckConfig contains configuration for health checks.
 type HealthCheckConfig struct {
-	HTTPPort        int
-	HTTPSPort       int
-	BehindProxy     bool
-	ProxyUseHTTPS   bool
+	HTTPPort      int
+	HTTPSPort     int
+	BehindProxy   bool
+	ProxyUseHTTPS bool
 }
 
 // healthAttempt represents a single health check attempt configuration.
