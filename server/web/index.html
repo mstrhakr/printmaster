@@ -2276,123 +2276,336 @@
         </div>
     </div>
 
-    <!-- Notification Channel Modal -->
+    <!-- Notification Channel Modal (Redesigned) -->
     <div class="modal" id="notification_channel_modal" style="display:none;">
-        <div class="modal-content" style="max-width:550px;">
+        <div class="modal-content" style="max-width:700px;">
             <div class="modal-header">
                 <span class="modal-title" id="notification_channel_modal_title">New Notification Channel</span>
                 <button class="modal-close-x" id="notification_channel_modal_close_x" title="Close">&times;</button>
             </div>
-            <div class="modal-body">
-                <label class="field">
-                    <span>Channel Name <span class="required">*</span></span>
-                    <input id="channel_name" type="text" placeholder="Ops Team Email" />
-                </label>
-                <label class="field">
-                    <span>Channel Type <span class="required">*</span></span>
-                    <select id="channel_type">
-                        <option value="email">Email</option>
-                        <option value="webhook">Webhook</option>
-                        <option value="slack">Slack</option>
-                        <option value="teams">Microsoft Teams</option>
-                        <option value="pagerduty">PagerDuty</option>
-                    </select>
-                </label>
-                
-                <!-- Email-specific fields -->
-                <div id="channel_config_email" class="channel-config-section">
-                    <label class="field">
-                        <span>Recipients <span class="required">*</span></span>
-                        <input id="channel_email_to" type="text" placeholder="admin@example.com, alerts@example.com" />
-                        <small class="field-hint">Comma-separated email addresses</small>
-                    </label>
-                    <label class="field">
-                        <span>Subject Prefix</span>
-                        <input id="channel_email_subject" type="text" placeholder="[PrintMaster Alert]" />
-                    </label>
+            <div class="modal-body" style="padding:0;">
+                <!-- Channel Type Selector with Visual Cards -->
+                <div class="channel-type-selector" style="padding:20px;background:var(--bg-tertiary);border-bottom:1px solid var(--divider);">
+                    <label style="display:block;font-weight:600;margin-bottom:12px;color:var(--text);">Select Channel Type</label>
+                    <div class="channel-type-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(100px, 1fr));gap:8px;">
+                        <label class="channel-type-card" data-type="email">
+                            <input type="radio" name="channel_type_radio" value="email" checked style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                            </div>
+                            <span>Email</span>
+                        </label>
+                        <label class="channel-type-card" data-type="slack">
+                            <input type="radio" name="channel_type_radio" value="slack" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>
+                            </div>
+                            <span>Slack</span>
+                        </label>
+                        <label class="channel-type-card" data-type="discord">
+                            <input type="radio" name="channel_type_radio" value="discord" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+                            </div>
+                            <span>Discord</span>
+                        </label>
+                        <label class="channel-type-card" data-type="teams">
+                            <input type="radio" name="channel_type_radio" value="teams" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19.19 8.77h-3.74V6.52c0-.59.48-1.08 1.08-1.08h1.58c.6 0 1.08.48 1.08 1.08v2.25zm-3.74 1.25h4.55c.55 0 1 .45 1 1v4.08c0 1.66-1.34 3-3 3h-.55c-1.66 0-3-1.34-3-3v-4.08c0-.55.45-1 1-1zm3.8-5.89c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-5.97 1.25H8.64c-.83 0-1.5.67-1.5 1.5v3.64h.78v5.21c0 .83.67 1.5 1.5 1.5h2.36c.83 0 1.5-.67 1.5-1.5v-5.21h.78V6.88c0-.83-.67-1.5-1.5-1.5zm-2.32-1.57c1.38 0 2.5-1.12 2.5-2.5s-1.12-2.5-2.5-2.5-2.5 1.12-2.5 2.5 1.12 2.5 2.5 2.5z"/></svg>
+                            </div>
+                            <span>Teams</span>
+                        </label>
+                        <label class="channel-type-card" data-type="telegram">
+                            <input type="radio" name="channel_type_radio" value="telegram" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                            </div>
+                            <span>Telegram</span>
+                        </label>
+                        <label class="channel-type-card" data-type="pagerduty">
+                            <input type="radio" name="channel_type_radio" value="pagerduty" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M16.965 1.18C15.085.164 13.769 0 10.683 0H3.73v14.55h6.926c2.743 0 4.8-.164 6.61-1.37 1.975-1.303 3.004-3.49 3.004-6.063 0-2.956-1.406-5.005-3.305-5.938zM11.32 10.57H7.64V3.924h3.57c3.003 0 4.61 1.109 4.61 3.239 0 2.431-1.85 3.407-4.5 3.407zM3.73 17.79h3.91V24H3.73z"/></svg>
+                            </div>
+                            <span>PagerDuty</span>
+                        </label>
+                        <label class="channel-type-card" data-type="pushover">
+                            <input type="radio" name="channel_type_radio" value="pushover" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h2v2h-2v-2zm0-2h2V7h-2v8z"/></svg>
+                            </div>
+                            <span>Pushover</span>
+                        </label>
+                        <label class="channel-type-card" data-type="ntfy">
+                            <input type="radio" name="channel_type_radio" value="ntfy" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2zm-2 1H8v-6c0-2.48 1.51-4.5 4-4.5s4 2.02 4 4.5v6z"/></svg>
+                            </div>
+                            <span>ntfy</span>
+                        </label>
+                        <label class="channel-type-card" data-type="webhook">
+                            <input type="radio" name="channel_type_radio" value="webhook" style="display:none;">
+                            <div class="channel-type-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.88-4L10 7v8zm11.89 2.89c-2.6.63-5.68.83-9.89.83-4.21 0-7.29-.2-9.89-.83C.95 17.6.21 17.18 0 16.53V7.47c.21-.65.95-1.07 2.11-1.36C4.71 5.48 7.79 5.28 12 5.28c4.21 0 7.29.2 9.89.83 1.16.29 1.9.71 2.11 1.36v9.06c-.21.65-.95 1.07-2.11 1.36z"/></svg>
+                            </div>
+                            <span>Webhook</span>
+                        </label>
+                    </div>
                 </div>
+                <!-- Hidden select for compatibility -->
+                <select id="channel_type" style="display:none;">
+                    <option value="email">Email</option>
+                    <option value="slack">Slack</option>
+                    <option value="discord">Discord</option>
+                    <option value="teams">Microsoft Teams</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="pagerduty">PagerDuty</option>
+                    <option value="pushover">Pushover</option>
+                    <option value="ntfy">ntfy</option>
+                    <option value="webhook">Webhook</option>
+                </select>
                 
-                <!-- Webhook-specific fields -->
-                <div id="channel_config_webhook" class="channel-config-section" style="display:none;">
+                <!-- Configuration Form -->
+                <div style="padding:20px;">
                     <label class="field">
-                        <span>Webhook URL <span class="required">*</span></span>
-                        <input id="channel_webhook_url" type="url" placeholder="https://example.com/webhook" />
+                        <span>Channel Name <span class="required">*</span></span>
+                        <input id="channel_name" type="text" placeholder="e.g., Ops Team Alerts" autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
-                    <label class="field">
-                        <span>HTTP Method</span>
-                        <select id="channel_webhook_method">
-                            <option value="POST">POST</option>
-                            <option value="PUT">PUT</option>
-                        </select>
+                    
+                    <!-- Email-specific fields -->
+                    <div id="channel_config_email" class="channel-config-section">
+                        <div class="config-section-header">
+                            <span class="config-section-title">Email Configuration</span>
+                            <span class="config-section-hint">Uses server SMTP settings</span>
+                        </div>
+                        <label class="field">
+                            <span>Recipients <span class="required">*</span></span>
+                            <input id="channel_email_to" type="text" placeholder="admin@example.com, alerts@example.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <small class="field-hint">Comma-separated email addresses</small>
+                        </label>
+                        <label class="field">
+                            <span>Subject Prefix</span>
+                            <input id="channel_email_subject" type="text" placeholder="[PrintMaster Alert]" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                    </div>
+                    
+                    <!-- Slack-specific fields -->
+                    <div id="channel_config_slack" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">Slack Configuration</span>
+                            <a href="https://api.slack.com/messaging/webhooks" target="_blank" class="config-section-link">How to create a webhook</a>
+                        </div>
+                        <label class="field">
+                            <span>Webhook URL <span class="required">*</span></span>
+                            <input id="channel_slack_url" type="url" placeholder="https://hooks.slack.com/services/T00.../B00.../xxx" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                        <div class="field-row">
+                            <label class="field" style="flex:1;">
+                                <span>Channel Override</span>
+                                <input id="channel_slack_channel" type="text" placeholder="#alerts" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                <small class="field-hint">Optional, uses webhook default</small>
+                            </label>
+                            <label class="field" style="flex:1;">
+                                <span>Bot Username</span>
+                                <input id="channel_slack_username" type="text" placeholder="PrintMaster" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Discord-specific fields -->
+                    <div id="channel_config_discord" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">Discord Configuration</span>
+                            <a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" target="_blank" class="config-section-link">How to create a webhook</a>
+                        </div>
+                        <label class="field">
+                            <span>Webhook URL <span class="required">*</span></span>
+                            <input id="channel_discord_url" type="url" placeholder="https://discord.com/api/webhooks/..." autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                        <label class="field">
+                            <span>Bot Username</span>
+                            <input id="channel_discord_username" type="text" placeholder="PrintMaster" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <small class="field-hint">Display name for messages</small>
+                        </label>
+                    </div>
+                    
+                    <!-- Teams-specific fields -->
+                    <div id="channel_config_teams" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">Microsoft Teams Configuration</span>
+                            <a href="https://learn.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook" target="_blank" class="config-section-link">How to create a webhook</a>
+                        </div>
+                        <label class="field">
+                            <span>Incoming Webhook URL <span class="required">*</span></span>
+                            <input id="channel_teams_url" type="url" placeholder="https://outlook.office.com/webhook/..." autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                    </div>
+                    
+                    <!-- Telegram-specific fields -->
+                    <div id="channel_config_telegram" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">Telegram Configuration</span>
+                            <a href="https://core.telegram.org/bots#how-do-i-create-a-bot" target="_blank" class="config-section-link">How to create a bot</a>
+                        </div>
+                        <label class="field">
+                            <span>Bot Token <span class="required">*</span></span>
+                            <input id="channel_telegram_token" type="password" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v..." autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <small class="field-hint">Get this from @BotFather</small>
+                        </label>
+                        <label class="field">
+                            <span>Chat ID <span class="required">*</span></span>
+                            <input id="channel_telegram_chat" type="text" placeholder="-1001234567890 or @channelname" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <small class="field-hint">Channel, group, or user ID</small>
+                        </label>
+                    </div>
+                    
+                    <!-- PagerDuty-specific fields -->
+                    <div id="channel_config_pagerduty" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">PagerDuty Configuration</span>
+                            <a href="https://support.pagerduty.com/docs/services-and-integrations" target="_blank" class="config-section-link">Setup guide</a>
+                        </div>
+                        <label class="field">
+                            <span>Integration/Routing Key <span class="required">*</span></span>
+                            <input id="channel_pagerduty_key" type="password" placeholder="Your Events API v2 integration key" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <small class="field-hint">From your PagerDuty service integration</small>
+                        </label>
+                        <label class="field">
+                            <span>Default Severity</span>
+                            <select id="channel_pagerduty_severity">
+                                <option value="critical">Critical</option>
+                                <option value="error">Error</option>
+                                <option value="warning" selected>Warning</option>
+                                <option value="info">Info</option>
+                            </select>
+                        </label>
+                    </div>
+                    
+                    <!-- Pushover-specific fields -->
+                    <div id="channel_config_pushover" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">Pushover Configuration</span>
+                            <a href="https://pushover.net/api" target="_blank" class="config-section-link">API Documentation</a>
+                        </div>
+                        <div class="field-row">
+                            <label class="field" style="flex:1;">
+                                <span>User/Group Key <span class="required">*</span></span>
+                                <input id="channel_pushover_user" type="password" placeholder="Your user or group key" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                            <label class="field" style="flex:1;">
+                                <span>API Token <span class="required">*</span></span>
+                                <input id="channel_pushover_token" type="password" placeholder="Your application API token" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                        </div>
+                        <div class="field-row">
+                            <label class="field" style="flex:1;">
+                                <span>Device (optional)</span>
+                                <input id="channel_pushover_device" type="text" placeholder="Leave blank for all devices" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                            <label class="field" style="flex:1;">
+                                <span>Sound</span>
+                                <select id="channel_pushover_sound">
+                                    <option value="">Default</option>
+                                    <option value="pushover">Pushover</option>
+                                    <option value="bike">Bike</option>
+                                    <option value="bugle">Bugle</option>
+                                    <option value="cashregister">Cash Register</option>
+                                    <option value="classical">Classical</option>
+                                    <option value="cosmic">Cosmic</option>
+                                    <option value="siren">Siren</option>
+                                    <option value="none">None (silent)</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- ntfy-specific fields -->
+                    <div id="channel_config_ntfy" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">ntfy Configuration</span>
+                            <a href="https://ntfy.sh/docs/" target="_blank" class="config-section-link">Documentation</a>
+                        </div>
+                        <div class="field-row">
+                            <label class="field" style="flex:2;">
+                                <span>Server URL</span>
+                                <input id="channel_ntfy_server" type="url" placeholder="https://ntfy.sh (default)" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                <small class="field-hint">Leave blank for ntfy.sh public server</small>
+                            </label>
+                            <label class="field" style="flex:1;">
+                                <span>Topic <span class="required">*</span></span>
+                                <input id="channel_ntfy_topic" type="text" placeholder="printmaster-alerts" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                        </div>
+                        <div class="field-row" id="ntfy_auth_fields">
+                            <label class="field" style="flex:1;">
+                                <span>Username</span>
+                                <input id="channel_ntfy_username" type="text" placeholder="Optional" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                            <label class="field" style="flex:1;">
+                                <span>Password</span>
+                                <input id="channel_ntfy_password" type="password" placeholder="Optional" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                        </div>
+                        <label class="field">
+                            <span>Or Access Token</span>
+                            <input id="channel_ntfy_token" type="password" placeholder="tk_... (alternative to username/password)" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                    </div>
+                    
+                    <!-- Webhook-specific fields -->
+                    <div id="channel_config_webhook" class="channel-config-section" style="display:none;">
+                        <div class="config-section-header">
+                            <span class="config-section-title">Webhook Configuration</span>
+                            <span class="config-section-hint">POST JSON payload to your endpoint</span>
+                        </div>
+                        <label class="field">
+                            <span>Webhook URL <span class="required">*</span></span>
+                            <input id="channel_webhook_url" type="url" placeholder="https://example.com/webhook" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                        <label class="field">
+                            <span>HTTP Method</span>
+                            <select id="channel_webhook_method">
+                                <option value="POST">POST</option>
+                                <option value="PUT">PUT</option>
+                            </select>
+                        </label>
+                        <label class="field">
+                            <span>Custom Headers (JSON)</span>
+                            <textarea id="channel_webhook_headers" rows="2" style="font-family:var(--font-mono);font-size:12px;" placeholder='{"Authorization": "Bearer token123"}'></textarea>
+                            <small class="field-hint">Optional custom HTTP headers</small>
+                        </label>
+                    </div>
+                    
+                    <!-- Common Options Divider -->
+                    <div class="config-divider">
+                        <span>Delivery Options</span>
+                    </div>
+                    
+                    <div class="field-row">
+                        <label class="field" style="flex:1;">
+                            <span>Minimum Severity</span>
+                            <select id="channel_min_severity">
+                                <option value="">All severities</option>
+                                <option value="info">Info and above</option>
+                                <option value="warning">Warning and above</option>
+                                <option value="critical">Critical only</option>
+                            </select>
+                        </label>
+                        <label class="field" style="flex:1;">
+                            <span>Rate Limit</span>
+                            <input id="channel_rate_limit" type="number" min="0" value="0" placeholder="0" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <small class="field-hint">Max per hour (0 = no limit)</small>
+                        </label>
+                    </div>
+                    
+                    <label class="field inline-check" style="margin-top:12px;">
+                        <input type="checkbox" id="channel_enabled" checked />
+                        <span>Enable this channel</span>
                     </label>
-                    <label class="field">
-                        <span>Headers (JSON, optional)</span>
-                        <textarea id="channel_webhook_headers" rows="2" style="font-family:monospace;font-size:12px;" placeholder='{"Authorization": "Bearer ..."}'></textarea>
-                    </label>
+                    
+                    <div id="channel_error" class="channel-form-error" style="display:none;"></div>
                 </div>
-                
-                <!-- Slack-specific fields -->
-                <div id="channel_config_slack" class="channel-config-section" style="display:none;">
-                    <label class="field">
-                        <span>Slack Webhook URL <span class="required">*</span></span>
-                        <input id="channel_slack_url" type="url" placeholder="https://hooks.slack.com/services/..." />
-                    </label>
-                    <label class="field">
-                        <span>Channel</span>
-                        <input id="channel_slack_channel" type="text" placeholder="#alerts" />
-                    </label>
-                    <label class="field">
-                        <span>Username (optional)</span>
-                        <input id="channel_slack_username" type="text" placeholder="PrintMaster Bot" />
-                    </label>
-                </div>
-                
-                <!-- Teams-specific fields -->
-                <div id="channel_config_teams" class="channel-config-section" style="display:none;">
-                    <label class="field">
-                        <span>Teams Webhook URL <span class="required">*</span></span>
-                        <input id="channel_teams_url" type="url" placeholder="https://outlook.office.com/webhook/..." />
-                    </label>
-                </div>
-                
-                <!-- PagerDuty-specific fields -->
-                <div id="channel_config_pagerduty" class="channel-config-section" style="display:none;">
-                    <label class="field">
-                        <span>Integration Key <span class="required">*</span></span>
-                        <input id="channel_pagerduty_key" type="text" placeholder="Your PagerDuty integration/routing key" />
-                    </label>
-                    <label class="field">
-                        <span>Default Severity</span>
-                        <select id="channel_pagerduty_severity">
-                            <option value="critical">Critical</option>
-                            <option value="error">Error</option>
-                            <option value="warning" selected>Warning</option>
-                            <option value="info">Info</option>
-                        </select>
-                    </label>
-                </div>
-                
-                <hr style="margin:16px 0;border:none;border-top:1px solid var(--divider);">
-                
-                <label class="field">
-                    <span>Minimum Severity</span>
-                    <select id="channel_min_severity">
-                        <option value="">All severities</option>
-                        <option value="info">Info and above</option>
-                        <option value="warning">Warning and above</option>
-                        <option value="critical">Critical only</option>
-                    </select>
-                </label>
-                <label class="field">
-                    <span>Rate Limit (per hour)</span>
-                    <input id="channel_rate_limit" type="number" min="0" value="0" placeholder="0 = unlimited" />
-                    <small class="field-hint">Maximum notifications per hour (0 = no limit)</small>
-                </label>
-                <label class="field inline-check" style="margin-top:12px;">
-                    <input type="checkbox" id="channel_enabled" checked />
-                    <span>Enable this channel</span>
-                </label>
-                <div id="channel_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
             </div>
             <div class="modal-footer">
                 <button class="modal-button modal-button-secondary" id="channel_cancel">Cancel</button>

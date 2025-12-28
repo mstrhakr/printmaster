@@ -3042,15 +3042,49 @@ function showNotificationChannelModal(existingChannel = null) {
     if (slackChannel) slackChannel.value = config.channel || '';
     if (slackUsername) slackUsername.value = config.username || '';
     
+    // Discord fields
+    const discordUrl = document.getElementById('channel_discord_url');
+    const discordUsername = document.getElementById('channel_discord_username');
+    if (discordUrl) discordUrl.value = config.webhook_url || '';
+    if (discordUsername) discordUsername.value = config.username || '';
+    
     // Teams fields
     const teamsUrl = document.getElementById('channel_teams_url');
     if (teamsUrl) teamsUrl.value = config.webhook_url || '';
+    
+    // Telegram fields
+    const telegramToken = document.getElementById('channel_telegram_token');
+    const telegramChat = document.getElementById('channel_telegram_chat');
+    if (telegramToken) telegramToken.value = config.bot_token || '';
+    if (telegramChat) telegramChat.value = config.chat_id || '';
     
     // PagerDuty fields
     const pagerdutyKey = document.getElementById('channel_pagerduty_key');
     const pagerdutySeverity = document.getElementById('channel_pagerduty_severity');
     if (pagerdutyKey) pagerdutyKey.value = config.routing_key || '';
     if (pagerdutySeverity) pagerdutySeverity.value = config.severity || 'warning';
+    
+    // Pushover fields
+    const pushoverUser = document.getElementById('channel_pushover_user');
+    const pushoverToken = document.getElementById('channel_pushover_token');
+    const pushoverDevice = document.getElementById('channel_pushover_device');
+    const pushoverSound = document.getElementById('channel_pushover_sound');
+    if (pushoverUser) pushoverUser.value = config.user_key || '';
+    if (pushoverToken) pushoverToken.value = config.api_token || '';
+    if (pushoverDevice) pushoverDevice.value = config.device || '';
+    if (pushoverSound) pushoverSound.value = config.sound || '';
+    
+    // ntfy fields
+    const ntfyServer = document.getElementById('channel_ntfy_server');
+    const ntfyTopic = document.getElementById('channel_ntfy_topic');
+    const ntfyUsername = document.getElementById('channel_ntfy_username');
+    const ntfyPassword = document.getElementById('channel_ntfy_password');
+    const ntfyToken = document.getElementById('channel_ntfy_token');
+    if (ntfyServer) ntfyServer.value = config.server_url || '';
+    if (ntfyTopic) ntfyTopic.value = config.topic || '';
+    if (ntfyUsername) ntfyUsername.value = config.username || '';
+    if (ntfyPassword) ntfyPassword.value = config.password || '';
+    if (ntfyToken) ntfyToken.value = config.access_token || '';
     
     modal.dataset.editId = isEdit ? existingChannel.id : '';
     
@@ -3068,12 +3102,20 @@ function updateChannelConfigSection() {
     if (!typeSelect) return;
     
     const channelType = typeSelect.value;
-    const sections = ['email', 'webhook', 'slack', 'teams', 'pagerduty'];
+    const sections = ['email', 'webhook', 'slack', 'discord', 'teams', 'telegram', 'pagerduty', 'pushover', 'ntfy'];
     
     sections.forEach(section => {
         const el = document.getElementById(`channel_config_${section}`);
         if (el) {
             el.style.display = (section === channelType) ? 'block' : 'none';
+        }
+    });
+    
+    // Update card selection visual
+    document.querySelectorAll('.channel-type-card').forEach(card => {
+        const radio = card.querySelector('input[type="radio"]');
+        if (radio) {
+            radio.checked = (card.dataset.type === channelType);
         }
     });
 }
@@ -3144,6 +3186,17 @@ async function saveNotificationChannel() {
             if (username) config.username = username;
             break;
         }
+        case 'discord': {
+            const webhookUrl = document.getElementById('channel_discord_url')?.value?.trim() || '';
+            const username = document.getElementById('channel_discord_username')?.value?.trim() || '';
+            if (!webhookUrl) {
+                validationError = 'Discord webhook URL is required';
+                break;
+            }
+            config = { webhook_url: webhookUrl };
+            if (username) config.username = username;
+            break;
+        }
         case 'teams': {
             const webhookUrl = document.getElementById('channel_teams_url')?.value?.trim() || '';
             if (!webhookUrl) {
@@ -3151,6 +3204,20 @@ async function saveNotificationChannel() {
                 break;
             }
             config = { webhook_url: webhookUrl };
+            break;
+        }
+        case 'telegram': {
+            const botToken = document.getElementById('channel_telegram_token')?.value?.trim() || '';
+            const chatId = document.getElementById('channel_telegram_chat')?.value?.trim() || '';
+            if (!botToken) {
+                validationError = 'Telegram bot token is required';
+                break;
+            }
+            if (!chatId) {
+                validationError = 'Telegram chat ID is required';
+                break;
+            }
+            config = { bot_token: botToken, chat_id: chatId };
             break;
         }
         case 'pagerduty': {
@@ -3161,6 +3228,44 @@ async function saveNotificationChannel() {
                 break;
             }
             config = { routing_key: routingKey, severity };
+            break;
+        }
+        case 'pushover': {
+            const userKey = document.getElementById('channel_pushover_user')?.value?.trim() || '';
+            const apiToken = document.getElementById('channel_pushover_token')?.value?.trim() || '';
+            const device = document.getElementById('channel_pushover_device')?.value?.trim() || '';
+            const sound = document.getElementById('channel_pushover_sound')?.value || '';
+            if (!userKey) {
+                validationError = 'Pushover user/group key is required';
+                break;
+            }
+            if (!apiToken) {
+                validationError = 'Pushover API token is required';
+                break;
+            }
+            config = { user_key: userKey, api_token: apiToken };
+            if (device) config.device = device;
+            if (sound) config.sound = sound;
+            break;
+        }
+        case 'ntfy': {
+            const serverUrl = document.getElementById('channel_ntfy_server')?.value?.trim() || '';
+            const topic = document.getElementById('channel_ntfy_topic')?.value?.trim() || '';
+            const username = document.getElementById('channel_ntfy_username')?.value?.trim() || '';
+            const password = document.getElementById('channel_ntfy_password')?.value?.trim() || '';
+            const accessToken = document.getElementById('channel_ntfy_token')?.value?.trim() || '';
+            if (!topic) {
+                validationError = 'ntfy topic is required';
+                break;
+            }
+            config = { topic };
+            if (serverUrl) config.server_url = serverUrl;
+            if (accessToken) {
+                config.access_token = accessToken;
+            } else if (username) {
+                config.username = username;
+                if (password) config.password = password;
+            }
             break;
         }
     }
@@ -15881,6 +15986,17 @@ function updateTimeFilter(index) {
     if (channelSaveBtn) channelSaveBtn.addEventListener('click', saveNotificationChannel);
     const channelTypeSelect = document.getElementById('channel_type');
     if (channelTypeSelect) channelTypeSelect.addEventListener('change', updateChannelConfigSection);
+    
+    // Wire up channel type cards click handlers
+    document.querySelectorAll('.channel-type-card').forEach(card => {
+        card.addEventListener('click', () => {
+            const type = card.dataset.type;
+            if (type && channelTypeSelect) {
+                channelTypeSelect.value = type;
+                updateChannelConfigSection();
+            }
+        });
+    });
     
     // Escalation Policy Modal
     wireModalClose('escalation_policy_modal', 'escalation_policy_modal_close_x', 'escalation_cancel');

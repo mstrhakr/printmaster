@@ -8782,3 +8782,138 @@ select:hover {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* ========================================
+   Notification Channel Modal Styles
+   ======================================== */
+
+.channel-type-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  background: var(--bg);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.channel-type-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+
+.channel-type-card:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.channel-type-card .channel-type-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  transition: color 0.2s ease;
+}
+
+.channel-type-card:hover .channel-type-icon,
+.channel-type-card:has(input:checked) .channel-type-icon {
+  color: var(--accent);
+}
+
+.channel-type-card span {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.channel-type-card:has(input:checked) span {
+  color: var(--text);
+}
+
+.config-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.config-section-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.config-section-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.config-section-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.config-section-link:hover {
+  text-decoration: underline;
+}
+
+.config-divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0 16px;
+  gap: 12px;
+}
+
+.config-divider::before,
+.config-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--divider);
+}
+
+.config-divider span {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.field-row {
+  display: flex;
+  gap: 16px;
+}
+
+.field-row .field {
+  min-width: 0;
+}
+
+.channel-form-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-radius: 4px;
+}
+
+@media (max-width: 600px) {
+  .channel-type-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+  
+  .field-row {
+    flex-direction: column;
+    gap: 0;
+  }
+}
