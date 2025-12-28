@@ -35,6 +35,7 @@ import (
 	alertsapi "printmaster/server/alerts"
 	authz "printmaster/server/authz"
 	emailtpl "printmaster/server/email"
+	"printmaster/server/handlers"
 	metricsapi "printmaster/server/metrics"
 	releases "printmaster/server/releases"
 	selfupdate "printmaster/server/selfupdate"
@@ -3278,11 +3279,17 @@ func extractClientIP(r *http.Request) string {
 }
 
 func setupRoutes(cfg *Config) {
-	// Health check (no auth required)
-	http.HandleFunc("/health", handleHealth)
-
-	// Version info (no auth required)
-	http.HandleFunc("/api/version", handleVersion)
+	// Health and Version API (extracted to handlers package)
+	healthAPI := handlers.NewHealthAPI(handlers.HealthAPIOptions{
+		Version:         Version,
+		BuildTime:       BuildTime,
+		GitCommit:       GitCommit,
+		BuildType:       BuildType,
+		ProtocolVersion: ProtocolVersion,
+		ProcessStart:    processStart,
+		TenancyChecker:  tenancy.IsEnabled,
+	})
+	healthAPI.RegisterRoutes(http.DefaultServeMux)
 
 	// Config status (protected - requires login for UI warnings)
 	http.HandleFunc("/api/config/status", requireWebAuth(handleConfigStatus))
@@ -3588,14 +3595,6 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/device/webui-credentials", requireWebAuth(handleDeviceCredentials))
 }
 
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":    "healthy",
-		"timestamp": time.Now().UTC(),
-	})
-}
-
 type healthAttempt struct {
 	url      string
 	insecure bool
@@ -3842,21 +3841,6 @@ func handleUIWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	close(done)
 	conn.Close()
-}
-
-func handleVersion(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"version":          Version,
-		"build_time":       BuildTime,
-		"git_commit":       GitCommit,
-		"build_type":       BuildType,
-		"protocol_version": ProtocolVersion,
-		"go_version":       runtime.Version(),
-		"os":               runtime.GOOS,
-		"arch":             runtime.GOARCH,
-		"tenancy_enabled":  tenancy.IsEnabled(),
-	})
 }
 
 func handleConfigStatus(w http.ResponseWriter, r *http.Request) {

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	commonconfig "printmaster/common/config"
 	pmsettings "printmaster/common/settings"
+	"printmaster/server/handlers"
 	serversettings "printmaster/server/settings"
 	"printmaster/server/storage"
 	"printmaster/server/tenancy"
@@ -41,9 +42,18 @@ func setupTestServer(t *testing.T) (*httptest.Server, storage.Store) {
 	// routes onto the same mux using the mux-aware registration function.
 	mux := http.NewServeMux()
 
-	// Register core handlers onto the new mux
-	mux.HandleFunc("/health", handleHealth)
-	mux.HandleFunc("/api/version", handleVersion)
+	// Create health API and register its routes
+	healthAPI := handlers.NewHealthAPI(handlers.HealthAPIOptions{
+		Version:         Version,
+		BuildTime:       BuildTime,
+		GitCommit:       GitCommit,
+		BuildType:       BuildType,
+		ProtocolVersion: ProtocolVersion,
+		ProcessStart:    processStart,
+		TenancyChecker:  tenancy.IsEnabled,
+	})
+	healthAPI.RegisterRoutes(mux)
+
 	// Keep /api/v1/agents/register for compatibility (it will return 403)
 	mux.HandleFunc("/api/v1/agents/register", handleAgentRegister)
 	mux.HandleFunc("/api/v1/agents/heartbeat", requireAuth(handleAgentHeartbeat))
@@ -153,7 +163,9 @@ func TestHealthEndpoint(t *testing.T) {
 func TestRunHealthCheckHTTP(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(handleHealth))
+	// Create a health API for the test
+	healthAPI := handlers.NewHealthAPI(handlers.HealthAPIOptions{})
+	server := httptest.NewServer(http.HandlerFunc(healthAPI.HandleHealth))
 	t.Cleanup(server.Close)
 
 	parsed, err := url.Parse(server.URL)
@@ -179,7 +191,9 @@ func TestRunHealthCheckHTTP(t *testing.T) {
 func TestRunHealthCheckHTTPS(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewTLSServer(http.HandlerFunc(handleHealth))
+	// Create a health API for the test
+	healthAPI := handlers.NewHealthAPI(handlers.HealthAPIOptions{})
+	server := httptest.NewTLSServer(http.HandlerFunc(healthAPI.HandleHealth))
 	t.Cleanup(server.Close)
 
 	parsed, err := url.Parse(server.URL)
