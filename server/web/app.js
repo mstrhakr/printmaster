@@ -15141,8 +15141,8 @@ function handleLiveMetricsSnapshot(snapshot) {
     const snapshots = ts.snapshots || [];
     const chartSeries = ts.chart_series || {};
 
-    // Convert snapshot timestamp
-    const timestamp = new Date(snapshot.timestamp).getTime();
+    // Convert snapshot timestamp to milliseconds for chart compatibility
+    const timestampMs = new Date(snapshot.timestamp).getTime();
     const fleet = snapshot.fleet || {};
     const server = snapshot.server || {};
 
@@ -15155,9 +15155,11 @@ function handleLiveMetricsSnapshot(snapshot) {
     });
 
     // Append to chart_series arrays for each metric
+    // Backend uses compact {t, v} format, so we append in the same format
     const appendPoint = (key, value) => {
-        if (chartSeries[key]) {
-            chartSeries[key].push({ timestamp: snapshot.timestamp, value });
+        if (chartSeries[key] && Array.isArray(chartSeries[key])) {
+            // Use the same format as existing points (compact {t, v})
+            chartSeries[key].push({ t: timestampMs, v: value ?? 0 });
         }
     };
 
@@ -15195,11 +15197,11 @@ function handleLiveMetricsSnapshot(snapshot) {
         snapshots.shift();
     }
 
-    // Prune chart_series
+    // Prune chart_series (points use {t, v} format where t is timestamp in ms)
     for (const key in chartSeries) {
         const arr = chartSeries[key];
         if (Array.isArray(arr)) {
-            while (arr.length > 0 && new Date(arr[0].timestamp).getTime() < cutoff) {
+            while (arr.length > 0 && arr[0].t < cutoff) {
                 arr.shift();
             }
         }
