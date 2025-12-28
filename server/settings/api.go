@@ -742,6 +742,7 @@ var ValidManagedSections = map[string]bool{
 	"discovery": true,
 	"snmp":      true,
 	"features":  true,
+	"spooler":   true,
 }
 
 // normalizeManagedSections validates and normalizes the managed sections list.
