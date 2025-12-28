@@ -83,7 +83,6 @@ func generateSecureToken(length int) (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-
 // hashSHA256 returns the hex-encoded SHA-256 hash of a string.
 func hashSHA256(s string) string {
 	h := sha256.Sum256([]byte(s))
