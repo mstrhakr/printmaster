@@ -151,6 +151,10 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 	}
 	if val := os.Getenv("SERVER_URL"); val != "" {
 		cfg.Server.URL = val
+		// Auto-enable server mode when SERVER_URL is provided (Docker Compose scenario)
+		if os.Getenv("SERVER_ENABLED") == "" {
+			cfg.Server.Enabled = true
+		}
 	}
 	if val := os.Getenv("AGENT_NAME"); val != "" {
 		cfg.Server.Name = val

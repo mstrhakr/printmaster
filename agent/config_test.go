@@ -603,3 +603,68 @@ func TestAgentConfigTOMLRoundTrip(t *testing.T) {
 		t.Errorf("Web HTTPPort mismatch: got %d, want %d", loadedCfg.Web.HTTPPort, originalCfg.Web.HTTPPort)
 	}
 }
+
+// TestServerURLAutoEnablesServer verifies that setting SERVER_URL env var
+// automatically enables server mode when SERVER_ENABLED is not explicitly set.
+// This is critical for Docker Compose deployments using INIT_SECRET auto-join.
+func TestServerURLAutoEnablesServer(t *testing.T) {
+	// Cannot use t.Parallel() - modifies global environment
+
+	// Create a minimal config file
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.toml")
+	configContent := `asset_id_regex = "\\b\\d{5}\\b"`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	// Save and restore environment
+	envVars := []string{"SERVER_URL", "SERVER_ENABLED"}
+	originalEnv := make(map[string]string)
+	for _, key := range envVars {
+		originalEnv[key] = os.Getenv(key)
+		os.Unsetenv(key)
+	}
+	defer func() {
+		for key, val := range originalEnv {
+			if val == "" {
+				os.Unsetenv(key)
+			} else {
+				os.Setenv(key, val)
+			}
+		}
+	}()
+
+	// Test 1: SERVER_URL alone should auto-enable server mode
+	os.Setenv("SERVER_URL", "http://server:9090")
+	cfg, err := LoadAgentConfig(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	if !cfg.Server.Enabled {
+		t.Error("expected server to be auto-enabled when SERVER_URL is set without SERVER_ENABLED")
+	}
+	if cfg.Server.URL != "http://server:9090" {
+		t.Errorf("expected server URL to be 'http://server:9090', got %s", cfg.Server.URL)
+	}
+
+	// Test 2: Explicit SERVER_ENABLED=false should prevent auto-enable
+	os.Setenv("SERVER_ENABLED", "false")
+	cfg, err = LoadAgentConfig(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	if cfg.Server.Enabled {
+		t.Error("expected server to remain disabled when SERVER_ENABLED=false is explicit")
+	}
+
+	// Test 3: Explicit SERVER_ENABLED=true with SERVER_URL
+	os.Setenv("SERVER_ENABLED", "true")
+	cfg, err = LoadAgentConfig(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+	if !cfg.Server.Enabled {
+		t.Error("expected server to be enabled when SERVER_ENABLED=true")
+	}
+}
