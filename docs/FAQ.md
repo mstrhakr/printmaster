@@ -21,11 +21,37 @@ Yes, PrintMaster is open source and free to use under the MIT license.
 
 ### What printers does PrintMaster support?
 
-PrintMaster supports any SNMP-enabled printer or copier, including devices from:
-- HP, Canon, Epson, Brother, Lexmark
-- Xerox, Ricoh, Konica Minolta
-- Kyocera, Sharp, Toshiba
-- And many others
+PrintMaster works with any SNMP-enabled network printer or copier. Support levels vary by manufacturer:
+
+#### Enhanced Support (Vendor-Specific Modules)
+
+These brands have dedicated modules with optimized OID queries and accurate metric parsing:
+
+| Manufacturer | Page Counters | Supplies | Special Features |
+|--------------|:-------------:|:--------:|------------------|
+| **HP** | ✅ | ✅ | Color/mono breakdown, copy/fax/scan counters |
+| **Epson** | ✅ | ✅ | Remote-mode ink levels, ST2 status parsing |
+| **Kyocera** | ✅ | ✅ | Enterprise OID detection, drum counters |
+
+#### Standard Support (Generic SNMP)
+
+These brands work via standard Printer-MIB queries. Basic metrics are collected but some vendor-specific features may be unavailable:
+
+| Manufacturer | Page Counters | Supplies | Notes |
+|--------------|:-------------:|:--------:|-------|
+| Canon | ✅ | ⚠️ | Supply levels may vary by model |
+| Brother | ✅ | ⚠️ | Basic toner levels |
+| Lexmark | ✅ | ⚠️ | Standard MIB support |
+| Xerox | ✅ | ⚠️ | VersaLink/AltaLink tested |
+| Ricoh | ✅ | ⚠️ | Basic counters only |
+| Konica Minolta | ✅ | ⚠️ | bizhub series |
+| Sharp | ✅ | ⚠️ | MX series |
+| Toshiba | ✅ | ⚠️ | e-STUDIO series |
+| Samsung | ✅ | ⚠️ | Legacy models |
+
+**Legend:** ✅ Full support | ⚠️ Basic/partial support | ❌ Not supported
+
+> **Want better support for your brand?** We're actively adding vendor modules. Check [GitHub Issues](https://github.com/mstrhakr/printmaster/issues) or contribute a vendor profile!
 
 ---
 
