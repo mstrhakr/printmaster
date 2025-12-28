@@ -82,16 +82,20 @@ func NewTimescaleSupport(db *sql.DB, config *TimescaleConfig) (*TimescaleSupport
 		}
 	} else {
 		// Auto-detect mode
+		logDebug("TimescaleDB auto-detection starting", "already_installed", installed)
 		if installed {
 			ts.enabled = true
+			logDebug("TimescaleDB already installed, enabling features")
 		} else {
 			// Not installed - try to create it (handles postgres->timescaledb upgrade)
+			logDebug("TimescaleDB not installed, attempting to create extension")
 			if err := ts.tryCreateExtension(); err == nil {
 				// Success! Extension was available but not yet enabled
 				ts.enabled = true
 				logInfo("TimescaleDB extension auto-enabled (detected available but not installed)")
 			} else {
 				// Extension not available (plain PostgreSQL) - that's fine
+				logDebug("TimescaleDB extension creation failed (plain PostgreSQL assumed)", "error", err)
 				ts.enabled = false
 			}
 		}
@@ -110,17 +114,51 @@ func (ts *TimescaleSupport) isTimescaleInstalled() (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var installed bool
-	err := ts.db.QueryRowContext(ctx, `
+	// First, list all available extensions for debugging
+	rows, err := ts.db.QueryContext(ctx, `SELECT name FROM pg_available_extensions WHERE name LIKE '%timescale%'`)
+	if err != nil {
+		logDebug("Failed to query available extensions", "error", err)
+	} else {
+		defer rows.Close()
+		var available []string
+		for rows.Next() {
+			var name string
+			if err := rows.Scan(&name); err == nil {
+				available = append(available, name)
+			}
+		}
+		logDebug("TimescaleDB availability check", "available_extensions", available)
+	}
+
+	// Check installed extensions
+	rows2, err := ts.db.QueryContext(ctx, `SELECT extname, extversion FROM pg_extension`)
+	if err != nil {
+		logDebug("Failed to query installed extensions", "error", err)
+	} else {
+		defer rows2.Close()
+		var installed []string
+		for rows2.Next() {
+			var name, version string
+			if err := rows2.Scan(&name, &version); err == nil {
+				installed = append(installed, fmt.Sprintf("%s@%s", name, version))
+			}
+		}
+		logDebug("Currently installed PostgreSQL extensions", "extensions", installed)
+	}
+
+	var isInstalled bool
+	err = ts.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'
 		)
-	`).Scan(&installed)
+	`).Scan(&isInstalled)
 	if err != nil {
+		logDebug("Failed to check if TimescaleDB is installed", "error", err)
 		return false, err
 	}
 
-	return installed, nil
+	logDebug("TimescaleDB installation check result", "installed", isInstalled)
+	return isInstalled, nil
 }
 
 // tryCreateExtension attempts to create the TimescaleDB extension.
@@ -129,21 +167,31 @@ func (ts *TimescaleSupport) tryCreateExtension() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	logDebug("Attempting to create TimescaleDB extension")
+
 	// Try to create the extension - this will succeed on TimescaleDB images
 	// and fail on plain PostgreSQL (extension not available)
 	_, err := ts.db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
 	if err != nil {
+		logDebug("CREATE EXTENSION failed", "error", err)
 		return err
 	}
 
-	// Verify it was created
-	installed, err := ts.isTimescaleInstalled()
+	logDebug("CREATE EXTENSION command succeeded, verifying installation")
+
+	// Verify it was created - use a simple check without the debug logging
+	var installed bool
+	err = ts.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')`).Scan(&installed)
 	if err != nil {
+		logDebug("Failed to verify extension creation", "error", err)
 		return fmt.Errorf("verifying extension creation: %w", err)
 	}
 	if !installed {
+		logDebug("Extension creation command succeeded but extension not found in pg_extension")
 		return fmt.Errorf("extension creation succeeded but extension not found")
 	}
+
+	logDebug("TimescaleDB extension created and verified successfully")
 
 	return nil
 }
