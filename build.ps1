@@ -109,12 +109,19 @@ function Invoke-PlaywrightTests {
         $cmd = "npm run test:playwright"
         Write-BuildLog "Executing: $cmd" "INFO"
         
+        # Set UTF-8 encoding for proper Playwright Unicode output (checkmarks, arrows)
+        $prevOutputEncoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+        
         # Stream output live instead of capturing all at once
         $testExit = 0
         & npm run test:playwright 2>&1 | ForEach-Object {
             Write-BuildLog $_ "INFO"
         }
         $testExit = $LASTEXITCODE
+        
+        # Restore previous encoding
+        [Console]::OutputEncoding = $prevOutputEncoding
         
         if ($testExit -ne 0) {
             Write-BuildLog "Playwright smoke tests failed" "ERROR"
