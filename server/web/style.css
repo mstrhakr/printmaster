@@ -5763,7 +5763,7 @@ input[type="checkbox"]:indeterminate::before {
 
 .managed-section-toggle {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
@@ -5782,7 +5782,6 @@ input[type="checkbox"]:indeterminate::before {
 
 .managed-section-toggle .toggle-switch {
   flex-shrink: 0;
-  margin-top: 2px;
 }
 
 .managed-section-toggle:hover {
