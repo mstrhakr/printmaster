@@ -184,6 +184,11 @@ func (n *Notifier) recordNotification(channelID, alertID int64) {
 	n.lastNotified[key] = time.Now()
 }
 
+// TestChannel sends a test notification to a channel without any rate limiting or quiet hours checks.
+func (n *Notifier) TestChannel(ctx context.Context, channel *storage.NotificationChannel, alert *storage.Alert) error {
+	return n.dispatchToChannel(ctx, channel, alert)
+}
+
 func (n *Notifier) dispatchToChannel(ctx context.Context, channel *storage.NotificationChannel, alert *storage.Alert) error {
 	// Parse config from JSON
 	var config map[string]interface{}

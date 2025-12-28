@@ -69,6 +69,7 @@ type APIOptions struct {
 	Authorizer     func(*http.Request, authz.Action, authz.ResourceRef) error
 	ActorResolver  func(*http.Request) string
 	AuditLogger    func(*http.Request, *storage.AuditEntry)
+	Notifier       *Notifier
 }
 
 // RouteConfig controls how HTTP handlers are registered.
@@ -80,6 +81,7 @@ type RouteConfig struct {
 // API exposes HTTP handlers for the alerting system.
 type API struct {
 	store         Store
+	notifier      *Notifier
 	authWrap      func(http.HandlerFunc) http.HandlerFunc
 	authorizer    func(*http.Request, authz.Action, authz.ResourceRef) error
 	actorResolver func(*http.Request) string
@@ -93,6 +95,7 @@ func NewAPI(store Store, opts APIOptions) (*API, error) {
 	}
 	return &API{
 		store:         store,
+		notifier:      opts.Notifier,
 		authWrap:      opts.AuthMiddleware,
 		authorizer:    opts.Authorizer,
 		actorResolver: opts.ActorResolver,
@@ -126,6 +129,7 @@ func (api *API) RegisterRoutes(cfg RouteConfig) {
 
 	// Notification Channels CRUD
 	mux.HandleFunc("/api/v1/notification-channels", wrap(api.handleNotificationChannels))
+	mux.HandleFunc("/api/v1/notification-channels/test", wrap(api.handleTestNotificationChannel))
 	mux.HandleFunc("/api/v1/notification-channels/", wrap(api.handleNotificationChannelRoute))
 
 	// Escalation Policies CRUD
@@ -712,6 +716,18 @@ func (api *API) handleNotificationChannelRoute(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Handle /api/v1/notification-channels/{id}/test route
+	if strings.HasSuffix(idStr, "/test") {
+		idStr = strings.TrimSuffix(idStr, "/test")
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid channel id")
+			return
+		}
+		api.handleTestExistingChannel(w, r, id)
+		return
+	}
+
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid channel id")
@@ -790,6 +806,95 @@ func (api *API) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.R
 	})
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleTestNotificationChannel tests a notification channel configuration (without saving).
+// POST /api/v1/notification-channels/test
+func (api *API) handleTestNotificationChannel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
+		return
+	}
+
+	if api.notifier == nil {
+		writeError(w, http.StatusServiceUnavailable, "notification service not available")
+		return
+	}
+
+	var req struct {
+		Type       string `json:"type"`
+		Name       string `json:"name"`
+		ConfigJSON string `json:"config_json"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Create a temporary channel for testing
+	channel := &storage.NotificationChannel{
+		Type:       storage.ChannelType(req.Type),
+		Name:       req.Name,
+		ConfigJSON: req.ConfigJSON,
+	}
+
+	// Create test alert
+	testAlert := &storage.Alert{
+		Type:     "test",
+		Severity: "info",
+		Title:    "Test Notification",
+		Message:  "This is a test notification from PrintMaster to verify your channel configuration.",
+	}
+
+	if err := api.notifier.TestChannel(r.Context(), channel, testAlert); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("test failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "test notification sent"})
+}
+
+// handleTestExistingChannel tests an existing notification channel by ID.
+// POST /api/v1/notification-channels/{id}/test
+func (api *API) handleTestExistingChannel(w http.ResponseWriter, r *http.Request, id int64) {
+	if r.Method != http.MethodPost {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !api.authorize(w, r, authz.ActionSettingsAlertsWrite, authz.ResourceRef{}) {
+		return
+	}
+
+	if api.notifier == nil {
+		writeError(w, http.StatusServiceUnavailable, "notification service not available")
+		return
+	}
+
+	channel, err := api.store.GetNotificationChannel(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "notification channel not found")
+		return
+	}
+
+	// Create test alert
+	testAlert := &storage.Alert{
+		Type:     "test",
+		Severity: "info",
+		Title:    "Test Notification",
+		Message:  "This is a test notification from PrintMaster to verify your channel configuration.",
+	}
+
+	if err := api.notifier.TestChannel(r.Context(), channel, testAlert); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("test failed: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "test notification sent"})
 }
 
 // ============================================================================

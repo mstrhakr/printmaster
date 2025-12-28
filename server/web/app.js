@@ -3400,7 +3400,65 @@ function showAlertRuleModal(existingRule = null) {
     const title = modal.querySelector('.modal-title');
     if (title) title.textContent = isEdit ? 'Edit Alert Rule' : 'New Alert Rule';
     
+    // Load notification channels for selection
+    loadChannelsForAlertRule(existingRule?.channel_ids || []);
+    
     modal.style.display = 'flex';
+}
+
+// Load notification channels into the alert rule modal
+async function loadChannelsForAlertRule(selectedIds = []) {
+    const container = document.getElementById('alert_rule_channels');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="muted-text" style="padding:12px;text-align:center;">Loading channels...</div>';
+    
+    try {
+        const resp = await fetch('/api/v1/notification-channels');
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        
+        const channels = await resp.json();
+        
+        if (!channels || channels.length === 0) {
+            container.innerHTML = '<div class="muted-text" style="padding:12px;text-align:center;">No notification channels configured. <a href="#" onclick="window.__alerting_showNotificationChannelModal();return false;">Create one</a></div>';
+            return;
+        }
+        
+        // Ensure selectedIds is an array
+        const selected = Array.isArray(selectedIds) ? selectedIds : [];
+        
+        container.innerHTML = channels.map(ch => {
+            const isChecked = selected.includes(ch.id);
+            const icon = getChannelIcon(ch.type);
+            return `
+                <label class="channel-checkbox-item">
+                    <input type="checkbox" name="alert_rule_channel" value="${ch.id}" ${isChecked ? 'checked' : ''} />
+                    <span class="channel-checkbox-icon">${icon}</span>
+                    <span class="channel-checkbox-name">${escapeHtml(ch.name)}</span>
+                    <span class="channel-checkbox-type">${ch.type}</span>
+                </label>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error('Failed to load channels:', err);
+        container.innerHTML = '<div class="muted-text" style="padding:12px;text-align:center;color:var(--danger);">Failed to load channels</div>';
+    }
+}
+
+// Helper to get icon for channel type
+function getChannelIcon(type) {
+    const icons = {
+        'email': '📧',
+        'slack': '💬',
+        'teams': '💼',
+        'discord': '🎮',
+        'webhook': '🔗',
+        'pagerduty': '📟',
+        'telegram': '✈️',
+        'pushover': '📱',
+        'ntfy': '🔔'
+    };
+    return icons[type] || '📢';
 }
 
 async function saveAlertRule() {
@@ -3418,7 +3476,11 @@ async function saveAlertRule() {
         threshold: parseFloat(form.querySelector('#alert_rule_threshold')?.value) || 0,
         duration_minutes: parseInt(form.querySelector('#alert_rule_duration')?.value) || 5,
         severity: form.querySelector('#alert_rule_severity')?.value || 'warning',
-        enabled: form.querySelector('#alert_rule_enabled')?.checked !== false
+        enabled: form.querySelector('#alert_rule_enabled')?.checked !== false,
+        // Collect selected channel IDs
+        channel_ids: Array.from(form.querySelectorAll('input[name="alert_rule_channel"]:checked'))
+            .map(cb => parseInt(cb.value, 10))
+            .filter(id => !isNaN(id))
     };
     
     if (!payload.name) {

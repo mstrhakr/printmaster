@@ -3458,6 +3458,12 @@ func setupRoutes(cfg *Config) {
 	logInfo("Update policy routes registered", "enabled", featureEnabled)
 
 	// Alerts API routes
+	alertNotifier := alertsapi.NewNotifier(serverStore, alertsapi.NotifierConfig{
+		Logger:     nil, // Uses slog.Default()
+		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		MaxRetries: 3,
+		RetryDelay: 5 * time.Second,
+	})
 	alertsAPI, err := alertsapi.NewAPI(serverStore, alertsapi.APIOptions{
 		AuthMiddleware: requireWebAuth,
 		Authorizer: func(r *http.Request, action authz.Action, resource authz.ResourceRef) error {
@@ -3470,6 +3476,7 @@ func setupRoutes(cfg *Config) {
 			return ""
 		},
 		AuditLogger: logRequestAudit,
+		Notifier:    alertNotifier,
 	})
 	if err != nil {
 		logFatal("Failed to initialize alerts API", "error", err)
