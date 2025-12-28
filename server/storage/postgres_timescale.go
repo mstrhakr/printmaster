@@ -47,6 +47,7 @@ type TimescaleSupport struct {
 
 // NewTimescaleSupport creates a new TimescaleSupport instance.
 // It auto-detects whether TimescaleDB is available if config.Enabled is nil.
+// If TimescaleDB is available but not yet enabled, it will attempt to create the extension.
 func NewTimescaleSupport(db *sql.DB, config *TimescaleConfig) (*TimescaleSupport, error) {
 	if config == nil {
 		config = DefaultTimescaleConfig()
@@ -57,8 +58,8 @@ func NewTimescaleSupport(db *sql.DB, config *TimescaleConfig) (*TimescaleSupport
 		config: config,
 	}
 
-	// Check if TimescaleDB extension is available
-	available, err := ts.isTimescaleAvailable()
+	// Check if TimescaleDB extension is already installed
+	installed, err := ts.isTimescaleInstalled()
 	if err != nil {
 		return nil, fmt.Errorf("checking TimescaleDB availability: %w", err)
 	}
@@ -66,13 +67,34 @@ func NewTimescaleSupport(db *sql.DB, config *TimescaleConfig) (*TimescaleSupport
 	// Determine if we should enable TimescaleDB features
 	if config.Enabled != nil {
 		// Explicit configuration
-		if *config.Enabled && !available {
-			return nil, fmt.Errorf("TimescaleDB is explicitly enabled but extension is not available")
+		if *config.Enabled {
+			if !installed {
+				// User wants TimescaleDB - try to enable it
+				if err := ts.tryCreateExtension(); err != nil {
+					return nil, fmt.Errorf("TimescaleDB is explicitly enabled but extension could not be created: %w", err)
+				}
+				installed = true
+				logInfo("TimescaleDB extension created successfully")
+			}
+			ts.enabled = true
+		} else {
+			ts.enabled = false
 		}
-		ts.enabled = *config.Enabled
 	} else {
-		// Auto-detect: enable if available
-		ts.enabled = available
+		// Auto-detect mode
+		if installed {
+			ts.enabled = true
+		} else {
+			// Not installed - try to create it (handles postgres->timescaledb upgrade)
+			if err := ts.tryCreateExtension(); err == nil {
+				// Success! Extension was available but not yet enabled
+				ts.enabled = true
+				logInfo("TimescaleDB extension auto-enabled (detected available but not installed)")
+			} else {
+				// Extension not available (plain PostgreSQL) - that's fine
+				ts.enabled = false
+			}
+		}
 	}
 
 	return ts, nil
@@ -83,8 +105,8 @@ func (ts *TimescaleSupport) Enabled() bool {
 	return ts.enabled
 }
 
-// isTimescaleAvailable checks if the TimescaleDB extension is installed.
-func (ts *TimescaleSupport) isTimescaleAvailable() (bool, error) {
+// isTimescaleInstalled checks if the TimescaleDB extension is currently installed.
+func (ts *TimescaleSupport) isTimescaleInstalled() (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -101,6 +123,31 @@ func (ts *TimescaleSupport) isTimescaleAvailable() (bool, error) {
 	return installed, nil
 }
 
+// tryCreateExtension attempts to create the TimescaleDB extension.
+// Returns nil on success, error if the extension is not available or creation fails.
+func (ts *TimescaleSupport) tryCreateExtension() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Try to create the extension - this will succeed on TimescaleDB images
+	// and fail on plain PostgreSQL (extension not available)
+	_, err := ts.db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
+	if err != nil {
+		return err
+	}
+
+	// Verify it was created
+	installed, err := ts.isTimescaleInstalled()
+	if err != nil {
+		return fmt.Errorf("verifying extension creation: %w", err)
+	}
+	if !installed {
+		return fmt.Errorf("extension creation succeeded but extension not found")
+	}
+
+	return nil
+}
+
 // EnsureExtension creates the TimescaleDB extension if it doesn't exist.
 // This requires superuser privileges; returns nil if already installed or if permissions
 // are insufficient (assumes DBA will install it).
@@ -113,8 +160,8 @@ func (ts *TimescaleSupport) EnsureExtension(ctx context.Context) error {
 	_, err := ts.db.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
 	if err != nil {
 		// Check if extension is already installed
-		available, checkErr := ts.isTimescaleAvailable()
-		if checkErr == nil && available {
+		installed, checkErr := ts.isTimescaleInstalled()
+		if checkErr == nil && installed {
 			return nil // Already installed by DBA
 		}
 		return fmt.Errorf("failed to create timescaledb extension (may require superuser): %w", err)
