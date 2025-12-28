@@ -980,108 +980,212 @@
 
                 <!-- Alerts Config Sub-tab (admin-only alert rule management) -->
                 <div class="admin-view-panel hidden" data-adminview-panel="alertsconfig">
-                    <!-- Alert Rules Section -->
-                    <div class="panel">
-                        <h4 style="margin-top:0;color:var(--highlight)">Alert Rules</h4>
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                                Configure alert thresholds by scope (device, agent, site, tenant, fleet). Rules trigger notifications when conditions are met.
+                    <!-- Quick Stats Summary -->
+                    <div class="alerts-quick-stats" id="alerts_config_stats">
+                        <div class="alerts-quick-stat">
+                            <div class="alerts-quick-stat-icon">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
                             </div>
-                            <button id="new_alert_rule_btn" class="btn-primary">
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
-                                New Rule
-                            </button>
+                            <div class="alerts-quick-stat-content">
+                                <span class="alerts-quick-stat-value" id="stat_rules_count">0</span>
+                                <span class="alerts-quick-stat-label">Alert Rules</span>
+                            </div>
                         </div>
-                        <div id="alert_rules_list" class="card" style="padding:12px;">
-                            <div class="muted-text">No alert rules configured. Create a rule to start monitoring.</div>
+                        <div class="alerts-quick-stat">
+                            <div class="alerts-quick-stat-icon">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2zm13 2.383-4.758 2.855L15 11.114v-5.73zm-.034 6.878L9.271 8.82 8 9.583 6.728 8.82l-5.694 3.44A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.739zM1 11.114l4.758-2.876L1 5.383v5.73z"/></svg>
+                            </div>
+                            <div class="alerts-quick-stat-content">
+                                <span class="alerts-quick-stat-value" id="stat_channels_count">0</span>
+                                <span class="alerts-quick-stat-label">Channels</span>
+                            </div>
+                        </div>
+                        <div class="alerts-quick-stat">
+                            <div class="alerts-quick-stat-icon">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M4.978.855a.5.5 0 1 0-.956.29l.41 1.352A4.985 4.985 0 0 0 3 6h10a4.985 4.985 0 0 0-1.432-3.503l.41-1.352a.5.5 0 1 0-.956-.29l-.291.956A4.978 4.978 0 0 0 8 1a4.979 4.979 0 0 0-2.731.811l-.29-.956z"/><path d="M13 6v1H3V6h10zm-1 4a4.5 4.5 0 0 1-9 0V7h9v3z"/></svg>
+                            </div>
+                            <div class="alerts-quick-stat-content">
+                                <span class="alerts-quick-stat-value" id="stat_policies_count">0</span>
+                                <span class="alerts-quick-stat-label">Policies</span>
+                            </div>
+                        </div>
+                        <div class="alerts-quick-stat">
+                            <div class="alerts-quick-stat-icon" style="background:rgba(203, 75, 22, 0.15);color:var(--warning);">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
+                            </div>
+                            <div class="alerts-quick-stat-content">
+                                <span class="alerts-quick-stat-value" id="stat_windows_count">0</span>
+                                <span class="alerts-quick-stat-label">Maintenance</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alert Rules Section -->
+                    <div class="alerts-section" id="alert_rules_section">
+                        <div class="alerts-section-header" onclick="toggleAlertsSection('alert_rules_section')">
+                            <div class="alerts-section-title">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
+                                Alert Rules
+                                <span class="alerts-section-badge" id="alert_rules_badge">0</span>
+                            </div>
+                            <div class="alerts-section-actions">
+                                <button id="new_alert_rule_btn" class="btn-primary btn-sm" onclick="event.stopPropagation();">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                    New Rule
+                                </button>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="alerts-section-content">
+                            <p class="muted-text" style="margin:0 0 16px 0;font-size:13px;">Configure alert thresholds by scope (device, agent, site, tenant, fleet). Rules trigger notifications when conditions are met.</p>
+                            <div id="alert_rules_list">
+                                <div class="config-empty-state">
+                                    <div class="config-empty-state-icon">
+                                        <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
+                                    </div>
+                                    <div class="config-empty-state-title">No alert rules configured</div>
+                                    <div class="config-empty-state-text">Create your first alert rule to start monitoring devices, agents, and fleet health.</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Notification Channels Section -->
-                    <div class="panel" style="margin-top:16px;">
-                        <h4 style="margin-top:0;color:var(--highlight)">Notification Channels</h4>
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                                Configure where alert notifications are sent (email, webhook, Slack, Teams, etc.).
+                    <div class="alerts-section" id="notification_channels_section">
+                        <div class="alerts-section-header" onclick="toggleAlertsSection('notification_channels_section')">
+                            <div class="alerts-section-title">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2zm13 2.383-4.758 2.855L15 11.114v-5.73zm-.034 6.878L9.271 8.82 8 9.583 6.728 8.82l-5.694 3.44A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.739zM1 11.114l4.758-2.876L1 5.383v5.73z"/></svg>
+                                Notification Channels
+                                <span class="alerts-section-badge" id="channels_badge">0</span>
                             </div>
-                            <button id="new_notification_channel_btn" class="btn-outline">
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
-                                Add Channel
-                            </button>
+                            <div class="alerts-section-actions">
+                                <button id="new_notification_channel_btn" class="btn-outline btn-sm" onclick="event.stopPropagation();">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                    Add Channel
+                                </button>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
+                            </div>
                         </div>
-                        <div id="notification_channels_list" class="card" style="padding:12px;">
-                            <div class="muted-text">No notification channels configured.</div>
+                        <div class="alerts-section-content">
+                            <p class="muted-text" style="margin:0 0 16px 0;font-size:13px;">Configure where alert notifications are sent (email, webhook, Slack, Teams, etc.).</p>
+                            <div id="notification_channels_list">
+                                <div class="config-empty-state">
+                                    <div class="config-empty-state-icon">
+                                        <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2z"/></svg>
+                                    </div>
+                                    <div class="config-empty-state-title">No notification channels configured</div>
+                                    <div class="config-empty-state-text">Add a channel to receive alerts via email, Slack, Teams, and more.</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Escalation Policies Section -->
-                    <div class="panel" style="margin-top:16px;">
-                        <h4 style="margin-top:0;color:var(--highlight)">Escalation Policies</h4>
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                                Escalate unacknowledged alerts after a time threshold. Increase severity or notify additional channels.
+                    <div class="alerts-section" id="escalation_policies_section">
+                        <div class="alerts-section-header" onclick="toggleAlertsSection('escalation_policies_section')">
+                            <div class="alerts-section-title">
+                                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M4.978.855a.5.5 0 1 0-.956.29l.41 1.352A4.985 4.985 0 0 0 3 6h10a4.985 4.985 0 0 0-1.432-3.503l.41-1.352a.5.5 0 1 0-.956-.29l-.291.956A4.978 4.978 0 0 0 8 1a4.979 4.979 0 0 0-2.731.811l-.29-.956z"/><path d="M13 6v1H3V6h10zm-1 4a4.5 4.5 0 0 1-9 0V7h9v3z"/></svg>
+                                Escalation Policies
+                                <span class="alerts-section-badge" id="policies_badge">0</span>
                             </div>
-                            <button id="new_escalation_policy_btn" class="btn-outline">
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
-                                New Policy
-                            </button>
+                            <div class="alerts-section-actions">
+                                <button id="new_escalation_policy_btn" class="btn-outline btn-sm" onclick="event.stopPropagation();">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                    New Policy
+                                </button>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
+                            </div>
                         </div>
-                        <div id="escalation_policies_list" class="card" style="padding:12px;">
-                            <div class="muted-text">No escalation policies configured.</div>
+                        <div class="alerts-section-content">
+                            <p class="muted-text" style="margin:0 0 16px 0;font-size:13px;">Escalate unacknowledged alerts after a time threshold. Increase severity or notify additional channels.</p>
+                            <div id="escalation_policies_list">
+                                <div class="config-empty-state">
+                                    <div class="config-empty-state-icon">
+                                        <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M4.978.855a.5.5 0 1 0-.956.29l.41 1.352A4.985 4.985 0 0 0 3 6h10a4.985 4.985 0 0 0-1.432-3.503l.41-1.352a.5.5 0 1 0-.956-.29l-.291.956A4.978 4.978 0 0 0 8 1a4.979 4.979 0 0 0-2.731.811l-.29-.956z"/><path d="M13 6v1H3V6h10zm-1 4a4.5 4.5 0 0 1-9 0V7h9v3z"/></svg>
+                                    </div>
+                                    <div class="config-empty-state-title">No escalation policies configured</div>
+                                    <div class="config-empty-state-text">Create policies to automatically escalate alerts that aren't acknowledged.</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Alert Behavior Settings -->
-                    <div class="alert-config-row" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;margin-top:16px;">
+                    <div class="alert-config-row" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(340px, 1fr));gap:16px;margin-top:16px;">
                         <!-- Suppression / Maintenance Windows -->
-                        <div class="panel">
-                            <h4 style="margin-top:0;color:var(--highlight)">Maintenance Windows</h4>
-                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
-                                Suppress alerts during scheduled maintenance periods.
+                        <div class="alerts-section" id="maintenance_windows_section" style="margin-bottom:0;">
+                            <div class="alerts-section-header" onclick="toggleAlertsSection('maintenance_windows_section')">
+                                <div class="alerts-section-title">
+                                    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
+                                    Maintenance Windows
+                                    <span class="alerts-section-badge" id="windows_badge">0</span>
+                                </div>
+                                <div class="alerts-section-actions">
+                                    <button id="new_maintenance_window_btn" class="btn-outline btn-sm" onclick="event.stopPropagation();">
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                        Schedule
+                                    </button>
+                                    <button class="alerts-section-toggle" title="Toggle section">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                    </button>
+                                </div>
                             </div>
-                            <div id="maintenance_windows_list" class="card" style="padding:12px;margin-bottom:12px;">
-                                <div class="muted-text">No maintenance windows scheduled.</div>
+                            <div class="alerts-section-content">
+                                <p class="muted-text" style="margin:0 0 12px 0;font-size:12px;">Suppress alerts during scheduled maintenance periods.</p>
+                                <div id="maintenance_windows_list">
+                                    <div class="muted-text" style="padding:20px;text-align:center;">No maintenance windows scheduled.</div>
+                                </div>
                             </div>
-                            <button id="new_maintenance_window_btn" class="btn-outline btn-sm">
-                                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
-                                Schedule Maintenance
-                            </button>
                         </div>
 
                         <!-- Quiet Hours -->
-                        <div class="panel">
-                            <h4 style="margin-top:0;color:var(--highlight)">Quiet Hours</h4>
-                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
-                                Suppress notifications during specified hours. Alerts are still logged but not sent.
+                        <div class="alerts-section" id="quiet_hours_section" style="margin-bottom:0;">
+                            <div class="alerts-section-header" onclick="toggleAlertsSection('quiet_hours_section')">
+                                <div class="alerts-section-title">
+                                    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M6 .278a.768.768 0 0 1 .08.858 7.208 7.208 0 0 0-.878 3.46c0 4.021 3.278 7.277 7.318 7.277.527 0 1.04-.055 1.533-.16a.787.787 0 0 1 .81.316.733.733 0 0 1-.031.893A8.349 8.349 0 0 1 8.344 16C3.734 16 0 12.286 0 7.71 0 4.266 2.114 1.312 5.124.06A.752.752 0 0 1 6 .278z"/></svg>
+                                    Quiet Hours
+                                </div>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
                             </div>
-                            <div class="quiet-hours-config">
-                                <label class="field inline-check" style="margin-bottom:12px;">
-                                    <input type="checkbox" id="quiet_hours_enabled" />
-                                    <span>Enable Quiet Hours</span>
-                                </label>
-                                <div class="quiet-hours-times" id="quiet_hours_times" style="display:none;">
-                                    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                                        <label class="field">
-                                            <span>Start</span>
-                                            <input type="time" id="quiet_hours_start" value="22:00" />
-                                        </label>
-                                        <label class="field">
-                                            <span>End</span>
-                                            <input type="time" id="quiet_hours_end" value="07:00" />
-                                        </label>
-                                        <label class="field">
-                                            <span>Timezone</span>
-                                            <select id="quiet_hours_timezone">
-                                                <option value="local">Local Time</option>
-                                                <option value="UTC">UTC</option>
-                                            </select>
-                                        </label>
-                                    </div>
-                                    <div style="margin-top:8px;">
-                                        <label class="field inline-check">
-                                            <input type="checkbox" id="quiet_hours_critical_override" checked />
-                                            <span>Allow critical alerts during quiet hours</span>
-                                        </label>
+                            <div class="alerts-section-content">
+                                <p class="muted-text" style="margin:0 0 12px 0;font-size:12px;">Suppress notifications during specified hours. Alerts are still logged but not sent.</p>
+                                <div class="quiet-hours-config">
+                                    <label class="field inline-check" style="margin-bottom:12px;">
+                                        <input type="checkbox" id="quiet_hours_enabled" />
+                                        <span>Enable Quiet Hours</span>
+                                    </label>
+                                    <div class="quiet-hours-times" id="quiet_hours_times" style="display:none;">
+                                        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                                            <label class="field">
+                                                <span>Start</span>
+                                                <input type="time" id="quiet_hours_start" value="22:00" />
+                                            </label>
+                                            <label class="field">
+                                                <span>End</span>
+                                                <input type="time" id="quiet_hours_end" value="07:00" />
+                                            </label>
+                                            <label class="field">
+                                                <span>Timezone</span>
+                                                <select id="quiet_hours_timezone">
+                                                    <option value="local">Local Time</option>
+                                                    <option value="UTC">UTC</option>
+                                                </select>
+                                            </label>
+                                        </div>
+                                        <div style="margin-top:8px;">
+                                            <label class="field inline-check">
+                                                <input type="checkbox" id="quiet_hours_critical_override" checked />
+                                                <span>Allow critical alerts during quiet hours</span>
+                                            </label>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -1089,98 +1193,152 @@
                     </div>
 
                     <!-- Flapping Detection & Alert Grouping -->
-                    <div class="alert-config-row" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));gap:16px;margin-top:16px;">
+                    <div class="alert-config-row" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(340px, 1fr));gap:16px;margin-top:16px;">
                         <!-- Flapping Detection -->
-                        <div class="panel">
-                            <h4 style="margin-top:0;color:var(--highlight)">Flapping Detection</h4>
-                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
-                                Suppress alerts for resources that rapidly change state (online/offline cycling).
+                        <div class="alerts-section" id="flapping_section" style="margin-bottom:0;">
+                            <div class="alerts-section-header" onclick="toggleAlertsSection('flapping_section')">
+                                <div class="alerts-section-title">
+                                    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z"/><path d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z"/></svg>
+                                    Flapping Detection
+                                </div>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
                             </div>
-                            <label class="field inline-check" style="margin-bottom:12px;">
-                                <input type="checkbox" id="flapping_detection_enabled" checked />
-                                <span>Enable Flapping Detection</span>
-                            </label>
-                            <div class="flapping-config" id="flapping_config">
-                                <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                                    <label class="field">
-                                        <span>State changes</span>
-                                        <input type="number" id="flapping_threshold" value="5" min="2" max="20" style="width:80px;" />
-                                    </label>
-                                    <label class="field">
-                                        <span>Within (minutes)</span>
-                                        <input type="number" id="flapping_window" value="10" min="1" max="60" style="width:80px;" />
-                                    </label>
+                            <div class="alerts-section-content">
+                                <p class="muted-text" style="margin:0 0 12px 0;font-size:12px;">Suppress alerts for resources that rapidly change state (online/offline cycling).</p>
+                                <label class="field inline-check" style="margin-bottom:12px;">
+                                    <input type="checkbox" id="flapping_detection_enabled" checked />
+                                    <span>Enable Flapping Detection</span>
+                                </label>
+                                <div class="flapping-config" id="flapping_config">
+                                    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                                        <label class="field">
+                                            <span>State changes</span>
+                                            <input type="number" id="flapping_threshold" value="5" min="2" max="20" style="width:80px;" />
+                                        </label>
+                                        <label class="field">
+                                            <span>Within (minutes)</span>
+                                            <input type="number" id="flapping_window" value="10" min="1" max="60" style="width:80px;" />
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         <!-- Alert Grouping -->
-                        <div class="panel">
-                            <h4 style="margin-top:0;color:var(--highlight)">Alert Grouping</h4>
-                            <div style="color:var(--muted);font-size:13px;margin-bottom:12px;">
-                                Collapse related alerts into parent alerts (e.g., 10 device alerts → 1 site alert).
+                        <div class="alerts-section" id="grouping_section" style="margin-bottom:0;">
+                            <div class="alerts-section-header" onclick="toggleAlertsSection('grouping_section')">
+                                <div class="alerts-section-title">
+                                    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3A1.5 1.5 0 0 1 7 2.5v3A1.5 1.5 0 0 1 5.5 7h-3A1.5 1.5 0 0 1 1 5.5v-3zM2.5 2a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 1h3A1.5 1.5 0 0 1 15 2.5v3A1.5 1.5 0 0 1 13.5 7h-3A1.5 1.5 0 0 1 9 5.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zM1 10.5A1.5 1.5 0 0 1 2.5 9h3A1.5 1.5 0 0 1 7 10.5v3A1.5 1.5 0 0 1 5.5 15h-3A1.5 1.5 0 0 1 1 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3zm6.5.5A1.5 1.5 0 0 1 10.5 9h3a1.5 1.5 0 0 1 1.5 1.5v3a1.5 1.5 0 0 1-1.5 1.5h-3A1.5 1.5 0 0 1 9 13.5v-3zm1.5-.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3z"/></svg>
+                                    Alert Grouping
+                                </div>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
                             </div>
-                            <label class="field inline-check" style="margin-bottom:12px;">
-                                <input type="checkbox" id="alert_grouping_enabled" checked />
-                                <span>Enable Alert Grouping</span>
-                            </label>
-                            <div class="grouping-config" id="grouping_config">
-                                <label class="field">
-                                    <span>Group threshold (% of scope)</span>
-                                    <input type="number" id="grouping_threshold" value="50" min="10" max="100" style="width:80px;" />
+                            <div class="alerts-section-content">
+                                <p class="muted-text" style="margin:0 0 12px 0;font-size:12px;">Collapse related alerts into parent alerts (e.g., 10 device alerts → 1 site alert).</p>
+                                <label class="field inline-check" style="margin-bottom:12px;">
+                                    <input type="checkbox" id="alert_grouping_enabled" checked />
+                                    <span>Enable Alert Grouping</span>
+                                </label>
+                                <div class="grouping-config" id="grouping_config">
+                                    <label class="field">
+                                        <span>Group threshold (% of scope)</span>
+                                        <input type="number" id="grouping_threshold" value="50" min="10" max="100" style="width:80px;" />
                                 </label>
                                 <div style="color:var(--muted);font-size:12px;margin-top:4px;">
                                     When >50% of devices at a site alert, show as "Site Degraded" instead of individual alerts.
                                 </div>
                             </div>
+                            </div>
                         </div>
                     </div>
 
                     <!-- Alert Dependencies -->
-                    <div class="panel" style="margin-top:16px;">
-                        <h4 style="margin-top:0;color:var(--highlight)">Alert Dependencies</h4>
-                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                                Suppress downstream alerts when parent resources are down. For example, if an agent is offline, suppress device alerts for that agent's devices.
+                    <div class="alerts-section" id="dependencies_section" style="margin-top:16px;">
+                        <div class="alerts-section-header" onclick="toggleAlertsSection('dependencies_section')">
+                            <div class="alerts-section-title">
+                                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M0 2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V2zm3 0H1v2h2V2zm9 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V2zm3 0h-2v2h2V2zM0 8a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1V8zm3 0H1v2h2V8zm9 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V8zm3 0h-2v2h2V8zM0 14a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H1a1 1 0 0 1-1-1v-1zm3 0H1v1h2v-1zm9 0a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-1zm3 0h-2v1h2v-1z"/><path d="M8 1a.5.5 0 0 1 .5.5v13a.5.5 0 0 1-1 0v-13A.5.5 0 0 1 8 1z"/><path d="M8 1a.5.5 0 0 1 .5.5v2a.5.5 0 0 1-1 0v-2A.5.5 0 0 1 8 1zM4 5h8v1H4V5z"/></svg>
+                                Alert Dependencies
                             </div>
-                            <label class="field inline-check">
-                                <input type="checkbox" id="alert_dependencies_enabled" checked />
-                                <span>Enable Dependencies</span>
-                            </label>
+                            <div class="alerts-section-actions">
+                                <label class="field inline-check" style="margin:0;" onclick="event.stopPropagation();">
+                                    <input type="checkbox" id="alert_dependencies_enabled" checked />
+                                    <span style="font-size:12px;">Enable</span>
+                                </label>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
+                            </div>
                         </div>
-                        <div class="dependency-rules" style="margin-top:12px;">
-                            <div class="dependency-rule-item">
-                                <span class="dependency-icon">→</span>
-                                <span>Agent offline → suppress device alerts</span>
-                                <span class="dependency-status enabled">Active</span>
-                            </div>
-                            <div class="dependency-rule-item">
-                                <span class="dependency-icon">→</span>
-                                <span>Site outage → suppress agent &amp; device alerts</span>
-                                <span class="dependency-status enabled">Active</span>
-                            </div>
-                            <div class="dependency-rule-item">
-                                <span class="dependency-icon">→</span>
-                                <span>Tenant outage → suppress site, agent &amp; device alerts</span>
-                                <span class="dependency-status enabled">Active</span>
+                        <div class="alerts-section-content">
+                            <p class="muted-text" style="margin:0 0 16px 0;font-size:13px;">Suppress downstream alerts when parent resources are down. For example, if an agent is offline, suppress device alerts for that agent's devices.</p>
+                            <div class="dependency-rules">
+                                <div class="dependency-rule-item">
+                                    <div class="dependency-icon">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>
+                                    </div>
+                                    <div class="dependency-rule-content">
+                                        <span class="dependency-rule-title">Agent offline → suppress device alerts</span>
+                                        <span class="dependency-rule-desc">When an agent goes offline, device alerts for that agent are suppressed</span>
+                                    </div>
+                                    <span class="dependency-status enabled">Active</span>
+                                </div>
+                                <div class="dependency-rule-item">
+                                    <div class="dependency-icon">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>
+                                    </div>
+                                    <div class="dependency-rule-content">
+                                        <span class="dependency-rule-title">Site outage → suppress agent &amp; device alerts</span>
+                                        <span class="dependency-rule-desc">When a site is down, all agent and device alerts for that site are suppressed</span>
+                                    </div>
+                                    <span class="dependency-status enabled">Active</span>
+                                </div>
+                                <div class="dependency-rule-item">
+                                    <div class="dependency-icon">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>
+                                    </div>
+                                    <div class="dependency-rule-content">
+                                        <span class="dependency-rule-title">Tenant outage → suppress site, agent &amp; device alerts</span>
+                                        <span class="dependency-rule-desc">When a tenant is down, all downstream alerts are suppressed</span>
+                                    </div>
+                                    <span class="dependency-status enabled">Active</span>
+                                </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Report Scheduling Section -->
-                    <div class="panel" style="margin-top:16px;">
-                        <h4 style="margin-top:0;color:var(--highlight)">Report Scheduling</h4>
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
-                            <div style="color:var(--muted);font-size:13px;max-width:520px;">
-                                Schedule automated reports for fleet status, usage summaries, and supply levels.
+                    <div class="alerts-section" id="report_scheduling_section" style="margin-top:16px;">
+                        <div class="alerts-section-header" onclick="toggleAlertsSection('report_scheduling_section')">
+                            <div class="alerts-section-title">
+                                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0v-1zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0V7zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0V9z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
+                                Report Scheduling
+                                <span class="alerts-section-badge" id="schedules_badge">0</span>
                             </div>
-                            <button id="new_scheduled_report_btn" class="btn-outline">
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
-                                New Schedule
-                            </button>
+                            <div class="alerts-section-actions">
+                                <button id="new_scheduled_report_btn" class="btn-outline btn-sm" onclick="event.stopPropagation();">
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                                    New Schedule
+                                </button>
+                                <button class="alerts-section-toggle" title="Toggle section">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.646 4.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1-.708.708L8 5.707l-5.646 5.647a.5.5 0 0 1-.708-.708l6-6z"/></svg>
+                                </button>
+                            </div>
                         </div>
-                        <div id="scheduled_reports_list" class="card" style="padding:12px;">
-                            <div class="muted-text">No scheduled reports configured.</div>
+                        <div class="alerts-section-content">
+                            <p class="muted-text" style="margin:0 0 16px 0;font-size:13px;">Schedule automated reports for fleet status, usage summaries, and supply levels.</p>
+                            <div id="scheduled_reports_list">
+                                <div class="config-empty-state">
+                                    <div class="config-empty-state-icon">
+                                        <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0v-1zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0V7zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0V9z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/></svg>
+                                    </div>
+                                    <div class="config-empty-state-title">No scheduled reports</div>
+                                    <div class="config-empty-state-text">Create a schedule to automatically generate and send reports.</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

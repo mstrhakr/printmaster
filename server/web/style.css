@@ -1577,60 +1577,382 @@ select:focus {
   flex-shrink: 0;
 }
 
-/* Config item cards (admin alerts view) */
-.config-item {
+/* ========================================
+   Alerts Admin Config Items - Redesigned
+   ======================================== */
+
+/* Quick Stats Summary Bar */
+.alerts-quick-stats {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  background: linear-gradient(135deg, var(--panel) 0%, rgba(38, 139, 210, 0.05) 100%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.alerts-quick-stat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-radius: 8px;
+  min-width: 140px;
+}
+
+.alerts-quick-stat-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(38, 139, 210, 0.15);
+  border-radius: 8px;
+  color: var(--highlight);
+}
+
+.alerts-quick-stat-content {
+  display: flex;
+  flex-direction: column;
+}
+
+.alerts-quick-stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.alerts-quick-stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Collapsible Section Headers */
+.alerts-section {
+  margin-bottom: 20px;
+}
+
+.alerts-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 14px 16px;
+  background: linear-gradient(135deg, rgba(38, 139, 210, 0.08) 0%, rgba(38, 139, 210, 0.02) 100%);
+  border: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.alerts-section-header:hover {
+  background: linear-gradient(135deg, rgba(38, 139, 210, 0.12) 0%, rgba(38, 139, 210, 0.04) 100%);
+}
+
+.alerts-section.collapsed .alerts-section-header {
+  border-radius: 10px;
+}
+
+.alerts-section-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  color: var(--text);
+  font-size: 15px;
+}
+
+.alerts-section-title svg {
+  color: var(--highlight);
+}
+
+.alerts-section-badge {
+  background: var(--highlight);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+}
+
+.alerts-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.alerts-section-toggle {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+
+.alerts-section-toggle:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.alerts-section-toggle svg {
+  transition: transform 0.3s ease;
+}
+
+.alerts-section.collapsed .alerts-section-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.alerts-section-content {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 10px;
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  padding: 16px;
+  transition: all 0.3s ease;
+}
+
+.alerts-section.collapsed .alerts-section-content {
+  display: none;
+}
+
+/* Config item cards (admin alerts view) - Enhanced */
+.config-item {
+  padding: 16px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.config-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--border);
+  transition: background 0.2s ease;
+}
+
+.config-item:hover {
+  border-color: var(--highlight);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+}
+
+.config-item:hover::before {
+  background: var(--highlight);
 }
 
 .config-item.active-window {
-  border-left: 3px solid var(--warning);
+  border-left: none;
+}
+
+.config-item.active-window::before {
+  background: var(--warning);
+  width: 4px;
 }
 
 .config-item-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
 .config-item-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(38, 139, 210, 0.12);
+  border-radius: 8px;
+  color: var(--highlight);
   font-size: 16px;
+  flex-shrink: 0;
+}
+
+.config-item-icon.channel-email { background: rgba(220, 50, 47, 0.12); color: #dc322f; }
+.config-item-icon.channel-slack { background: rgba(74, 21, 75, 0.12); color: #611f69; }
+.config-item-icon.channel-discord { background: rgba(88, 101, 242, 0.12); color: #5865F2; }
+.config-item-icon.channel-teams { background: rgba(68, 79, 178, 0.12); color: #464EB8; }
+.config-item-icon.channel-telegram { background: rgba(33, 150, 243, 0.12); color: #2196F3; }
+.config-item-icon.channel-pagerduty { background: rgba(6, 172, 56, 0.12); color: #06AC38; }
+.config-item-icon.channel-pushover { background: rgba(38, 139, 210, 0.12); color: var(--highlight); }
+.config-item-icon.channel-ntfy { background: rgba(42, 161, 152, 0.12); color: var(--success); }
+.config-item-icon.channel-webhook { background: rgba(181, 137, 0, 0.12); color: var(--accent); }
+
+.config-item-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .config-item-name {
   font-weight: 600;
   color: var(--text);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .config-item-status {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .config-item-status.enabled {
-  background: rgba(34, 197, 94, 0.2);
+  background: rgba(42, 161, 152, 0.15);
   color: var(--success);
+  border: 1px solid rgba(42, 161, 152, 0.3);
 }
 
 .config-item-status.disabled {
-  background: rgba(107, 114, 128, 0.2);
+  background: rgba(88, 110, 117, 0.15);
   color: var(--muted);
+  border: 1px solid rgba(88, 110, 117, 0.3);
 }
 
 .config-item-details {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.config-item-details-divider {
+  color: var(--border);
 }
 
 .config-item-actions {
-  margin-top: 10px;
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+.config-item-actions .btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* Severity badges in config items */
+.badge-critical, .badge-CRITICAL {
+  background: rgba(220, 50, 47, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(220, 50, 47, 0.3);
+}
+
+.badge-warning, .badge-WARNING {
+  background: rgba(203, 75, 22, 0.15);
+  color: var(--warning);
+  border: 1px solid rgba(203, 75, 22, 0.3);
+}
+
+.badge-info, .badge-INFO {
+  background: rgba(38, 139, 210, 0.15);
+  color: var(--highlight);
+  border: 1px solid rgba(38, 139, 210, 0.3);
+}
+
+/* Empty state for config sections */
+.config-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.config-empty-state-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(38, 139, 210, 0.1);
+  border-radius: 12px;
+  color: var(--highlight);
+  margin-bottom: 16px;
+}
+
+.config-empty-state-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.config-empty-state-text {
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+.config-empty-state-action {
+  margin-top: 16px;
+}
+
+/* Bulk actions toolbar */
+.alerts-bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(38, 139, 210, 0.08);
+  border: 1px solid rgba(38, 139, 210, 0.2);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.alerts-bulk-actions.hidden {
+  display: none;
+}
+
+.alerts-bulk-select-all {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.alerts-bulk-buttons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.alerts-bulk-buttons .btn {
+  padding: 5px 12px;
+  font-size: 12px;
 }
 
 /* Reports Grid */
@@ -1933,41 +2255,78 @@ select:focus {
   color: var(--text);
 }
 
-/* Dependency Rules List */
+/* Dependency Rules List - Enhanced */
 .dependency-rules {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .dependency-rule-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--card);
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.dependency-rule-item:hover {
+  border-color: rgba(38, 139, 210, 0.3);
+  background: rgba(38, 139, 210, 0.03);
 }
 
 .dependency-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(38, 139, 210, 0.1);
+  border-radius: 8px;
+  color: var(--highlight);
+  flex-shrink: 0;
+}
+
+.dependency-rule-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dependency-rule-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.dependency-rule-desc {
+  font-size: 11px;
   color: var(--muted);
-  font-weight: bold;
 }
 
 .dependency-status {
-  margin-left: auto;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: 12px;
   background: var(--border);
   color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
 
 .dependency-status.enabled {
-  background: rgba(34, 197, 94, 0.15);
+  background: rgba(42, 161, 152, 0.15);
   color: var(--success);
+  border: 1px solid rgba(42, 161, 152, 0.3);
+}
+
+.dependency-toggle {
+  margin-left: auto;
 }
 
 /* Inline checkbox fields */

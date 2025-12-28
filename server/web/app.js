@@ -2359,9 +2359,65 @@ function showReportDownloadModal(run) {
 let alertRulesUIInitialized = false;
 let cachedNotificationChannels = [];
 
+/**
+ * Toggle collapsible alerts section
+ */
+function toggleAlertsSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    section.classList.toggle('collapsed');
+    
+    // Persist state to localStorage
+    const collapsedSections = JSON.parse(localStorage.getItem('alertsSectionsCollapsed') || '{}');
+    collapsedSections[sectionId] = section.classList.contains('collapsed');
+    localStorage.setItem('alertsSectionsCollapsed', JSON.stringify(collapsedSections));
+}
+
+/**
+ * Restore collapsed state of alerts sections from localStorage
+ */
+function restoreAlertsSectionState() {
+    const collapsedSections = JSON.parse(localStorage.getItem('alertsSectionsCollapsed') || '{}');
+    for (const [sectionId, isCollapsed] of Object.entries(collapsedSections)) {
+        const section = document.getElementById(sectionId);
+        if (section && isCollapsed) {
+            section.classList.add('collapsed');
+        }
+    }
+}
+
+/**
+ * Update the quick stats in the alerts config header
+ */
+function updateAlertsQuickStats(stats) {
+    const rulesCount = document.getElementById('stats_rules_count');
+    const channelsCount = document.getElementById('stats_channels_count');
+    const policiesCount = document.getElementById('stats_policies_count');
+    const activeAlerts = document.getElementById('stats_active_alerts');
+    
+    if (rulesCount) rulesCount.textContent = stats.rules || 0;
+    if (channelsCount) channelsCount.textContent = stats.channels || 0;
+    if (policiesCount) policiesCount.textContent = stats.policies || 0;
+    if (activeAlerts) activeAlerts.textContent = stats.activeAlerts || 0;
+    
+    // Update section badges
+    const rulesBadge = document.getElementById('rules_badge');
+    const channelsBadge = document.getElementById('channels_badge');
+    const escalationBadge = document.getElementById('escalation_badge');
+    const schedulesBadge = document.getElementById('schedules_badge');
+    
+    if (rulesBadge) rulesBadge.textContent = stats.rules || 0;
+    if (channelsBadge) channelsBadge.textContent = stats.channels || 0;
+    if (escalationBadge) escalationBadge.textContent = stats.policies || 0;
+    if (schedulesBadge) schedulesBadge.textContent = stats.schedules || 0;
+}
+
 function initAlertRulesUI() {
     if (alertRulesUIInitialized) return;
     alertRulesUIInitialized = true;
+    
+    // Restore collapsed section state
+    restoreAlertsSectionState();
 
     // Rule management buttons
     const newRuleBtn = document.getElementById('new_alert_rule_btn');
@@ -2423,6 +2479,9 @@ async function loadAlertRules() {
     const escalationContainer = document.getElementById('escalation_policies_list');
     const maintenanceContainer = document.getElementById('maintenance_windows_list');
 
+    // Stats tracking
+    const stats = { rules: 0, channels: 0, policies: 0, schedules: 0, activeAlerts: 0 };
+
     // Load alert rules
     if (rulesContainer) {
         try {
@@ -2430,20 +2489,35 @@ async function loadAlertRules() {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             const rules = data.rules || [];
+            stats.rules = rules.length;
             
             if (rules.length === 0) {
-                rulesContainer.innerHTML = '<div class="muted-text">No alert rules configured. Create a rule to start monitoring.</div>';
+                rulesContainer.innerHTML = `
+                    <div class="config-empty-state">
+                        <div class="config-empty-state-icon">
+                            <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+                        </div>
+                        <div class="config-empty-state-title">No alert rules yet</div>
+                        <div class="config-empty-state-text">Create your first alert rule to start monitoring your printer fleet.</div>
+                    </div>`;
             } else {
                 rulesContainer.innerHTML = rules.map(rule => `
                     <div class="config-item" data-rule-id="${rule.id}">
                         <div class="config-item-header">
-                            <span class="config-item-name">${escapeHtml(rule.name)}</span>
-                            <span class="badge badge-${rule.severity}">${rule.severity}</span>
-                            <span class="config-item-status ${rule.enabled ? 'enabled' : 'disabled'}">${rule.enabled ? 'Enabled' : 'Disabled'}</span>
-                        </div>
-                        <div class="config-item-details muted-text">
-                            Type: ${rule.type} • Scope: ${rule.scope}
-                            ${rule.description ? ` • ${escapeHtml(rule.description)}` : ''}
+                            <div class="config-item-icon">${getRuleTypeIcon(rule.type)}</div>
+                            <div class="config-item-info">
+                                <div class="config-item-name">
+                                    ${escapeHtml(rule.name)}
+                                    <span class="badge badge-${rule.severity}">${rule.severity}</span>
+                                    <span class="config-item-status ${rule.enabled ? 'enabled' : 'disabled'}">${rule.enabled ? 'Enabled' : 'Disabled'}</span>
+                                </div>
+                                <div class="config-item-details">
+                                    <span>${formatRuleType(rule.type)}</span>
+                                    <span class="config-item-details-divider">•</span>
+                                    <span>Scope: ${rule.scope || 'All'}</span>
+                                    ${rule.description ? `<span class="config-item-details-divider">•</span><span>${escapeHtml(rule.description)}</span>` : ''}
+                                </div>
+                            </div>
                         </div>
                         <div class="config-item-actions">
                             <button class="btn btn-sm" onclick="editAlertRule(${rule.id})">Edit</button>
@@ -2466,20 +2540,33 @@ async function loadAlertRules() {
             const data = await resp.json();
             const channels = data.channels || [];
             cachedNotificationChannels = channels;
+            stats.channels = channels.length;
             
             if (channels.length === 0) {
-                channelsContainer.innerHTML = '<div class="muted-text">No notification channels configured.</div>';
+                channelsContainer.innerHTML = `
+                    <div class="config-empty-state">
+                        <div class="config-empty-state-icon">
+                            <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/></svg>
+                        </div>
+                        <div class="config-empty-state-title">No notification channels</div>
+                        <div class="config-empty-state-text">Add a notification channel to receive alerts via email, Slack, Discord, and more.</div>
+                    </div>`;
             } else {
                 channelsContainer.innerHTML = channels.map(ch => `
                     <div class="config-item" data-channel-id="${ch.id}">
                         <div class="config-item-header">
-                            <span class="config-item-icon">${getChannelIcon(ch.type)}</span>
-                            <span class="config-item-name">${escapeHtml(ch.name)}</span>
-                            <span class="badge">${ch.type}</span>
-                            <span class="config-item-status ${ch.enabled ? 'enabled' : 'disabled'}">${ch.enabled ? 'Enabled' : 'Disabled'}</span>
+                            <div class="config-item-icon channel-${ch.type}">${getChannelIcon(ch.type)}</div>
+                            <div class="config-item-info">
+                                <div class="config-item-name">
+                                    ${escapeHtml(ch.name)}
+                                    <span class="badge">${ch.type}</span>
+                                    <span class="config-item-status ${ch.enabled ? 'enabled' : 'disabled'}">${ch.enabled ? 'Enabled' : 'Disabled'}</span>
+                                </div>
+                                <div class="config-item-details">${getChannelSummary(ch)}</div>
+                            </div>
                         </div>
-                        <div class="config-item-details muted-text">${getChannelSummary(ch)}</div>
                         <div class="config-item-actions">
+                            <button class="btn btn-sm btn-outline" onclick="testNotificationChannel(${ch.id})" title="Send test notification">Test</button>
                             <button class="btn btn-sm" onclick="editNotificationChannel(${ch.id})">Edit</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteNotificationChannel(${ch.id})">Delete</button>
                         </div>
@@ -2499,9 +2586,17 @@ async function loadAlertRules() {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             const policies = data.policies || [];
+            stats.policies = policies.length;
             
             if (policies.length === 0) {
-                escalationContainer.innerHTML = '<div class="muted-text">No escalation policies configured.</div>';
+                escalationContainer.innerHTML = `
+                    <div class="config-empty-state">
+                        <div class="config-empty-state-icon">
+                            <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M4.285 9.567a.5.5 0 0 1 .683.183A3.498 3.498 0 0 0 8 11.5a3.498 3.498 0 0 0 3.032-1.75.5.5 0 1 1 .866.5A4.498 4.498 0 0 1 8 12.5a4.498 4.498 0 0 1-3.898-2.25.5.5 0 0 1 .183-.683zM7 6.5C7 7.328 6.552 8 6 8s-1-.672-1-1.5S5.448 5 6 5s1 .672 1 1.5zm4 0c0 .828-.448 1.5-1 1.5s-1-.672-1-1.5S9.448 5 10 5s1 .672 1 1.5z"/></svg>
+                        </div>
+                        <div class="config-empty-state-title">No escalation policies</div>
+                        <div class="config-empty-state-text">Create escalation policies to automatically escalate unacknowledged alerts.</div>
+                    </div>`;
             } else {
                 escalationContainer.innerHTML = policies.map(p => {
                     const stepsSummary = (p.steps || []).length > 0 
@@ -2510,11 +2605,18 @@ async function loadAlertRules() {
                     return `
                         <div class="config-item" data-policy-id="${p.id}">
                             <div class="config-item-header">
-                                <span class="config-item-name">${escapeHtml(p.name)}</span>
-                                <span class="badge">${stepsSummary}</span>
-                                <span class="config-item-status ${p.enabled ? 'enabled' : 'disabled'}">${p.enabled ? 'Enabled' : 'Disabled'}</span>
+                                <div class="config-item-icon">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg>
+                                </div>
+                                <div class="config-item-info">
+                                    <div class="config-item-name">
+                                        ${escapeHtml(p.name)}
+                                        <span class="badge">${stepsSummary}</span>
+                                        <span class="config-item-status ${p.enabled ? 'enabled' : 'disabled'}">${p.enabled ? 'Enabled' : 'Disabled'}</span>
+                                    </div>
+                                    ${p.description ? `<div class="config-item-details">${escapeHtml(p.description)}</div>` : ''}
+                                </div>
                             </div>
-                            ${p.description ? `<div class="config-item-details muted-text">${escapeHtml(p.description)}</div>` : ''}
                             <div class="config-item-actions">
                                 <button class="btn btn-sm" onclick="editEscalationPolicy(${p.id})">Edit</button>
                                 <button class="btn btn-sm btn-danger" onclick="deleteEscalationPolicy(${p.id})">Delete</button>
@@ -2538,7 +2640,14 @@ async function loadAlertRules() {
             const windows = data.windows || [];
             
             if (windows.length === 0) {
-                maintenanceContainer.innerHTML = '<div class="muted-text">No maintenance windows scheduled.</div>';
+                maintenanceContainer.innerHTML = `
+                    <div class="config-empty-state">
+                        <div class="config-empty-state-icon">
+                            <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 10.5A.5.5 0 0 1 6 10h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5z"/><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM2 2a1 1 0 0 0-1 1v1h14V3a1 1 0 0 0-1-1H2zm13 3H1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5z"/></svg>
+                        </div>
+                        <div class="config-empty-state-title">No maintenance windows</div>
+                        <div class="config-empty-state-text">Schedule maintenance windows to suppress alerts during planned downtime.</div>
+                    </div>`;
             } else {
                 maintenanceContainer.innerHTML = windows.map(w => {
                     const startDate = new Date(w.start_time).toLocaleString();
@@ -2547,13 +2656,22 @@ async function loadAlertRules() {
                     return `
                         <div class="config-item ${isActive ? 'active-window' : ''}" data-window-id="${w.id}">
                             <div class="config-item-header">
-                                <span class="config-item-name">${escapeHtml(w.name)}</span>
-                                ${isActive ? '<span class="badge badge-warning">Active</span>' : ''}
-                                ${w.recurring ? '<span class="badge">Recurring</span>' : ''}
-                            </div>
-                            <div class="config-item-details muted-text">
-                                ${startDate} → ${endDate}
-                                ${w.scope ? ` • Scope: ${w.scope}` : ''}
+                                <div class="config-item-icon" style="${isActive ? 'background:rgba(203,75,22,0.12);color:var(--warning);' : ''}">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 10.5A.5.5 0 0 1 6 10h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5z"/><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM2 2a1 1 0 0 0-1 1v1h14V3a1 1 0 0 0-1-1H2zm13 3H1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V5z"/></svg>
+                                </div>
+                                <div class="config-item-info">
+                                    <div class="config-item-name">
+                                        ${escapeHtml(w.name)}
+                                        ${isActive ? '<span class="badge badge-warning">Active</span>' : ''}
+                                        ${w.recurring ? '<span class="badge">Recurring</span>' : ''}
+                                    </div>
+                                    <div class="config-item-details">
+                                        <span>${startDate}</span>
+                                        <span class="config-item-details-divider">→</span>
+                                        <span>${endDate}</span>
+                                        ${w.scope ? `<span class="config-item-details-divider">•</span><span>Scope: ${w.scope}</span>` : ''}
+                                    </div>
+                                </div>
                             </div>
                             <div class="config-item-actions">
                                 <button class="btn btn-sm" onclick="editMaintenanceWindow(${w.id})">Edit</button>
@@ -2562,6 +2680,7 @@ async function loadAlertRules() {
                         </div>
                     `;
                 }).join('');
+
             }
         } catch (err) {
             console.error('Failed to load maintenance windows:', err);
@@ -2576,25 +2695,42 @@ async function loadAlertRules() {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             const schedules = data.schedules || [];
+            stats.schedules = schedules.length;
             
             if (schedules.length === 0) {
-                schedulesContainer.innerHTML = '<div class="muted-text">No scheduled reports configured.</div>';
+                schedulesContainer.innerHTML = `
+                    <div class="config-empty-state">
+                        <div class="config-empty-state-icon">
+                            <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor"><path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0v-1zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0V7zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0V9z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5h3zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3z"/></svg>
+                        </div>
+                        <div class="config-empty-state-title">No scheduled reports</div>
+                        <div class="config-empty-state-text">Create a schedule to automatically generate and send reports.</div>
+                    </div>`;
             } else {
                 schedulesContainer.innerHTML = schedules.map(s => {
                     const nextRun = s.next_run ? new Date(s.next_run).toLocaleString() : 'Not scheduled';
                     return `
                         <div class="config-item" data-schedule-id="${s.id}">
                             <div class="config-item-header">
-                                <span class="config-item-name">${escapeHtml(s.name)}</span>
-                                <span class="badge">${s.frequency}</span>
-                                <span class="badge">${s.report_type}</span>
-                                <span class="config-item-status ${s.enabled ? 'enabled' : 'disabled'}">${s.enabled ? 'Enabled' : 'Disabled'}</span>
-                            </div>
-                            <div class="config-item-details muted-text">
-                                Next run: ${nextRun} • Format: ${s.output_format || 'csv'}
+                                <div class="config-item-icon">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0v-1zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0V7zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0V9z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/></svg>
+                                </div>
+                                <div class="config-item-info">
+                                    <div class="config-item-name">
+                                        ${escapeHtml(s.name)}
+                                        <span class="badge">${s.frequency}</span>
+                                        <span class="badge">${s.report_type}</span>
+                                        <span class="config-item-status ${s.enabled ? 'enabled' : 'disabled'}">${s.enabled ? 'Enabled' : 'Disabled'}</span>
+                                    </div>
+                                    <div class="config-item-details">
+                                        <span>Next run: ${nextRun}</span>
+                                        <span class="config-item-details-divider">•</span>
+                                        <span>Format: ${s.output_format || 'csv'}</span>
+                                    </div>
+                                </div>
                             </div>
                             <div class="config-item-actions">
-                                <button class="btn btn-sm" onclick="runScheduleNow(${s.id})">Run Now</button>
+                                <button class="btn btn-sm btn-outline" onclick="runScheduleNow(${s.id})">Run Now</button>
                                 <button class="btn btn-sm btn-danger" onclick="deleteReportSchedule(${s.id})">Delete</button>
                             </div>
                         </div>
@@ -2606,16 +2742,90 @@ async function loadAlertRules() {
             schedulesContainer.innerHTML = '<div class="error-text">Failed to load scheduled reports.</div>';
         }
     }
+
+    // Update quick stats after all data loaded
+    updateAlertsQuickStats(stats);
+}
+
+/**
+ * Get icon for alert rule type
+ */
+function getRuleTypeIcon(type) {
+    switch (type) {
+        case 'toner_low':
+        case 'supply_low':
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/></svg>';
+        case 'offline':
+        case 'device_offline':
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M10.706 3.294A12.545 12.545 0 0 0 8 3C5.259 3 2.723 3.882.663 5.379a.485.485 0 0 0-.048.736.518.518 0 0 0 .668.05A11.448 11.448 0 0 1 8 4c.63 0 1.249.05 1.852.148l.854-.854zM8 6c-1.905 0-3.68.56-5.166 1.526a.48.48 0 0 0-.063.745.525.525 0 0 0 .652.065 8.448 8.448 0 0 1 3.51-1.27L8 6zm2.596 1.404.785-.785c.63.24 1.227.545 1.785.907a.482.482 0 0 1 .063.745.525.525 0 0 1-.652.065 8.462 8.462 0 0 0-1.98-.932zM8 10l.933-.933a6.455 6.455 0 0 1 2.013.637c.285.145.326.524.1.75l-.015.015a.532.532 0 0 1-.611.09A5.478 5.478 0 0 0 8 10zm4.905-4.905.747-.747c.59.3 1.153.645 1.685 1.03a.485.485 0 0 1 .047.737.518.518 0 0 1-.668.05 11.493 11.493 0 0 0-1.811-1.07zM9.02 11.78c.238.14.236.464.04.66l-.707.706a.5.5 0 0 1-.707 0l-.707-.707c-.195-.195-.197-.518.04-.66A1.99 1.99 0 0 1 8 11.5c.374 0 .723.102 1.021.28zm4.355-9.905a.53.53 0 0 1 .75.75l-10.75 10.75a.53.53 0 0 1-.75-.75l10.75-10.75z"/></svg>';
+        case 'error':
+        case 'error_count':
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>';
+        case 'page_count':
+        case 'usage':
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 11a1 1 0 1 1 2 0v1a1 1 0 1 1-2 0v-1zm6-4a1 1 0 1 1 2 0v5a1 1 0 1 1-2 0V7zM7 9a1 1 0 0 1 2 0v3a1 1 0 1 1-2 0V9z"/><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1v-1z"/></svg>';
+        case 'agent_offline':
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0V3z"/><path d="M3.5 6.5A.5.5 0 0 1 4 7v1a4 4 0 0 0 8 0V7a.5.5 0 0 1 1 0v1a5 5 0 0 1-4.5 4.975V15h3a.5.5 0 0 1 0 1h-7a.5.5 0 0 1 0-1h3v-2.025A5 5 0 0 1 3 8V7a.5.5 0 0 1 .5-.5z"/></svg>';
+        default:
+            return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/></svg>';
+    }
+}
+
+/**
+ * Format rule type for display
+ */
+function formatRuleType(type) {
+    const types = {
+        'toner_low': 'Toner Low',
+        'supply_low': 'Supply Low',
+        'offline': 'Device Offline',
+        'device_offline': 'Device Offline',
+        'agent_offline': 'Agent Offline',
+        'error': 'Error Alert',
+        'error_count': 'Error Count',
+        'page_count': 'Page Count',
+        'usage': 'Usage Alert'
+    };
+    return types[type] || type;
 }
 
 function getChannelIcon(type) {
     switch (type) {
-        case 'email': return '📧';
-        case 'webhook': return '🔗';
-        case 'slack': return '💬';
-        case 'teams': return '👥';
-        case 'pagerduty': return '🚨';
-        default: return '📢';
+        case 'email': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4Zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2Zm13 2.383-4.708 2.825L15 11.105V5.383Zm-.034 6.876-5.64-3.471L8 9.583l-1.326-.795-5.64 3.47A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.741ZM1 11.105l4.708-2.897L1 5.383v5.722Z"/></svg>';
+        case 'webhook': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M6.354 5.5H4a3 3 0 0 0 0 6h3a3 3 0 0 0 2.83-4H9c-.086 0-.17.01-.25.031A2 2 0 0 1 7 9.5H4a2 2 0 1 1 0-4h2.354z"/><path d="M9 5.5a3 3 0 0 0-2.83 4h1.098A2 2 0 0 1 9 7.5h3a2 2 0 1 1 0 4h-2.354l1-1.5H12a3 3 0 1 0 0-6H9z"/></svg>';
+        case 'slack': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.362 10.11c0 .926-.756 1.681-1.681 1.681S0 11.036 0 10.111C0 9.186.756 8.43 1.68 8.43h1.682v1.68zm.846 0c0-.924.756-1.68 1.681-1.68s1.681.756 1.681 1.68v4.21c0 .924-.756 1.68-1.68 1.68a1.685 1.685 0 0 1-1.682-1.68v-4.21zM5.89 3.362c-.926 0-1.682-.756-1.682-1.681S4.964 0 5.89 0s1.68.756 1.68 1.68v1.682H5.89zm0 .846c.924 0 1.68.756 1.68 1.681S6.814 7.57 5.89 7.57H1.68C.757 7.57 0 6.814 0 5.89c0-.926.756-1.682 1.68-1.682h4.21zm6.749 1.682c0-.926.755-1.682 1.68-1.682.925 0 1.681.756 1.681 1.681s-.756 1.681-1.68 1.681h-1.681V5.89zm-.848 0c0 .924-.755 1.68-1.68 1.68A1.685 1.685 0 0 1 8.43 5.89V1.68C8.43.757 9.186 0 10.11 0c.926 0 1.681.756 1.681 1.68v4.21zm-1.681 6.748c.926 0 1.682.756 1.682 1.681S11.036 16 10.11 16s-1.681-.756-1.681-1.68v-1.682h1.68zm0-.847c-.924 0-1.68-.755-1.68-1.68 0-.925.756-1.681 1.68-1.681h4.21c.924 0 1.68.756 1.68 1.68 0 .926-.756 1.681-1.68 1.681h-4.21z"/></svg>';
+        case 'teams': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M5 0a5 5 0 0 0-4.898 6.002A5 5 0 1 0 10 10.179V6H5V0zm4 6h2v4a4 4 0 1 1-8 0V6h2v4a2 2 0 1 0 4 0V6zM5 1a4 4 0 0 1 4 4H5V1z"/></svg>';
+        case 'pagerduty': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"/></svg>';
+        case 'discord': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M13.545 2.907a13.227 13.227 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.19 12.19 0 0 0-3.658 0 8.258 8.258 0 0 0-.412-.833.051.051 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.041.041 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032c.001.014.01.028.021.037a13.276 13.276 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019c.308-.42.582-.863.818-1.329a.05.05 0 0 0-.01-.059.051.051 0 0 0-.018-.011 8.875 8.875 0 0 1-1.248-.595.05.05 0 0 1-.02-.066.051.051 0 0 1 .015-.019c.084-.063.168-.129.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.052.052 0 0 1 .053.007c.08.066.164.132.248.195a.051.051 0 0 1-.004.085 8.254 8.254 0 0 1-1.249.594.05.05 0 0 0-.03.03.052.052 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.235 13.235 0 0 0 4.001-2.02.049.049 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.034.034 0 0 0-.02-.019Zm-8.198 7.307c-.789 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612Zm5.316 0c-.788 0-1.438-.724-1.438-1.612 0-.889.637-1.613 1.438-1.613.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612Z"/></svg>';
+        case 'telegram': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM8.287 5.906c-.778.324-2.334.994-4.666 2.01-.378.15-.577.298-.595.442-.03.243.275.339.69.47l.175.055c.408.133.958.288 1.243.294.26.006.549-.1.868-.32 2.179-1.471 3.304-2.214 3.374-2.23.05-.012.12-.026.166.016.047.041.042.12.037.141-.03.129-1.227 1.241-1.846 1.817-.193.18-.33.307-.358.336a8.154 8.154 0 0 1-.188.186c-.38.366-.664.64.015 1.088.327.216.589.393.85.571.284.194.568.387.936.629.094.06.183.125.27.187.331.236.63.448.997.414.214-.02.435-.22.547-.82.265-1.417.786-4.486.906-5.751a1.426 1.426 0 0 0-.013-.315.337.337 0 0 0-.114-.217.526.526 0 0 0-.31-.093c-.3.005-.763.166-2.984 1.09z"/></svg>';
+        case 'pushover': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h6zM5 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2H5z"/><path d="M8 14a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/></svg>';
+        case 'ntfy': return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/></svg>';
+        default: return '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/></svg>';
+    }
+}
+
+/**
+ * Test notification channel by sending a test message
+ */
+async function testNotificationChannel(id) {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.textContent = 'Sending...';
+    btn.disabled = true;
+    
+    try {
+        const resp = await fetch(`/api/v1/notification-channels/${id}/test`, { method: 'POST' });
+        if (!resp.ok) {
+            const data = await resp.json().catch(() => ({}));
+            throw new Error(data.error || `HTTP ${resp.status}`);
+        }
+        window.__pm_shared.showToast('Test notification sent successfully', 'success');
+    } catch (err) {
+        console.error('Failed to test notification channel:', err);
+        window.__pm_shared.showToast(`Test failed: ${err.message}`, 'error');
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
     }
 }
 
