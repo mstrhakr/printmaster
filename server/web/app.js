@@ -1087,6 +1087,9 @@ function initLogSubTabs() {
     // Initialize log view mode toggle (table vs raw)
     initLogViewModeToggle();
 
+    // Initialize logs sidebar toggle
+    initLogsSidebarToggle();
+
     // Log action buttons
     const copyLogsBtn = document.getElementById('copy_logs_btn');
     if (copyLogsBtn) {
@@ -1103,7 +1106,33 @@ function initLogSubTabs() {
         clearLogBtn.addEventListener('click', clearLogs);
     }
 
+    // Refresh button
+    const refreshBtn = document.getElementById('logs_refresh_btn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => {
+            loadLogs();
+            window.__pm_shared.showToast('Logs refreshed', 'info');
+        });
+    }
+
     // Note: Audit logs are now in Admin > Audit tab, initialized separately
+}
+
+function initLogsSidebarToggle() {
+    const sidebar = document.getElementById('logs_sidebar');
+    const toggle = document.getElementById('logs_sidebar_toggle');
+    if (!sidebar || !toggle) return;
+
+    // Restore collapsed state from localStorage
+    const savedState = localStorage.getItem('printmaster_logs_sidebar_collapsed');
+    if (savedState === 'true') {
+        sidebar.classList.add('collapsed');
+    }
+
+    toggle.addEventListener('click', () => {
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('printmaster_logs_sidebar_collapsed', sidebar.classList.contains('collapsed'));
+    });
 }
 
 function initLogViewModeToggle() {
@@ -15846,8 +15875,15 @@ function renderLogsTable(entries) {
         return;
     }
 
+    // Update total count
+    const entryCountEl = document.getElementById('logs_entry_count');
+    if (entryCountEl) {
+        entryCountEl.textContent = entries ? entries.length : 0;
+    }
+
     if (!entries || entries.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="log-table-empty">No logs available</td></tr>';
+        updateLogsShowingCount(0);
         return;
     }
 
@@ -15861,6 +15897,9 @@ function renderLogsTable(entries) {
         if (filterSearch && !entry.raw.toLowerCase().includes(filterSearch)) return false;
         return true;
     });
+
+    // Update showing count
+    updateLogsShowingCount(filteredEntries.length);
 
     if (filteredEntries.length === 0) {
         tbody.innerHTML = '<tr><td colspan="4" class="log-table-empty">No logs match the current filters</td></tr>';
@@ -15910,8 +15949,15 @@ function renderLogsRaw(entries) {
         return;
     }
 
+    // Update total count
+    const entryCountEl = document.getElementById('logs_entry_count');
+    if (entryCountEl) {
+        entryCountEl.textContent = entries ? entries.length : 0;
+    }
+
     if (!entries || entries.length === 0) {
         container.textContent = 'No logs available';
+        updateLogsShowingCount(0);
         return;
     }
 
@@ -15926,6 +15972,9 @@ function renderLogsRaw(entries) {
         return true;
     });
 
+    // Update showing count
+    updateLogsShowingCount(filteredEntries.length);
+
     if (filteredEntries.length === 0) {
         container.textContent = 'No logs match the current filters';
         return;
@@ -15937,6 +15986,13 @@ function renderLogsRaw(entries) {
     const pauseCheckbox = document.getElementById('pause_autoscroll');
     if (!pauseCheckbox || !pauseCheckbox.checked) {
         container.scrollTop = container.scrollHeight;
+    }
+}
+
+function updateLogsShowingCount(count) {
+    const showingCountEl = document.getElementById('logs_showing_count');
+    if (showingCountEl) {
+        showingCountEl.textContent = count;
     }
 }
 

@@ -1760,50 +1760,119 @@
 
         <!-- Logs Tab (System logs only - Audit moved to Admin) -->
         <div class="hidden" style="margin-top:12px;" data-tab="logs">
-            <h3>System Logs</h3>
-
-            <div class="panel log-panel">
-                <div class="log-controls">
-                    <div class="log-view-toggle">
-                        <button class="log-view-btn active" data-log-view-mode="table" title="Table View">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v1h14V2a1 1 0 0 0-1-1H2zM1 5v.5h6V5H1zm7 0v.5h7V5H8zM1 7v.5h6V7H1zm7 0v.5h7V7H8zM1 9v.5h6V9H1zm7 0v.5h7V9H8zM1 11v.5h6V11H1zm7 0v.5h7V11H8z"/>
-                            </svg>
-                        </button>
-                        <button class="log-view-btn" data-log-view-mode="raw" title="Raw View">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M5.854 4.854a.5.5 0 1 0-.708-.708l-3.5 3.5a.5.5 0 0 0 0 .708l3.5 3.5a.5.5 0 0 0 .708-.708L2.707 8l3.147-3.146zm4.292 0a.5.5 0 0 1 .708-.708l3.5 3.5a.5.5 0 0 1 0 .708l-3.5 3.5a.5.5 0 0 1-.708-.708L13.293 8l-3.147-3.146z"/>
-                            </svg>
+            <div class="sidebar-layout logs-layout">
+                <!-- Sidebar for search and filters -->
+                <aside class="filter-sidebar logs-sidebar" id="logs_sidebar">
+                    <div class="filter-sidebar-header logs-sidebar-header">
+                        <h4>Search & Filter</h4>
+                        <button class="ghost-btn filter-sidebar-toggle logs-sidebar-toggle" id="logs_sidebar_toggle" title="Toggle sidebar">
+                            <span>◀</span>
                         </button>
                     </div>
-                    <label class="log-control"><input type="checkbox" id="pause_autoscroll" /> Pause auto-scroll</label>
-                    <select id="log_level_filter">
-                        <option value="">All Levels</option>
-                        <option value="ERROR">ERROR</option>
-                        <option value="WARN">WARN</option>
-                        <option value="INFO">INFO</option>
-                        <option value="DEBUG">DEBUG</option>
-                        <option value="TRACE">TRACE</option>
-                    </select>
-                    <input type="text" id="log_search_filter" placeholder="Search logs..." autocomplete="off" data-1p-ignore data-lpignore="true" />
-                    <button id="copy_logs_btn">Copy Logs</button>
-                    <button id="download_logs_btn">Download Logs</button>
-                    <button id="clear_log_btn">Clear Log</button>
-                </div>
-                <div id="log_table_container" class="log-table-container">
-                    <table class="log-table" id="log_table">
-                        <thead>
-                            <tr>
-                                <th class="log-col-time">Time</th>
-                                <th class="log-col-level">Level</th>
-                                <th class="log-col-message">Message</th>
-                                <th class="log-col-context">Context</th>
-                            </tr>
-                        </thead>
-                        <tbody id="log_table_body"></tbody>
-                    </table>
-                </div>
-                <pre id="log" class="hidden"></pre>
+                    
+                    <div class="filter-sidebar-content logs-sidebar-content">
+                        <!-- Search box -->
+                        <div class="sidebar-search-section">
+                            <label class="field">
+                                <span>Search</span>
+                                <input type="text" id="log_search_filter" placeholder="Search message, context…" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                        </div>
+
+                        <!-- Filters -->
+                        <div class="sidebar-filter-section">
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Log Level</span>
+                                    <select id="log_level_filter">
+                                        <option value="">All Levels</option>
+                                        <option value="ERROR">ERROR</option>
+                                        <option value="WARN">WARN</option>
+                                        <option value="INFO">INFO</option>
+                                        <option value="DEBUG">DEBUG</option>
+                                        <option value="TRACE">TRACE</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- View mode toggle -->
+                        <div class="sidebar-filter-section" style="margin-top:8px;">
+                            <div class="sidebar-filter-group">
+                                <div class="filter-label">View Mode</div>
+                                <div class="log-view-toggle">
+                                    <button class="log-view-btn active" data-log-view-mode="table" title="Table View">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                            <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm2-1a1 1 0 0 0-1 1v1h14V2a1 1 0 0 0-1-1H2zM1 5v.5h6V5H1zm7 0v.5h7V5H8zM1 7v.5h6V7H1zm7 0v.5h7V7H8zM1 9v.5h6V9H1zm7 0v.5h7V9H8zM1 11v.5h6V11H1zm7 0v.5h7V11H8z"/>
+                                        </svg>
+                                        <span>Table</span>
+                                    </button>
+                                    <button class="log-view-btn" data-log-view-mode="raw" title="Raw View">
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                                            <path d="M5.854 4.854a.5.5 0 1 0-.708-.708l-3.5 3.5a.5.5 0 0 0 0 .708l3.5 3.5a.5.5 0 0 0 .708-.708L2.707 8l3.147-3.146zm4.292 0a.5.5 0 0 1 .708-.708l3.5 3.5a.5.5 0 0 1 0 .708l-3.5 3.5a.5.5 0 0 1-.708-.708L13.293 8l-3.147-3.146z"/>
+                                        </svg>
+                                        <span>Raw</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Options -->
+                        <div class="sidebar-filter-section" style="margin-top:8px;">
+                            <div class="sidebar-filter-group">
+                                <div class="filter-label">Options</div>
+                                <label class="log-option-toggle">
+                                    <input type="checkbox" id="pause_autoscroll" />
+                                    <span>Pause auto-scroll</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div class="sidebar-filter-actions">
+                            <button id="copy_logs_btn" class="ghost-btn" style="width:100%;margin-bottom:8px;">
+                                <span>📋</span> Copy Logs
+                            </button>
+                            <button id="download_logs_btn" class="ghost-btn" style="width:100%;margin-bottom:8px;">
+                                <span>💾</span> Download Logs
+                            </button>
+                            <button id="clear_log_btn" class="ghost-btn danger-btn" style="width:100%;">
+                                <span>🗑</span> Clear Logs
+                            </button>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Main content -->
+                <main class="logs-main">
+                    <div class="logs-main-header">
+                        <div>
+                            <h3 style="margin:0;">System Logs</h3>
+                            <span class="count-label">Entries:</span> <span id="logs_entry_count">0</span>
+                            <span class="count-label" style="margin-left:12px;">Showing:</span> <span id="logs_showing_count">0</span>
+                        </div>
+                        <div class="logs-main-actions">
+                            <button id="logs_refresh_btn" class="ghost-btn" title="Refresh logs">↻ Refresh</button>
+                        </div>
+                    </div>
+
+                    <div class="panel log-panel">
+                        <div id="log_table_container" class="log-table-container">
+                            <table class="log-table" id="log_table">
+                                <thead>
+                                    <tr>
+                                        <th class="log-col-time">Time</th>
+                                        <th class="log-col-level">Level</th>
+                                        <th class="log-col-message">Message</th>
+                                        <th class="log-col-context">Context</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="log_table_body"></tbody>
+                            </table>
+                        </div>
+                        <pre id="log" class="hidden"></pre>
+                    </div>
+                </main>
             </div>
         </div>
 

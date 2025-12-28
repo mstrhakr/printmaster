@@ -2350,6 +2350,133 @@ select:focus {
   font-size: 12px;
 }
 
+/* ========================================
+   Logs Tab - Sidebar Layout
+   ======================================== */
+
+/* Logs-specific overrides (inherits from .filter-sidebar) */
+/* No overrides needed - uses base styles */
+
+.logs-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  overflow-y: auto;
+  height: calc(100vh - 180px);
+}
+
+.logs-main-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.logs-main-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.logs-main-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Log panel fills available space in logs-main */
+.logs-main .log-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+.logs-main .log-table-container {
+  flex: 1;
+  max-height: none;
+  min-height: 300px;
+}
+
+.logs-main #log {
+  flex: 1;
+  max-height: none;
+  min-height: 300px;
+  overflow: auto;
+}
+
+/* Log view toggle in sidebar - wider variant */
+.logs-sidebar .log-view-toggle {
+  display: flex;
+  width: 100%;
+  gap: 4px;
+}
+
+.logs-sidebar .log-view-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  font-size: 12px;
+}
+
+.logs-sidebar .log-view-btn span {
+  display: inline;
+}
+
+/* Log option checkbox */
+.log-option-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.log-option-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* Danger button variant for clear logs */
+.ghost-btn.danger-btn {
+  color: var(--danger);
+  border-color: rgba(220, 50, 47, 0.3);
+}
+
+.ghost-btn.danger-btn:hover {
+  background: rgba(220, 50, 47, 0.1);
+  border-color: var(--danger);
+}
+
+/* Mobile: logs-specific overrides */
+@media (max-width: 900px) {
+  .logs-main {
+    height: auto;
+    min-height: 0;
+  }
+  
+  .logs-main-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .logs-main-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* ======================================== */
+
 .log-panel {
   margin-bottom: 16px;
 }
