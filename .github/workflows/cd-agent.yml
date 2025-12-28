@@ -314,8 +314,25 @@ jobs:
     - name: Get version info
       id: version
       run: |
-        echo "version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
-        echo "tag=agent-v$(cat agent/VERSION)" >> $GITHUB_OUTPUT
+        AGENT_VERSION=$(cat agent/VERSION)
+        echo "version=$AGENT_VERSION" >> $GITHUB_OUTPUT
+        echo "tag=agent-v$AGENT_VERSION" >> $GITHUB_OUTPUT
+        
+        # Extract major.minor for compatible server matching
+        MAJOR_MINOR=$(echo "$AGENT_VERSION" | sed 's/\.[^.]*$//')
+        
+        # Find latest server with matching minor version (e.g., agent 0.9.5 -> server 0.9.*)
+        MATCHING_SERVER_TAG=$(git tag -l "server-v${MAJOR_MINOR}.*" --sort=-version:refname | head -n 1)
+        
+        if [ -n "$MATCHING_SERVER_TAG" ]; then
+          echo "server_version=${MATCHING_SERVER_TAG#server-v}" >> $GITHUB_OUTPUT
+          echo "server_tag=$MATCHING_SERVER_TAG" >> $GITHUB_OUTPUT
+          echo "Found compatible server: $MATCHING_SERVER_TAG"
+        else
+          echo "server_version=" >> $GITHUB_OUTPUT
+          echo "server_tag=" >> $GITHUB_OUTPUT
+          echo "No compatible server found for v${MAJOR_MINOR}.*"
+        fi
     
     - name: Prepare release binaries
       run: |
@@ -379,12 +396,27 @@ jobs:
           
           **Docker:**
           ```bash
-          docker run -d -p 8000:8000 -v agent-data:/var/lib/printmaster/agent ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
+          docker run -d -p 8080:8080 -v agent-data:/var/lib/printmaster/agent ghcr.io/mstrhakr/printmaster-agent:${{ steps.version.outputs.version }}
           ```
           
-          Web UI at http://localhost:8000 after install.
+          Web UI at http://localhost:8080 after install.
           
           **Supported Platforms:** Debian/Ubuntu • Fedora/RHEL • Windows • Docker • macOS
+          
+          ---
+          
+          ### 🖥️ Server Download
+          
+          For multi-site management, you'll also need the PrintMaster Server:
+          
+          **Latest Server: v${{ steps.version.outputs.server_version }}** — [View Release](https://github.com/mstrhakr/printmaster/releases/tag/${{ steps.version.outputs.server_tag }})
+          
+          ```bash
+          # Docker (recommended)
+          docker pull ghcr.io/mstrhakr/printmaster-server:latest
+          ```
+          
+          ---
           
           ### ⏱️ Build Information
           - **Workflow run:** ${{ github.run_id }}
@@ -392,6 +424,7 @@ jobs:
           
           ### 🔗 Links
           - [Documentation](https://github.com/mstrhakr/printmaster/tree/main/docs)
+          - [Docker Images](https://github.com/mstrhakr/printmaster/pkgs/container/printmaster-agent)
           - [Issue Tracker](https://github.com/mstrhakr/printmaster/issues)
         files: artifacts/printmaster-*
         fail_on_unmatched_files: false

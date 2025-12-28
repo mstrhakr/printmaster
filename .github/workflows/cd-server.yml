@@ -192,8 +192,25 @@ jobs:
     - name: Get version info
       id: version
       run: |
-        echo "version=$(cat server/VERSION)" >> $GITHUB_OUTPUT
-        echo "tag=server-v$(cat server/VERSION)" >> $GITHUB_OUTPUT
+        SERVER_VERSION=$(cat server/VERSION)
+        echo "version=$SERVER_VERSION" >> $GITHUB_OUTPUT
+        echo "tag=server-v$SERVER_VERSION" >> $GITHUB_OUTPUT
+        
+        # Extract major.minor for compatible agent matching
+        MAJOR_MINOR=$(echo "$SERVER_VERSION" | sed 's/\.[^.]*$//')
+        
+        # Find latest agent with matching minor version (e.g., server 0.9.5 -> agent 0.9.*)
+        MATCHING_AGENT_TAG=$(git tag -l "agent-v${MAJOR_MINOR}.*" --sort=-version:refname | head -n 1)
+        
+        if [ -n "$MATCHING_AGENT_TAG" ]; then
+          echo "agent_version=${MATCHING_AGENT_TAG#agent-v}" >> $GITHUB_OUTPUT
+          echo "agent_tag=$MATCHING_AGENT_TAG" >> $GITHUB_OUTPUT
+          echo "Found compatible agent: $MATCHING_AGENT_TAG"
+        else
+          echo "agent_version=" >> $GITHUB_OUTPUT
+          echo "agent_tag=" >> $GITHUB_OUTPUT
+          echo "No compatible agent found for v${MAJOR_MINOR}.*"
+        fi
     
     - name: Prepare release binaries
       run: |
@@ -266,6 +283,26 @@ jobs:
           - Windows (amd64)
           - Linux (amd64, arm64)
           - macOS (amd64, arm64)
+          
+          ---
+          
+          ### 🤖 Agent Downloads
+          
+          You'll need the PrintMaster Agent to discover and monitor printers. Download the latest agent:
+          
+          **Latest Agent: v${{ steps.version.outputs.agent_version }}** — [View Release](https://github.com/mstrhakr/printmaster/releases/tag/${{ steps.version.outputs.agent_tag }})
+          
+          | Platform | Download |
+          |----------|----------|
+          | Windows (MSI) | [printmaster-agent-v${{ steps.version.outputs.agent_version }}-windows-amd64.msi](https://github.com/mstrhakr/printmaster/releases/download/${{ steps.version.outputs.agent_tag }}/printmaster-agent-v${{ steps.version.outputs.agent_version }}-windows-amd64.msi) |
+          | Linux (amd64) | [printmaster-agent-v${{ steps.version.outputs.agent_version }}-linux-amd64](https://github.com/mstrhakr/printmaster/releases/download/${{ steps.version.outputs.agent_tag }}/printmaster-agent-v${{ steps.version.outputs.agent_version }}-linux-amd64) |
+          | Linux (arm64) | [printmaster-agent-v${{ steps.version.outputs.agent_version }}-linux-arm64](https://github.com/mstrhakr/printmaster/releases/download/${{ steps.version.outputs.agent_tag }}/printmaster-agent-v${{ steps.version.outputs.agent_version }}-linux-arm64) |
+          | Debian/Ubuntu | [printmaster-agent_${{ steps.version.outputs.agent_version }}_amd64.deb](https://github.com/mstrhakr/printmaster/releases/download/${{ steps.version.outputs.agent_tag }}/printmaster-agent_${{ steps.version.outputs.agent_version }}_amd64.deb) |
+          | Fedora/RHEL | [printmaster-agent-${{ steps.version.outputs.agent_version }}.x86_64.rpm](https://github.com/mstrhakr/printmaster/releases/download/${{ steps.version.outputs.agent_tag }}/printmaster-agent-${{ steps.version.outputs.agent_version }}.x86_64.rpm) |
+          | macOS (Intel) | [printmaster-agent-v${{ steps.version.outputs.agent_version }}-darwin-amd64](https://github.com/mstrhakr/printmaster/releases/download/${{ steps.version.outputs.agent_tag }}/printmaster-agent-v${{ steps.version.outputs.agent_version }}-darwin-amd64) |
+          | macOS (Apple Silicon) | [printmaster-agent-v${{ steps.version.outputs.agent_version }}-darwin-arm64](https://github.com/mstrhakr/printmaster/releases/download/${{ steps.version.outputs.agent_tag }}/printmaster-agent-v${{ steps.version.outputs.agent_version }}-darwin-arm64) |
+          
+          ---
           
           ### ⏱️ Build Information
           - **Workflow run:** ${{ github.run_id }}
