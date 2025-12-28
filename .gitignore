@@ -58,6 +58,9 @@ server/logs/
 *.sqlite
 *.sqlite3
 
+# Secrets directory
+.secrets/
+
 # Configuration files with secrets (keep examples)
 config.ini
 config.json
