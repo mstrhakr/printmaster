@@ -3719,19 +3719,11 @@ select:focus {
 .field.inline-check {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 13px;
   color: var(--muted);
   cursor: pointer;
   user-select: none;
-}
-
-.field.inline-check input[type="checkbox"] {
-  margin: 0;
-  width: 16px;
-  height: 16px;
-  min-width: 16px;
-  cursor: pointer;
 }
 
 .field.inline-check span {
