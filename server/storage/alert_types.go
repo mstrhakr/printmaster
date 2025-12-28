@@ -75,6 +75,10 @@ const (
 	ChannelTypeSlack     ChannelType = "slack"
 	ChannelTypeTeams     ChannelType = "teams"
 	ChannelTypePagerDuty ChannelType = "pagerduty"
+	ChannelTypeDiscord   ChannelType = "discord"
+	ChannelTypeTelegram  ChannelType = "telegram"
+	ChannelTypePushover  ChannelType = "pushover"
+	ChannelTypeNtfy      ChannelType = "ntfy"
 	ChannelTypeSMS       ChannelType = "sms"
 	ChannelTypePush      ChannelType = "push"
 )

@@ -4,6 +4,7 @@ package alerts
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -203,6 +204,14 @@ func (n *Notifier) dispatchToChannel(ctx context.Context, channel *storage.Notif
 		return n.sendMSTeams(ctx, config, alert)
 	case storage.ChannelTypePagerDuty:
 		return n.sendPagerDuty(ctx, config, alert)
+	case storage.ChannelTypeDiscord:
+		return n.sendDiscord(ctx, config, alert)
+	case storage.ChannelTypeTelegram:
+		return n.sendTelegram(ctx, config, alert)
+	case storage.ChannelTypePushover:
+		return n.sendPushover(ctx, config, alert)
+	case storage.ChannelTypeNtfy:
+		return n.sendNtfy(ctx, config, alert)
 	default:
 		return fmt.Errorf("unsupported notification type: %s", channel.Type)
 	}
@@ -470,6 +479,257 @@ func (n *Notifier) postJSON(ctx context.Context, url string, headers map[string]
 		}
 
 		req.Header.Set("Content-Type", "application/json")
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := n.client.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(n.config.RetryDelay)
+			continue
+		}
+
+		// Read and discard body
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			return nil
+		}
+
+		lastErr = fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		time.Sleep(n.config.RetryDelay)
+	}
+
+	return fmt.Errorf("request failed after %d attempts: %w", n.config.MaxRetries, lastErr)
+}
+
+// Discord notification via webhook
+func (n *Notifier) sendDiscord(ctx context.Context, config map[string]interface{}, alert *storage.Alert) error {
+	if config == nil {
+		return fmt.Errorf("discord channel has no configuration")
+	}
+
+	webhookURL, _ := config["webhook_url"].(string)
+	if webhookURL == "" {
+		return fmt.Errorf("discord webhook URL not configured")
+	}
+
+	username, _ := config["username"].(string)
+	if username == "" {
+		username = "PrintMaster"
+	}
+
+	// Pick color based on severity (Discord uses decimal color)
+	color := 1752220 // info - blue
+	switch alert.Severity {
+	case storage.AlertSeverityCritical:
+		color = 15158332 // red
+	case storage.AlertSeverityWarning:
+		color = 16776960 // yellow
+	}
+
+	// Build Discord embed payload
+	payload := map[string]interface{}{
+		"username": username,
+		"embeds": []map[string]interface{}{
+			{
+				"title":       alert.Title,
+				"description": alert.Message,
+				"color":       color,
+				"timestamp":   alert.TriggeredAt.Format(time.RFC3339),
+				"footer": map[string]string{
+					"text": fmt.Sprintf("PrintMaster | %s", alert.Scope),
+				},
+				"fields": []map[string]interface{}{
+					{"name": "Severity", "value": string(alert.Severity), "inline": true},
+					{"name": "Type", "value": string(alert.Type), "inline": true},
+				},
+			},
+		},
+	}
+
+	return n.postJSON(ctx, webhookURL, nil, payload)
+}
+
+// Telegram notification via Bot API
+func (n *Notifier) sendTelegram(ctx context.Context, config map[string]interface{}, alert *storage.Alert) error {
+	if config == nil {
+		return fmt.Errorf("telegram channel has no configuration")
+	}
+
+	botToken, _ := config["bot_token"].(string)
+	chatID, _ := config["chat_id"].(string)
+	if botToken == "" || chatID == "" {
+		return fmt.Errorf("telegram bot_token and chat_id are required")
+	}
+
+	// Build message text with formatting
+	severityEmoji := "ℹ️"
+	switch alert.Severity {
+	case storage.AlertSeverityCritical:
+		severityEmoji = "🚨"
+	case storage.AlertSeverityWarning:
+		severityEmoji = "⚠️"
+	}
+
+	text := fmt.Sprintf("%s *%s*\n\n%s\n\n*Severity:* %s\n*Type:* %s\n*Scope:* %s\n*Time:* %s",
+		severityEmoji, escapeMarkdownV2(alert.Title),
+		escapeMarkdownV2(alert.Message),
+		escapeMarkdownV2(string(alert.Severity)),
+		escapeMarkdownV2(string(alert.Type)),
+		escapeMarkdownV2(alert.Scope),
+		escapeMarkdownV2(alert.TriggeredAt.Format(time.RFC3339)))
+
+	payload := map[string]interface{}{
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": "MarkdownV2",
+	}
+
+	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	if customURL, ok := config["api_url"].(string); ok && customURL != "" {
+		apiURL = customURL
+	}
+
+	return n.postJSON(ctx, apiURL, nil, payload)
+}
+
+// escapeMarkdownV2 escapes special characters for Telegram MarkdownV2
+func escapeMarkdownV2(s string) string {
+	specialChars := []string{"_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"}
+	result := s
+	for _, char := range specialChars {
+		result = strings.ReplaceAll(result, char, "\\"+char)
+	}
+	return result
+}
+
+// Pushover notification for iOS/Android push
+func (n *Notifier) sendPushover(ctx context.Context, config map[string]interface{}, alert *storage.Alert) error {
+	if config == nil {
+		return fmt.Errorf("pushover channel has no configuration")
+	}
+
+	userKey, _ := config["user_key"].(string)
+	apiToken, _ := config["api_token"].(string)
+	if userKey == "" || apiToken == "" {
+		return fmt.Errorf("pushover user_key and api_token are required")
+	}
+
+	// Map severity to Pushover priority (-2 to 2)
+	priority := 0 // normal
+	switch alert.Severity {
+	case storage.AlertSeverityCritical:
+		priority = 1 // high priority
+	case storage.AlertSeverityWarning:
+		priority = 0 // normal
+	case storage.AlertSeverityInfo:
+		priority = -1 // low priority
+	}
+
+	payload := map[string]interface{}{
+		"token":    apiToken,
+		"user":     userKey,
+		"title":    alert.Title,
+		"message":  alert.Message,
+		"priority": priority,
+		"url":      "", // Could add a link to the alert in UI
+	}
+
+	// Optional device targeting
+	if device, ok := config["device"].(string); ok && device != "" {
+		payload["device"] = device
+	}
+
+	// Optional sound
+	if sound, ok := config["sound"].(string); ok && sound != "" {
+		payload["sound"] = sound
+	}
+
+	apiURL := "https://api.pushover.net/1/messages.json"
+	if customURL, ok := config["api_url"].(string); ok && customURL != "" {
+		apiURL = customURL
+	}
+
+	return n.postJSON(ctx, apiURL, nil, payload)
+}
+
+// ntfy notification (self-hosted or ntfy.sh)
+func (n *Notifier) sendNtfy(ctx context.Context, config map[string]interface{}, alert *storage.Alert) error {
+	if config == nil {
+		return fmt.Errorf("ntfy channel has no configuration")
+	}
+
+	topic, _ := config["topic"].(string)
+	if topic == "" {
+		return fmt.Errorf("ntfy topic is required")
+	}
+
+	serverURL, _ := config["server_url"].(string)
+	if serverURL == "" {
+		serverURL = "https://ntfy.sh" // default to public ntfy.sh
+	}
+
+	// Map severity to ntfy priority
+	priority := "default"
+	tags := "printer"
+	switch alert.Severity {
+	case storage.AlertSeverityCritical:
+		priority = "urgent"
+		tags = "rotating_light,printer"
+	case storage.AlertSeverityWarning:
+		priority = "high"
+		tags = "warning,printer"
+	}
+
+	// Build the ntfy publish URL
+	publishURL := fmt.Sprintf("%s/%s", strings.TrimSuffix(serverURL, "/"), topic)
+
+	headers := map[string]string{
+		"Title":    alert.Title,
+		"Priority": priority,
+		"Tags":     tags,
+	}
+
+	// Add optional click action
+	if clickURL, ok := config["click_url"].(string); ok && clickURL != "" {
+		headers["Click"] = clickURL
+	}
+
+	// Add optional authentication
+	if token, ok := config["access_token"].(string); ok && token != "" {
+		headers["Authorization"] = "Bearer " + token
+	} else if user, ok := config["username"].(string); ok && user != "" {
+		if pass, ok := config["password"].(string); ok {
+			headers["Authorization"] = "Basic " + basicAuth(user, pass)
+		}
+	}
+
+	// ntfy accepts plain text body
+	message := fmt.Sprintf("%s\n\nSeverity: %s | Type: %s | Scope: %s",
+		alert.Message, alert.Severity, alert.Type, alert.Scope)
+
+	return n.postText(ctx, publishURL, headers, message)
+}
+
+// basicAuth returns base64-encoded basic auth string
+func basicAuth(user, pass string) string {
+	auth := user + ":" + pass
+	return base64.StdEncoding.EncodeToString([]byte(auth))
+}
+
+// postText posts plain text to the given URL with retry logic.
+func (n *Notifier) postText(ctx context.Context, url string, headers map[string]string, body string) error {
+	var lastErr error
+	for i := 0; i < n.config.MaxRetries; i++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "text/plain")
 		for k, v := range headers {
 			req.Header.Set(k, v)
 		}
