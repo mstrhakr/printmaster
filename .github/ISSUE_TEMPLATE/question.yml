@@ -1,0 +1,56 @@
+name: ❓ Question
+description: Ask a question about PrintMaster
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question? We're happy to help! Please check the [documentation](https://github.com/mstrhakr/printmaster/tree/main/docs) first.
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      description: What is your question about?
+      options:
+        - Installation/Setup
+        - Configuration
+        - Agent-Server Connection
+        - Printer Discovery
+        - Metrics/Monitoring
+        - Web UI
+        - API Usage
+        - Docker Deployment
+        - Security
+        - Performance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: Ask your question here...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Any additional context that might help us answer your question
+      placeholder: "e.g., your setup, what you've already tried, relevant config..."
+
+  - type: checkboxes
+    id: docs-check
+    attributes:
+      label: Documentation Check
+      description: Please confirm you've checked existing resources
+      options:
+        - label: I have searched existing issues for similar questions
+          required: true
+        - label: I have checked the documentation in the docs/ folder
+          required: false

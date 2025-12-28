@@ -1,0 +1,89 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a feature! We appreciate your input in making PrintMaster better.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component would this feature affect?
+      options:
+        - Agent
+        - Server
+        - Both
+        - Web UI
+        - API
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What category best describes this feature?
+      options:
+        - Printer Discovery (SNMP/mDNS/WS-Discovery)
+        - Printer Monitoring/Metrics
+        - Supplies/Consumables Tracking
+        - Alerting/Notifications
+        - Web UI/Dashboard
+        - API/Integration
+        - Multi-site/Fleet Management
+        - Security/Authentication
+        - Performance/Scalability
+        - Deployment/Installation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem? Describe it here.
+      placeholder: "I'm always frustrated when..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like to see.
+      placeholder: Describe your ideal solution...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative solutions or workarounds?
+      placeholder: Describe alternatives you've considered...
+
+  - type: dropdown
+    id: willingness
+    attributes:
+      label: Contribution
+      description: Would you be willing to contribute to implementing this feature?
+      options:
+        - "Yes, I'd like to implement this"
+        - "Yes, I could help with testing"
+        - "No, but I can provide more details if needed"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context, mockups, or screenshots about the feature request here.

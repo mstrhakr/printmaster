@@ -1,0 +1,80 @@
+name: 🖨️ Printer Support Request
+description: Request support for a new printer model or vendor
+title: "[Printer]: "
+labels: ["printer-support", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us expand PrintMaster's printer compatibility! Please provide as much detail as possible about your printer.
+
+  - type: input
+    id: manufacturer
+    attributes:
+      label: Manufacturer
+      description: Who makes this printer?
+      placeholder: "e.g., HP, Canon, Epson, Brother, Lexmark, Xerox, Ricoh, Kyocera"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: What is the exact model name/number?
+      placeholder: "e.g., LaserJet Pro MFP M428fdw"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Issue Type
+      description: What's the problem with this printer?
+      options:
+        - Not detected during discovery
+        - Detected but wrong manufacturer/model
+        - Missing metrics (page counts, toner levels, etc.)
+        - Incorrect metrics values
+        - Web UI proxy not working
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current Behavior
+      description: What does PrintMaster currently show for this printer (if anything)?
+      placeholder: Describe what you see in the web UI or logs...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What information should PrintMaster be able to retrieve?
+      placeholder: "e.g., Should show toner levels for CMYK, page count, drum life..."
+
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware Version
+      description: If known, what firmware version is the printer running?
+      placeholder: "e.g., 2.9.0.1"
+
+  - type: textarea
+    id: snmp_info
+    attributes:
+      label: SNMP Information
+      description: |
+        If you can, run an SNMP walk and paste relevant output. This helps us add support!
+        Example: `snmpwalk -v2c -c public <printer-ip> 1.3.6.1.2.1.1`
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other information that might help (screenshots of printer's web interface, links to documentation, etc.)
