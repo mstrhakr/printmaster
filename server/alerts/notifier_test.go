@@ -424,6 +424,253 @@ func TestNotifier_PagerDutyPayload(t *testing.T) {
 	}
 }
 
+func TestNotifier_DiscordPayload(t *testing.T) {
+	t.Parallel()
+
+	var receivedPayload []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 4096)
+		n, _ := r.Body.Read(buf)
+		receivedPayload = buf[:n]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := newMockNotifierStore()
+
+	store.channels[1] = &storage.NotificationChannel{
+		ID:               1,
+		Name:             "Discord Test",
+		Type:             storage.ChannelTypeDiscord,
+		Enabled:          true,
+		MinSeverity:      storage.AlertSeverityInfo,
+		RateLimitPerHour: 100,
+		ConfigJSON:       `{"webhook_url": "` + server.URL + `", "username": "PrintMaster"}`,
+	}
+
+	store.rules[1] = &storage.AlertRule{
+		ID:         1,
+		ChannelIDs: []int64{1},
+	}
+
+	notifier := NewNotifier(store, NotifierConfig{})
+
+	alert := &storage.Alert{
+		ID:       1,
+		RuleID:   1,
+		Type:     storage.AlertTypeDeviceOffline,
+		Severity: storage.AlertSeverityWarning,
+		Title:    "Device Offline",
+		Message:  "Device went offline",
+	}
+
+	err := notifier.NotifyForAlert(context.Background(), alert)
+	if err != nil {
+		t.Fatalf("NotifyForAlert() error = %v", err)
+	}
+
+	payload := string(receivedPayload)
+	if len(payload) == 0 {
+		t.Error("expected Discord payload to be sent")
+	}
+
+	// Check that payload contains Discord-specific fields
+	if !contains(payload, "embeds") {
+		t.Error("expected Discord payload to contain 'embeds'")
+	}
+	if !contains(payload, "username") {
+		t.Error("expected Discord payload to contain 'username'")
+	}
+}
+
+func TestNotifier_TelegramPayload(t *testing.T) {
+	t.Parallel()
+
+	var receivedPayload []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 4096)
+		n, _ := r.Body.Read(buf)
+		receivedPayload = buf[:n]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := newMockNotifierStore()
+
+	store.channels[1] = &storage.NotificationChannel{
+		ID:               1,
+		Name:             "Telegram Test",
+		Type:             storage.ChannelTypeTelegram,
+		Enabled:          true,
+		MinSeverity:      storage.AlertSeverityInfo,
+		RateLimitPerHour: 100,
+		ConfigJSON:       `{"bot_token": "test-token", "chat_id": "-1001234567890", "api_url": "` + server.URL + `"}`,
+	}
+
+	store.rules[1] = &storage.AlertRule{
+		ID:         1,
+		ChannelIDs: []int64{1},
+	}
+
+	notifier := NewNotifier(store, NotifierConfig{})
+
+	alert := &storage.Alert{
+		ID:       1,
+		RuleID:   1,
+		Type:     storage.AlertTypeLowToner,
+		Severity: storage.AlertSeverityInfo,
+		Title:    "Low Toner",
+		Message:  "Toner is running low",
+	}
+
+	err := notifier.NotifyForAlert(context.Background(), alert)
+	if err != nil {
+		t.Fatalf("NotifyForAlert() error = %v", err)
+	}
+
+	payload := string(receivedPayload)
+	if len(payload) == 0 {
+		t.Error("expected Telegram payload to be sent")
+	}
+
+	// Check that payload contains Telegram-specific fields
+	if !contains(payload, "chat_id") {
+		t.Error("expected Telegram payload to contain 'chat_id'")
+	}
+	if !contains(payload, "parse_mode") {
+		t.Error("expected Telegram payload to contain 'parse_mode'")
+	}
+}
+
+func TestNotifier_PushoverPayload(t *testing.T) {
+	t.Parallel()
+
+	var receivedPayload []byte
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 4096)
+		n, _ := r.Body.Read(buf)
+		receivedPayload = buf[:n]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := newMockNotifierStore()
+
+	store.channels[1] = &storage.NotificationChannel{
+		ID:               1,
+		Name:             "Pushover Test",
+		Type:             storage.ChannelTypePushover,
+		Enabled:          true,
+		MinSeverity:      storage.AlertSeverityInfo,
+		RateLimitPerHour: 100,
+		ConfigJSON:       `{"user_key": "test-user-key", "api_token": "test-api-token", "api_url": "` + server.URL + `"}`,
+	}
+
+	store.rules[1] = &storage.AlertRule{
+		ID:         1,
+		ChannelIDs: []int64{1},
+	}
+
+	notifier := NewNotifier(store, NotifierConfig{})
+
+	alert := &storage.Alert{
+		ID:       1,
+		RuleID:   1,
+		Type:     storage.AlertTypeDeviceError,
+		Severity: storage.AlertSeverityCritical,
+		Title:    "Device Error",
+		Message:  "Critical device error",
+	}
+
+	err := notifier.NotifyForAlert(context.Background(), alert)
+	if err != nil {
+		t.Fatalf("NotifyForAlert() error = %v", err)
+	}
+
+	payload := string(receivedPayload)
+	if len(payload) == 0 {
+		t.Error("expected Pushover payload to be sent")
+	}
+
+	// Check that payload contains Pushover-specific fields
+	if !contains(payload, "token") {
+		t.Error("expected Pushover payload to contain 'token'")
+	}
+	if !contains(payload, "user") {
+		t.Error("expected Pushover payload to contain 'user'")
+	}
+	if !contains(payload, "priority") {
+		t.Error("expected Pushover payload to contain 'priority'")
+	}
+}
+
+func TestNotifier_NtfyPayload(t *testing.T) {
+	t.Parallel()
+
+	var receivedHeaders http.Header
+	var receivedBody string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header
+		buf := make([]byte, 4096)
+		n, _ := r.Body.Read(buf)
+		receivedBody = string(buf[:n])
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	store := newMockNotifierStore()
+
+	store.channels[1] = &storage.NotificationChannel{
+		ID:               1,
+		Name:             "ntfy Test",
+		Type:             storage.ChannelTypeNtfy,
+		Enabled:          true,
+		MinSeverity:      storage.AlertSeverityInfo,
+		RateLimitPerHour: 100,
+		ConfigJSON:       `{"topic": "test-topic", "server_url": "` + server.URL + `"}`,
+	}
+
+	store.rules[1] = &storage.AlertRule{
+		ID:         1,
+		ChannelIDs: []int64{1},
+	}
+
+	notifier := NewNotifier(store, NotifierConfig{})
+
+	alert := &storage.Alert{
+		ID:       1,
+		RuleID:   1,
+		Type:     storage.AlertTypeAgentOffline,
+		Severity: storage.AlertSeverityWarning,
+		Title:    "Agent Offline",
+		Message:  "Agent went offline",
+	}
+
+	err := notifier.NotifyForAlert(context.Background(), alert)
+	if err != nil {
+		t.Fatalf("NotifyForAlert() error = %v", err)
+	}
+
+	if len(receivedBody) == 0 {
+		t.Error("expected ntfy payload to be sent")
+	}
+
+	// Check that headers contain ntfy-specific fields
+	if receivedHeaders.Get("Title") == "" {
+		t.Error("expected ntfy Title header to be set")
+	}
+	if receivedHeaders.Get("Priority") == "" {
+		t.Error("expected ntfy Priority header to be set")
+	}
+	if receivedHeaders.Get("Tags") == "" {
+		t.Error("expected ntfy Tags header to be set")
+	}
+}
+
 func TestNotifier_QuietHours(t *testing.T) {
 	t.Parallel()
 
