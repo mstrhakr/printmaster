@@ -1,7 +1,7 @@
 # PrintMaster Build Script
 # Usage: .\build.ps1 [target] [options]
-# Targets: agent, all, clean, test
-# Options: -Verbose
+# Targets: agent, server, both, all, clean, test, test-storage, test-all
+# Options: -Release, -VerboseBuild, -IncrementVersion
 
 param(
     [Parameter(Position=0)]
@@ -24,12 +24,23 @@ $LogDir = Join-Path $ProjectRoot "logs"
 $LogFile = $null  # Will be set dynamically with version info
 $MaxLogFiles = 10
 
+# Track which tests have already passed this session (avoid redundant runs)
+$script:JSUnitTestsPassed = $false
+$script:PlaywrightTestsPassed = $false
+$script:JSSyntaxCheckPassed = $false
+
 # Ensure logs directory exists
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 }
 
 function Invoke-JSUnitTests {
+    # Skip if already passed this session
+    if ($script:JSUnitTestsPassed) {
+        Write-BuildLog "JS unit tests already passed this session, skipping" "INFO"
+        return $true
+    }
+
     Write-BuildLog "Running JavaScript unit tests (jest)..." "INFO"
 
     if ($env:PRINTMASTER_SKIP_JS_TESTS -eq '1') {
@@ -50,17 +61,25 @@ function Invoke-JSUnitTests {
         }
         $testOutput | ForEach-Object { Write-BuildLog $_ "INFO" }
         Write-BuildLog "JS unit tests passed" "INFO"
+        $script:JSUnitTestsPassed = $true
         return $true
     }
     finally { Pop-Location }
 }
 
 function Invoke-JSSyntaxCheck {
+    # Skip if already passed this session
+    if ($script:JSSyntaxCheckPassed) {
+        Write-BuildLog "JS syntax check already passed this session, skipping" "INFO"
+        return $true
+    }
+
     Write-BuildLog "Running JS syntax check (node --check)" "INFO"
 
     Push-Location $ProjectRoot
     try {
         $pathsToCheck = @(
+            (Join-Path $ProjectRoot "agent\web"),
             (Join-Path $ProjectRoot "server\web"),
             (Join-Path $ProjectRoot "common\web")
         )
@@ -87,12 +106,19 @@ function Invoke-JSSyntaxCheck {
         }
 
         Write-BuildLog "JS syntax check passed" "INFO"
+        $script:JSSyntaxCheckPassed = $true
         return $true
     }
     finally { Pop-Location }
 }
 
 function Invoke-PlaywrightTests {
+    # Skip if already passed this session
+    if ($script:PlaywrightTestsPassed) {
+        Write-BuildLog "Playwright tests already passed this session, skipping" "INFO"
+        return $true
+    }
+
     Write-BuildLog "Running Playwright smoke tests..." "INFO"
 
     if ($env:PRINTMASTER_SKIP_PLAYWRIGHT -eq '1') {
@@ -128,6 +154,7 @@ function Invoke-PlaywrightTests {
             return $false
         }
         Write-BuildLog "Playwright smoke tests passed" "INFO"
+        $script:PlaywrightTestsPassed = $true
         return $true
     }
     finally { Pop-Location }
@@ -361,21 +388,27 @@ function Invoke-Tests {
     }
 }
 
-function Build-Agent {
+function Build-Component {
     param(
+        [Parameter(Mandatory=$true)]
+        [ValidateSet('agent', 'server')]
+        [string]$Component,
         [bool]$IsRelease = $false,
         [switch]$IncrementVersion = $false
     )
     
     $buildType = if ($IsRelease) { "RELEASE" } else { "DEV" }
-    Write-BuildLog "Building PrintMaster Agent ($buildType)..."
+    $displayName = if ($Component -eq 'agent') { "Agent" } else { "Server" }
+    $exeName = "printmaster-$Component.exe"
+    
+    Write-BuildLog "Building PrintMaster $displayName ($buildType)..."
     Write-BuildLog "Working directory: $(Get-Location)"
     
-    Push-Location (Join-Path $ProjectRoot "agent")
+    Push-Location (Join-Path $ProjectRoot $Component)
     
     try {
         # Read version from VERSION file
-        $versionFile = Join-Path $ProjectRoot "agent\VERSION"
+        $versionFile = Join-Path $ProjectRoot "$Component\VERSION"
         if (Test-Path $versionFile) {
             $version = (Get-Content $versionFile -Raw).Trim()
         } else {
@@ -385,40 +418,32 @@ function Build-Agent {
         
         # Auto-increment version for release builds if requested
         if ($IsRelease -and $IncrementVersion) {
-            # Parse semantic version (major.minor.patch)
             if ($version -match '^(\d+)\.(\d+)\.(\d+)$') {
                 $major = [int]$Matches[1]
                 $minor = [int]$Matches[2]
                 $patch = [int]$Matches[3]
-                
-                # Increment patch version
                 $patch++
                 $version = "$major.$minor.$patch"
-                
-                # Save new version
                 Set-Content -Path $versionFile -Value $version -NoNewline
-                Write-BuildLog "Version incremented to: $version" "INFO"
+                Write-BuildLog "$displayName version incremented to: $version" "INFO"
             } else {
                 Write-BuildLog "Invalid version format in VERSION file, expected x.y.z" "WARN"
             }
         }
         
         # Get or increment build number (reset on version change)
-        $buildNumberFile = Join-Path $ProjectRoot "agent\.buildnumber"
-        $lastVersionFile = Join-Path $ProjectRoot "agent\.lastversion"
+        $buildNumberFile = Join-Path $ProjectRoot "$Component\.buildnumber"
+        $lastVersionFile = Join-Path $ProjectRoot "$Component\.lastversion"
         
-        # Check if version changed
         $lastVersion = ""
         if (Test-Path $lastVersionFile) {
             $lastVersion = (Get-Content $lastVersionFile -Raw).Trim()
         }
         
         if ($lastVersion -ne $version) {
-            # Version changed, reset build number
             $buildNumber = 1
             Write-BuildLog "Version changed from $lastVersion to $version, resetting build number" "INFO"
         } else {
-            # Same version, increment build number
             if (Test-Path $buildNumberFile) {
                 $buildNumber = [int](Get-Content $buildNumberFile -Raw).Trim()
                 $buildNumber++
@@ -427,31 +452,27 @@ function Build-Agent {
             }
         }
         
-        # Save build number and version
         Set-Content -Path $buildNumberFile -Value $buildNumber -NoNewline
         Set-Content -Path $lastVersionFile -Value $version -NoNewline
         
         # Create version string
-        # Release: x.y.z (clean semantic version)
-        # Dev: x.y.z.build-dev (includes build number for tracking)
         if ($IsRelease) {
             $versionString = "$version"
         } else {
             $versionString = "$version.$buildNumber-dev"
-            # Append branch suffix (e.g. -feature-x) when building non-main branches
             if ($script:BranchSuffix) { $versionString = "$versionString$script:BranchSuffix" }
         }
         
         # Set versioned log file
-        Set-BuildLogFile -Component "agent" -Version $version -BuildNumber $buildNumber
+        Set-BuildLogFile -Component $Component -Version $version -BuildNumber $buildNumber
 
         # Run JavaScript tests (unit + playwright smoke) before compiling Go binary
         if (-not (Invoke-JSUnitTests)) {
-            Write-BuildLog "Aborting agent build due to JS unit test failures" "ERROR"
+            Write-BuildLog "Aborting $Component build due to JS unit test failures" "ERROR"
             return $false
         }
         if (-not (Invoke-PlaywrightTests)) {
-            Write-BuildLog "Aborting agent build due to Playwright smoke test failures" "ERROR"
+            Write-BuildLog "Aborting $Component build due to Playwright smoke test failures" "ERROR"
             return $false
         }
         
@@ -462,16 +483,15 @@ function Build-Agent {
         
         # Build ldflags for version injection
         $buildTypeString = if ($IsRelease) { "release" } else { "dev" }
-    $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString' -X 'main.GitBranch=$script:GitBranch'"
+        $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString' -X 'main.GitBranch=$script:GitBranch'"
         
         # Generate Windows version resource (only on Windows)
-        # Must happen AFTER $versionString is created so we can embed build number
         if ($IsWindows -or $env:OS -eq "Windows_NT") {
             Write-BuildLog "Generating Windows version resource..."
             $winverScript = Join-Path $ProjectRoot "tools\generate-winver.ps1"
             if (Test-Path $winverScript) {
                 try {
-                    & $winverScript -Component "agent" -Version $versionString -GitCommit $gitCommit -BuildTime $buildTime 2>&1 | ForEach-Object {
+                    & $winverScript -Component $Component -Version $versionString -GitCommit $gitCommit -BuildTime $buildTime 2>&1 | ForEach-Object {
                         Write-BuildLog $_.ToString() "INFO"
                     }
                 }
@@ -485,59 +505,52 @@ function Build-Agent {
         $buildArgs = @("build")
         
         if ($IsRelease) {
-            # Release build: optimized, stripped, no debug info
             Write-BuildLog "Building optimized release binary..."
-            $ldflags += " -s -w"  # Strip debug info and symbol table
-            $buildArgs += "-trimpath"  # Remove local file paths for security
+            $ldflags += " -s -w"
+            $buildArgs += "-trimpath"
         } else {
-            # Dev build: keep debug info for troubleshooting
             Write-BuildLog "Building development binary (with debug info)..."
         }
         
         $buildArgs += "-ldflags", $ldflags
         
-        # Add verbose flag if requested
         if ($VerboseBuild) {
             $buildArgs += "-v"
         }
         
-        # Output file
-        $buildArgs += "-o", "printmaster-agent.exe"
+        $buildArgs += "-o", $exeName
         $buildArgs += "."
         
-        Write-BuildLog "Version: $versionString (build #$buildNumber)"
+        Write-BuildLog "Version: $versionString$(if (-not $IsRelease) { " (build #$buildNumber)" })"
         Write-BuildLog "Command: go $($buildArgs -join ' ')"
         Write-BuildLog "Build Time: $buildTime"
         Write-BuildLog "Git Commit: $gitCommit"
         
-        # Execute build with CGO_ENABLED=0 (pure Go build for consistent cross-platform support)
-        # This is required because we use pure-Go dependencies: modernc.org/sqlite and gosnmp
-        $env:CGO_ENABLED = 0
+        # Execute build (CGO_ENABLED=0 for agent only - pure Go build)
+        if ($Component -eq 'agent') {
+            $env:CGO_ENABLED = 0
+        }
         $buildOutput = & go @buildArgs 2>&1
         $buildExitCode = $LASTEXITCODE
         
-        # Log all build output
         if ($buildOutput) {
             $buildOutput | ForEach-Object { 
-                $line = $_.ToString()
-                Write-BuildLog $line
+                Write-BuildLog $_.ToString()
             }
         }
         
         if ($buildExitCode -eq 0) {
-            # Get file size
-            if (Test-Path "printmaster-agent.exe") {
-                $fileSize = (Get-Item "printmaster-agent.exe").Length
+            if (Test-Path $exeName) {
+                $fileSize = (Get-Item $exeName).Length
                 $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
                 $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
-                Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} printmaster-agent.exe ($fileSizeMB MB)"
-                Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] SUCCESS: printmaster-agent.exe ($fileSizeMB MB)"
-                Write-BuildLog "Binary location: $(Join-Path (Get-Location) 'printmaster-agent.exe')" "INFO"
+                Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} $exeName ($fileSizeMB MB)"
+                Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] SUCCESS: $exeName ($fileSizeMB MB)"
+                Write-BuildLog "Binary location: $(Join-Path (Get-Location) $exeName)" "INFO"
             } else {
                 Write-BuildLog "Build reported success but executable not found!" "ERROR"
                 return $false
             }
-            
             return $true
         } else {
             Write-BuildLog "Build failed with exit code $buildExitCode" "ERROR"
@@ -549,190 +562,21 @@ function Build-Agent {
     }
 }
 
+# Wrapper functions for backward compatibility
+function Build-Agent {
+    param(
+        [bool]$IsRelease = $false,
+        [switch]$IncrementVersion = $false
+    )
+    Build-Component -Component 'agent' -IsRelease:$IsRelease -IncrementVersion:$IncrementVersion
+}
+
 function Build-Server {
     param(
         [bool]$IsRelease = $false,
         [switch]$IncrementVersion = $false
     )
-    
-    $buildType = if ($IsRelease) { "RELEASE" } else { "DEV" }
-    Write-BuildLog "Building PrintMaster Server ($buildType)..."
-    Write-BuildLog "Working directory: $(Get-Location)"
-    
-    Push-Location (Join-Path $ProjectRoot "server")
-    
-    try {
-        # Read version from server/VERSION file
-        $versionFile = Join-Path $ProjectRoot "server\VERSION"
-        if (Test-Path $versionFile) {
-            $version = (Get-Content $versionFile -Raw).Trim()
-        } else {
-            $version = "0.0.0"
-            Write-BuildLog "VERSION file not found, using default: $version" "WARN"
-        }
-        
-        # Auto-increment version for release builds if requested
-        if ($IsRelease -and $IncrementVersion) {
-            # Parse semantic version (major.minor.patch)
-            if ($version -match '^(\d+)\.(\d+)\.(\d+)$') {
-                $major = [int]$Matches[1]
-                $minor = [int]$Matches[2]
-                $patch = [int]$Matches[3]
-                
-                # Increment patch version
-                $patch++
-                $version = "$major.$minor.$patch"
-                
-                # Save new version
-                Set-Content -Path $versionFile -Value $version -NoNewline
-                Write-BuildLog "Server version incremented to: $version" "INFO"
-            } else {
-                Write-BuildLog "Invalid version format in VERSION file, expected x.y.z" "WARN"
-            }
-        }
-        
-        # Get or increment build number (reset on version change)
-        $buildNumberFile = Join-Path $ProjectRoot "server\.buildnumber"
-        $lastVersionFile = Join-Path $ProjectRoot "server\.lastversion"
-        
-        # Check if version changed
-        $lastVersion = ""
-        if (Test-Path $lastVersionFile) {
-            $lastVersion = (Get-Content $lastVersionFile -Raw).Trim()
-        }
-        
-        if ($lastVersion -ne $version) {
-            # Version changed, reset build number
-            $buildNumber = 1
-            Write-BuildLog "Version changed from $lastVersion to $version, resetting build number" "INFO"
-        } else {
-            # Same version, increment build number
-            if (Test-Path $buildNumberFile) {
-                $buildNumber = [int](Get-Content $buildNumberFile -Raw).Trim()
-                $buildNumber++
-            } else {
-                $buildNumber = 1
-            }
-        }
-        
-        # Save build number and version
-        Set-Content -Path $buildNumberFile -Value $buildNumber -NoNewline
-        Set-Content -Path $lastVersionFile -Value $version -NoNewline
-        
-        # Create version string
-        # Release: x.y.z (clean semantic version)
-        # Dev: x.y.z.build-dev (includes build number for tracking)
-        if ($IsRelease) {
-            $versionString = "$version"
-        } else {
-            $versionString = "$version.$buildNumber-dev"
-            # Append branch suffix (e.g. -feature-x) when building non-main branches
-            if ($script:BranchSuffix) { $versionString = "$versionString$script:BranchSuffix" }
-        }
-        
-        # Set versioned log file
-        Set-BuildLogFile -Component "server" -Version $version -BuildNumber $buildNumber
-
-        # Run JavaScript tests (unit + playwright smoke) before compiling Go binary for server
-        if (-not (Invoke-JSUnitTests)) {
-            Write-BuildLog "Aborting server build due to JS unit test failures" "ERROR"
-            return $false
-        }
-        if (-not (Invoke-PlaywrightTests)) {
-            Write-BuildLog "Aborting server build due to Playwright smoke test failures" "ERROR"
-            return $false
-        }
-        
-        # Get build metadata
-        $buildTime = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
-        $gitCommit = (git rev-parse --short HEAD 2>$null) -join ""
-        if (-not $gitCommit) { $gitCommit = "unknown" }
-        
-        # Build ldflags for version injection
-        $buildTypeString = if ($IsRelease) { "release" } else { "dev" }
-    $ldflags = "-X 'main.Version=$versionString' -X 'main.BuildTime=$buildTime' -X 'main.GitCommit=$gitCommit' -X 'main.BuildType=$buildTypeString' -X 'main.GitBranch=$script:GitBranch'"
-        
-        # Generate Windows version resource (only on Windows)
-        # Must happen AFTER $versionString is created so we can embed build number
-        if ($IsWindows -or $env:OS -eq "Windows_NT") {
-            Write-BuildLog "Generating Windows version resource..."
-            $winverScript = Join-Path $ProjectRoot "tools\generate-winver.ps1"
-            if (Test-Path $winverScript) {
-                try {
-                    & $winverScript -Component "server" -Version $versionString -GitCommit $gitCommit -BuildTime $buildTime 2>&1 | ForEach-Object {
-                        Write-BuildLog $_.ToString() "INFO"
-                    }
-                }
-                catch {
-                    Write-BuildLog "Warning: Failed to generate version resource: $_" "WARN"
-                }
-            }
-        }
-        
-        # Build arguments
-        $buildArgs = @("build")
-        
-        if ($IsRelease) {
-            # Release build: optimized, stripped, no debug info
-            Write-BuildLog "Building optimized release binary..."
-            $ldflags += " -s -w"  # Strip debug info and symbol table
-            $buildArgs += "-trimpath"  # Remove local file paths for security
-        } else {
-            # Dev build: keep debug info for troubleshooting
-            Write-BuildLog "Building development binary (with debug info)..."
-        }
-        
-        $buildArgs += "-ldflags", $ldflags
-        
-        # Add verbose flag if requested
-        if ($VerboseBuild) {
-            $buildArgs += "-v"
-        }
-        
-        # Output file
-        $buildArgs += "-o", "printmaster-server.exe"
-        $buildArgs += "."
-        
-        Write-BuildLog "Version: $versionString"
-        Write-BuildLog "Command: go $($buildArgs -join ' ')"
-        Write-BuildLog "Build Time: $buildTime"
-        Write-BuildLog "Git Commit: $gitCommit"
-        
-        # Execute build with full output capture
-        $buildOutput = & go @buildArgs 2>&1
-        $buildExitCode = $LASTEXITCODE
-        
-        # Log all build output
-        if ($buildOutput) {
-            $buildOutput | ForEach-Object { 
-                $line = $_.ToString()
-                Write-BuildLog $line
-            }
-        }
-        
-        if ($buildExitCode -eq 0) {
-            # Get file size
-            if (Test-Path "printmaster-server.exe") {
-                $fileSize = (Get-Item "printmaster-server.exe").Length
-                $fileSizeMB = [math]::Round($fileSize / 1MB, 2)
-                $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
-                Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}SUCCESS:${ColorReset} printmaster-server.exe ($fileSizeMB MB)"
-                Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] SUCCESS: printmaster-server.exe ($fileSizeMB MB)"
-                Write-BuildLog "Binary location: $(Join-Path (Get-Location) 'printmaster-server.exe')" "INFO"
-            } else {
-                Write-BuildLog "Build reported success but executable not found!" "ERROR"
-                return $false
-            }
-            
-            return $true
-        } else {
-            Write-BuildLog "Build failed with exit code $buildExitCode" "ERROR"
-            return $false
-        }
-    }
-    finally {
-        Pop-Location
-    }
+    Build-Component -Component 'server' -IsRelease:$IsRelease -IncrementVersion:$IncrementVersion
 }
 
 function Test-Storage {
