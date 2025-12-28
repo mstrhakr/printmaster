@@ -83,16 +83,6 @@ func generateSecureToken(length int) (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-// mustGenerateSecureToken calls generateSecureToken and panics on failure.
-// Use only during initialization where errors cannot be propagated.
-// In production, crypto/rand failures indicate a critical system issue.
-func mustGenerateSecureToken(length int) string {
-	token, err := generateSecureToken(length)
-	if err != nil {
-		panic("failed to generate secure token: " + err.Error())
-	}
-	return token
-}
 
 // hashSHA256 returns the hex-encoded SHA-256 hash of a string.
 func hashSHA256(s string) string {
