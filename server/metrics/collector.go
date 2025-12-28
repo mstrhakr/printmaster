@@ -54,13 +54,19 @@ type WSConnectionCounter interface {
 	IsAgentConnected(agentID string) bool // Check if specific agent has WS connection
 }
 
+// Broadcaster allows the collector to push snapshots to connected UI clients.
+type Broadcaster interface {
+	BroadcastMetrics(snapshot *storage.ServerMetricsSnapshot)
+}
+
 // Collector periodically collects and stores server metrics.
 type Collector struct {
-	store     CollectorStore
-	config    CollectorConfig
-	logger    *slog.Logger
-	wsCounter WSConnectionCounter
-	dbPath    string // For DB file size calculation
+	store       CollectorStore
+	config      CollectorConfig
+	logger      *slog.Logger
+	wsCounter   WSConnectionCounter
+	broadcaster Broadcaster
+	dbPath      string // For DB file size calculation
 
 	mu       sync.RWMutex
 	running  bool
@@ -99,6 +105,13 @@ func (c *Collector) SetWSCounter(counter WSConnectionCounter) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.wsCounter = counter
+}
+
+// SetBroadcaster injects the broadcaster for live SSE updates.
+func (c *Collector) SetBroadcaster(b Broadcaster) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.broadcaster = b
 }
 
 // SetDBPath sets the database file path for size calculation.
@@ -180,14 +193,20 @@ func (c *Collector) collect() {
 		return
 	}
 
-	// Cache for quick access
+	// Cache for quick access and get broadcaster
 	c.mu.Lock()
 	c.latestSnapshot = snapshot
+	broadcaster := c.broadcaster
 	c.mu.Unlock()
 
 	// Store in database
 	if err := c.store.InsertServerMetrics(ctx, snapshot); err != nil {
 		c.logger.Error("failed to store server metrics", "error", err)
+	}
+
+	// Broadcast to live UI clients
+	if broadcaster != nil {
+		broadcaster.BroadcastMetrics(snapshot)
 	}
 }
 

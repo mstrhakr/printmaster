@@ -307,6 +307,28 @@ func (h *SSEHub) RemoveClient(client *SSEClient) {
 	h.unregister <- client
 }
 
+// MetricsBroadcaster wraps SSEHub to implement metricsapi.Broadcaster.
+type MetricsBroadcaster struct {
+	hub *SSEHub
+}
+
+func (m *MetricsBroadcaster) BroadcastMetrics(snapshot *storage.ServerMetricsSnapshot) {
+	if m.hub == nil || snapshot == nil {
+		return
+	}
+	// Convert snapshot to map for SSE JSON marshaling
+	data := map[string]interface{}{
+		"timestamp": snapshot.Timestamp,
+		"tier":      snapshot.Tier,
+		"fleet":     snapshot.Fleet,
+		"server":    snapshot.Server,
+	}
+	m.hub.Broadcast(SSEEvent{
+		Type: "metrics_snapshot",
+		Data: data,
+	})
+}
+
 var (
 	serverLogger        *logger.Logger
 	serverStore         storage.Store
@@ -876,16 +898,17 @@ func runServer(ctx context.Context, configFlag string) {
 
 	// Start server metrics collector for Netdata-style dashboards
 	metricsCollector = metricsapi.NewCollector(serverStore, metricsapi.CollectorConfig{
-		CollectionInterval:  10 * time.Second,
+		CollectionInterval:  5 * time.Second, // 5s for live dashboard updates
 		AggregationInterval: 5 * time.Minute,
 		PruneInterval:       1 * time.Hour,
 		Logger:              nil, // Uses slog.Default()
 	})
 	metricsCollector.SetDBPath(serverStore.Path())
 	metricsCollector.SetWSCounter(&WSCounter{})
+	metricsCollector.SetBroadcaster(&MetricsBroadcaster{hub: sseHub})
 	metricsCollector.Start()
 	defer metricsCollector.Stop()
-	logInfo("Server metrics collector started", "interval", "10s")
+	logInfo("Server metrics collector started", "interval", "5s")
 
 	// Get TLS configuration
 	tlsConfig := cfg.ToTLSConfig()

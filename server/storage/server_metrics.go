@@ -260,8 +260,10 @@ func BuildChartSeries(snapshots []ServerMetricsSnapshot, seriesNames []string) m
 func PickResolution(startTime, endTime time.Time) string {
 	duration := endTime.Sub(startTime)
 	switch {
-	case duration <= 6*time.Hour:
-		return "raw" // Show raw 10-second data for short ranges
+	case duration <= 2*time.Hour:
+		return "raw" // Show raw 10-second data for real-time view (last 2 hours)
+	case duration <= 12*time.Hour:
+		return "minute" // Show minute data for recent history (up to 12 hours)
 	case duration <= 7*24*time.Hour:
 		return "hourly" // Hourly for up to a week
 	default:

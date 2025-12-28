@@ -575,15 +575,17 @@
         <div style="margin-top:12px;" data-tab="metrics" class="hidden">
             <div class="metrics-header">
                 <div>
-                    <h3 style="margin-bottom:4px;">Fleet Metrics</h3>
+                    <h3 style="margin-bottom:4px;">Fleet Metrics <span id="metrics_live_indicator" class="live-indicator" title="Live updates active">● LIVE</span></h3>
                     <div class="muted-text">Netdata-style view of fleet throughput, health, and server stats.</div>
                 </div>
                 <div class="metrics-range-controls" id="metrics_range_controls">
+                    <button class="ghost-btn" data-range="1h">1h</button>
+                    <button class="ghost-btn" data-range="6h">6h</button>
+                    <button class="ghost-btn" data-range="12h">12h</button>
                     <button class="ghost-btn" data-range="24h">24h</button>
                     <button class="ghost-btn" data-range="7d">7d</button>
                     <button class="ghost-btn" data-range="30d">30d</button>
                     <button class="ghost-btn" data-range="90d">90d</button>
-                    <button class="ghost-btn" data-range="365d">1y</button>
                 </div>
             </div>
 

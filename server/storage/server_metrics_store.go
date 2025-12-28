@@ -11,9 +11,10 @@ import (
 
 // Server metrics retention policy
 const (
-	ServerMetricsRawRetention    = 7 * 24 * time.Hour   // 7 days
-	ServerMetricsHourlyRetention = 90 * 24 * time.Hour  // 90 days
-	ServerMetricsDailyRetention  = 365 * 24 * time.Hour // 1 year
+	ServerMetricsRawRetention    = 2 * time.Hour        // 2 hours of 10-second raw data
+	ServerMetricsMinuteRetention = 7 * 24 * time.Hour   // 7 days of minute data
+	ServerMetricsHourlyRetention = 90 * 24 * time.Hour  // 90 days of hourly data
+	ServerMetricsDailyRetention  = 365 * 24 * time.Hour // 1 year of daily data
 )
 
 // InsertServerMetrics stores a new metrics snapshot.
@@ -164,13 +165,18 @@ func (s *BaseStore) GetLatestServerMetrics(ctx context.Context) (*ServerMetricsS
 	return &snap, nil
 }
 
-// AggregateServerMetrics computes hourly/daily aggregates from raw data.
+// AggregateServerMetrics computes minute/hourly/daily aggregates from finer-grained data.
 func (s *BaseStore) AggregateServerMetrics(ctx context.Context) error {
 	now := time.Now().UTC()
 
-	// Aggregate raw -> hourly (for data older than 1 hour)
-	if err := s.aggregateServerMetricsTier(ctx, "raw", "hourly", now.Add(-time.Hour), time.Hour); err != nil {
-		return fmt.Errorf("aggregate raw->hourly: %w", err)
+	// Aggregate raw -> minute (for data older than 2 minutes, to allow for late arrivals)
+	if err := s.aggregateServerMetricsTier(ctx, "raw", "minute", now.Add(-2*time.Minute), time.Minute); err != nil {
+		return fmt.Errorf("aggregate raw->minute: %w", err)
+	}
+
+	// Aggregate minute -> hourly (for data older than 1 hour)
+	if err := s.aggregateServerMetricsTier(ctx, "minute", "hourly", now.Add(-time.Hour), time.Hour); err != nil {
+		return fmt.Errorf("aggregate minute->hourly: %w", err)
 	}
 
 	// Aggregate hourly -> daily (for data older than 24 hours)
@@ -355,7 +361,7 @@ func (s *BaseStore) aggregateServerMetricsTier(ctx context.Context, srcTier, dst
 func (s *BaseStore) PruneServerMetrics(ctx context.Context) error {
 	now := time.Now().UTC()
 
-	// Prune raw data older than retention
+	// Prune raw data older than retention (2 hours)
 	rawCutoff := now.Add(-ServerMetricsRawRetention)
 	if _, err := s.execContext(ctx,
 		"DELETE FROM server_metrics_history WHERE tier = 'raw' AND timestamp < ?",
@@ -363,7 +369,15 @@ func (s *BaseStore) PruneServerMetrics(ctx context.Context) error {
 		logWarn("Failed to prune raw server metrics", "error", err)
 	}
 
-	// Prune hourly data older than retention
+	// Prune minute data older than retention (7 days)
+	minuteCutoff := now.Add(-ServerMetricsMinuteRetention)
+	if _, err := s.execContext(ctx,
+		"DELETE FROM server_metrics_history WHERE tier = 'minute' AND timestamp < ?",
+		minuteCutoff.Format(time.RFC3339Nano)); err != nil {
+		logWarn("Failed to prune minute server metrics", "error", err)
+	}
+
+	// Prune hourly data older than retention (90 days)
 	hourlyCutoff := now.Add(-ServerMetricsHourlyRetention)
 	if _, err := s.execContext(ctx,
 		"DELETE FROM server_metrics_history WHERE tier = 'hourly' AND timestamp < ?",
@@ -371,7 +385,7 @@ func (s *BaseStore) PruneServerMetrics(ctx context.Context) error {
 		logWarn("Failed to prune hourly server metrics", "error", err)
 	}
 
-	// Prune daily data older than retention
+	// Prune daily data older than retention (1 year)
 	dailyCutoff := now.Add(-ServerMetricsDailyRetention)
 	if _, err := s.execContext(ctx,
 		"DELETE FROM server_metrics_history WHERE tier = 'daily' AND timestamp < ?",

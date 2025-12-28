@@ -163,13 +163,16 @@ const alertHistoryRenderState = {
 };
 
 const METRICS_RANGE_WINDOWS = {
+    '1h': 1 * 60 * 60 * 1000,
+    '6h': 6 * 60 * 60 * 1000,
+    '12h': 12 * 60 * 60 * 1000,
     '24h': 24 * 60 * 60 * 1000,
     '7d': 7 * 24 * 60 * 60 * 1000,
     '30d': 30 * 24 * 60 * 60 * 1000,
     '90d': 90 * 24 * 60 * 60 * 1000,
     '365d': 365 * 24 * 60 * 60 * 1000,
 };
-const METRICS_DEFAULT_RANGE = '24h';
+const METRICS_DEFAULT_RANGE = '6h';
 // FLEET_SERIES_COLORS is now provided by utils/charts.js
 const metricsVM = {
     range: METRICS_DEFAULT_RANGE,
@@ -788,14 +791,34 @@ function connectWS() {
 }
 
 // ====== SSE Connection ======
+let _sseConnected = false;
+
+function updateLiveIndicator(connected) {
+    _sseConnected = connected;
+    const indicator = document.getElementById('metrics_live_indicator');
+    if (indicator) {
+        if (connected) {
+            indicator.classList.remove('disconnected');
+            indicator.innerHTML = '● LIVE';
+            indicator.title = 'Live updates active (5s refresh)';
+        } else {
+            indicator.classList.add('disconnected');
+            indicator.innerHTML = '○ OFFLINE';
+            indicator.title = 'Live updates disconnected - will reconnect';
+        }
+    }
+}
+
 function connectSSE() {
     const eventSource = new EventSource('/api/events');
     eventSource.onopen = (e) => {
         window.__pm_shared.log('SSE onopen, readyState=', eventSource.readyState);
+        updateLiveIndicator(true);
     };
     
     eventSource.addEventListener('connected', (e) => {
         window.__pm_shared.log('SSE connected:', e.data);
+        updateLiveIndicator(true);
     });
     
     eventSource.addEventListener('agent_registered', (e) => {
@@ -876,9 +899,20 @@ function connectSSE() {
             window.__pm_shared.warn('Failed to parse update_progress event:', err);
         }
     });
+
+    // Live metrics refresh - update dashboard charts in real-time
+    eventSource.addEventListener('metrics_snapshot', (e) => {
+        try {
+            const snapshot = JSON.parse(e.data);
+            handleLiveMetricsSnapshot(snapshot);
+        } catch (err) {
+            window.__pm_shared.warn('Failed to parse metrics_snapshot event:', err);
+        }
+    });
     
     eventSource.onerror = (e) => {
         // EventSource provides automatic reconnects, but log useful state
+        updateLiveIndicator(false);
         try {
             window.__pm_shared.error('SSE connection error:', e, 'readyState=', eventSource.readyState);
         } catch (ex) {
@@ -15045,6 +15079,9 @@ function getMetricsRangeWindow(range) {
 
 function metricsRangeLabel(range) {
     switch (range) {
+        case '1h': return '1 hour';
+        case '6h': return '6 hours';
+        case '12h': return '12 hours';
         case '24h': return '24 hours';
         case '7d': return '7 days';
         case '30d': return '30 days';
@@ -15088,6 +15125,100 @@ function updateMetricsRangeButtons() {
 function isMetricsTabActive() {
     const tab = document.querySelector('[data-tab="metrics"]');
     return tab && !tab.classList.contains('hidden');
+}
+
+/**
+ * Handle live metrics snapshot from SSE for real-time chart updates.
+ * Appends the new snapshot to the timeseries data and re-renders charts.
+ */
+function handleLiveMetricsSnapshot(snapshot) {
+    // Only update if on metrics tab and we have existing data to append to
+    if (!isMetricsTabActive() || !serverMetricsVM.timeseries) {
+        return;
+    }
+
+    const ts = serverMetricsVM.timeseries;
+    const snapshots = ts.snapshots || [];
+    const chartSeries = ts.chart_series || {};
+
+    // Convert snapshot timestamp
+    const timestamp = new Date(snapshot.timestamp).getTime();
+    const fleet = snapshot.fleet || {};
+    const server = snapshot.server || {};
+
+    // Append to snapshots array
+    snapshots.push({
+        timestamp: snapshot.timestamp,
+        tier: snapshot.tier || 'raw',
+        fleet: fleet,
+        server: server,
+    });
+
+    // Append to chart_series arrays for each metric
+    const appendPoint = (key, value) => {
+        if (chartSeries[key]) {
+            chartSeries[key].push({ timestamp: snapshot.timestamp, value });
+        }
+    };
+
+    // Fleet metrics
+    appendPoint('agents', fleet.total_agents);
+    appendPoint('devices', fleet.total_devices);
+    appendPoint('devices_online', fleet.devices_online);
+    appendPoint('devices_offline', fleet.devices_offline);
+    appendPoint('devices_error', fleet.devices_error);
+    appendPoint('agents_ws', fleet.agents_ws);
+    appendPoint('agents_http', fleet.agents_http);
+    appendPoint('agents_offline', fleet.agents_offline);
+    appendPoint('toner_high', fleet.toner_high);
+    appendPoint('toner_medium', fleet.toner_medium);
+    appendPoint('toner_low', fleet.toner_low);
+    appendPoint('toner_critical', fleet.toner_critical);
+    appendPoint('toner_unknown', fleet.toner_unknown);
+    appendPoint('total_pages', fleet.total_pages);
+    appendPoint('color_pages', fleet.color_pages);
+    appendPoint('mono_pages', fleet.mono_pages);
+    appendPoint('scan_count', fleet.scan_count);
+    appendPoint('ws_connections', fleet.ws_connections);
+
+    // Server metrics
+    appendPoint('goroutines', server.goroutines);
+    appendPoint('heap_alloc', server.heap_alloc);
+    appendPoint('db_size', server.database?.size_bytes);
+
+    // Prune old data points outside current time window
+    const rangeWindow = getMetricsRangeWindow(metricsVM.range);
+    const cutoff = Date.now() - rangeWindow;
+
+    // Prune snapshots
+    while (snapshots.length > 0 && new Date(snapshots[0].timestamp).getTime() < cutoff) {
+        snapshots.shift();
+    }
+
+    // Prune chart_series
+    for (const key in chartSeries) {
+        const arr = chartSeries[key];
+        if (Array.isArray(arr)) {
+            while (arr.length > 0 && new Date(arr[0].timestamp).getTime() < cutoff) {
+                arr.shift();
+            }
+        }
+    }
+
+    // Re-render the time-series charts (throttled to avoid excessive redraws)
+    throttledRenderLiveMetrics();
+}
+
+// Throttle live chart updates to max once per second for smooth performance
+let _liveMetricsRenderTimer = null;
+function throttledRenderLiveMetrics() {
+    if (_liveMetricsRenderTimer) return;
+    _liveMetricsRenderTimer = setTimeout(() => {
+        _liveMetricsRenderTimer = null;
+        renderConsumablesTimeSeriesCharts(serverMetricsVM.timeseries);
+        renderAgentFleetCharts(serverMetricsVM.timeseries);
+        renderServerTimeSeriesCharts(serverMetricsVM.timeseries);
+    }, 1000);
 }
 
 function isDevicesTabActive() {

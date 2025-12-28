@@ -2522,6 +2522,32 @@ select:focus {
   padding: 8px 0 16px;
 }
 
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--success);
+  padding: 2px 8px;
+  background: rgba(52, 211, 153, 0.15);
+  border-radius: 10px;
+  margin-left: 8px;
+  animation: live-pulse 2s ease-in-out infinite;
+  vertical-align: middle;
+}
+
+.live-indicator.disconnected {
+  color: var(--danger);
+  background: rgba(239, 68, 68, 0.15);
+  animation: none;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .metrics-range-controls {
   display: flex;
   gap: 8px;
