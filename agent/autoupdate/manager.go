@@ -930,12 +930,14 @@ func (m *Manager) applyUpdateViaDnf() error {
 	// Refresh package metadata
 	m.logDebug("Running sudo dnf check-update")
 	// dnf check-update returns exit code 100 if updates are available, 0 if none, 1 on error
-	checkCmd := exec.Command("sudo", "dnf", "check-update", "-q", m.packageName)
+	// Use --setopt=logdir=/tmp to avoid dnf5 "Read-only file system" errors on /var/log/dnf5.log
+	// when running as a service with restricted write access
+	checkCmd := exec.Command("sudo", "dnf", "--setopt=logdir=/tmp", "check-update", "-q", m.packageName)
 	checkCmd.Run() // Ignore exit code, just refreshes cache
 
 	// Now upgrade the specific package
 	m.logInfo("Running sudo dnf upgrade", "package", m.packageName)
-	upgradeCmd := exec.Command("sudo", "dnf", "upgrade", "-y", "-q", m.packageName)
+	upgradeCmd := exec.Command("sudo", "dnf", "--setopt=logdir=/tmp", "upgrade", "-y", "-q", m.packageName)
 	output, err := upgradeCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("dnf upgrade failed: %w (output: %s)", err, string(output))
