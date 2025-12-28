@@ -33,6 +33,38 @@ Contributions, feedback, and vendor-specific SNMP knowledge are welcome—printe
 - **Real-Time Updates** — WebSocket heartbeat with automatic HTTP fallback
 - **Cross-Platform** — Windows, Linux, macOS, Docker
 
+## Screenshots
+
+<details>
+<summary><b>Dashboard</b> — Hierarchical view of tenants, sites, agents, and devices</summary>
+
+![Dashboard](docs/screenshots/Dashboard%20-%20PrintMaster%20Server.png)
+</details>
+
+<details>
+<summary><b>Fleet Agents</b> — Monitor agent connectivity, versions, and status</summary>
+
+![Agents](docs/screenshots/Agents%20-%20PrintMaster%20Server.png)
+</details>
+
+<details>
+<summary><b>Fleet Devices</b> — Track printers, consumables, and health status</summary>
+
+![Devices](docs/screenshots/Devices%20-%20PrintMaster%20Server.png)
+</details>
+
+<details>
+<summary><b>Fleet Metrics</b> — Netdata-style time-series charts for throughput and usage</summary>
+
+![Metrics](docs/screenshots/Metrics%20-%20PrintMaster%20Server.png)
+</details>
+
+<details>
+<summary><b>System Logs</b> — Real-time log streaming with search and filtering</summary>
+
+![Logs](docs/screenshots/Logs%20-%20PrintMaster%20Server.png)
+</details>
+
 ## Quick Start
 
 ### Server (Docker)
