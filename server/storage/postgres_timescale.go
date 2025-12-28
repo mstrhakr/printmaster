@@ -266,6 +266,37 @@ func (ts *TimescaleSupport) createHypertable(ctx context.Context, table, timeCol
 		return nil
 	}
 
+	// TimescaleDB requires the partitioning column (timestamp) to be part of any unique constraint.
+	// Drop the PRIMARY KEY constraint if it exists (serial ID isn't needed for time-series data).
+	// First check if the 'id' column exists
+	var hasIdColumn bool
+	err = ts.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name = $1 AND column_name = 'id'
+		)
+	`, table).Scan(&hasIdColumn)
+	if err != nil {
+		logDebug("Error checking for id column", "table", table, "error", err)
+	}
+
+	if hasIdColumn {
+		// Drop the primary key constraint (the constraint name is typically table_pkey)
+		pkName := table + "_pkey"
+		_, err = ts.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s`, table, pkName))
+		if err != nil {
+			logDebug("Could not drop primary key (may not exist)", "table", table, "error", err)
+		} else {
+			logInfo("Dropped primary key for hypertable conversion", "table", table)
+		}
+
+		// Drop the id column since it's not needed for time-series
+		_, err = ts.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s DROP COLUMN IF EXISTS id`, table))
+		if err != nil {
+			logDebug("Could not drop id column", "table", table, "error", err)
+		}
+	}
+
 	// Convert to hypertable
 	// migrate_data => true: migrate existing data into chunks
 	// if_not_exists => true: don't error if already a hypertable
