@@ -45,6 +45,8 @@ services:
     restart: unless-stopped
     container_name: printmaster-db
     hostname: db
+    # Ensure TimescaleDB is preloaded (required for existing databases)
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
     environment:
       # IMPORTANT: Change these credentials in production
       POSTGRES_USER: printmaster
@@ -52,8 +54,6 @@ services:
       POSTGRES_DB: printmaster
     volumes:
       - db-data:/var/lib/postgresql/data
-      # Init scripts run on first startup (alphabetical order)
-      - ./server/init-db:/docker-entrypoint-initdb.d:ro
     ports:
       - "5432:5432"
     healthcheck:

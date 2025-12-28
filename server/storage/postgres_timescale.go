@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -95,7 +96,13 @@ func NewTimescaleSupport(db *sql.DB, config *TimescaleConfig) (*TimescaleSupport
 				logInfo("TimescaleDB extension auto-enabled (detected available but not installed)")
 			} else {
 				// Extension not available (plain PostgreSQL) - that's fine
-				logDebug("TimescaleDB extension creation failed (plain PostgreSQL assumed)", "error", err)
+				// Check for the specific "must be preloaded" error to give helpful guidance
+				errStr := err.Error()
+				if strings.Contains(errStr, "must be preloaded") {
+					logInfo("TimescaleDB available but not preloaded. To enable: add 'shared_preload_libraries=timescaledb' to postgresql.conf and restart PostgreSQL, or recreate the database volume with the TimescaleDB image")
+				} else {
+					logDebug("TimescaleDB extension creation failed (plain PostgreSQL assumed)", "error", err)
+				}
 				ts.enabled = false
 			}
 		}
