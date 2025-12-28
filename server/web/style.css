@@ -2504,6 +2504,15 @@ select:focus {
 }
 
 /* ---------------------------- Metrics Dashboard ---------------------------- */
+
+/* Metrics tab container - ensure content stays within bounds */
+[data-tab="metrics"] {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
 .metrics-header {
   display: flex;
   justify-content: space-between;
@@ -2571,20 +2580,29 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+  overflow: hidden;
 }
 
 .metrics-charts-fullwidth .metric-chart-card {
   width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .metrics-charts-fullwidth .metric-chart-canvas {
   width: 100%;
   min-height: 200px;
   max-height: 280px;
+  box-sizing: border-box;
+  display: block;
 }
 
 .metrics-section {
   margin-bottom: 0;
+  width: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .metrics-side-panel {
@@ -2602,6 +2620,9 @@ select:focus {
   box-shadow: var(--shadow-md);
   color: var(--text);
   min-height: 120px;
+  box-sizing: border-box;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .metric-card.loading,

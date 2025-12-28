@@ -73,25 +73,29 @@ function drawTimeAxis(ctx, { minTime, maxTime, mapX, padding, width, height, for
  * Draw a single-axis fleet time series chart
  * @param {HTMLCanvasElement} canvas - The canvas element to draw on
  * @param {Array} seriesList - Array of series objects with { label, color, points }
- * @param {Object} options - Optional { formatY, label }
+ * @param {Object} options - Optional { formatY, label, showLegend }
  */
 function drawFleetChart(canvas, seriesList, options) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    // Ensure we have valid dimensions
+    const canvasWidth = Math.max(100, rect.width || canvas.clientWidth || 400);
+    const canvasHeight = Math.max(100, rect.height || canvas.clientHeight || 220);
+    canvas.width = canvasWidth * dpr;
+    canvas.height = canvasHeight * dpr;
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, rect.width, rect.height);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
     const formatY = options?.formatY || ((v) => formatChartNumber(Math.round(v)));
+    const showLegend = options?.showLegend !== false; // Default to showing legend
 
     const points = seriesList.flatMap(s => s.points || []);
     if (points.length === 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
         ctx.font = '12px sans-serif';
-        ctx.fillText('No data', 12, rect.height / 2);
+        ctx.fillText('No data', 12, canvasHeight / 2);
         return;
     }
 
@@ -99,9 +103,10 @@ function drawFleetChart(canvas, seriesList, options) {
     const maxTime = Math.max(...points.map(p => p.time));
     const minValue = 0;
     const maxValue = Math.max(...points.map(p => p.value)) || 1;
-    const padding = { top: 20, right: 16, bottom: 36, left: 60 };
-    const width = rect.width - padding.left - padding.right;
-    const height = rect.height - padding.top - padding.bottom;
+    // Increase top padding to make room for legend
+    const padding = { top: showLegend ? 28 : 20, right: 16, bottom: 36, left: 60 };
+    const width = canvasWidth - padding.left - padding.right;
+    const height = canvasHeight - padding.top - padding.bottom;
 
     const timeRangeMs = maxTime - minTime;
     const formatTimeLabel = createTimeFormatter(timeRangeMs);
@@ -160,6 +165,46 @@ function drawFleetChart(canvas, seriesList, options) {
 
     // X-axis time labels
     drawTimeAxis(ctx, { minTime, maxTime, mapX, padding, width, height, formatTimeLabel });
+
+    // Draw legend if we have multiple series with labels
+    if (showLegend && seriesList.some(s => s.label)) {
+        const legendY = 12;
+        ctx.font = '10px sans-serif';
+        let legendX = padding.left;
+        
+        seriesList.forEach((series, idx) => {
+            if (!series.label) return;
+            const pts = (series.points || []).filter(p => Number.isFinite(p.time) && Number.isFinite(p.value));
+            if (pts.length === 0) return;
+            
+            const color = series.color || FLEET_SERIES_COLORS[idx % FLEET_SERIES_COLORS.length];
+            
+            // Draw color line indicator
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(legendX, legendY);
+            ctx.lineTo(legendX + 14, legendY);
+            ctx.stroke();
+            
+            // Draw label text
+            ctx.fillStyle = 'rgba(255,255,255,0.7)';
+            ctx.textAlign = 'left';
+            ctx.fillText(series.label, legendX + 18, legendY + 3);
+            
+            // Get latest value for display
+            const lastPoint = pts[pts.length - 1];
+            const latestValue = lastPoint ? formatY(lastPoint.value) : '';
+            if (latestValue) {
+                const labelWidth = ctx.measureText(series.label).width;
+                ctx.fillStyle = color;
+                ctx.fillText(latestValue, legendX + 22 + labelWidth, legendY + 3);
+                legendX += labelWidth + ctx.measureText(latestValue).width + 36;
+            } else {
+                legendX += ctx.measureText(series.label).width + 30;
+            }
+        });
+    }
 }
 
 /**
@@ -174,10 +219,13 @@ function drawFleetChartDualAxis(canvas, rateSeriesList, cumulativeSeriesList, op
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    // Ensure we have valid dimensions
+    const canvasWidth = Math.max(100, rect.width || canvas.clientWidth || 400);
+    const canvasHeight = Math.max(100, rect.height || canvas.clientHeight || 220);
+    canvas.width = canvasWidth * dpr;
+    canvas.height = canvasHeight * dpr;
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, rect.width, rect.height);
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
     const formatY = options?.formatY || ((v) => formatChartNumber(Math.round(v)));
 
@@ -188,7 +236,7 @@ function drawFleetChartDualAxis(canvas, rateSeriesList, cumulativeSeriesList, op
     if (allPoints.length === 0) {
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
         ctx.font = '12px sans-serif';
-        ctx.fillText('No data', 12, rect.height / 2);
+        ctx.fillText('No data', 12, canvasHeight / 2);
         return;
     }
 
@@ -207,9 +255,9 @@ function drawFleetChartDualAxis(canvas, rateSeriesList, cumulativeSeriesList, op
     const cumMinAdj = Math.max(0, cumMin - cumRange * 0.05);
     const cumMaxAdj = cumMax + cumRange * 0.05;
 
-    const padding = { top: 20, right: 65, bottom: 36, left: 60 };
-    const width = rect.width - padding.left - padding.right;
-    const height = rect.height - padding.top - padding.bottom;
+    const padding = { top: 28, right: 65, bottom: 36, left: 60 };
+    const width = canvasWidth - padding.left - padding.right;
+    const height = canvasHeight - padding.top - padding.bottom;
 
     const timeRangeMs = maxTime - minTime;
     const formatTimeLabel = createTimeFormatter(timeRangeMs);
