@@ -263,7 +263,8 @@ func (e *Evaluator) evaluateAgentRules(ctx context.Context, rules []storage.Aler
 			}
 
 			// Check if alert already exists - use AgentID (stable UUID string)
-			key := alertKey(rule.Type, rule.Scope, "", agent.AgentID, "", "")
+			// Include TenantID to match the key format used when loading existing alerts
+			key := alertKey(rule.Type, rule.Scope, "", agent.AgentID, "", agent.TenantID)
 			if _, exists := existing[key]; exists {
 				continue
 			}
