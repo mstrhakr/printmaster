@@ -108,14 +108,18 @@ function Invoke-PlaywrightTests {
 
         $cmd = "npm run test:playwright"
         Write-BuildLog "Executing: $cmd" "INFO"
-        $testOutput = & npm run test:playwright 2>&1
+        
+        # Stream output live instead of capturing all at once
+        $testExit = 0
+        & npm run test:playwright 2>&1 | ForEach-Object {
+            Write-BuildLog $_ "INFO"
+        }
         $testExit = $LASTEXITCODE
+        
         if ($testExit -ne 0) {
-            $testOutput | ForEach-Object { Write-BuildLog $_ "ERROR" }
             Write-BuildLog "Playwright smoke tests failed" "ERROR"
             return $false
         }
-        $testOutput | ForEach-Object { Write-BuildLog $_ "INFO" }
         Write-BuildLog "Playwright smoke tests passed" "INFO"
         return $true
     }
