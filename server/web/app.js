@@ -2998,6 +2998,111 @@ function initAlertRuleModal() {
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeAlertRuleModal();
     });
+    
+    // Sync severity radio buttons with hidden select
+    const severityRadios = modal.querySelectorAll('input[name="alert_severity"]');
+    const severitySelect = document.getElementById('alert_rule_severity');
+    severityRadios.forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (severitySelect) severitySelect.value = radio.value;
+            updateAlertRulePreview();
+        });
+    });
+    
+    // Update preview when type/threshold/operator changes
+    const typeSelect = document.getElementById('alert_rule_type');
+    const thresholdInput = document.getElementById('alert_rule_threshold');
+    const operatorSelect = document.getElementById('alert_rule_operator');
+    const durationInput = document.getElementById('alert_rule_duration');
+    
+    if (typeSelect) typeSelect.addEventListener('change', () => {
+        updateAlertRuleThresholdVisibility();
+        updateAlertRulePreview();
+    });
+    if (thresholdInput) thresholdInput.addEventListener('input', updateAlertRulePreview);
+    if (operatorSelect) operatorSelect.addEventListener('change', updateAlertRulePreview);
+    if (durationInput) durationInput.addEventListener('input', updateAlertRulePreview);
+    
+    // Show/hide scope ID field based on scope selection
+    const scopeSelect = document.getElementById('alert_rule_scope');
+    if (scopeSelect) {
+        scopeSelect.addEventListener('change', () => {
+            const scopeIdField = document.getElementById('alert_rule_scope_id_field');
+            if (scopeIdField) {
+                scopeIdField.style.display = scopeSelect.value === 'fleet' ? 'none' : 'block';
+            }
+        });
+    }
+}
+
+// Update threshold row visibility based on alert type
+function updateAlertRuleThresholdVisibility() {
+    const typeSelect = document.getElementById('alert_rule_type');
+    const thresholdRow = document.getElementById('alert_rule_threshold_row');
+    const durationRow = document.getElementById('alert_rule_duration_row');
+    const unitSpan = document.getElementById('alert_rule_threshold_unit');
+    
+    if (!typeSelect) return;
+    
+    const type = typeSelect.value;
+    const hasThreshold = ['toner_low', 'supply_empty', 'page_count'].includes(type);
+    const hasDuration = ['device_offline', 'agent_offline'].includes(type);
+    
+    if (thresholdRow) thresholdRow.style.display = hasThreshold ? 'flex' : 'none';
+    if (durationRow) durationRow.style.display = hasDuration ? 'flex' : 'none';
+    
+    // Update unit based on type
+    if (unitSpan) {
+        if (type === 'page_count') {
+            unitSpan.textContent = 'pages';
+        } else {
+            unitSpan.textContent = '%';
+        }
+    }
+}
+
+// Generate human-readable preview of the alert condition
+function updateAlertRulePreview() {
+    const previewText = document.getElementById('alert_rule_preview_text');
+    if (!previewText) return;
+    
+    const typeSelect = document.getElementById('alert_rule_type');
+    const thresholdInput = document.getElementById('alert_rule_threshold');
+    const operatorSelect = document.getElementById('alert_rule_operator');
+    const durationInput = document.getElementById('alert_rule_duration');
+    
+    const type = typeSelect?.value || 'toner_low';
+    const threshold = thresholdInput?.value || '10';
+    const operator = operatorSelect?.value || 'lt';
+    const duration = durationInput?.value || '5';
+    
+    const typeLabels = {
+        'toner_low': 'toner level',
+        'supply_empty': 'supply level',
+        'device_offline': 'device goes offline',
+        'device_error': 'device reports an error',
+        'agent_offline': 'agent goes offline',
+        'page_count': 'page count',
+        'custom': 'custom metric'
+    };
+    
+    const operatorLabels = {
+        'lt': 'drops below',
+        'lte': 'reaches or drops below',
+        'gt': 'exceeds',
+        'gte': 'reaches or exceeds',
+        'eq': 'equals'
+    };
+    
+    let preview = '';
+    if (['device_offline', 'device_error', 'agent_offline'].includes(type)) {
+        preview = `Alert when ${typeLabels[type]} for more than ${duration} minutes`;
+    } else {
+        const unit = type === 'page_count' ? ' pages' : '%';
+        preview = `Alert when ${typeLabels[type]} ${operatorLabels[operator]} ${threshold}${unit}`;
+    }
+    
+    previewText.textContent = preview;
 }
 
 function closeAlertRuleModal() {
@@ -3015,11 +3120,13 @@ function initNotificationChannelModal() {
     const closeBtn = document.getElementById('notification_channel_modal_close_x');
     const cancelBtn = document.getElementById('channel_cancel');
     const saveBtn = document.getElementById('channel_save');
+    const testBtn = document.getElementById('channel_test');
     const typeSelect = document.getElementById('channel_type');
     
     if (closeBtn) closeBtn.addEventListener('click', closeNotificationChannelModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeNotificationChannelModal);
     if (saveBtn) saveBtn.addEventListener('click', saveNotificationChannel);
+    if (testBtn) testBtn.addEventListener('click', testNotificationChannel);
     
     // Handle type change to show/hide config sections
     if (typeSelect) {
@@ -3065,7 +3172,6 @@ function addEscalationStep(afterMinutes = 15, channelId = '') {
     const stepNum = container.querySelectorAll('.escalation-step').length + 1;
     const stepDiv = document.createElement('div');
     stepDiv.className = 'escalation-step';
-    stepDiv.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;padding:8px;background:var(--bg-tertiary);border-radius:4px;';
     
     // Build channel options from cached channels
     const channelOptions = (cachedNotificationChannels || [])
@@ -3074,15 +3180,21 @@ function addEscalationStep(afterMinutes = 15, channelId = '') {
         .join('');
     
     stepDiv.innerHTML = `
-        <span style="color:var(--text-muted);min-width:60px;">Step ${stepNum}</span>
-        <span style="color:var(--text-muted);">After</span>
-        <input type="number" class="step-delay" value="${afterMinutes}" min="1" max="1440" style="width:70px;" title="Minutes to wait before escalating" autocomplete="off" data-1p-ignore data-lpignore="true" />
-        <span style="color:var(--text-muted);">min, notify</span>
-        <select class="step-channel" style="flex:1;min-width:150px;">
-            <option value="">-- Select Channel --</option>
-            ${channelOptions}
-        </select>
-        <button type="button" class="btn btn-sm btn-danger remove-step" title="Remove step" style="padding:4px 8px;">×</button>
+        <div class="escalation-step-header">
+            <span class="escalation-step-number">Step ${stepNum}</span>
+            <button type="button" class="escalation-step-remove remove-step" title="Remove step">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/></svg>
+            </button>
+        </div>
+        <div class="escalation-step-body">
+            <span class="escalation-step-label">After</span>
+            <input type="number" class="step-delay" value="${afterMinutes}" min="1" max="1440" title="Minutes to wait before escalating" autocomplete="off" data-1p-ignore data-lpignore="true" />
+            <span class="escalation-step-label">minutes, notify via</span>
+            <select class="step-channel">
+                <option value="">-- Select Channel --</option>
+                ${channelOptions}
+            </select>
+        </div>
     `;
     
     stepDiv.querySelector('.remove-step').addEventListener('click', () => {
@@ -3098,7 +3210,7 @@ function renumberEscalationSteps() {
     if (!container) return;
     
     container.querySelectorAll('.escalation-step').forEach((step, idx) => {
-        const label = step.querySelector('span');
+        const label = step.querySelector('.escalation-step-number');
         if (label) label.textContent = `Step ${idx + 1}`;
     });
 }
@@ -3126,6 +3238,74 @@ function initMaintenanceWindowModal() {
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeMaintenanceWindowModal();
     });
+    
+    // Handle recurring toggle to show/hide options
+    const recurringCheck = document.getElementById('maintenance_recurring');
+    const recurringOptions = document.getElementById('maintenance_recurring_options');
+    if (recurringCheck && recurringOptions) {
+        recurringCheck.addEventListener('change', () => {
+            recurringOptions.style.display = recurringCheck.checked ? 'block' : 'none';
+        });
+    }
+    
+    // Update duration preview when dates change
+    const startInput = document.getElementById('maintenance_start');
+    const endInput = document.getElementById('maintenance_end');
+    if (startInput && endInput) {
+        startInput.addEventListener('change', updateMaintenanceDurationPreview);
+        endInput.addEventListener('change', updateMaintenanceDurationPreview);
+    }
+    
+    // Show/hide scope ID field based on scope selection
+    const scopeSelect = document.getElementById('maintenance_scope');
+    if (scopeSelect) {
+        scopeSelect.addEventListener('change', () => {
+            const scopeIdField = document.getElementById('maintenance_scope_id_field');
+            if (scopeIdField) {
+                scopeIdField.style.display = scopeSelect.value === 'fleet' ? 'none' : 'block';
+            }
+        });
+    }
+}
+
+// Update maintenance duration preview
+function updateMaintenanceDurationPreview() {
+    const startInput = document.getElementById('maintenance_start');
+    const endInput = document.getElementById('maintenance_end');
+    const durationText = document.getElementById('maintenance_duration_text');
+    
+    if (!startInput || !endInput || !durationText) return;
+    
+    const start = startInput.value ? new Date(startInput.value) : null;
+    const end = endInput.value ? new Date(endInput.value) : null;
+    
+    if (!start || !end) {
+        durationText.textContent = 'Select start and end times';
+        return;
+    }
+    
+    if (end <= start) {
+        durationText.textContent = 'End time must be after start time';
+        durationText.style.color = 'var(--danger)';
+        return;
+    }
+    
+    durationText.style.color = '';
+    
+    const diffMs = end - start;
+    const diffMins = Math.round(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const remainMins = diffMins % 60;
+    
+    let duration = '';
+    if (diffHours > 0) {
+        duration += `${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
+        if (remainMins > 0) duration += ` ${remainMins} min`;
+    } else {
+        duration = `${diffMins} minutes`;
+    }
+    
+    durationText.textContent = `Duration: ${duration}`;
 }
 
 function closeMaintenanceWindowModal() {
@@ -3551,6 +3731,126 @@ async function saveNotificationChannel() {
         console.error('Failed to save notification channel:', err);
         window.__pm_shared.showToast('Failed to save: ' + (err.message || err), 'error');
     }
+}
+
+// Send test notification to verify channel configuration
+async function testNotificationChannel() {
+    const modal = document.getElementById('notification_channel_modal');
+    if (!modal) return;
+    
+    const testBtn = document.getElementById('channel_test');
+    const errorDiv = document.getElementById('channel_error');
+    
+    // Build config from form
+    const channelType = document.getElementById('channel_type')?.value || 'email';
+    const channelName = document.getElementById('channel_name')?.value || 'Test Channel';
+    const config = buildChannelConfig(channelType);
+    
+    // Basic validation
+    if (!channelName.trim()) {
+        if (errorDiv) {
+            errorDiv.textContent = 'Please enter a channel name';
+            errorDiv.style.display = 'block';
+        }
+        return;
+    }
+    
+    // Show loading state
+    if (testBtn) {
+        testBtn.disabled = true;
+        testBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="spin" style="margin-right:6px;"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm1 14.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13z" opacity="0.3"/><path d="M8 0a8 8 0 0 1 8 8h-1.5a6.5 6.5 0 0 0-6.5-6.5V0z"/></svg>Testing...';
+    }
+    
+    try {
+        const resp = await fetch('/api/v1/notification-channels/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: channelType,
+                name: channelName,
+                config_json: JSON.stringify(config)
+            })
+        });
+        
+        if (!resp.ok) {
+            const errorText = await resp.text();
+            throw new Error(errorText || `HTTP ${resp.status}`);
+        }
+        
+        window.__pm_shared.showToast('Test notification sent successfully!', 'success');
+        if (errorDiv) errorDiv.style.display = 'none';
+    } catch (err) {
+        console.error('Failed to send test notification:', err);
+        if (errorDiv) {
+            errorDiv.textContent = 'Test failed: ' + (err.message || err);
+            errorDiv.style.display = 'block';
+        }
+        window.__pm_shared.showToast('Test failed: ' + (err.message || err), 'error');
+    } finally {
+        // Restore button
+        if (testBtn) {
+            testBtn.disabled = false;
+            testBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right:6px;"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/></svg>Send Test';
+        }
+    }
+}
+
+// Helper to build channel config from form fields
+function buildChannelConfig(channelType) {
+    const config = {};
+    
+    switch (channelType) {
+        case 'email':
+            const emailTo = document.getElementById('channel_email_to')?.value || '';
+            config.to = emailTo.split(',').map(e => e.trim()).filter(e => e);
+            config.subject_prefix = document.getElementById('channel_email_subject')?.value || '';
+            break;
+        case 'slack':
+            config.webhook_url = document.getElementById('channel_slack_url')?.value || '';
+            config.channel = document.getElementById('channel_slack_channel')?.value || '';
+            config.username = document.getElementById('channel_slack_username')?.value || '';
+            break;
+        case 'discord':
+            config.webhook_url = document.getElementById('channel_discord_url')?.value || '';
+            config.username = document.getElementById('channel_discord_username')?.value || '';
+            break;
+        case 'teams':
+            config.webhook_url = document.getElementById('channel_teams_url')?.value || '';
+            break;
+        case 'telegram':
+            config.bot_token = document.getElementById('channel_telegram_token')?.value || '';
+            config.chat_id = document.getElementById('channel_telegram_chat')?.value || '';
+            break;
+        case 'pagerduty':
+            config.routing_key = document.getElementById('channel_pagerduty_key')?.value || '';
+            config.severity = document.getElementById('channel_pagerduty_severity')?.value || 'warning';
+            break;
+        case 'pushover':
+            config.user_key = document.getElementById('channel_pushover_user')?.value || '';
+            config.api_token = document.getElementById('channel_pushover_token')?.value || '';
+            config.device = document.getElementById('channel_pushover_device')?.value || '';
+            config.sound = document.getElementById('channel_pushover_sound')?.value || '';
+            break;
+        case 'ntfy':
+            config.server_url = document.getElementById('channel_ntfy_server')?.value || '';
+            config.topic = document.getElementById('channel_ntfy_topic')?.value || '';
+            config.username = document.getElementById('channel_ntfy_username')?.value || '';
+            config.password = document.getElementById('channel_ntfy_password')?.value || '';
+            config.token = document.getElementById('channel_ntfy_token')?.value || '';
+            break;
+        case 'webhook':
+            config.url = document.getElementById('channel_webhook_url')?.value || '';
+            config.method = document.getElementById('channel_webhook_method')?.value || 'POST';
+            try {
+                const headersStr = document.getElementById('channel_webhook_headers')?.value || '';
+                config.headers = headersStr ? JSON.parse(headersStr) : {};
+            } catch (e) {
+                config.headers = {};
+            }
+            break;
+    }
+    
+    return config;
 }
 
 function showEscalationPolicyModal(existingPolicy = null) {

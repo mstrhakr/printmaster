@@ -2361,80 +2361,168 @@
         </div>
     </div>
 
-    <!-- Alert Rule Modal -->
+    <!-- Alert Rule Modal (Redesigned) -->
     <div class="modal" id="alert_rule_modal" style="display:none;">
-        <div class="modal-content" style="max-width:600px;">
+        <div class="modal-content alert-rule-modal-content">
             <div class="modal-header">
                 <span class="modal-title" id="alert_rule_modal_title">New Alert Rule</span>
                 <button class="modal-close-x" id="alert_rule_modal_close_x" title="Close">&times;</button>
             </div>
-            <div class="modal-body" style="max-height:500px;overflow-y:auto;">
-                <label class="field">
-                    <span>Rule Name <span class="required">*</span></span>
-                    <input id="alert_rule_name" type="text" placeholder="Low Toner Warning" />
-                </label>
-                <label class="field">
-                    <span>Description</span>
-                    <textarea id="alert_rule_description" rows="2" placeholder="Optional description..."></textarea>
-                </label>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                    <label class="field">
-                        <span>Alert Type <span class="required">*</span></span>
-                        <select id="alert_rule_type">
-                            <option value="toner_low">Toner Low</option>
-                            <option value="toner_critical">Toner Critical</option>
-                            <option value="device_offline">Device Offline</option>
-                            <option value="device_error">Device Error</option>
-                            <option value="agent_offline">Agent Offline</option>
-                            <option value="page_count">Page Count Threshold</option>
-                            <option value="supply_empty">Supply Empty</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                    </label>
-                    <label class="field">
-                        <span>Severity <span class="required">*</span></span>
-                        <select id="alert_rule_severity">
-                            <option value="info">Info</option>
-                            <option value="warning" selected>Warning</option>
-                            <option value="critical">Critical</option>
-                        </select>
-                    </label>
-                </div>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                    <label class="field">
-                        <span>Scope</span>
-                        <select id="alert_rule_scope">
-                            <option value="fleet">Fleet (All Devices)</option>
-                            <option value="tenant">Tenant</option>
-                            <option value="site">Site</option>
-                            <option value="agent">Agent</option>
-                            <option value="device">Device</option>
-                        </select>
-                    </label>
-                    <label class="field" id="alert_rule_scope_id_field" style="display:none;">
-                        <span>Scope Target</span>
-                        <input id="alert_rule_scope_id" type="text" placeholder="ID or serial" />
-                    </label>
-                </div>
-                <label class="field">
-                    <span>Threshold</span>
-                    <input id="alert_rule_threshold" type="number" placeholder="e.g., 10 for 10%" />
-                </label>
-                <label class="field">
-                    <span>Notification Channels</span>
-                    <div id="alert_rule_channels" style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px;">
-                        <div class="muted-text">Loading channels...</div>
+            <div class="modal-body alert-rule-modal-body">
+                <!-- Basic Info Section -->
+                <div class="alert-rule-section">
+                    <div class="alert-rule-section-header">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
+                        <span>Basic Information</span>
                     </div>
-                </label>
-                <label class="field inline-check" style="margin-top:8px;">
-                    <input type="checkbox" id="alert_rule_enabled" checked />
-                    <span>Enable this rule</span>
-                </label>
-                <div id="alert_rule_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+                    <label class="field">
+                        <span>Rule Name <span class="required">*</span></span>
+                        <input id="alert_rule_name" type="text" placeholder="e.g., Low Toner Warning" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                    </label>
+                    <label class="field">
+                        <span>Description</span>
+                        <textarea id="alert_rule_description" rows="2" placeholder="What does this rule monitor?"></textarea>
+                    </label>
+                </div>
+
+                <!-- Condition Builder Section -->
+                <div class="alert-rule-section">
+                    <div class="alert-rule-section-header">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5zm.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
+                        <span>Trigger Condition</span>
+                    </div>
+                    <!-- Visual Condition Builder -->
+                    <div class="condition-builder">
+                        <div class="condition-builder-row">
+                            <span class="condition-label">When</span>
+                            <select id="alert_rule_type" class="condition-select">
+                                <optgroup label="Supply Levels">
+                                    <option value="toner_low">Toner Level</option>
+                                    <option value="supply_empty">Any Supply</option>
+                                </optgroup>
+                                <optgroup label="Device Status">
+                                    <option value="device_offline">Device Offline</option>
+                                    <option value="device_error">Device Error</option>
+                                </optgroup>
+                                <optgroup label="Agent Status">
+                                    <option value="agent_offline">Agent Offline</option>
+                                </optgroup>
+                                <optgroup label="Usage">
+                                    <option value="page_count">Page Count</option>
+                                </optgroup>
+                                <optgroup label="Custom">
+                                    <option value="custom">Custom Metric</option>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="condition-builder-row" id="alert_rule_threshold_row">
+                            <span class="condition-label">Is</span>
+                            <select id="alert_rule_operator" class="condition-select-sm">
+                                <option value="lt">below</option>
+                                <option value="lte">at or below</option>
+                                <option value="gt">above</option>
+                                <option value="gte">at or above</option>
+                                <option value="eq">equal to</option>
+                            </select>
+                            <div class="threshold-input-group">
+                                <input id="alert_rule_threshold" type="number" min="0" max="100" value="10" class="threshold-input" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                <span class="threshold-unit" id="alert_rule_threshold_unit">%</span>
+                            </div>
+                        </div>
+                        <div class="condition-builder-row" id="alert_rule_duration_row">
+                            <span class="condition-label">For</span>
+                            <input id="alert_rule_duration" type="number" min="1" max="1440" value="5" class="duration-input" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            <span class="duration-unit">minutes</span>
+                        </div>
+                    </div>
+                    <!-- Condition Preview -->
+                    <div class="condition-preview" id="alert_rule_preview">
+                        <span class="condition-preview-label">Preview:</span>
+                        <span class="condition-preview-text" id="alert_rule_preview_text">Alert when toner level drops below 10%</span>
+                    </div>
+                </div>
+
+                <!-- Severity & Scope Section -->
+                <div class="alert-rule-section">
+                    <div class="alert-rule-section-header">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"/></svg>
+                        <span>Severity & Scope</span>
+                    </div>
+                    <div class="alert-rule-row">
+                        <label class="field" style="flex:1;">
+                            <span>Severity <span class="required">*</span></span>
+                            <div class="severity-selector">
+                                <label class="severity-option severity-info" title="Informational">
+                                    <input type="radio" name="alert_severity" value="info" />
+                                    <span class="severity-badge">Info</span>
+                                </label>
+                                <label class="severity-option severity-warning" title="Warning">
+                                    <input type="radio" name="alert_severity" value="warning" checked />
+                                    <span class="severity-badge">Warning</span>
+                                </label>
+                                <label class="severity-option severity-critical" title="Critical">
+                                    <input type="radio" name="alert_severity" value="critical" />
+                                    <span class="severity-badge">Critical</span>
+                                </label>
+                            </div>
+                            <!-- Hidden select for compatibility -->
+                            <select id="alert_rule_severity" style="display:none;">
+                                <option value="info">Info</option>
+                                <option value="warning" selected>Warning</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="alert-rule-row">
+                        <label class="field" style="flex:1;">
+                            <span>Apply To</span>
+                            <select id="alert_rule_scope">
+                                <option value="fleet">🌐 Entire Fleet</option>
+                                <option value="tenant">🏢 Specific Tenant</option>
+                                <option value="site">📍 Specific Site</option>
+                                <option value="agent">🖥️ Specific Agent</option>
+                                <option value="device">🖨️ Specific Device</option>
+                            </select>
+                        </label>
+                        <label class="field" id="alert_rule_scope_id_field" style="flex:1;display:none;">
+                            <span>Target <span class="required">*</span></span>
+                            <input id="alert_rule_scope_id" type="text" placeholder="Enter ID or serial number" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Notification Section -->
+                <div class="alert-rule-section">
+                    <div class="alert-rule-section-header">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16a2 2 0 0 0 2-2H6a2 2 0 0 0 2 2zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/></svg>
+                        <span>Notifications</span>
+                    </div>
+                    <label class="field">
+                        <span>Send alerts to these channels:</span>
+                        <div id="alert_rule_channels" class="channel-checkbox-list">
+                            <div class="muted-text" style="padding:12px;text-align:center;">Loading channels...</div>
+                        </div>
+                        <small class="field-hint">Select one or more notification channels</small>
+                    </label>
+                </div>
+
+                <!-- Enable Toggle -->
+                <div class="alert-rule-enable-row">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="alert_rule_enabled" checked />
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">Enable this rule</span>
+                </div>
+
+                <div id="alert_rule_error" class="alert-rule-error" style="display:none;"></div>
             </div>
             <div class="modal-footer">
                 <button class="modal-button modal-button-secondary" id="alert_rule_cancel">Cancel</button>
-                <button class="modal-button modal-button-primary" id="alert_rule_save">Save Rule</button>
+                <button class="modal-button modal-button-primary" id="alert_rule_save">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right:6px;"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z"/></svg>
+                    Save Rule
+                </button>
             </div>
         </div>
     </div>
@@ -2770,99 +2858,181 @@
                     <div id="channel_error" class="channel-form-error" style="display:none;"></div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button class="modal-button modal-button-secondary" id="channel_cancel">Cancel</button>
-                <button class="modal-button modal-button-primary" id="channel_save">Save Channel</button>
+            <div class="modal-footer" style="justify-content:space-between;">
+                <button class="modal-button modal-button-outline" id="channel_test" title="Send a test notification to verify the channel works">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right:6px;"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/><path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/></svg>
+                    Send Test
+                </button>
+                <div style="display:flex;gap:12px;">
+                    <button class="modal-button modal-button-secondary" id="channel_cancel">Cancel</button>
+                    <button class="modal-button modal-button-primary" id="channel_save">Save Channel</button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Escalation Policy Modal -->
+    <!-- Escalation Policy Modal (Redesigned) -->
     <div class="modal" id="escalation_policy_modal" style="display:none;">
-        <div class="modal-content" style="max-width:600px;">
+        <div class="modal-content escalation-modal-content">
             <div class="modal-header">
                 <span class="modal-title" id="escalation_policy_modal_title">New Escalation Policy</span>
                 <button class="modal-close-x" id="escalation_policy_modal_close_x" title="Close">&times;</button>
             </div>
-            <div class="modal-body">
-                <label class="field">
-                    <span>Policy Name <span class="required">*</span></span>
-                    <input id="escalation_name" type="text" placeholder="Critical Alert Escalation" />
-                </label>
-                <label class="field">
-                    <span>Description</span>
-                    <textarea id="escalation_description" rows="2" placeholder="Optional description..."></textarea>
-                </label>
-                
-                <div class="field" style="margin-top:16px;">
-                    <span style="font-weight:500;">Escalation Steps</span>
-                    <small class="field-hint">Define escalation steps. Alerts will escalate to the next step if not acknowledged.</small>
-                    <div id="escalation_steps_container" style="margin-top:8px;"></div>
-                    <button type="button" class="btn btn-sm" id="add_escalation_step" style="margin-top:8px;">+ Add Step</button>
+            <div class="modal-body escalation-modal-body">
+                <!-- Basic Info -->
+                <div class="escalation-section">
+                    <label class="field">
+                        <span>Policy Name <span class="required">*</span></span>
+                        <input id="escalation_name" type="text" placeholder="e.g., Critical Alert Escalation" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                    </label>
+                    <label class="field">
+                        <span>Description</span>
+                        <textarea id="escalation_description" rows="2" placeholder="When and how alerts should escalate..."></textarea>
+                    </label>
+                </div>
+
+                <!-- Escalation Timeline -->
+                <div class="escalation-section">
+                    <div class="escalation-section-header">
+                        <div class="escalation-section-title">
+                            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
+                            <span>Escalation Timeline</span>
+                        </div>
+                        <small class="escalation-hint">If an alert isn't acknowledged, escalate through these steps</small>
+                    </div>
+                    
+                    <!-- Visual Timeline -->
+                    <div class="escalation-timeline" id="escalation_steps_container">
+                        <!-- Steps will be added here dynamically -->
+                    </div>
+                    
+                    <button type="button" class="btn-add-step" id="add_escalation_step">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4z"/></svg>
+                        Add Escalation Step
+                    </button>
+                </div>
+
+                <!-- Enable Toggle -->
+                <div class="escalation-enable-row">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="escalation_enabled" checked />
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">Enable this policy</span>
                 </div>
                 
-                <label class="field inline-check" style="margin-top:16px;">
-                    <input type="checkbox" id="escalation_enabled" checked />
-                    <span>Enable this policy</span>
-                </label>
-                <div id="escalation_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+                <div id="escalation_error" class="escalation-error" style="display:none;"></div>
             </div>
             <div class="modal-footer">
                 <button class="modal-button modal-button-secondary" id="escalation_cancel">Cancel</button>
-                <button class="modal-button modal-button-primary" id="escalation_save">Save Policy</button>
+                <button class="modal-button modal-button-primary" id="escalation_save">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right:6px;"><path d="M10.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L4.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093 3.473-4.425a.267.267 0 0 1 .02-.022z"/></svg>
+                    Save Policy
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- Maintenance Window Modal -->
+    <!-- Maintenance Window Modal (Redesigned) -->
     <div class="modal" id="maintenance_window_modal" style="display:none;">
-        <div class="modal-content" style="max-width:550px;">
+        <div class="modal-content maintenance-modal-content">
             <div class="modal-header">
                 <span class="modal-title" id="maintenance_window_modal_title">Schedule Maintenance Window</span>
                 <button class="modal-close-x" id="maintenance_window_modal_close_x" title="Close">&times;</button>
             </div>
-            <div class="modal-body">
-                <label class="field">
-                    <span>Window Name <span class="required">*</span></span>
-                    <input id="maintenance_name" type="text" placeholder="Weekly Maintenance" />
-                </label>
-                <label class="field">
-                    <span>Description</span>
-                    <textarea id="maintenance_description" rows="2" placeholder="Optional notes..."></textarea>
-                </label>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div class="modal-body maintenance-modal-body">
+                <!-- Basic Info -->
+                <div class="maintenance-section">
                     <label class="field">
-                        <span>Start Time <span class="required">*</span></span>
-                        <input id="maintenance_start" type="datetime-local" />
+                        <span>Window Name <span class="required">*</span></span>
+                        <input id="maintenance_name" type="text" placeholder="e.g., Weekend Maintenance" autocomplete="off" data-1p-ignore data-lpignore="true" />
                     </label>
                     <label class="field">
-                        <span>End Time <span class="required">*</span></span>
-                        <input id="maintenance_end" type="datetime-local" />
+                        <span>Description</span>
+                        <textarea id="maintenance_description" rows="2" placeholder="What maintenance will be performed?"></textarea>
                     </label>
                 </div>
-                <label class="field">
-                    <span>Scope</span>
-                    <select id="maintenance_scope">
-                        <option value="fleet">Fleet (All)</option>
-                        <option value="tenant">Tenant</option>
-                        <option value="site">Site</option>
-                        <option value="agent">Agent</option>
-                        <option value="device">Device</option>
-                    </select>
-                </label>
-                <label class="field" id="maintenance_scope_id_field" style="display:none;">
-                    <span>Scope Target ID</span>
-                    <input id="maintenance_scope_id" type="text" placeholder="ID or serial" />
-                </label>
-                <label class="field inline-check" style="margin-top:12px;">
-                    <input type="checkbox" id="maintenance_recurring" />
-                    <span>Recurring window</span>
-                </label>
-                <div id="maintenance_error" style="color:var(--danger);display:none;margin-top:8px;font-size:13px;"></div>
+
+                <!-- Time Selection -->
+                <div class="maintenance-section">
+                    <div class="maintenance-section-header">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/></svg>
+                        <span>Schedule</span>
+                    </div>
+                    <div class="maintenance-time-grid">
+                        <label class="field">
+                            <span>Start <span class="required">*</span></span>
+                            <input id="maintenance_start" type="datetime-local" />
+                        </label>
+                        <label class="field">
+                            <span>End <span class="required">*</span></span>
+                            <input id="maintenance_end" type="datetime-local" />
+                        </label>
+                    </div>
+                    <!-- Duration Preview -->
+                    <div class="maintenance-duration-preview" id="maintenance_duration_preview">
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/></svg>
+                        <span id="maintenance_duration_text">Select start and end times</span>
+                    </div>
+                </div>
+
+                <!-- Recurring Options -->
+                <div class="maintenance-section">
+                    <div class="maintenance-recurring-toggle">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="maintenance_recurring" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <div class="maintenance-recurring-label">
+                            <span>Recurring Window</span>
+                            <small>Automatically repeat this maintenance window</small>
+                        </div>
+                    </div>
+                    <div id="maintenance_recurring_options" class="maintenance-recurring-options" style="display:none;">
+                        <label class="field">
+                            <span>Repeat</span>
+                            <select id="maintenance_repeat_interval">
+                                <option value="daily">Daily</option>
+                                <option value="weekly" selected>Weekly</option>
+                                <option value="biweekly">Every 2 weeks</option>
+                                <option value="monthly">Monthly</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Scope Selection -->
+                <div class="maintenance-section">
+                    <div class="maintenance-section-header">
+                        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.169.311c.446.82.023 1.841-.872 2.105l-.34.1c-1.4.413-1.4 2.397 0 2.81l.34.1a1.464 1.464 0 0 1 .872 2.105l-.17.31c-.698 1.283.705 2.686 1.987 1.987l.311-.169a1.464 1.464 0 0 1 2.105.872l.1.34c.413 1.4 2.397 1.4 2.81 0l.1-.34a1.464 1.464 0 0 1 2.105-.872l.31.17c1.283.698 2.686-.705 1.987-1.987l-.169-.311a1.464 1.464 0 0 1 .872-2.105l.34-.1c1.4-.413 1.4-2.397 0-2.81l-.34-.1a1.464 1.464 0 0 1-.872-2.105l.17-.31c.698-1.283-.705-2.686-1.987-1.987l-.311.169a1.464 1.464 0 0 1-2.105-.872l-.1-.34zM8 10.93a2.929 2.929 0 1 1 0-5.86 2.929 2.929 0 0 1 0 5.858z"/></svg>
+                        <span>Apply To</span>
+                    </div>
+                    <div class="maintenance-scope-grid">
+                        <label class="field">
+                            <span>Scope</span>
+                            <select id="maintenance_scope">
+                                <option value="fleet">🌐 Entire Fleet</option>
+                                <option value="tenant">🏢 Specific Tenant</option>
+                                <option value="site">📍 Specific Site</option>
+                                <option value="agent">🖥️ Specific Agent</option>
+                                <option value="device">🖨️ Specific Device</option>
+                            </select>
+                        </label>
+                        <label class="field" id="maintenance_scope_id_field" style="display:none;">
+                            <span>Target <span class="required">*</span></span>
+                            <input id="maintenance_scope_id" type="text" placeholder="Enter ID or serial" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                    </div>
+                </div>
+                
+                <div id="maintenance_error" class="maintenance-error" style="display:none;"></div>
             </div>
             <div class="modal-footer">
                 <button class="modal-button modal-button-secondary" id="maintenance_cancel">Cancel</button>
-                <button class="modal-button modal-button-primary" id="maintenance_save">Schedule</button>
+                <button class="modal-button modal-button-primary" id="maintenance_save">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="margin-right:6px;"><path d="M11 6.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm-3 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm-5 3a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1zm3 0a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1z"/><path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5zM1 4v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4H1z"/></svg>
+                    Schedule Window
+                </button>
             </div>
         </div>
     </div>
