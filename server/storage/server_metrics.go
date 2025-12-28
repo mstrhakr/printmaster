@@ -27,6 +27,11 @@ type FleetSnapshot struct {
 	TotalAgents  int `json:"total_agents"`
 	TotalDevices int `json:"total_devices"`
 
+	// Agent connection breakdown
+	AgentsWS      int `json:"agents_ws"`      // Agents connected via WebSocket
+	AgentsHTTP    int `json:"agents_http"`    // Agents using HTTP polling (fallback)
+	AgentsOffline int `json:"agents_offline"` // Agents not connected
+
 	// Page counters (cumulative totals across fleet)
 	TotalPages int64 `json:"total_pages"`
 	ColorPages int64 `json:"color_pages"`
@@ -121,6 +126,9 @@ const (
 	SeriesDevicesError  = "devices_error"
 	SeriesAgents        = "agents"
 	SeriesDevices       = "devices"
+	SeriesAgentsWS      = "agents_ws"
+	SeriesAgentsHTTP    = "agents_http"
+	SeriesAgentsOffline = "agents_offline"
 )
 
 // AllServerMetricsSeries returns all available series names.
@@ -143,6 +151,9 @@ func AllServerMetricsSeries() []string {
 		SeriesDevicesError,
 		SeriesAgents,
 		SeriesDevices,
+		SeriesAgentsWS,
+		SeriesAgentsHTTP,
+		SeriesAgentsOffline,
 	}
 }
 
@@ -214,6 +225,12 @@ func (s *ServerMetricsSnapshot) ExtractSeries(seriesName string) float64 {
 		return float64(s.Fleet.TotalAgents)
 	case SeriesDevices:
 		return float64(s.Fleet.TotalDevices)
+	case SeriesAgentsWS:
+		return float64(s.Fleet.AgentsWS)
+	case SeriesAgentsHTTP:
+		return float64(s.Fleet.AgentsHTTP)
+	case SeriesAgentsOffline:
+		return float64(s.Fleet.AgentsOffline)
 	default:
 		return 0
 	}

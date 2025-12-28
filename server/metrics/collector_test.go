@@ -129,6 +129,7 @@ func (m *mockCollectorStore) getInsertedMetrics() []*storage.ServerMetricsSnapsh
 type mockWSCounter struct {
 	connections int
 	agents      int
+	connected   map[string]bool
 }
 
 func (m *mockWSCounter) GetConnectionCount() int {
@@ -137,6 +138,13 @@ func (m *mockWSCounter) GetConnectionCount() int {
 
 func (m *mockWSCounter) GetAgentCount() int {
 	return m.agents
+}
+
+func (m *mockWSCounter) IsAgentConnected(agentID string) bool {
+	if m.connected == nil {
+		return false
+	}
+	return m.connected[agentID]
 }
 
 // --- Tests ---

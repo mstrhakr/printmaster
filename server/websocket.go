@@ -603,3 +603,11 @@ func (c *WSCounter) GetAgentCount() int {
 	defer wsConnectionsLock.RUnlock()
 	return len(wsConnections)
 }
+
+// IsAgentConnected checks if a specific agent has an active WebSocket connection.
+func (c *WSCounter) IsAgentConnected(agentID string) bool {
+	wsConnectionsLock.RLock()
+	defer wsConnectionsLock.RUnlock()
+	_, exists := wsConnections[agentID]
+	return exists
+}

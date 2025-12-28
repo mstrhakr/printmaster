@@ -51,6 +51,7 @@ type CollectorStore interface {
 type WSConnectionCounter interface {
 	GetConnectionCount() int
 	GetAgentCount() int
+	IsAgentConnected(agentID string) bool // Check if specific agent has WS connection
 }
 
 // Collector periodically collects and stores server metrics.
@@ -206,10 +207,29 @@ func (c *Collector) buildSnapshot(ctx context.Context) *storage.ServerMetricsSna
 }
 
 func (c *Collector) collectFleetMetrics(ctx context.Context, fleet *storage.FleetSnapshot) {
-	// Count agents
+	// Get wsCounter for agent connection checks
+	c.mu.RLock()
+	wsCounter := c.wsCounter
+	c.mu.RUnlock()
+
+	// Count agents and their connection types
 	agents, err := c.store.ListAgents(ctx)
 	if err == nil {
 		fleet.TotalAgents = len(agents)
+
+		now := time.Now()
+		for _, a := range agents {
+			// Check agent status
+			isActive := a.Status == "active" && now.Sub(a.LastSeen) < 15*time.Minute
+
+			if !isActive {
+				fleet.AgentsOffline++
+			} else if wsCounter != nil && wsCounter.IsAgentConnected(a.AgentID) {
+				fleet.AgentsWS++
+			} else {
+				fleet.AgentsHTTP++
+			}
+		}
 	}
 
 	// Count devices and their statuses
@@ -293,7 +313,7 @@ func (c *Collector) collectServerMetrics(ctx context.Context, server *storage.Se
 		server.GCPauseNs = mem.PauseNs[(mem.NumGC+255)%256]
 	}
 
-	// Database stats
+	// Database stats (includes size for PostgreSQL)
 	dbStats, err := c.store.GetDatabaseStats(ctx)
 	if err == nil && dbStats != nil {
 		server.DBAgents = dbStats.Agents
@@ -303,15 +323,19 @@ func (c *Collector) collectServerMetrics(ctx context.Context, server *storage.Se
 		server.DBUsers = dbStats.Users
 		server.DBAuditEntries = dbStats.AuditEntries
 		server.DBCacheBytes = dbStats.ReleaseBytes
+		// PostgreSQL returns size via GetDatabaseStats
+		if dbStats.SizeBytes > 0 {
+			server.DBSizeBytes = dbStats.SizeBytes
+		}
 	}
 
-	// Database file size
+	// SQLite database file size (fallback for SQLite)
 	c.mu.RLock()
 	dbPath := c.dbPath
 	wsCounter := c.wsCounter
 	c.mu.RUnlock()
 
-	if dbPath != "" {
+	if dbPath != "" && server.DBSizeBytes == 0 {
 		if info, err := os.Stat(dbPath); err == nil {
 			server.DBSizeBytes = info.Size()
 		}

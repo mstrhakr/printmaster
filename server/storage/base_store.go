@@ -4559,6 +4559,17 @@ func (s *BaseStore) GetDatabaseStats(ctx context.Context) (*DatabaseStats, error
 	); err != nil {
 		return nil, err
 	}
+
+	// Get database size - PostgreSQL uses pg_database_size(), SQLite uses file size
+	if s.dialect.Name() == "postgres" {
+		var sizeBytes int64
+		sizeQuery := `SELECT pg_database_size(current_database())`
+		if err := s.db.QueryRowContext(ctx, sizeQuery).Scan(&sizeBytes); err == nil {
+			stats.SizeBytes = sizeBytes
+		}
+	}
+	// For SQLite, the caller (collector) handles file size via os.Stat
+
 	return stats, nil
 }
 

@@ -14305,7 +14305,7 @@ async function loadMetrics(force) {
         start: since.toISOString(),
         end: new Date().toISOString(),
         resolution: 'auto',
-        series: 'goroutines,heap_alloc,db_size,total_pages,color_pages,mono_pages,scan_count,toner_high,toner_medium,toner_low,toner_critical,ws_connections,agents,devices,devices_online,devices_error',
+        series: 'goroutines,heap_alloc,db_size,total_pages,color_pages,mono_pages,scan_count,toner_high,toner_medium,toner_low,toner_critical,ws_connections,agents,devices,devices_online,devices_error,agents_ws,agents_http,agents_offline',
     });
 
     metricsVM.loading = true;
@@ -14544,6 +14544,9 @@ const SERVER_SERIES_COLORS = {
     devices: '#ed8936',
     devices_online: '#48bb78',
     devices_error: '#f56565',
+    agents_ws: '#48bb78',      // Green for WebSocket connected
+    agents_http: '#ecc94b',    // Yellow for HTTP fallback
+    agents_offline: '#f56565', // Red for offline
 };
 
 // Consumables Time-Series Charts - Historical view of toner levels across fleet
@@ -14768,12 +14771,24 @@ function renderServerTimeSeriesCharts(timeseries) {
         },
         {
             id: 'server_ws_chart',
-            title: 'WebSocket Connections',
-            series: [{ 
-                label: 'Connections', 
-                color: SERVER_SERIES_COLORS.ws_connections, 
-                points: normalizeChartSeriesPoints(chartSeries.ws_connections) || buildSeriesFromSnapshots('ws_connections', s => s.server?.ws_connections),
-            }],
+            title: 'Agent Connections',
+            series: [
+                { 
+                    label: 'WebSocket', 
+                    color: SERVER_SERIES_COLORS.agents_ws, 
+                    points: normalizeChartSeriesPoints(chartSeries.agents_ws) || buildSeriesFromSnapshots('agents_ws', s => s.fleet?.agents_ws),
+                },
+                { 
+                    label: 'HTTP', 
+                    color: SERVER_SERIES_COLORS.agents_http, 
+                    points: normalizeChartSeriesPoints(chartSeries.agents_http) || buildSeriesFromSnapshots('agents_http', s => s.fleet?.agents_http),
+                },
+                { 
+                    label: 'Offline', 
+                    color: SERVER_SERIES_COLORS.agents_offline, 
+                    points: normalizeChartSeriesPoints(chartSeries.agents_offline) || buildSeriesFromSnapshots('agents_offline', s => s.fleet?.agents_offline),
+                },
+            ],
         },
         {
             id: 'server_pages_chart',

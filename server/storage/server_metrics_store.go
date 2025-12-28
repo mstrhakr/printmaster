@@ -247,6 +247,18 @@ func (s *BaseStore) aggregateServerMetricsTier(ctx context.Context, srcTier, dst
 			if fleet.TotalDevices > fleetAgg.TotalDevices {
 				fleetAgg.TotalDevices = fleet.TotalDevices
 			}
+
+			// Agent connection breakdown - take max
+			if fleet.AgentsWS > fleetAgg.AgentsWS {
+				fleetAgg.AgentsWS = fleet.AgentsWS
+			}
+			if fleet.AgentsHTTP > fleetAgg.AgentsHTTP {
+				fleetAgg.AgentsHTTP = fleet.AgentsHTTP
+			}
+			if fleet.AgentsOffline > fleetAgg.AgentsOffline {
+				fleetAgg.AgentsOffline = fleet.AgentsOffline
+			}
+
 			if fleet.TotalPages > fleetAgg.TotalPages {
 				fleetAgg.TotalPages = fleet.TotalPages
 			}
@@ -274,12 +286,24 @@ func (s *BaseStore) aggregateServerMetricsTier(ctx context.Context, srcTier, dst
 				fleetAgg.TonerHigh = fleet.TonerHigh
 			}
 
-			// For status, take max
+			// For device status counts, take max (peak values in period)
+			if fleet.DevicesOnline > fleetAgg.DevicesOnline {
+				fleetAgg.DevicesOnline = fleet.DevicesOnline
+			}
+			if fleet.DevicesOffline > fleetAgg.DevicesOffline {
+				fleetAgg.DevicesOffline = fleet.DevicesOffline
+			}
+			if fleet.DevicesWarning > fleetAgg.DevicesWarning {
+				fleetAgg.DevicesWarning = fleet.DevicesWarning
+			}
 			if fleet.DevicesError > fleetAgg.DevicesError {
 				fleetAgg.DevicesError = fleet.DevicesError
 			}
 			if fleet.DevicesJam > fleetAgg.DevicesJam {
 				fleetAgg.DevicesJam = fleet.DevicesJam
+			}
+			if fleet.TonerUnknown > fleetAgg.TonerUnknown {
+				fleetAgg.TonerUnknown = fleet.TonerUnknown
 			}
 
 			// Server stats - take average for goroutines/memory, max for DB
@@ -294,6 +318,7 @@ func (s *BaseStore) aggregateServerMetricsTier(ctx context.Context, srcTier, dst
 				serverAgg.DBMetricsRows = server.DBMetricsRows
 			}
 			serverAgg.WSConnections += server.WSConnections
+			serverAgg.WSAgents += server.WSAgents
 
 			count++
 		}
@@ -309,6 +334,7 @@ func (s *BaseStore) aggregateServerMetricsTier(ctx context.Context, srcTier, dst
 		serverAgg.TotalAllocMB /= count
 		serverAgg.SysMB /= count
 		serverAgg.WSConnections /= count
+		serverAgg.WSAgents /= count
 
 		// Insert aggregated snapshot
 		aggSnap := &ServerMetricsSnapshot{

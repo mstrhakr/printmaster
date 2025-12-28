@@ -345,6 +345,7 @@ type DatabaseStats struct {
 	AuditEntries     int64 `json:"audit_entries"`
 	ReleaseArtifacts int64 `json:"release_artifacts"`
 	ReleaseBytes     int64 `json:"release_artifacts_bytes"`
+	SizeBytes        int64 `json:"size_bytes"` // Database size (pg_database_size for PostgreSQL)
 }
 
 // MemoryStats reports selected runtime memory gauges.
