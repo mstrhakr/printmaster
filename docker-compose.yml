@@ -1,6 +1,6 @@
 # PrintMaster Docker Compose Example
 #
-# This example demonstrates running PrintMaster server and agent with PostgreSQL.
+# This example demonstrates running PrintMaster server and agent with TimescaleDB.
 # The server reads database config from environment variables:
 #   - SERVER_DB_HOST, SERVER_DB_PORT, SERVER_DB_USER, SERVER_DB_PASS, SERVER_DB_NAME
 #   - Falls back to DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME if SERVER_DB_* not set
@@ -21,10 +21,27 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # TimescaleDB - PostgreSQL with time-series superpowers
+  # TimescaleDB is 100% PostgreSQL compatible but adds:
+  #   - Hypertables: auto-partitioned time-series tables for faster queries
+  #   - Compression: up to 95% storage reduction for historical metrics
+  #   - Continuous Aggregates: auto-maintained rollups (hourly/daily summaries)
+  #   - Retention Policies: declarative data lifecycle management
+  #
+  # PrintMaster auto-detects TimescaleDB and enables these features automatically.
   # Replace credentials and tune performance for production use.
   db:
-    image: postgres:15-alpine
+    image: timescale/timescaledb:latest-pg15
+    # --- Plain PostgreSQL Alternative ---
+    # If you prefer standard PostgreSQL without time-series features, use:
+    #   image: postgres:15-alpine
+    # You'll miss out on:
+    #   - Automatic metrics compression (uses ~5x more disk space)
+    #   - Faster time-range queries on large datasets
+    #   - Auto-maintained hourly/daily aggregates
+    #   - Declarative retention policies
+    # PrintMaster will fall back to manual aggregation which works fine
+    # but is less efficient for large fleets (1000+ devices).
     restart: unless-stopped
     container_name: printmaster-db
     hostname: db

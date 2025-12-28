@@ -57,7 +57,19 @@
     accept_tos = false
 
 [database]
-  # Database path (use volume mount)
+  # Database driver: "sqlite" (default) or "postgres"
+  # When using docker-compose.yml with TimescaleDB/PostgreSQL:
+  #   driver = "postgres"
+  #   host = "db"
+  #   port = 5432
+  #   user = "printmaster"
+  #   password = "changeme"
+  #   name = "printmaster"
+  #
+  # TimescaleDB is auto-detected when using the timescale/timescaledb image.
+  # Features enabled automatically: hypertables, compression, continuous aggregates
+  
+  # SQLite path (when using SQLite instead of PostgreSQL)
   path = "/var/lib/printmaster/server/printmaster.db"
 
 [logging]

@@ -80,11 +80,13 @@
             </div>
             <div class="mobile-nav" id="mobile_nav">
                 <button class="tab active" data-target="devices">Devices</button>
+                <button class="tab" data-target="local-printers" id="local_printers_tab_mobile" style="display:none">Local Printers</button>
                 <button class="tab" data-target="settings" data-role="admin" style="display:none">Settings</button>
                 <button class="tab" data-target="logs" data-role="admin" style="display:none">Logs</button>
             </div>
             <!-- Desktop tabs -->
             <button class="tab active" data-target="devices">Devices</button>
+            <button class="tab" data-target="local-printers" id="local_printers_tab_desktop" style="display:none">Local Printers</button>
             <button class="tab" data-target="settings" data-role="admin" style="display:none">Settings</button>
             <button class="tab" data-target="logs" data-role="admin" style="display:none">Logs</button>
         </div>
@@ -144,6 +146,29 @@
         </div>
 
         <!-- Sandbox UI removed -->
+
+        <!-- Local Printers Tab -->
+        <div style="margin-top:12px;" data-tab="local-printers" class="hidden">
+            <h3>Local Printers</h3>
+            <p style="color:var(--muted);margin-bottom:16px;">
+                Printers connected to this machine via USB, network shares, or the Windows print spooler.
+                Enable Local Printer Tracking in Settings to start monitoring.
+            </p>
+
+            <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+                <button class="primary" id="refresh_local_printers_btn">Refresh</button>
+                <span id="local_printers_status" style="color:var(--muted);font-size:13px;"></span>
+            </div>
+
+            <div id="local_printers_stats" style="display:flex;gap:16px;margin-bottom:16px;font-size:13px;flex-wrap:wrap;"></div>
+            
+            <div id="local_printers_cards" class="device-cards-container"></div>
+
+            <div id="local_printers_empty" style="display:none;padding:24px;text-align:center;color:var(--muted);">
+                <p style="margin-bottom:8px;">No local printers found.</p>
+                <p style="font-size:13px;">Enable "Local Printer Tracking" in Settings and ensure printers are installed on this machine.</p>
+            </div>
+        </div>
 
         <div style="margin-top:12px;" data-tab="settings" class="hidden" data-role="admin" style="display:none">
             <h3>Settings</h3>

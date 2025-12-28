@@ -17,6 +17,7 @@ import (
 // PostgresStore implements Store interface for PostgreSQL.
 type PostgresStore struct {
 	BaseStore
+	timescale *TimescaleSupport // TimescaleDB support (nil if disabled)
 }
 
 const pgSchemaVersion = 9
@@ -69,9 +70,79 @@ func NewPostgresStore(cfg *config.DatabaseConfig) (*PostgresStore, error) {
 		return nil, fmt.Errorf("failed to initialize postgres schema: %w", err)
 	}
 
+	// Initialize TimescaleDB support (auto-detect or use config)
+	tsConfig := DefaultTimescaleConfig()
+	tsConfig.Enabled = cfg.Timescale
+	ts, err := NewTimescaleSupport(db, tsConfig)
+	if err != nil {
+		logWarn("TimescaleDB initialization failed, continuing without time-series features", "error", err)
+	} else if ts.Enabled() {
+		store.timescale = ts
+		// Initialize TimescaleDB features
+		if err := store.initTimescale(ctx); err != nil {
+			logWarn("TimescaleDB feature initialization failed", "error", err)
+			// Continue without TimescaleDB - not fatal
+			store.timescale = nil
+		} else {
+			logInfo("TimescaleDB features enabled",
+				"compression", true,
+				"continuous_aggregates", true,
+				"retention_policies", true)
+		}
+	} else {
+		logInfo("TimescaleDB not detected, using standard PostgreSQL")
+	}
+
 	logInfo("Opened PostgreSQL database", "host", cfg.Host, "database", cfg.Name)
 
 	return store, nil
+}
+
+// initTimescale sets up TimescaleDB features (hypertables, compression, etc.)
+func (s *PostgresStore) initTimescale(ctx context.Context) error {
+	if s.timescale == nil {
+		return nil
+	}
+
+	// Ensure extension is created
+	if err := s.timescale.EnsureExtension(ctx); err != nil {
+		return fmt.Errorf("ensuring timescaledb extension: %w", err)
+	}
+
+	// Convert tables to hypertables
+	if err := s.timescale.InitializeHypertables(ctx); err != nil {
+		return fmt.Errorf("initializing hypertables: %w", err)
+	}
+
+	// Set up compression
+	if err := s.timescale.SetupCompression(ctx); err != nil {
+		return fmt.Errorf("setting up compression: %w", err)
+	}
+
+	// Set up retention policies
+	if err := s.timescale.SetupRetentionPolicies(ctx); err != nil {
+		return fmt.Errorf("setting up retention policies: %w", err)
+	}
+
+	// Create continuous aggregates for auto-maintained rollups
+	if err := s.timescale.CreateContinuousAggregates(ctx); err != nil {
+		return fmt.Errorf("creating continuous aggregates: %w", err)
+	}
+
+	return nil
+}
+
+// TimescaleEnabled returns whether TimescaleDB features are active.
+func (s *PostgresStore) TimescaleEnabled() bool {
+	return s.timescale != nil && s.timescale.Enabled()
+}
+
+// GetTimescaleInfo returns information about TimescaleDB hypertables.
+func (s *PostgresStore) GetTimescaleInfo(ctx context.Context) ([]HypertableInfo, error) {
+	if s.timescale == nil {
+		return nil, nil
+	}
+	return s.timescale.GetHypertableInfo(ctx)
 }
 
 // initSchema creates the database schema for PostgreSQL.

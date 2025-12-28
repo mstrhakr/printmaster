@@ -263,6 +263,10 @@ type DatabaseConfig struct {
 	MaxIdleConns int `toml:"max_idle_conns"`
 	// ConnMaxLifetimeSecs is max connection lifetime in seconds (0 = no limit, default: 300)
 	ConnMaxLifetimeSecs int `toml:"conn_max_lifetime_secs"`
+	// Timescale enables TimescaleDB features when using PostgreSQL (auto-detected if not set)
+	// When enabled: hypertables, compression, continuous aggregates, and retention policies
+	// When disabled or unavailable: falls back to manual aggregation
+	Timescale *bool `toml:"timescale,omitempty"`
 }
 
 // EffectiveDriver returns the database driver, defaulting to "sqlite" if not set.

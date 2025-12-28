@@ -68,6 +68,7 @@ type DiscoverySettings struct {
 	// Metrics Collection
 	MetricsRescanEnabled         bool `json:"metrics_rescan_enabled"`
 	MetricsRescanIntervalMinutes int  `json:"metrics_rescan_interval_minutes"`
+	MetricsRescanIntervalSeconds int  `json:"metrics_rescan_interval_seconds"` // For sub-minute intervals (takes precedence if set)
 }
 
 // SNMPSettings configure SNMP queries (fleet-managed).

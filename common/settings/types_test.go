@@ -18,12 +18,16 @@ func TestDefaultSettings(t *testing.T) {
 func TestSanitize(t *testing.T) {
 	s := DefaultSettings()
 	s.Discovery.MetricsRescanIntervalMinutes = 999999
+	s.Discovery.MetricsRescanIntervalSeconds = 5 // too low, should clamp to 15
 	s.SNMP.TimeoutMS = -10
 	s.SNMP.Retries = -1
 	s.Discovery.Concurrency = 0
 	Sanitize(&s)
 	if s.Discovery.MetricsRescanIntervalMinutes != 1440 {
 		t.Fatalf("interval not clamped, got %d", s.Discovery.MetricsRescanIntervalMinutes)
+	}
+	if s.Discovery.MetricsRescanIntervalSeconds != 15 {
+		t.Fatalf("seconds interval not clamped to min 15, got %d", s.Discovery.MetricsRescanIntervalSeconds)
 	}
 	if s.SNMP.TimeoutMS != 500 {
 		t.Fatalf("timeout not clamped, got %d", s.SNMP.TimeoutMS)

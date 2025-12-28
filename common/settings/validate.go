@@ -14,11 +14,22 @@ func Sanitize(s *Settings) {
 		return
 	}
 	// Discovery
-	if s.Discovery.MetricsRescanIntervalMinutes < 5 {
-		s.Discovery.MetricsRescanIntervalMinutes = 5
+	// Minimum 1 minute for minutes-based interval
+	if s.Discovery.MetricsRescanIntervalMinutes < 1 {
+		s.Discovery.MetricsRescanIntervalMinutes = 1
 	}
 	if s.Discovery.MetricsRescanIntervalMinutes > 1440 {
 		s.Discovery.MetricsRescanIntervalMinutes = 1440
+	}
+	// Seconds-based interval: minimum 15 seconds, max 300 (5 min)
+	// If seconds is set to 0, minutes-based interval is used
+	if s.Discovery.MetricsRescanIntervalSeconds > 0 {
+		if s.Discovery.MetricsRescanIntervalSeconds < 15 {
+			s.Discovery.MetricsRescanIntervalSeconds = 15
+		}
+		if s.Discovery.MetricsRescanIntervalSeconds > 300 {
+			s.Discovery.MetricsRescanIntervalSeconds = 300
+		}
 	}
 	if s.Discovery.Concurrency < 1 {
 		s.Discovery.Concurrency = 1
@@ -93,6 +104,9 @@ func MergeDiscovery(base DiscoverySettings, override DiscoverySettings) Discover
 	result.AutoDiscoverLiveLLMNR = override.AutoDiscoverLiveLLMNR
 	if override.MetricsRescanIntervalMinutes != 0 {
 		result.MetricsRescanIntervalMinutes = override.MetricsRescanIntervalMinutes
+	}
+	if override.MetricsRescanIntervalSeconds != 0 {
+		result.MetricsRescanIntervalSeconds = override.MetricsRescanIntervalSeconds
 	}
 	result.MetricsRescanEnabled = override.MetricsRescanEnabled
 	return result

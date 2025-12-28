@@ -233,10 +233,19 @@ func DefaultSchema() Schema {
 			Path:        "discovery.metrics_rescan_interval_minutes",
 			Type:        FieldTypeNumber,
 			Title:       "Metrics Interval (minutes)",
-			Description: "How often to refresh printer counters when metrics rescan is enabled.",
+			Description: "How often to refresh printer counters when metrics rescan is enabled. Minimum 1 minute.",
 			Scope:       ScopeTenant,
 			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
 			Default:     defaults.Discovery.MetricsRescanIntervalMinutes,
+		},
+		{
+			Path:        "discovery.metrics_rescan_interval_seconds",
+			Type:        FieldTypeNumber,
+			Title:       "Metrics Interval (seconds)",
+			Description: "For sub-minute intervals. If set (15-300 seconds), overrides minutes setting. Use with caution - aggressive polling may impact older devices. 0 = use minutes interval.",
+			Scope:       ScopeTenant,
+			EditableBy:  []EditableRole{RoleServerAdmin, RoleTenantAdmin},
+			Default:     defaults.Discovery.MetricsRescanIntervalSeconds,
 		},
 		// ========== SNMP (fleet-managed) ==========
 		{

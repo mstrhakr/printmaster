@@ -3742,7 +3742,9 @@ func runInteractive(ctx context.Context, configFlag string) {
 	var collectMetricsForSavedDevices func()
 
 	// Metrics Rescan: Periodically collect metrics from saved devices
-	startMetricsRescan := func(intervalMinutes int) {
+	// intervalMinutes: legacy minutes-based interval (min 1, max 1440)
+	// intervalSeconds: sub-minute interval (min 15, max 300) - takes precedence if > 0
+	startMetricsRescan := func(intervalMinutes, intervalSeconds int) {
 		metricsRescanMu.Lock()
 		defer metricsRescanMu.Unlock()
 
@@ -3751,14 +3753,30 @@ func runInteractive(ctx context.Context, configFlag string) {
 			return
 		}
 
-		if intervalMinutes < 5 {
-			intervalMinutes = 5 // minimum 5 minutes
-		}
-		if intervalMinutes > 1440 {
-			intervalMinutes = 1440 // maximum 24 hours
+		var interval time.Duration
+		if intervalSeconds > 0 {
+			// Use seconds-based interval for sub-minute precision
+			if intervalSeconds < 15 {
+				intervalSeconds = 15 // minimum 15 seconds
+			}
+			if intervalSeconds > 300 {
+				intervalSeconds = 300 // maximum 5 minutes for seconds mode
+			}
+			interval = time.Duration(intervalSeconds) * time.Second
+			appLogger.Info("Metrics rescan: starting with sub-minute interval", "interval_seconds", intervalSeconds)
+		} else {
+			// Use minutes-based interval
+			if intervalMinutes < 1 {
+				intervalMinutes = 1 // minimum 1 minute
+			}
+			if intervalMinutes > 1440 {
+				intervalMinutes = 1440 // maximum 24 hours
+			}
+			interval = time.Duration(intervalMinutes) * time.Minute
+			appLogger.Info("Metrics rescan: starting", "interval_minutes", intervalMinutes)
 		}
 
-		metricsRescanInterval = time.Duration(intervalMinutes) * time.Minute
+		metricsRescanInterval = interval
 		ctx, cancel := context.WithCancel(context.Background())
 		metricsRescanCancel = cancel
 		metricsRescanRunning = true
@@ -3963,14 +3981,24 @@ func runInteractive(ctx context.Context, configFlag string) {
 		if v, ok := req["metrics_rescan_enabled"]; ok {
 			if vb, ok2 := v.(bool); ok2 {
 				if vb {
-					interval := 60
+					intervalMinutes := 60
+					intervalSeconds := 0
 					if iv, ok := req["metrics_rescan_interval_minutes"]; ok {
 						if ivf, ok2 := iv.(float64); ok2 {
-							interval = int(ivf)
+							intervalMinutes = int(ivf)
 						}
 					}
-					startMetricsRescan(interval)
-					appLogger.Info("Metrics monitoring enabled", "interval_minutes", interval)
+					if iv, ok := req["metrics_rescan_interval_seconds"]; ok {
+						if ivf, ok2 := iv.(float64); ok2 {
+							intervalSeconds = int(ivf)
+						}
+					}
+					startMetricsRescan(intervalMinutes, intervalSeconds)
+					if intervalSeconds > 0 {
+						appLogger.Info("Metrics monitoring enabled", "interval_seconds", intervalSeconds)
+					} else {
+						appLogger.Info("Metrics monitoring enabled", "interval_minutes", intervalMinutes)
+					}
 				} else {
 					stopMetricsRescan()
 					appLogger.Info("Metrics monitoring disabled")

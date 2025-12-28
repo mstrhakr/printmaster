@@ -67,8 +67,28 @@
     accept_tos = false
 
 [database]
-  # SQLite database file path
+  # Database driver: "sqlite" (default), "postgres", or "mysql"
+  # driver = "postgres"
+  
+  # SQLite database file path (only used when driver = "sqlite")
   path = "printmaster.db"
+  
+  # PostgreSQL/MySQL connection settings (uncomment to use)
+  # host = "localhost"
+  # port = 5432
+  # user = "printmaster"
+  # password = "changeme"
+  # name = "printmaster"
+  # ssl_mode = "prefer"
+  
+  # TimescaleDB support (PostgreSQL only)
+  # When using TimescaleDB, set to true for automatic:
+  #   - Hypertables: Auto-partitioned time-series tables for faster queries
+  #   - Compression: Up to 95% storage reduction for historical metrics
+  #   - Continuous Aggregates: Auto-maintained hourly/daily rollups
+  #   - Retention Policies: Automatic old data cleanup
+  # If not set, TimescaleDB features are auto-detected.
+  # timescale = true
 
 [logging]
   # Log level: debug, info, warn, error

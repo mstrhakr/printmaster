@@ -38,6 +38,7 @@ func DefaultSettings() Settings {
 			// Metrics Collection
 			MetricsRescanEnabled:         false,
 			MetricsRescanIntervalMinutes: 60,
+			MetricsRescanIntervalSeconds: 0, // 0 means use minutes-based interval
 		},
 		SNMP: SNMPSettings{
 			Community: "",
