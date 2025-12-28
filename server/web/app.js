@@ -1485,48 +1485,52 @@ async function loadAlertSummary() {
         const summary = await resp.json();
 
         // Update summary health cards with counts by severity
-        const criticalCount = summary.active_by_severity?.critical || 0;
-        const warningCount = summary.active_by_severity?.warning || 0;
-        const infoCount = summary.active_by_severity?.info || 0;
-        const totalActive = summary.total_active || 0;
-        const totalResolved = summary.total_resolved || 0;
-        const healthyCount = Math.max(0, 100 - totalActive); // Placeholder for "healthy" percentage
+        // Backend provides: critical_count, warning_count, info_count (integers)
+        const criticalCount = summary.critical_count || 0;
+        const warningCount = summary.warning_count || 0;
+        const infoCount = summary.info_count || 0;
+        const totalActive = summary.active_count || 0;
+        const healthyCount = totalActive === 0 ? 1 : 0; // Show checkmark if no active alerts
         
         const el = (id) => document.getElementById(id);
         if (el('summary_healthy_count')) el('summary_healthy_count').textContent = healthyCount > 0 ? '✓' : 0;
         if (el('summary_warning_count')) el('summary_warning_count').textContent = warningCount;
         if (el('summary_critical_count')) el('summary_critical_count').textContent = criticalCount;
-        if (el('summary_offline_count')) el('summary_offline_count').textContent = infoCount;
+        if (el('summary_offline_count')) el('summary_offline_count').textContent = summary.offline_counts?.agents || 0;
 
         // Update scope bars with data from summary
-        const deviceAlerts = summary.active_by_scope?.device || 0;
-        const agentAlerts = summary.active_by_scope?.agent || 0;
-        const siteAlerts = summary.active_by_scope?.site || 0;
-        const tenantAlerts = summary.active_by_scope?.tenant || 0;
+        // Backend provides: alerts_by_scope map with keys: device, agent, site, tenant
+        const byScope = summary.alerts_by_scope || {};
+        const deviceAlerts = byScope['device'] || 0;
+        const agentAlerts = byScope['agent'] || 0;
+        const siteAlerts = byScope['site'] || 0;
+        const tenantAlerts = byScope['tenant'] || 0;
         
         updateScopeBar('devices', deviceAlerts === 0 ? 100 : 0, deviceAlerts > 0 && deviceAlerts < 5 ? 100 : 0, deviceAlerts >= 5 ? 100 : 0, `${deviceAlerts} alerts`);
         updateScopeBar('agents', agentAlerts === 0 ? 100 : 0, agentAlerts > 0 && agentAlerts < 3 ? 100 : 0, agentAlerts >= 3 ? 100 : 0, `${agentAlerts} alerts`);
         updateScopeBar('sites', siteAlerts === 0 ? 100 : 0, siteAlerts > 0 && siteAlerts < 2 ? 100 : 0, siteAlerts >= 2 ? 100 : 0, `${siteAlerts} alerts`);
         updateScopeBar('tenants', tenantAlerts === 0 ? 100 : 0, tenantAlerts > 0 ? 100 : 0, 0, `${tenantAlerts} alerts`);
 
-        // Update breakdown by type (aggregate from active_by_type)
-        const byType = summary.active_by_type || {};
-        if (el('breakdown_supply')) el('breakdown_supply').textContent = (byType['device.supply.low'] || 0) + (byType['device.supply.critical'] || 0);
-        if (el('breakdown_device_offline')) el('breakdown_device_offline').textContent = byType['device.offline'] || 0;
-        if (el('breakdown_agent_offline')) el('breakdown_agent_offline').textContent = byType['agent.offline'] || 0;
-        if (el('breakdown_site_outage')) el('breakdown_site_outage').textContent = (byType['site.outage'] || 0) + (byType['site.partial_outage'] || 0);
-        if (el('breakdown_usage')) el('breakdown_usage').textContent = (byType['device.usage.high'] || 0) + (byType['device.usage.spike'] || 0);
-        if (el('breakdown_errors')) el('breakdown_errors').textContent = byType['device.error'] || 0;
+        // Update breakdown by type
+        // Backend provides: alerts_by_type map with keys: supply_low, supply_critical, device_offline, agent_offline, etc.
+        const byType = summary.alerts_by_type || {};
+        if (el('breakdown_supply')) el('breakdown_supply').textContent = (byType['supply_low'] || 0) + (byType['supply_critical'] || 0) + (byType['toner_low'] || 0) + (byType['toner_critical'] || 0);
+        if (el('breakdown_device_offline')) el('breakdown_device_offline').textContent = byType['device_offline'] || 0;
+        if (el('breakdown_agent_offline')) el('breakdown_agent_offline').textContent = byType['agent_offline'] || 0;
+        if (el('breakdown_site_outage')) el('breakdown_site_outage').textContent = byType['site_outage'] || 0;
+        if (el('breakdown_usage')) el('breakdown_usage').textContent = (byType['usage_threshold'] || 0) + (byType['usage_high'] || 0);
+        if (el('breakdown_errors')) el('breakdown_errors').textContent = (byType['device_error'] || 0) + (byType['error'] || 0);
 
         // Update status indicators
-        if (el('status_active_rules')) el('status_active_rules').textContent = summary.enabled_rules_count || 0;
-        if (el('status_channels')) el('status_channels').textContent = summary.enabled_channels_count || 0;
+        // Backend provides: active_rules, active_channels
+        if (el('status_active_rules')) el('status_active_rules').textContent = summary.active_rules || 0;
+        if (el('status_channels')) el('status_channels').textContent = summary.active_channels || 0;
         
         // Show maintenance mode / quiet hours status
-        if (summary.in_maintenance_window && el('maintenance_indicator')) {
+        if (summary.has_maintenance && el('maintenance_indicator')) {
             el('maintenance_indicator').style.display = '';
         }
-        if (summary.in_quiet_hours && el('quiet_hours_indicator')) {
+        if (summary.is_quiet_hours && el('quiet_hours_indicator')) {
             el('quiet_hours_indicator').style.display = '';
         }
     } catch (err) {
