@@ -13,7 +13,7 @@ import (
 
 // mockSchedulerStore implements SchedulerStore for testing.
 type mockSchedulerStore struct {
-	mu sync.Mutex
+	mu                 sync.Mutex
 	mockGeneratorStore // Embed generator store for report generation
 
 	reports       map[int64]*storage.ReportDefinition
