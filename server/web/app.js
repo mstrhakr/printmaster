@@ -163,6 +163,9 @@ const alertHistoryRenderState = {
 };
 
 const METRICS_RANGE_WINDOWS = {
+    '5m': 5 * 60 * 1000,
+    '15m': 15 * 60 * 1000,
+    '30m': 30 * 60 * 1000,
     '1h': 1 * 60 * 60 * 1000,
     '6h': 6 * 60 * 60 * 1000,
     '12h': 12 * 60 * 60 * 1000,
@@ -15079,6 +15082,9 @@ function getMetricsRangeWindow(range) {
 
 function metricsRangeLabel(range) {
     switch (range) {
+        case '5m': return '5 minutes';
+        case '15m': return '15 minutes';
+        case '30m': return '30 minutes';
         case '1h': return '1 hour';
         case '6h': return '6 hours';
         case '12h': return '12 hours';
