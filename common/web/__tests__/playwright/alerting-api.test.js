@@ -74,6 +74,29 @@ function startAppFixtureServer() {
 let server;
 let activeConnections = new Set();
 
+// Helper to wait for server to be ready (accepting connections)
+async function waitForServerReady(url, maxRetries = 10, delay = 100) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await new Promise((resolve, reject) => {
+        const req = http.get(url, (res) => {
+          res.resume(); // Consume response to free up connection
+          resolve();
+        });
+        req.on('error', reject);
+        req.setTimeout(1000, () => {
+          req.destroy();
+          reject(new Error('timeout'));
+        });
+      });
+      return; // Server is ready
+    } catch (err) {
+      if (i === maxRetries - 1) throw new Error(`Server not ready after ${maxRetries} retries`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
 test.beforeAll(async () => {
   server = startAppFixtureServer();
   
@@ -86,6 +109,9 @@ test.beforeAll(async () => {
   await new Promise(resolve => server.listen(0, resolve));
   const { port } = server.address();
   global.__PM_BASE_URL__ = `http://127.0.0.1:${port}`;
+  
+  // Wait for server to actually be accepting connections
+  await waitForServerReady(`${global.__PM_BASE_URL__}/`);
 });
 
 test.afterAll(async () => {
