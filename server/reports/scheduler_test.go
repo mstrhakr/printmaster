@@ -680,7 +680,7 @@ func TestScheduler_UnknownFrequency(t *testing.T) {
 	next := s.calculateNextRun(schedule)
 
 	// Should default to 24 hours from now
-	diff := next.Sub(time.Now())
+	diff := time.Until(next)
 	if diff < 23*time.Hour || diff > 25*time.Hour {
 		t.Errorf("expected ~24 hours from now, got %v", diff)
 	}
