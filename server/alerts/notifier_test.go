@@ -519,7 +519,7 @@ func TestNotifier_TelegramPayload(t *testing.T) {
 	alert := &storage.Alert{
 		ID:       1,
 		RuleID:   1,
-		Type:     storage.AlertTypeLowToner,
+		Type:     storage.AlertTypeTonerLow,
 		Severity: storage.AlertSeverityInfo,
 		Title:    "Low Toner",
 		Message:  "Toner is running low",
