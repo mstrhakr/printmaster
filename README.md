@@ -10,6 +10,20 @@
 
 PrintMaster automatically discovers and monitors network printers and copiers. Built for MSPs, MPS providers, copier dealers, and IT departments managing print fleets.
 
+## Why PrintMaster?
+
+PrintMaster was born from real-world frustration managing multi-vendor print fleets. Existing solutions meant juggling multiple tools—PrintAudit for metering, Epson Remote Services for Epson devices, Kyocera Net Manager for Kyocera, Epson Device Admin for local management—each with their own quirks, agents that randomly disconnect, and per-device licensing fees.
+
+The goal: combine the best of fleet monitoring and vendor-specific tools into one open-source solution that actually tells you when something goes wrong.
+
+### Transparency
+
+This project uses AI-assisted development. Initial development relied significantly on AI tools, and this is disclosed in the spirit of transparency. As the project matures and gains users, development will slow down to focus on stability and correctness over feature velocity.
+
+The maintainer is not a professional developer by trade, but has real-world experience in the copier/MPS industry and has contributed to other open-source projects (including OIDC SSO support for MeshCentral).
+
+Contributions, feedback, and vendor-specific SNMP knowledge are welcome—printer MIBs are complex and vendor quirks are endless.
+
 ## Features
 
 - **Automated Discovery** — SNMP-based network scanning finds printers automatically
