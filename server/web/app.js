@@ -144,6 +144,8 @@ const logsState = {
     searchDebounce: null, // Debounce timer for search
     scrollObserver: null, // IntersectionObserver for infinite scroll
     maxLoaded: 100,       // Maximum entries to keep loaded (cull beyond this)
+    lastLoadTime: 0,      // Timestamp of last load (for cooldown)
+    cooldownMs: 2000,     // Minimum ms between infinite scroll loads
 };
 
 const AUDIT_SEVERITY_VALUES = ['error', 'warn', 'info'];
@@ -5224,6 +5226,14 @@ function expandAllDashboardNodes() {
     if (!dashboardData) return;
     for (const tenant of dashboardData.tenants || []) {
         dashboardExpandedNodes.add(`tenant-${tenant.id}`);
+        // Expand sites and their agents
+        for (const site of tenant.sites || []) {
+            dashboardExpandedNodes.add(`site-${site.id}`);
+            for (const agent of site.agents || []) {
+                dashboardExpandedNodes.add(`agent-${agent.agent_id}`);
+            }
+        }
+        // Expand unassigned agents (directly under tenant)
         for (const agent of tenant.agents || []) {
             dashboardExpandedNodes.add(`agent-${agent.agent_id}`);
         }
@@ -14964,11 +14974,13 @@ async function loadLogs(options = {}) {
         // Update currentLogLines for compatibility
         currentLogLines = logsState.entries;
 
-        // Render
-        renderLogs({ logs: logsState.entries.map(e => e.raw) });
+        // Render (pass append flag to skip auto-scroll)
+        renderLogs({ logs: logsState.entries.map(e => e.raw), append });
 
-        // Setup infinite scroll observer
-        setupLogsInfiniteScroll();
+        // Setup infinite scroll observer (only if more to load)
+        if (logsState.hasMore) {
+            setupLogsInfiniteScroll();
+        }
 
     } catch (error) {
         window.__pm_shared.error('Failed to load logs:', error);
@@ -15974,8 +15986,10 @@ function calculateThroughput(series) {
 function renderLogs(logs) {
     // Parse and normalize log lines
     let lines = [];
+    let isAppend = false;
     if (logs && logs.logs && Array.isArray(logs.logs)) {
         lines = logs.logs;
+        isAppend = Boolean(logs.append);
     } else if (Array.isArray(logs)) {
         lines = logs;
     } else if (typeof logs === 'string') {
@@ -15995,11 +16009,11 @@ function renderLogs(logs) {
         currentLogLines = logsState.entries;
     }
 
-    // Render based on current view mode
+    // Render based on current view mode (pass isAppend to skip auto-scroll)
     if (activeLogViewMode === 'table') {
-        renderLogsTable(currentLogLines);
+        renderLogsTable(currentLogLines, isAppend);
     } else {
-        renderLogsRaw(currentLogLines);
+        renderLogsRaw(currentLogLines, isAppend);
     }
 }
 
@@ -16056,7 +16070,7 @@ function parseLogLine(line) {
     return entry;
 }
 
-function renderLogsTable(entries) {
+function renderLogsTable(entries, isAppend = false) {
     const tbody = document.getElementById('log_table_body');
     if (!tbody) {
         window.__pm_shared.warn('renderLogsTable: tbody not found');
@@ -16103,7 +16117,7 @@ function renderLogsTable(entries) {
         </tr>`;
     });
 
-    // Add load-more sentinel at the end if more logs are available
+    // Add load-more sentinel at the end if more logs are available, or end indicator
     if (logsState.hasMore) {
         rows.push(`<tr id="logs_load_more_sentinel" class="logs-load-sentinel">
             <td colspan="4" style="text-align:center;padding:16px;">
@@ -16111,21 +16125,29 @@ function renderLogsTable(entries) {
                 <span class="muted-text">Loading older logs...</span>
             </td>
         </tr>`);
+    } else if (entries.length > 0) {
+        rows.push(`<tr class="logs-end-marker">
+            <td colspan="4" style="text-align:center;padding:12px;color:var(--muted);font-style:italic;">
+                — End of logs —
+            </td>
+        </tr>`);
     }
 
     tbody.innerHTML = rows.join('');
 
-    // Auto-scroll to bottom if not paused (only on initial load)
-    const pauseCheckbox = document.getElementById('pause_autoscroll');
-    if (!pauseCheckbox || !pauseCheckbox.checked) {
-        const container = document.getElementById('log_table_container');
-        if (container) {
-            container.scrollTop = container.scrollHeight;
+    // Auto-scroll to bottom if not paused and NOT appending older logs
+    if (!isAppend) {
+        const pauseCheckbox = document.getElementById('pause_autoscroll');
+        if (!pauseCheckbox || !pauseCheckbox.checked) {
+            const container = document.getElementById('log_table_container');
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
         }
     }
 }
 
-function renderLogsRaw(entries) {
+function renderLogsRaw(entries, isAppend = false) {
     const container = document.getElementById('log');
     if (!container) {
         window.__pm_shared.warn('renderLogsRaw: log element not found');
@@ -16147,17 +16169,21 @@ function renderLogsRaw(entries) {
     // Server-side filtering is already applied
     updateLogsShowingCount(entries.length);
 
-    // Build content with load-more indicator
+    // Build content with load-more indicator or end marker
     let content = entries.map(e => e.raw).join('\n');
     if (logsState.hasMore) {
         content += '\n\n--- Scroll down to load older logs ---';
+    } else if (entries.length > 0) {
+        content += '\n\n— End of logs —';
     }
     container.textContent = content;
 
-    // Auto-scroll to bottom if not paused
-    const pauseCheckbox = document.getElementById('pause_autoscroll');
-    if (!pauseCheckbox || !pauseCheckbox.checked) {
-        container.scrollTop = container.scrollHeight;
+    // Auto-scroll to bottom if not paused and NOT appending older logs
+    if (!isAppend) {
+        const pauseCheckbox = document.getElementById('pause_autoscroll');
+        if (!pauseCheckbox || !pauseCheckbox.checked) {
+            container.scrollTop = container.scrollHeight;
+        }
     }
 }
 
@@ -16178,6 +16204,12 @@ function setupLogsInfiniteScroll() {
     logsState.scrollObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && !logsState.loading && logsState.hasMore) {
+                // Enforce cooldown to prevent runaway requests
+                const now = Date.now();
+                if (now - logsState.lastLoadTime < logsState.cooldownMs) {
+                    return;
+                }
+                logsState.lastLoadTime = now;
                 // Load older logs
                 loadLogs({ append: true });
             }
