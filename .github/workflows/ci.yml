@@ -13,6 +13,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Default permissions for all jobs
+permissions:
+  contents: read
+
 jobs:
   # ============================================================================
   # COMMON - Runs first, agent/server depend on it
@@ -20,12 +24,14 @@ jobs:
   lint-common:
     name: Lint Common
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
@@ -44,18 +50,20 @@ jobs:
   test-common:
     name: Test Common
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
     
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
       with:
         path: |
           ~/.cache/go-build
@@ -70,7 +78,7 @@ jobs:
       run: go test -v -coverprofile=coverage.out ./...
     
     - name: Upload coverage
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
       with:
         file: ./common/coverage.out
         flags: common
@@ -82,12 +90,14 @@ jobs:
   lint-agent:
     name: Lint Agent
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
@@ -107,18 +117,20 @@ jobs:
     name: Test Agent
     runs-on: ubuntu-latest
     needs: [lint-common, test-common, lint-agent]
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
     
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
       with:
         path: |
           ~/.cache/go-build
@@ -137,7 +149,7 @@ jobs:
       run: go test -v -coverprofile=coverage.out ./...
     
     - name: Upload coverage
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
       with:
         file: ./agent/coverage.out
         flags: agent
@@ -149,12 +161,14 @@ jobs:
   lint-server:
     name: Lint Server
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
@@ -174,18 +188,20 @@ jobs:
     name: Test Server
     runs-on: ubuntu-latest
     needs: [lint-common, test-common, lint-server]
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
     
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
       with:
         path: |
           ~/.cache/go-build
@@ -204,7 +220,7 @@ jobs:
       run: go test -v -coverprofile=coverage.out ./...
     
     - name: Upload coverage
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
       with:
         file: ./server/coverage.out
         flags: server
@@ -217,18 +233,20 @@ jobs:
     name: Test Server (Postgres Integration)
     runs-on: ubuntu-latest
     needs: [test-server]
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
     
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
       with:
         path: |
           ~/.cache/go-build
@@ -247,7 +265,7 @@ jobs:
       run: go test -v -tags=integration -coverprofile=coverage-integration.out ./storage/...
     
     - name: Upload integration coverage
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
       with:
         file: ./server/coverage-integration.out
         flags: server-integration
@@ -260,18 +278,20 @@ jobs:
     name: Test E2E
     runs-on: ubuntu-latest
     needs: [test-agent, test-server, test-server-integration]
+    permissions:
+      contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version: '1.24'
         cache: false
     
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
       with:
         path: |
           ~/.cache/go-build
@@ -291,7 +311,7 @@ jobs:
     
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4
       with:
         name: e2e-test-results
         path: tests/*.log
@@ -301,6 +321,7 @@ jobs:
     name: CI Passed
     runs-on: ubuntu-latest
     needs: [lint-common, test-common, lint-agent, test-agent, lint-server, test-server, test-server-integration, test-e2e]
+    permissions: {}
     steps:
     - name: All required checks passed
       run: echo "CI Passed"
