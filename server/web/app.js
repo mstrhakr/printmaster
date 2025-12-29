@@ -131,6 +131,21 @@ let activeSettingsView = getPersistedUIState(SERVER_UI_STATE_KEYS.SETTINGS_VIEW,
 let activeLogView = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW, 'system', VALID_LOG_VIEWS);
 let activeLogViewMode = getPersistedUIState(SERVER_UI_STATE_KEYS.LOG_VIEW_MODE, 'table', VALID_LOG_VIEW_MODES);
 let currentLogLines = []; // Store parsed log entries for view switching
+
+// Logs pagination and infinite scroll state
+const logsState = {
+    entries: [],          // Parsed log entries currently loaded
+    total: 0,             // Total logs available on server (with current filters)
+    offset: 0,            // Current offset into the filtered logs
+    limit: 50,            // Page size
+    hasMore: false,       // More older logs available
+    hasPrevious: false,   // Newer logs available (when scrolled up)
+    loading: false,       // Currently fetching
+    searchDebounce: null, // Debounce timer for search
+    scrollObserver: null, // IntersectionObserver for infinite scroll
+    maxLoaded: 100,       // Maximum entries to keep loaded (cull beyond this)
+};
+
 const AUDIT_SEVERITY_VALUES = ['error', 'warn', 'info'];
 const AUDIT_AUTO_REFRESH_INTERVAL_MS = 15000;
 let auditLogEntries = [];
@@ -1110,6 +1125,9 @@ function initLogSubTabs() {
     const refreshBtn = document.getElementById('logs_refresh_btn');
     if (refreshBtn) {
         refreshBtn.addEventListener('click', () => {
+            // Reset pagination state and reload from newest
+            logsState.offset = 0;
+            logsState.entries = [];
             loadLogs();
             window.__pm_shared.showToast('Logs refreshed', 'info');
         });
@@ -1146,14 +1164,30 @@ function initLogViewModeToggle() {
     // Apply initial state
     syncLogViewModeUI();
 
-    // Add filter event handlers for system logs
+    // Add filter event handlers for system logs (server-side filtering)
     const levelFilter = document.getElementById('log_level_filter');
     if (levelFilter) {
-        levelFilter.addEventListener('change', () => rerenderCurrentLogs());
+        levelFilter.addEventListener('change', () => {
+            // Reset pagination and reload with new filter
+            logsState.offset = 0;
+            logsState.entries = [];
+            loadLogs();
+        });
     }
     const searchFilter = document.getElementById('log_search_filter');
     if (searchFilter) {
-        searchFilter.addEventListener('input', debounce(() => rerenderCurrentLogs(), 200));
+        searchFilter.addEventListener('input', () => {
+            // Debounce search to avoid excessive API calls
+            if (logsState.searchDebounce) {
+                clearTimeout(logsState.searchDebounce);
+            }
+            logsState.searchDebounce = setTimeout(() => {
+                // Reset pagination and reload with new search
+                logsState.offset = 0;
+                logsState.entries = [];
+                loadLogs();
+            }, 300);
+        });
     }
 }
 
@@ -14829,8 +14863,15 @@ async function clearLogs() {
             return;
         }
         
-        // Clear the display
+        // Clear the display and reset state
         currentLogLines = [];
+        logsState.entries = [];
+        logsState.total = 0;
+        logsState.offset = 0;
+        logsState.hasMore = false;
+        logsState.hasPrevious = false;
+        cleanupLogsInfiniteScroll();
+        
         const logEl = document.getElementById('log');
         if (logEl) {
             logEl.innerHTML = '<span style="color:#586e75">(logs cleared - waiting for new entries)</span>';
@@ -14839,6 +14880,7 @@ async function clearLogs() {
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#586e75">(logs cleared - waiting for new entries)</td></tr>';
         }
+        updateLogsShowingCount(0);
         
         window.__pm_shared.showToast('Logs cleared and rotated', 'success');
     } catch (e) {
@@ -14847,21 +14889,95 @@ async function clearLogs() {
     }
 }
 
-async function loadLogs() {
+async function loadLogs(options = {}) {
+    const { append = false, prepend = false } = options;
+    
+    if (logsState.loading) return;
+    logsState.loading = true;
+
     try {
-        const response = await fetch('/api/logs');
+        // Build query params
+        const params = new URLSearchParams();
+        params.set('limit', String(logsState.limit));
+        
+        // Calculate offset based on append/prepend mode
+        let requestOffset = logsState.offset;
+        if (append && logsState.entries.length > 0) {
+            // Loading older logs - offset is after current entries
+            requestOffset = logsState.entries.length;
+        } else if (prepend) {
+            // Loading newer logs - offset is 0 (newest first)
+            requestOffset = 0;
+        }
+        params.set('offset', String(requestOffset));
+
+        // Add level filter
+        const levelFilter = document.getElementById('log_level_filter');
+        const level = levelFilter ? levelFilter.value : '';
+        if (level) {
+            params.set('level', level);
+        }
+
+        // Add search filter
+        const searchFilter = document.getElementById('log_search_filter');
+        const search = searchFilter ? searchFilter.value.trim() : '';
+        if (search) {
+            params.set('search', search);
+        }
+
+        const response = await fetch(`/api/logs?${params.toString()}`);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        
-        const logs = await response.json();
-        renderLogs(logs);
+
+        const data = await response.json();
+        const newEntries = (data.logs || []).map(parseLogLine);
+
+        // Update state
+        logsState.total = data.total || 0;
+        logsState.hasMore = data.has_more || false;
+        logsState.hasPrevious = data.has_previous || false;
+
+        if (append && logsState.entries.length > 0) {
+            // Append older logs to the end
+            logsState.entries = [...logsState.entries, ...newEntries];
+            // Cull from the beginning (newest) if too many
+            if (logsState.entries.length > logsState.maxLoaded) {
+                const excess = logsState.entries.length - logsState.maxLoaded;
+                logsState.entries = logsState.entries.slice(excess);
+                logsState.hasPrevious = true; // We culled newer logs
+            }
+        } else if (prepend && logsState.entries.length > 0) {
+            // Prepend newer logs to the beginning
+            logsState.entries = [...newEntries, ...logsState.entries];
+            // Cull from the end (oldest) if too many
+            if (logsState.entries.length > logsState.maxLoaded) {
+                logsState.entries = logsState.entries.slice(0, logsState.maxLoaded);
+                logsState.hasMore = true; // We culled older logs
+            }
+        } else {
+            // Fresh load
+            logsState.entries = newEntries;
+            logsState.offset = 0;
+        }
+
+        // Update currentLogLines for compatibility
+        currentLogLines = logsState.entries;
+
+        // Render
+        renderLogs({ logs: logsState.entries.map(e => e.raw) });
+
+        // Setup infinite scroll observer
+        setupLogsInfiniteScroll();
+
     } catch (error) {
         window.__pm_shared.error('Failed to load logs:', error);
         const logEl = document.getElementById('log');
         if (logEl) {
             logEl.textContent = 'Failed to load logs: ' + error.message;
         }
+    } finally {
+        logsState.loading = false;
     }
 }
 
@@ -15866,8 +15982,18 @@ function renderLogs(logs) {
         lines = logs.split('\n').filter(l => l.trim());
     }
 
-    // Parse log lines into structured entries
-    currentLogLines = lines.map(parseLogLine);
+    // Parse log lines into structured entries (if not already parsed)
+    // Check if first item is already a parsed entry (has 'raw' property)
+    if (lines.length > 0 && typeof lines[0] === 'object' && lines[0].raw !== undefined) {
+        currentLogLines = lines; // Already parsed
+    } else {
+        currentLogLines = lines.map(parseLogLine);
+    }
+
+    // Sync with logsState if entries came from loadLogs
+    if (logsState.entries.length > 0) {
+        currentLogLines = logsState.entries;
+    }
 
     // Render based on current view mode
     if (activeLogViewMode === 'table') {
@@ -15937,10 +16063,10 @@ function renderLogsTable(entries) {
         return;
     }
 
-    // Update total count
+    // Update total count from server state
     const entryCountEl = document.getElementById('logs_entry_count');
     if (entryCountEl) {
-        entryCountEl.textContent = entries ? entries.length : 0;
+        entryCountEl.textContent = logsState.total || (entries ? entries.length : 0);
     }
 
     if (!entries || entries.length === 0) {
@@ -15949,26 +16075,11 @@ function renderLogsTable(entries) {
         return;
     }
 
-    const levelFilter = document.getElementById('log_level_filter');
-    const searchFilter = document.getElementById('log_search_filter');
-    const filterLevel = levelFilter ? levelFilter.value.toUpperCase() : '';
-    const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
+    // Server-side filtering is already applied, just render all entries
+    updateLogsShowingCount(entries.length);
 
-    const filteredEntries = entries.filter(entry => {
-        if (filterLevel && entry.level !== filterLevel) return false;
-        if (filterSearch && !entry.raw.toLowerCase().includes(filterSearch)) return false;
-        return true;
-    });
-
-    // Update showing count
-    updateLogsShowingCount(filteredEntries.length);
-
-    if (filteredEntries.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="log-table-empty">No logs match the current filters</td></tr>';
-        return;
-    }
-
-    const rows = filteredEntries.map(entry => {
+    // Build rows with load-more sentinel at the end (for loading older logs)
+    const rows = entries.map(entry => {
         const timeHtml = entry.timestamp
             ? `<span class="log-time-date">${formatDateShort(entry.timestamp)}</span>${formatTimeShort(entry.timestamp)}`
             : '<span class="log-time">—</span>';
@@ -15992,9 +16103,19 @@ function renderLogsTable(entries) {
         </tr>`;
     });
 
+    // Add load-more sentinel at the end if more logs are available
+    if (logsState.hasMore) {
+        rows.push(`<tr id="logs_load_more_sentinel" class="logs-load-sentinel">
+            <td colspan="4" style="text-align:center;padding:16px;">
+                <div class="loading-spinner" style="display:inline-block;margin-right:8px;"></div>
+                <span class="muted-text">Loading older logs...</span>
+            </td>
+        </tr>`);
+    }
+
     tbody.innerHTML = rows.join('');
 
-    // Auto-scroll to bottom if not paused
+    // Auto-scroll to bottom if not paused (only on initial load)
     const pauseCheckbox = document.getElementById('pause_autoscroll');
     if (!pauseCheckbox || !pauseCheckbox.checked) {
         const container = document.getElementById('log_table_container');
@@ -16011,10 +16132,10 @@ function renderLogsRaw(entries) {
         return;
     }
 
-    // Update total count
+    // Update total count from server state
     const entryCountEl = document.getElementById('logs_entry_count');
     if (entryCountEl) {
-        entryCountEl.textContent = entries ? entries.length : 0;
+        entryCountEl.textContent = logsState.total || (entries ? entries.length : 0);
     }
 
     if (!entries || entries.length === 0) {
@@ -16023,26 +16144,15 @@ function renderLogsRaw(entries) {
         return;
     }
 
-    const levelFilter = document.getElementById('log_level_filter');
-    const searchFilter = document.getElementById('log_search_filter');
-    const filterLevel = levelFilter ? levelFilter.value.toUpperCase() : '';
-    const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
+    // Server-side filtering is already applied
+    updateLogsShowingCount(entries.length);
 
-    const filteredEntries = entries.filter(entry => {
-        if (filterLevel && entry.level !== filterLevel) return false;
-        if (filterSearch && !entry.raw.toLowerCase().includes(filterSearch)) return false;
-        return true;
-    });
-
-    // Update showing count
-    updateLogsShowingCount(filteredEntries.length);
-
-    if (filteredEntries.length === 0) {
-        container.textContent = 'No logs match the current filters';
-        return;
+    // Build content with load-more indicator
+    let content = entries.map(e => e.raw).join('\n');
+    if (logsState.hasMore) {
+        content += '\n\n--- Scroll down to load older logs ---';
     }
-
-    container.textContent = filteredEntries.map(e => e.raw).join('\n');
+    container.textContent = content;
 
     // Auto-scroll to bottom if not paused
     const pauseCheckbox = document.getElementById('pause_autoscroll');
@@ -16055,6 +16165,36 @@ function updateLogsShowingCount(count) {
     const showingCountEl = document.getElementById('logs_showing_count');
     if (showingCountEl) {
         showingCountEl.textContent = count;
+    }
+}
+
+// Setup IntersectionObserver for logs infinite scroll (load older logs when sentinel becomes visible)
+function setupLogsInfiniteScroll() {
+    cleanupLogsInfiniteScroll();
+    
+    const sentinel = document.getElementById('logs_load_more_sentinel');
+    if (!sentinel || !logsState.hasMore) return;
+    
+    logsState.scrollObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting && !logsState.loading && logsState.hasMore) {
+                // Load older logs
+                loadLogs({ append: true });
+            }
+        });
+    }, {
+        root: document.getElementById('log_table_container'),
+        rootMargin: '100px',
+        threshold: 0.1
+    });
+    
+    logsState.scrollObserver.observe(sentinel);
+}
+
+function cleanupLogsInfiniteScroll() {
+    if (logsState.scrollObserver) {
+        logsState.scrollObserver.disconnect();
+        logsState.scrollObserver = null;
     }
 }
 

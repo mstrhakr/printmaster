@@ -2431,19 +2431,16 @@ select:focus {
   display: inline;
 }
 
-/* Log option checkbox */
-.log-option-toggle {
+/* Log option row with toggle switch */
+.log-option-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text);
-  cursor: pointer;
+  gap: 12px;
 }
 
-.log-option-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+.log-option-row .toggle-label {
+  font-size: 13px;
+  color: var(--text);
   cursor: pointer;
 }
 
@@ -2683,6 +2680,12 @@ select:focus {
   padding: 40px 20px;
   color: var(--muted);
   font-style: italic;
+}
+
+/* Load more sentinel for infinite scroll */
+.logs-load-sentinel td {
+  background: var(--bg-tertiary);
+  border-top: 1px solid var(--border);
 }
 
 /* Raw log view */

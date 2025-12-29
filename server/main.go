@@ -7095,13 +7095,34 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lines := collectServerLogLines(uiLogLineLimit)
-	if len(lines) == 0 {
-		lines = []string{"No server logs available yet."}
+	q := r.URL.Query()
+
+	// Parse pagination params
+	limit := 50 // default page size
+	if l := q.Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 500 {
+			limit = parsed
+		}
 	}
 
+	offset := 0
+	if o := q.Get("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	// Parse level filter
+	levelFilter := strings.ToUpper(q.Get("level"))
+
+	// Parse search query
+	searchQuery := strings.ToLower(strings.TrimSpace(q.Get("search")))
+
+	// Collect and filter logs
+	result := collectServerLogLinesFiltered(limit, offset, levelFilter, searchQuery)
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"logs": lines})
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleLogsClear rotates the server log file and clears the in-memory buffer
@@ -7137,27 +7158,147 @@ func handleLogsClear(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"message": "Logs cleared"})
 }
 
-func collectServerLogLines(limit int) []string {
-	if limit <= 0 {
-		limit = uiLogLineLimit
-	}
+// LogsResponse is the response for the logs API with pagination support
+type LogsResponse struct {
+	Logs        []string `json:"logs"`
+	Total       int      `json:"total"`
+	Offset      int      `json:"offset"`
+	Limit       int      `json:"limit"`
+	HasMore     bool     `json:"has_more"`
+	HasPrevious bool     `json:"has_previous"`
+}
+
+// collectServerLogLinesFiltered returns logs with pagination, level, and search filtering
+func collectServerLogLinesFiltered(limit, offset int, levelFilter, searchQuery string) LogsResponse {
+	var allEntries []logger.LogEntry
 
 	if serverLogger != nil {
-		entries := serverLogger.GetBuffer()
-		if len(entries) > 0 {
-			start := 0
-			if len(entries) > limit {
-				start = len(entries) - limit
-			}
-			lines := make([]string, 0, len(entries)-start)
-			for _, entry := range entries[start:] {
-				lines = append(lines, formatUILogEntry(entry))
-			}
-			return lines
+		allEntries = serverLogger.GetBuffer()
+	}
+
+	// Fall back to file-based logs if buffer is empty
+	if len(allEntries) == 0 {
+		fileLines := tailServerLogFile(uiLogLineLimit)
+		return LogsResponse{
+			Logs:        paginateLines(filterLines(fileLines, levelFilter, searchQuery), offset, limit),
+			Total:       len(fileLines),
+			Offset:      offset,
+			Limit:       limit,
+			HasMore:     offset+limit < len(fileLines),
+			HasPrevious: offset > 0,
 		}
 	}
 
-	return tailServerLogFile(limit)
+	// Filter entries by level and search
+	var filtered []logger.LogEntry
+	for _, entry := range allEntries {
+		// Level filter
+		if levelFilter != "" {
+			entryLevel := logger.LevelToString(entry.Level)
+			if entryLevel != levelFilter {
+				continue
+			}
+		}
+
+		// Search filter - match against formatted line
+		if searchQuery != "" {
+			line := strings.ToLower(formatUILogEntry(entry))
+			if !strings.Contains(line, searchQuery) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, entry)
+	}
+
+	total := len(filtered)
+
+	// Apply pagination (from newest to oldest, so we reverse first)
+	// Logs are stored oldest-first, but UI shows newest-first for infinite scroll at top
+	// The UI will request offset=0 for newest, and increasing offset for older logs
+
+	// Reverse the order so newest is first
+	reversed := make([]logger.LogEntry, len(filtered))
+	for i, entry := range filtered {
+		reversed[len(filtered)-1-i] = entry
+	}
+
+	// Apply offset and limit
+	start := offset
+	end := start + limit
+	if start >= len(reversed) {
+		start = 0
+		end = 0
+	} else if end > len(reversed) {
+		end = len(reversed)
+	}
+
+	page := reversed[start:end]
+
+	// Convert to formatted lines
+	lines := make([]string, len(page))
+	for i, entry := range page {
+		lines[i] = formatUILogEntry(entry)
+	}
+
+	return LogsResponse{
+		Logs:        lines,
+		Total:       total,
+		Offset:      offset,
+		Limit:       limit,
+		HasMore:     end < total,
+		HasPrevious: offset > 0,
+	}
+}
+
+// filterLines applies level and search filters to raw log lines
+func filterLines(lines []string, levelFilter, searchQuery string) []string {
+	if levelFilter == "" && searchQuery == "" {
+		return lines
+	}
+
+	var filtered []string
+	for _, line := range lines {
+		// Level filter - check for [LEVEL] pattern
+		if levelFilter != "" {
+			if !strings.Contains(line, "["+levelFilter+"]") {
+				continue
+			}
+		}
+
+		// Search filter
+		if searchQuery != "" {
+			if !strings.Contains(strings.ToLower(line), searchQuery) {
+				continue
+			}
+		}
+
+		filtered = append(filtered, line)
+	}
+	return filtered
+}
+
+// paginateLines returns a page of lines (reversed so newest first)
+func paginateLines(lines []string, offset, limit int) []string {
+	if len(lines) == 0 {
+		return []string{}
+	}
+
+	// Reverse so newest is first
+	reversed := make([]string, len(lines))
+	for i, line := range lines {
+		reversed[len(lines)-1-i] = line
+	}
+
+	start := offset
+	end := offset + limit
+	if start >= len(reversed) {
+		return []string{}
+	}
+	if end > len(reversed) {
+		end = len(reversed)
+	}
+	return reversed[start:end]
 }
 
 func formatUILogEntry(entry logger.LogEntry) string {
