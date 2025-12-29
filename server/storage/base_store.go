@@ -786,8 +786,9 @@ func (s *BaseStore) SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) e
 
 // GetLatestMetrics retrieves the most recent metrics for a device
 func (s *BaseStore) GetLatestMetrics(ctx context.Context, serial string) (*MetricsSnapshot, error) {
+	// Note: id column is not included - it may not exist after TimescaleDB hypertable conversion
 	query := `
-		SELECT id, serial, agent_id, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
+		SELECT serial, agent_id, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
 		FROM metrics_history
 		WHERE serial = ?
 		ORDER BY timestamp DESC
@@ -798,7 +799,7 @@ func (s *BaseStore) GetLatestMetrics(ctx context.Context, serial string) (*Metri
 	var tonerJSON sql.NullString
 
 	err := s.queryRowContext(ctx, query, serial).Scan(
-		&m.ID, &m.Serial, &m.AgentID, &m.Timestamp,
+		&m.Serial, &m.AgentID, &m.Timestamp,
 		&m.PageCount, &m.ColorPages, &m.MonoPages, &m.ScanCount, &tonerJSON)
 
 	if err == sql.ErrNoRows {
@@ -832,8 +833,9 @@ func (s *BaseStore) GetLatestMetricsBatch(ctx context.Context, serials []string)
 		args[i] = s
 	}
 
+	// Note: id column is not included - it may not exist after TimescaleDB hypertable conversion
 	query := fmt.Sprintf(`
-		SELECT m.id, m.serial, m.agent_id, m.timestamp, m.page_count, m.color_pages, m.mono_pages, m.scan_count, m.toner_levels
+		SELECT m.serial, m.agent_id, m.timestamp, m.page_count, m.color_pages, m.mono_pages, m.scan_count, m.toner_levels
 		FROM metrics_history m
 		INNER JOIN (
 			SELECT serial, MAX(timestamp) as max_ts
@@ -852,7 +854,7 @@ func (s *BaseStore) GetLatestMetricsBatch(ctx context.Context, serials []string)
 	for rows.Next() {
 		var m MetricsSnapshot
 		var tonerJSON sql.NullString
-		err := rows.Scan(&m.ID, &m.Serial, &m.AgentID, &m.Timestamp,
+		err := rows.Scan(&m.Serial, &m.AgentID, &m.Timestamp,
 			&m.PageCount, &m.ColorPages, &m.MonoPages, &m.ScanCount, &tonerJSON)
 		if err != nil {
 			return nil, err
@@ -868,8 +870,9 @@ func (s *BaseStore) GetLatestMetricsBatch(ctx context.Context, serials []string)
 
 // GetMetricsHistory retrieves metrics history for a device since a given time
 func (s *BaseStore) GetMetricsHistory(ctx context.Context, serial string, since time.Time) ([]*MetricsSnapshot, error) {
+	// Note: id column is not included - it may not exist after TimescaleDB hypertable conversion
 	query := `
-		SELECT id, serial, agent_id, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
+		SELECT serial, agent_id, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
 		FROM metrics_history
 		WHERE serial = ? AND timestamp >= ?
 		ORDER BY timestamp ASC
@@ -886,7 +889,7 @@ func (s *BaseStore) GetMetricsHistory(ctx context.Context, serial string, since 
 		var m MetricsSnapshot
 		var tonerJSON sql.NullString
 
-		err := rows.Scan(&m.ID, &m.Serial, &m.AgentID, &m.Timestamp,
+		err := rows.Scan(&m.Serial, &m.AgentID, &m.Timestamp,
 			&m.PageCount, &m.ColorPages, &m.MonoPages, &m.ScanCount, &tonerJSON)
 		if err != nil {
 			return nil, err
@@ -928,8 +931,9 @@ func (s *BaseStore) GetMetricsBounds(ctx context.Context, serial string) (minTS,
 // GetMetricsAtOrBefore retrieves the latest metrics snapshot for a device at or before a given time.
 // Returns nil if no snapshot exists at or before that time.
 func (s *BaseStore) GetMetricsAtOrBefore(ctx context.Context, serial string, at time.Time) (*MetricsSnapshot, error) {
+	// Note: id column is not included - it may not exist after TimescaleDB hypertable conversion
 	query := `
-		SELECT id, serial, agent_id, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
+		SELECT serial, agent_id, timestamp, page_count, color_pages, mono_pages, scan_count, toner_levels
 		FROM metrics_history
 		WHERE serial = ? AND timestamp <= ?
 		ORDER BY timestamp DESC
@@ -940,7 +944,7 @@ func (s *BaseStore) GetMetricsAtOrBefore(ctx context.Context, serial string, at 
 	var tonerJSON sql.NullString
 
 	err := s.queryRowContext(ctx, query, serial, at).Scan(
-		&m.ID, &m.Serial, &m.AgentID, &m.Timestamp,
+		&m.Serial, &m.AgentID, &m.Timestamp,
 		&m.PageCount, &m.ColorPages, &m.MonoPages, &m.ScanCount, &tonerJSON)
 
 	if err == sql.ErrNoRows {
