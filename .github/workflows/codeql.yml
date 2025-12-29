@@ -1,0 +1,75 @@
+name: "CodeQL Analysis"
+
+on:
+  # Scan releases when tags are pushed
+  push:
+    tags:
+      - 'agent-v*'
+      - 'server-v*'
+  # Weekly scan to catch new CVEs in dependencies
+  schedule:
+    - cron: '0 0 * * 0'
+  # Allow manual runs for ad-hoc security reviews
+  workflow_dispatch: {}
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      # Required for all workflows
+      security-events: write
+      # Required to fetch internal or private CodeQL packs
+      packages: read
+      # Only required for workflows in private repositories
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Set up Go for Go analysis
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      # Initialize CodeQL tools for scanning
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Use queries for security and quality
+          queries: +security-extended,security-and-quality
+
+      # If autobuild fails for Go, uncomment and use manual build
+      # - name: Manual Build (Go)
+      #   if: matrix.language == 'go'
+      #   run: |
+      #     cd agent && go build -v ./...
+      #     cd ../server && go build -v ./...
+      #     cd ../common && go build -v ./...
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
