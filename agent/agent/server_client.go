@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -60,6 +61,17 @@ func NewServerClientWithName(baseURL, agentID, agentName, token, caCertPath stri
 	// Use agent package logger for structured logging when available
 	Info(fmt.Sprintf("NewServerClientWithName baseURL=%s insecureSkipVerify=%v caCertPath=%s", baseURL, insecureSkipVerify, caCertPath))
 	var tlsConfig *tls.Config
+
+	if caCertPath != "" {
+		// Validate CA cert path to prevent path traversal attacks
+		cleanPath := filepath.Clean(caCertPath)
+		if strings.Contains(cleanPath, "..") {
+			Warn(fmt.Sprintf("Invalid CA certificate path (path traversal attempt): %s", caCertPath))
+			caCertPath = "" // Fall back to system CA
+		} else {
+			caCertPath = cleanPath
+		}
+	}
 
 	if caCertPath != "" {
 		// Custom CA (self-signed server certificate)

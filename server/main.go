@@ -213,6 +213,17 @@ func sanitizeAssetVersion(input string) string {
 	return b.String()
 }
 
+// sanitizeEmailHeader removes CR and LF characters from email header values
+// to prevent email header injection attacks.
+func sanitizeEmailHeader(s string) string {
+	// Replace all CR and LF characters with spaces
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	// Also handle null bytes which could be used for attacks
+	s = strings.ReplaceAll(s, "\x00", "")
+	return strings.TrimSpace(s)
+}
+
 // SSE (Server-Sent Events) Hub for real-time UI updates
 type SSEEvent struct {
 	Type string                 `json:"type"`
@@ -2035,7 +2046,7 @@ func handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   requestIsHTTPS(r),
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, cookie)
@@ -2611,6 +2622,10 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 // If htmlBody is empty, sends plain text only. If textBody is empty, sends HTML only.
 // If both are provided, sends multipart/alternative (most email clients prefer HTML but fall back to text).
 func sendHTMLEmail(to string, subject string, htmlBody string, textBody string) error {
+	// Sanitize email header values to prevent header injection attacks
+	to = sanitizeEmailHeader(to)
+	subject = sanitizeEmailHeader(subject)
+
 	var host, user, pass, from string
 	var port int
 
@@ -2650,6 +2665,9 @@ func sendHTMLEmail(to string, subject string, htmlBody string, textBody string) 
 	if host == "" || port == 0 {
 		return fmt.Errorf("SMTP not configured")
 	}
+
+	// Sanitize from address to prevent header injection
+	from = sanitizeEmailHeader(from)
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	auth := smtp.PlainAuth("", user, pass, host)

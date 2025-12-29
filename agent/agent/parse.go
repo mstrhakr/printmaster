@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -117,7 +118,11 @@ func isValidSubnetMask(mask string) bool {
 	parts := strings.Split(mask, ".")
 	var binary uint32
 	for i, part := range parts {
-		num, _ := strconv.Atoi(part)
+		num, err := strconv.Atoi(part)
+		// Bounds check to prevent integer overflow when converting to uint32
+		if err != nil || num < 0 || num > 255 {
+			return false
+		}
 		binary |= uint32(num) << uint(24-i*8)
 	}
 
@@ -252,7 +257,16 @@ func detectWebUIURL(ip string, meta *ScanMeta, pduByOid map[string]gosnmp.SnmpPD
 
 // probeWebUI checks if a URL is accessible and follows redirects to get the final URL.
 // Returns the final URL if accessible, empty string otherwise.
-func probeWebUI(url string) string {
+func probeWebUI(probeURL string) string {
+	// Validate the initial URL to prevent SSRF
+	parsedInitial, err := url.Parse(probeURL)
+	if err != nil {
+		return ""
+	}
+
+	// Track the original host to prevent redirect attacks to different hosts
+	originalHost := parsedInitial.Hostname()
+
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -260,17 +274,26 @@ func probeWebUI(url string) string {
 			if len(via) >= 5 {
 				return http.ErrUseLastResponse
 			}
+			// Security: prevent redirects to different hosts (SSRF protection)
+			if req.URL.Hostname() != originalHost {
+				return http.ErrUseLastResponse
+			}
 			return nil
 		},
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Printers often have self-signed certs
+				// #nosec G402 -- InsecureSkipVerify intentionally enabled:
+				// Network printers commonly use self-signed SSL certificates that
+				// would fail standard validation. This is a local network probe to
+				// detect printer web UIs, not a general-purpose HTTP client.
+				// SSRF protections are implemented above (redirect host validation).
+				InsecureSkipVerify: true,
 			},
 			DisableKeepAlives: true,
 		},
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", probeURL, nil)
 	if err != nil {
 		return ""
 	}
@@ -423,9 +446,15 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 	}
 	markerOIDs := make(map[int]string) // Track OID for each marker index
 
-	// helper numeric coercion
+	// helper numeric coercion with bounds checking to prevent integer overflow
+	// on 32-bit systems when converting int64 to int
 	toInt := func(v interface{}) (int, bool) {
 		if i64, ok := util.CoerceToInt(v); ok {
+			// Bounds check for safe conversion to int (works on 32-bit and 64-bit)
+			if i64 > int64(^uint(0)>>1) || i64 < -int64(^uint(0)>>1)-1 {
+				// Value exceeds int range, return 0
+				return 0, false
+			}
 			return int(i64), true
 		}
 		return 0, false

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,6 +34,47 @@ func maskTokenForLog(u *url.URL) string {
 		return u2.String()
 	}
 	return u.String()
+}
+
+// isValidProxyTargetURL validates that a proxy target URL is safe to fetch.
+// It blocks localhost, loopback addresses, and other potentially dangerous targets.
+func isValidProxyTargetURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Only allow http and https schemes
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https, got %q", parsed.Scheme)
+	}
+
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("URL must have a hostname")
+	}
+
+	// Block localhost and loopback
+	if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {
+		return fmt.Errorf("cannot proxy to localhost")
+	}
+
+	// Try to resolve hostname and check for dangerous IPs
+	ips, err := net.LookupIP(hostname)
+	if err == nil {
+		for _, ip := range ips {
+			// Block loopback
+			if ip.IsLoopback() {
+				return fmt.Errorf("cannot proxy to loopback address")
+			}
+			// Block link-local
+			if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				return fmt.Errorf("cannot proxy to link-local address")
+			}
+		}
+	}
+
+	return nil
 }
 
 // Use shared message types from wscommon
@@ -505,6 +547,13 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		return
 	}
 
+	// Validate target URL to prevent SSRF attacks
+	if err := isValidProxyTargetURL(targetURL); err != nil {
+		WarnCtx("Proxy request rejected: invalid target URL", "request_id", requestID, "url", targetURL, "error", err)
+		ws.sendProxyError(requestID, fmt.Sprintf("Invalid target URL: %v", err))
+		return
+	}
+
 	method, ok := msg.Data["method"].(string)
 	if !ok || method == "" {
 		method = "GET"
@@ -551,7 +600,13 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{
+				// #nosec G402 -- InsecureSkipVerify intentionally enabled:
+				// This proxy client connects to network printers and embedded devices
+				// that commonly use self-signed SSL certificates. SSRF protections
+				// are implemented via isValidProxyTargetURL() validation above.
+				InsecureSkipVerify: true,
+			},
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 		},

@@ -11,6 +11,11 @@ import (
 	"printmaster/server/storage"
 )
 
+func init() {
+	// Allow localhost URLs for testing webhook functionality
+	SetAllowTestWebhooks(true)
+}
+
 // mockNotifierStore implements NotifierStore for testing.
 type mockNotifierStore struct {
 	channels map[int64]*storage.NotificationChannel

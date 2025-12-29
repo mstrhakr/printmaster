@@ -80,7 +80,10 @@ func (e *EpsonLoginAdapter) Login(baseURL, username, password string, log *logge
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Accept self-signed certs from printers
+				// #nosec G402 -- InsecureSkipVerify intentionally enabled:
+				// Network printers commonly use self-signed SSL certificates.
+				// This adapter authenticates to printer web interfaces on local networks.
+				InsecureSkipVerify: true,
 			},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -179,7 +182,10 @@ func (k *KyoceraLoginAdapter) Login(baseURL, username, password string, log *log
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Accept self-signed certs from printers
+				// #nosec G402 -- InsecureSkipVerify intentionally enabled:
+				// Network printers commonly use self-signed SSL certificates.
+				// This adapter authenticates to printer web interfaces on local networks.
+				InsecureSkipVerify: true,
 			},
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {

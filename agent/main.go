@@ -18,6 +18,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"html/template"
 	"io"
 	"math/big"
@@ -682,8 +683,9 @@ func (a *agentAuthManager) handleAuthCallback(w http.ResponseWriter, r *http.Req
 		returnTo = "/"
 	}
 
-	// Validate return_to is a safe path
-	if !strings.HasPrefix(returnTo, "/") {
+	// Validate return_to is a safe path (prevent open redirect attacks)
+	// Must start with "/" but not "//" or "/\" to prevent protocol-relative URLs
+	if !strings.HasPrefix(returnTo, "/") || strings.HasPrefix(returnTo, "//") || strings.HasPrefix(returnTo, "/\\") {
 		returnTo = "/"
 	}
 
@@ -4762,7 +4764,13 @@ func runInteractive(ctx context.Context, configFlag string) {
 		// if serial provided but no IP, try load existing device to get IP
 		targetIP := strings.TrimSpace(req.IP)
 		if targetIP == "" && req.Serial != "" {
-			devPath := filepath.Join(".", "logs", "devices", req.Serial+".json")
+			// Sanitize serial to prevent path traversal attacks
+			safeSerial := filepath.Base(req.Serial)
+			if safeSerial == "." || safeSerial == ".." || safeSerial != req.Serial {
+				http.Error(w, "invalid serial number", http.StatusBadRequest)
+				return
+			}
+			devPath := filepath.Join(".", "logs", "devices", safeSerial+".json")
 			if b, err := os.ReadFile(devPath); err == nil {
 				var doc map[string]interface{}
 				if json.Unmarshal(b, &doc) == nil {
@@ -5396,6 +5404,11 @@ func runInteractive(ctx context.Context, configFlag string) {
 							if targetParsed, err := url.Parse(targetURL); err == nil {
 								cookies := sessionJar.Cookies(targetParsed)
 								proxyPrefix := "/proxy/" + serial
+								// Determine if we're on HTTPS to set Secure flag appropriately
+								isSecure := false
+								if v := r.Context().Value(isHTTPSContextKey); v != nil {
+									isSecure = v.(bool)
+								}
 								for _, cookie := range cookies {
 									// Clone the cookie and rewrite path for proxy
 									browserCookie := &http.Cookie{
@@ -5404,7 +5417,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 										Path:     proxyPrefix + "/",
 										Domain:   "",
 										MaxAge:   cookie.MaxAge,
-										Secure:   false, // We're on localhost
+										Secure:   isSecure,
 										HttpOnly: cookie.HttpOnly,
 										SameSite: http.SameSiteLaxMode,
 									}
@@ -5417,6 +5430,8 @@ func runInteractive(ctx context.Context, configFlag string) {
 							// This ensures the entire page reloads with cookies, not just the iframe
 							w.Header().Set("Content-Type", "text/html; charset=utf-8")
 							w.WriteHeader(http.StatusOK)
+							// Escape serial for safe HTML embedding to prevent XSS
+							safeSerial := html.EscapeString(serial)
 							redirectHTML := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -5433,7 +5448,7 @@ window.top.location.href = '/proxy/%s/';
 <p>Please enable JavaScript or <a href="/proxy/%s/">click here</a> to continue.</p>
 </noscript>
 </body>
-</html>`, serial, serial)
+</html>`, safeSerial, safeSerial)
 							fmt.Fprint(w, redirectHTML)
 							return
 						}
@@ -5531,7 +5546,10 @@ window.top.location.href = '/proxy/%s/';
 		// Configure transport to handle HTTPS with self-signed certs
 		rproxy.Transport = &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Accept self-signed certs from printers
+				// #nosec G402 -- InsecureSkipVerify intentionally enabled:
+				// Network printers commonly use self-signed SSL certificates.
+				// This reverse proxy connects to printer web interfaces on local networks.
+				InsecureSkipVerify: true,
 			},
 			MaxIdleConns:          10,
 			IdleConnTimeout:       60 * time.Second,
@@ -6003,12 +6021,19 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
+		// Sanitize serial to prevent path traversal attacks
+		safeSerial := filepath.Base(req.Serial)
+		if safeSerial == "." || safeSerial == ".." || safeSerial != req.Serial {
+			http.Error(w, "invalid serial number", http.StatusBadRequest)
+			return
+		}
+
 		// Try database first
 		ctx := context.Background()
 
-		err := deviceStore.Delete(ctx, req.Serial)
+		err := deviceStore.Delete(ctx, safeSerial)
 		if err == nil {
-			appLogger.Info("Deleted device from database", "serial", req.Serial)
+			appLogger.Info("Deleted device from database", "serial", safeSerial)
 
 			// Note: Device will naturally be re-discovered during next scan if still on network
 			// No need to immediately re-scan as this defeats the purpose of deletion
@@ -6021,8 +6046,8 @@ window.top.location.href = '/proxy/%s/';
 			// Continue to file delete as fallback
 		}
 
-		// Fallback: delete JSON file
-		p := filepath.Join(".", "logs", "devices", req.Serial+".json")
+		// Fallback: delete JSON file (using sanitized serial)
+		p := filepath.Join(".", "logs", "devices", safeSerial+".json")
 		if err := os.Remove(p); err != nil {
 			if os.IsNotExist(err) {
 				http.Error(w, "not found", http.StatusNotFound)
@@ -6927,6 +6952,23 @@ window.top.location.href = '/proxy/%s/';
 			w.Write([]byte(`{"error":"server_url required"}`))
 			return
 		}
+		// Validate CA path to prevent path traversal attacks
+		caPath := strings.TrimSpace(in.CAPath)
+		if caPath != "" {
+			// Only allow .pem, .crt, .cer extensions for CA certificates
+			ext := strings.ToLower(filepath.Ext(caPath))
+			if ext != ".pem" && ext != ".crt" && ext != ".cer" {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error":"ca_path must be a .pem, .crt, or .cer file"}`))
+				return
+			}
+			// Verify the file exists (but don't allow path traversal outside data dir)
+			if strings.Contains(caPath, "..") {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error":"ca_path cannot contain path traversal characters"}`))
+				return
+			}
+		}
 		dataDir, err := config.GetDataDirectory("agent", isService)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -6948,7 +6990,7 @@ window.top.location.href = '/proxy/%s/';
 			Hostname:     hostname,
 			Platform:     runtime.GOOS,
 		}
-		client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", strings.TrimSpace(in.CAPath), in.Insecure)
+		client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", caPath, in.Insecure)
 		respBody, err := client.DeviceAuthStart(r.Context(), reqBody)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)
@@ -6995,6 +7037,21 @@ window.top.location.href = '/proxy/%s/';
 			w.Write([]byte(`{"error":"server_url and poll_token required"}`))
 			return
 		}
+		// Validate CA path to prevent path traversal attacks
+		caPath := strings.TrimSpace(in.CAPath)
+		if caPath != "" {
+			ext := strings.ToLower(filepath.Ext(caPath))
+			if ext != ".pem" && ext != ".crt" && ext != ".cer" {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error":"ca_path must be a .pem, .crt, or .cer file"}`))
+				return
+			}
+			if strings.Contains(caPath, "..") {
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error":"ca_path cannot contain path traversal characters"}`))
+				return
+			}
+		}
 		dataDir, err := config.GetDataDirectory("agent", isService)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -7008,7 +7065,7 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 		agentName := resolveAgentDisplayName(agentConfig, "")
-		client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", strings.TrimSpace(in.CAPath), in.Insecure)
+		client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", caPath, in.Insecure)
 		respBody, err := client.DeviceAuthPoll(r.Context(), pollToken)
 		if err != nil {
 			w.WriteHeader(http.StatusBadGateway)

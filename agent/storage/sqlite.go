@@ -1843,7 +1843,7 @@ func (s *SQLiteStore) DeleteOldMetrics(ctx context.Context, olderThan time.Time)
 func (s *SQLiteStore) DeleteMetricByID(ctx context.Context, tier string, id int64) error {
 	tables := []string{"metrics_raw", "metrics_hourly", "metrics_daily", "metrics_monthly"}
 	if tier != "" {
-		// Normalize tier input to table name
+		// Normalize tier input to table name - only allow known values to prevent SQL injection
 		switch tier {
 		case "raw":
 			tables = []string{"metrics_raw"}
@@ -1854,7 +1854,8 @@ func (s *SQLiteStore) DeleteMetricByID(ctx context.Context, tier string, id int6
 		case "monthly":
 			tables = []string{"metrics_monthly"}
 		default:
-			tables = []string{tier}
+			// Reject unknown tier values to prevent SQL injection
+			return fmt.Errorf("unknown metrics tier: %s", tier)
 		}
 	}
 

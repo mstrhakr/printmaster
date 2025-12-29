@@ -9,14 +9,128 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"printmaster/server/storage"
 )
+
+// allowTestWebhooks allows localhost webhook URLs for testing.
+// Set to true in test initialization code.
+var allowTestWebhooks bool
+
+// SetAllowTestWebhooks sets whether localhost URLs are allowed for webhook testing.
+// This should only be called during test initialization.
+func SetAllowTestWebhooks(allow bool) {
+	allowTestWebhooks = allow
+}
+
+// isAllowedWebhookURL validates webhook URLs to prevent SSRF attacks.
+// Only allows http/https schemes and blocks requests to private/internal networks.
+func isAllowedWebhookURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	// Only allow http and https schemes
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https, got %q", parsed.Scheme)
+	}
+
+	// Get the hostname
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return fmt.Errorf("URL must have a hostname")
+	}
+
+	// Block localhost and loopback addresses (unless in test mode)
+	if !allowTestWebhooks {
+		if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {
+			return fmt.Errorf("localhost URLs are not allowed for webhooks")
+		}
+
+		// Resolve hostname to check for private IPs
+		ips, err := net.LookupIP(hostname)
+		if err != nil {
+			// If DNS resolution fails, allow it (could be a valid external service)
+			// The HTTP request will fail anyway if unreachable
+			return nil
+		}
+
+		for _, ip := range ips {
+			if isPrivateIP(ip) {
+				return fmt.Errorf("webhook URLs cannot target private/internal networks")
+			}
+		}
+	}
+
+	return nil
+}
+
+// isPrivateIP checks if an IP address is in a private/internal range.
+func isPrivateIP(ip net.IP) bool {
+	// Check for loopback
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Check for link-local
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Check for private ranges (RFC 1918 and RFC 4193)
+	privateRanges := []string{
+		"10.0.0.0/8",     // Class A private
+		"172.16.0.0/12",  // Class B private
+		"192.168.0.0/16", // Class C private
+		"fc00::/7",       // IPv6 unique local
+		"fe80::/10",      // IPv6 link-local
+		"169.254.0.0/16", // Link-local (APIPA)
+	}
+
+	for _, cidr := range privateRanges {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sanitizeEmailHeader removes CR and LF characters from email header values
+// to prevent email header injection attacks.
+func sanitizeEmailHeader(s string) string {
+	// Replace all CR and LF characters with spaces
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	// Also handle null bytes which could be used for attacks
+	s = strings.ReplaceAll(s, "\x00", "")
+	return strings.TrimSpace(s)
+}
+
+// validateEmailAddress performs basic email address validation.
+func validateEmailAddress(email string) error {
+	// Check for header injection attempts
+	if strings.ContainsAny(email, "\r\n") {
+		return fmt.Errorf("email address contains invalid characters")
+	}
+	// Basic format check
+	if !strings.Contains(email, "@") || len(email) < 3 {
+		return fmt.Errorf("invalid email address format")
+	}
+	return nil
+}
 
 // NotifierConfig configures the notification dispatcher.
 type NotifierConfig struct {
@@ -240,16 +354,30 @@ func (n *Notifier) sendEmail(ctx context.Context, config map[string]interface{},
 		return fmt.Errorf("incomplete email configuration")
 	}
 
-	// Build recipient list
+	// Validate and sanitize from address to prevent header injection
+	if err := validateEmailAddress(from); err != nil {
+		return fmt.Errorf("invalid from address: %w", err)
+	}
+	from = sanitizeEmailHeader(from)
+
+	// Build recipient list with validation
 	var to []string
 	for _, addr := range toList {
 		if s, ok := addr.(string); ok {
-			to = append(to, s)
+			if err := validateEmailAddress(s); err != nil {
+				n.logger.Warn("skipping invalid recipient address", "address", s, "error", err)
+				continue
+			}
+			to = append(to, sanitizeEmailHeader(s))
 		}
 	}
 
-	// Build message
-	subject := fmt.Sprintf("[%s] %s", strings.ToUpper(string(alert.Severity)), alert.Title)
+	if len(to) == 0 {
+		return fmt.Errorf("no valid recipient addresses")
+	}
+
+	// Build message with sanitized headers to prevent header injection
+	subject := sanitizeEmailHeader(fmt.Sprintf("[%s] %s", strings.ToUpper(string(alert.Severity)), alert.Title))
 	body := fmt.Sprintf(`Alert: %s
 Severity: %s
 Scope: %s
@@ -471,6 +599,11 @@ func (n *Notifier) sendPagerDuty(ctx context.Context, config map[string]interfac
 
 // postJSON posts a JSON payload to the given URL with retry logic.
 func (n *Notifier) postJSON(ctx context.Context, url string, headers map[string]string, payload interface{}) error {
+	// Validate URL to prevent SSRF attacks
+	if err := isAllowedWebhookURL(url); err != nil {
+		return fmt.Errorf("webhook URL validation failed: %w", err)
+	}
+
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal payload: %w", err)
@@ -727,6 +860,11 @@ func basicAuth(user, pass string) string {
 
 // postText posts plain text to the given URL with retry logic.
 func (n *Notifier) postText(ctx context.Context, url string, headers map[string]string, body string) error {
+	// Validate URL to prevent SSRF attacks
+	if err := isAllowedWebhookURL(url); err != nil {
+		return fmt.Errorf("webhook URL validation failed: %w", err)
+	}
+
 	var lastErr error
 	for i := 0; i < n.config.MaxRetries; i++ {
 		req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
