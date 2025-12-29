@@ -53,8 +53,9 @@ cat > %{buildroot}%{_sysconfdir}/sudoers.d/printmaster-agent << 'EOF'
 # Remove this file to disable automatic package updates
 
 # Fedora/RHEL dnf commands
-printmaster ALL=(root) NOPASSWD: /usr/bin/dnf check-update -q printmaster-agent
-printmaster ALL=(root) NOPASSWD: /usr/bin/dnf upgrade -y -q printmaster-agent
+# Note: --setopt=logdir=/tmp prevents dnf5 from writing to /var/log/dnf5.log which may be read-only for the service
+printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp check-update -q printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp upgrade -y -q printmaster-agent
 
 # RHEL/CentOS yum commands (fallback for older systems)
 printmaster ALL=(root) NOPASSWD: /usr/bin/yum check-update -q printmaster-agent
