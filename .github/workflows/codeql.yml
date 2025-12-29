@@ -1,13 +1,11 @@
 # CodeQL security analysis for PrintMaster
-# Runs on releases and weekly to catch new CVEs in dependencies
+# Runs on main commits and weekly to catch new CVEs
 name: "CodeQL"
 
 on:
-  # Scan releases when tags are pushed
+  # Scan every commit to main (runs once per commit)
   push:
-    tags:
-      - 'agent-v*'
-      - 'server-v*'
+    branches: [ main ]
   # Weekly scan to catch new CVEs in dependencies
   schedule:
     - cron: '0 0 * * 0'
