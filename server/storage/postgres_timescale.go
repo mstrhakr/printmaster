@@ -266,11 +266,24 @@ func (ts *TimescaleSupport) createHypertable(ctx context.Context, table, timeCol
 		return nil
 	}
 
+	// Use a longer timeout for hypertable creation since migrate_data can be slow
+	// for tables with lots of data
+	hypertableCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Use a transaction to ensure atomicity - if hypertable creation fails,
+	// we don't want to leave the table in a broken state (no id column, not a hypertable)
+	tx, err := ts.db.BeginTx(hypertableCtx, nil)
+	if err != nil {
+		return fmt.Errorf("starting transaction: %w", err)
+	}
+	defer tx.Rollback() // No-op if committed
+
 	// TimescaleDB requires the partitioning column (timestamp) to be part of any unique constraint.
 	// Drop the PRIMARY KEY constraint if it exists (serial ID isn't needed for time-series data).
 	// First check if the 'id' column exists
 	var hasIdColumn bool
-	err = ts.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(hypertableCtx, `
 		SELECT EXISTS(
 			SELECT 1 FROM information_schema.columns 
 			WHERE table_name = $1 AND column_name = 'id'
@@ -283,7 +296,7 @@ func (ts *TimescaleSupport) createHypertable(ctx context.Context, table, timeCol
 	if hasIdColumn {
 		// Drop the primary key constraint (the constraint name is typically table_pkey)
 		pkName := table + "_pkey"
-		_, err = ts.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s`, table, pkName))
+		_, err = tx.ExecContext(hypertableCtx, fmt.Sprintf(`ALTER TABLE %s DROP CONSTRAINT IF EXISTS %s`, table, pkName))
 		if err != nil {
 			logDebug("Could not drop primary key (may not exist)", "table", table, "error", err)
 		} else {
@@ -291,7 +304,7 @@ func (ts *TimescaleSupport) createHypertable(ctx context.Context, table, timeCol
 		}
 
 		// Drop the id column since it's not needed for time-series
-		_, err = ts.db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s DROP COLUMN IF EXISTS id`, table))
+		_, err = tx.ExecContext(hypertableCtx, fmt.Sprintf(`ALTER TABLE %s DROP COLUMN IF EXISTS id`, table))
 		if err != nil {
 			logDebug("Could not drop id column", "table", table, "error", err)
 		}
@@ -308,9 +321,14 @@ func (ts *TimescaleSupport) createHypertable(ctx context.Context, table, timeCol
 		)
 	`, table, timeColumn, chunkInterval)
 
-	_, err = ts.db.ExecContext(ctx, query)
+	_, err = tx.ExecContext(hypertableCtx, query)
 	if err != nil {
 		return fmt.Errorf("creating hypertable: %w", err)
+	}
+
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("committing hypertable transaction: %w", err)
 	}
 
 	logInfo("Created TimescaleDB hypertable", "table", table, "chunk_interval", chunkInterval)

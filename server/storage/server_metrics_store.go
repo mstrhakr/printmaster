@@ -64,8 +64,9 @@ func (s *BaseStore) GetServerMetrics(ctx context.Context, query ServerMetricsQue
 	}
 
 	// Query the appropriate tier
+	// Note: id column is not included - it may not exist after TimescaleDB hypertable conversion
 	sqlQuery := `
-		SELECT id, timestamp, tier, fleet_json, server_json
+		SELECT timestamp, tier, fleet_json, server_json
 		FROM server_metrics_history
 		WHERE timestamp >= ? AND timestamp <= ? AND tier = ?
 		ORDER BY timestamp ASC
@@ -99,7 +100,7 @@ func (s *BaseStore) GetServerMetrics(ctx context.Context, query ServerMetricsQue
 	for rows.Next() {
 		var snap ServerMetricsSnapshot
 		var tsStr, fleetJSON, serverJSON string
-		if err := rows.Scan(&snap.ID, &tsStr, &snap.Tier, &fleetJSON, &serverJSON); err != nil {
+		if err := rows.Scan(&tsStr, &snap.Tier, &fleetJSON, &serverJSON); err != nil {
 			continue
 		}
 		if t, err := time.Parse(time.RFC3339Nano, tsStr); err == nil {
@@ -137,8 +138,9 @@ func (s *BaseStore) GetServerMetrics(ctx context.Context, query ServerMetricsQue
 
 // GetLatestServerMetrics returns the most recent raw snapshot.
 func (s *BaseStore) GetLatestServerMetrics(ctx context.Context) (*ServerMetricsSnapshot, error) {
+	// Note: id column is not included - it may not exist after TimescaleDB hypertable conversion
 	query := `
-		SELECT id, timestamp, tier, fleet_json, server_json
+		SELECT timestamp, tier, fleet_json, server_json
 		FROM server_metrics_history
 		WHERE tier = 'raw'
 		ORDER BY timestamp DESC
@@ -148,7 +150,7 @@ func (s *BaseStore) GetLatestServerMetrics(ctx context.Context) (*ServerMetricsS
 
 	var snap ServerMetricsSnapshot
 	var tsStr, fleetJSON, serverJSON string
-	err := row.Scan(&snap.ID, &tsStr, &snap.Tier, &fleetJSON, &serverJSON)
+	err := row.Scan(&tsStr, &snap.Tier, &fleetJSON, &serverJSON)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
