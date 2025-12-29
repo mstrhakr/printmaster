@@ -1,57 +1,87 @@
 # PrintMaster Documentation
 
-Welcome to PrintMaster, a cross-platform printer/copier fleet management system built for MSPs, MPS providers, copier dealers, and IT departments managing large print fleets.
+Cross-platform printer/copier fleet management for MSPs, MPS providers, and IT departments.
 
-## Quick Links
+---
+
+## Quick Start
 
 | Document | Description |
 |----------|-------------|
-| [Installation Guide](INSTALL.md) | Complete installation instructions for all platforms |
+| [Installation Guide](INSTALL.md) | Install on Windows, Linux, macOS, Docker |
 | [Getting Started](GETTING_STARTED.md) | First steps after installation |
-| [Features Guide](FEATURES.md) | Detailed explanation of all features |
-| [Configuration](CONFIGURATION.md) | All configuration options explained |
+
+---
+
+## User Guides
+
+| Document | Description |
+|----------|-------------|
+| [Features Guide](FEATURES.md) | All features explained with examples |
+| [Configuration](CONFIGURATION.md) | Config files, environment variables, UI settings |
 | [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
 | [FAQ](FAQ.md) | Frequently asked questions |
+
+---
+
+## Deployment
+
+| Document | Description |
+|----------|-------------|
+| [Docker Deployment](deployment/docker.md) | Docker and Docker Compose setup |
+| [Unraid Deployment](deployment/unraid.md) | Unraid-specific installation |
+
+---
+
+## API Reference
+
+| Document | Description |
+|----------|-------------|
+| [API Reference](api/README.md) | REST API for agent and server |
+
+---
 
 ## What is PrintMaster?
 
 PrintMaster consists of two components:
 
 ### Agent
-A lightweight service that runs at each site to discover and monitor printers. The agent:
-- Automatically discovers printers on your network via SNMP
-- Collects device information (model, serial number, page counts, toner levels)
-- Provides a local web UI for management
-- Can run standalone or report to a central server
+A lightweight service that runs at each site:
+- Discovers printers on your network via SNMP
+- Collects page counts, toner levels, device info
+- Local web UI for management
+- Can run standalone or report to server
 
-### Server
-A central hub for managing multiple agents across sites. The server:
-- Aggregates device data from all connected agents
-- Provides a unified fleet view dashboard
-- Enables remote access to agent UIs via WebSocket proxy
-- Supports multi-tenant deployments
+### Server  
+Central hub for managing multiple agents:
+- Aggregates data from all agents
+- Fleet view dashboard
+- Remote agent access via WebSocket proxy
+- Multi-tenant support
 
-## Architecture Overview
+### Architecture
 
 ```
 ┌─────────────┐         ┌─────────────┐         ┌─────────────┐
 │   Agent     │────────▶│   Server    │◀────────│   Agent     │
-│   Site A    │  API    │  (Central)  │  API    │   Site B    │
+│   Site A    │         │  (Central)  │         │   Site B    │
 └─────────────┘         └─────────────┘         └─────────────┘
       ↓                       ↓                       ↓
   Printers              Web Dashboard            Printers
 ```
 
+---
+
 ## Getting Help
 
-- **Documentation**: Browse the guides linked above
-- **Issues**: [GitHub Issues](https://github.com/mstrhakr/printmaster/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/mstrhakr/printmaster/discussions)
+- [GitHub Issues](https://github.com/mstrhakr/printmaster/issues) — Bug reports
+- [GitHub Discussions](https://github.com/mstrhakr/printmaster/discussions) — Questions and ideas
+
+---
 
 ## For Developers
 
-Looking for technical documentation? See the [Developer Documentation](dev/README.md) for:
-- Build instructions
-- API reference  
-- Architecture details
+See [Developer Documentation](dev/README.md) for:
+- Build instructions and project structure
+- Internal architecture and design
 - Contributing guidelines

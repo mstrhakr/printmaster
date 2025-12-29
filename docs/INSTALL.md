@@ -220,6 +220,22 @@ sudo apt-get install -y printmaster-agent
 systemctl status printmaster-agent
 ```
 
+#### With GPG Signature Verification (Recommended for Production)
+
+```bash
+# Import GPG key
+curl -fsSL https://mstrhakr.github.io/printmaster/gpg.key | \
+  sudo gpg --dearmor -o /usr/share/keyrings/printmaster.gpg
+
+# Add repository with signature verification
+echo "deb [signed-by=/usr/share/keyrings/printmaster.gpg] https://mstrhakr.github.io/printmaster stable main" | \
+  sudo tee /etc/apt/sources.list.d/printmaster.list
+
+# Install
+sudo apt-get update
+sudo apt-get install -y printmaster-agent
+```
+
 #### Manual Installation
 
 ```bash
@@ -240,6 +256,9 @@ sudo systemctl start PrintMasterAgent
 #### DNF Repository (Recommended)
 
 ```bash
+# Import GPG key (recommended)
+sudo rpm --import https://mstrhakr.github.io/printmaster/gpg.key
+
 # Add repository
 sudo dnf config-manager addrepo --from-repofile=https://mstrhakr.github.io/printmaster/printmaster.repo
 
@@ -249,6 +268,15 @@ sudo dnf install -y printmaster-agent
 # The service starts automatically
 systemctl status printmaster-agent
 ```
+
+#### Important Linux Paths
+
+| Path | Description |
+|------|-------------|
+| `/usr/bin/printmaster-agent` | Agent binary |
+| `/etc/printmaster/agent.toml` | Configuration file |
+| `/var/lib/printmaster` | Data directory (SQLite DB) |
+| `/var/log/printmaster` | Log files |
 
 ### macOS
 

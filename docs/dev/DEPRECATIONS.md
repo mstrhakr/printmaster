@@ -50,33 +50,16 @@ This document tracks features that have been removed or are pending removal, wit
 
 ---
 
-## Pending Removal (In Progress)
+## Removed Features (Previously Pending)
 
 ### Old Logging System
-- **Status**: 🔄 Migration in progress (Phase 2/3)
-- **Location**: `agent/main.go`
-- **Functions**: `logMsg(msg string)`
+- **Status**: ✅ Removed
+- **When**: December 2025
+- **Location**: Was in `agent/main.go`
+- **Functions**: `logMsg(msg string)`, `logMutex`, `logBuffer []string`
 - **Description**: Simple timestamp-prefixed logging to in-memory buffer and file
-- **Replacement**: Structured logger package (`logger/logger.go`)
-- **Migration Plan**:
-  1. ✅ Phase 1: Logger package created and tested
-  2. 🔄 Phase 2: Replace `logMsg()` calls with `appLogger` calls (in progress)
-  3. ⏳ Phase 3: Remove `logMsg()` once all high-traffic paths use structured logging
-- **Blockers**: 
-  - ~100+ call sites still use `logMsg()`
-  - Some functions pass `logMsg` as callback (need refactor)
-- **Target Removal**: v1.0 or earlier if migration completes
-
-### Old Log Buffer
-- **Status**: 🔄 Pending removal
-- **Location**: `agent/main.go`
-- **Variables**: `logMutex`, `logBuffer []string`
-- **Description**: In-memory circular buffer for logs displayed in UI
-- **Replacement**: `appLogger.GetBuffer()`
-- **Migration Plan**:
-  1. Update UI endpoints to use `appLogger.GetBuffer()`
-  2. Remove old `logBuffer` management code
-- **Target Removal**: After UI integration (Phase 3)
+- **Replacement**: Structured logger package (`common/logger/logger.go`) - now used throughout codebase
+- **Migration**: Complete - all logging now uses `appLogger` structured logging
 
 ---
 
@@ -121,4 +104,4 @@ When removing deprecated code:
 
 ---
 
-*Last Updated: November 6, 2025*
+*Last Updated: December 28, 2025*

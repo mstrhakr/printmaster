@@ -280,44 +280,92 @@ postgres_url = "postgres://printmaster:password@localhost:5432/printmaster?sslmo
 
 ## Environment Variables
 
-Both agent and server support environment variable configuration.
+Both agent and server support environment variable configuration. Variables override config file values.
+
+### Common Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Log level: debug, info, warn, error | `info` |
+| `CONFIG` | Path to config file | — |
+| `DB_PATH` | Database path | Component default |
+| `PM_DISABLE_SELFUPDATE` | Disable auto-updates | `false` |
 
 ### Agent Variables
 
-| Variable | Description |
-|----------|-------------|
-| `AGENT_CONFIG` | Path to config file |
-| `AGENT_HTTP_PORT` | HTTP port |
-| `AGENT_LOG_LEVEL` | Log level |
-| `AGENT_SERVER_URL` | Server URL |
-| `AGENT_SERVER_ENABLED` | Enable server mode |
-| `PM_DISABLE_SELFUPDATE` | Disable auto-updates |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AGENT_CONFIG` | Path to config file | — |
+| `AGENT_DB_PATH` | Agent database path | — |
+| `WEB_HTTP_PORT` | HTTP port | `8080` |
+| `WEB_HTTPS_PORT` | HTTPS port | `8443` |
+| `WEB_AUTH_MODE` | Auth mode: local, server, disabled | `local` |
+| `WEB_ALLOW_LOCAL_ADMIN` | Allow localhost admin | `true` |
+| `SNMP_COMMUNITY` | SNMP community string | `public` |
+| `SNMP_TIMEOUT_MS` | SNMP timeout (ms) | `3000` |
+| `SNMP_RETRIES` | SNMP retry count | `2` |
+| `DISCOVERY_CONCURRENCY` | Concurrent scans | `100` |
+| `SERVER_ENABLED` | Enable server mode | `false` |
+| `SERVER_URL` | Central server URL | — |
+| `AGENT_NAME` | Display name | Hostname |
 
 ### Server Variables
 
-| Variable | Description |
-|----------|-------------|
-| `SERVER_CONFIG` | Path to config file |
-| `HTTP_PORT` | HTTP port |
-| `HTTPS_PORT` | HTTPS port |
-| `LOG_LEVEL` | Log level |
-| `ADMIN_PASSWORD` | Initial admin password |
-| `BEHIND_PROXY` | Behind reverse proxy |
-| `BIND_ADDRESS` | Address to bind |
-| `USE_HTTPS` | Enable TLS |
-| `DATABASE_PATH` | SQLite path |
-| `POSTGRES_URL` | PostgreSQL URL |
-| `PM_DISABLE_SELFUPDATE` | Disable self-updates |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SERVER_CONFIG` | Path to config file | — |
+| `SERVER_DB_PATH` | Server database path | — |
+| `SERVER_HTTP_PORT` | HTTP port | `9090` |
+| `SERVER_HTTPS_PORT` | HTTPS port | `9443` |
+| `BIND_ADDRESS` | Bind address | `127.0.0.1` |
+| `BEHIND_PROXY` | Behind reverse proxy | `false` |
+| `TRUSTED_PROXIES` | Trusted proxy CIDRs | Private ranges |
+| `ADMIN_USER` | Initial admin username | `admin` |
+| `ADMIN_PASSWORD` | Initial admin password | `printmaster` |
+| `AUTO_APPROVE_AGENTS` | Auto-approve agents | `false` |
+| `AGENT_TIMEOUT_MINUTES` | Agent offline timeout | `5` |
+
+### TLS Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `TLS_MODE` | none, self-signed, acme, manual | `self-signed` |
+| `TLS_CERT_PATH` | Certificate path (manual) | — |
+| `TLS_KEY_PATH` | Key path (manual) | — |
+| `LETSENCRYPT_DOMAIN` | Let's Encrypt domain | — |
+| `LETSENCRYPT_EMAIL` | Let's Encrypt email | — |
+| `LETSENCRYPT_ACCEPT_TOS` | Accept ToS | `false` |
+
+### SMTP Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SMTP_ENABLED` | Enable email | `false` |
+| `SMTP_HOST` | SMTP server | — |
+| `SMTP_PORT` | SMTP port | `587` |
+| `SMTP_USER` | SMTP username | — |
+| `SMTP_PASS` | SMTP password | — |
+| `SMTP_FROM` | Sender address | — |
 
 ### Docker Example
 
 ```yaml
 environment:
   - ADMIN_PASSWORD=secure-password
+  - BIND_ADDRESS=0.0.0.0
   - LOG_LEVEL=info
   - BEHIND_PROXY=true
-  - BIND_ADDRESS=0.0.0.0
-  - HTTP_PORT=9090
+  - PM_DISABLE_SELFUPDATE=true
+```
+
+### systemd Service Example
+
+```ini
+[Service]
+Environment=SERVER_ENABLED=true
+Environment=SERVER_URL=https://printmaster.example.com:9443
+Environment=AGENT_NAME=office-hq
+Environment=LOG_LEVEL=info
 ```
 
 ---
