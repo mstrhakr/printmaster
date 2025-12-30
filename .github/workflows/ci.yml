@@ -1,5 +1,5 @@
 name: CI
-run-name: CI - ${{ github.ref_name }} @ ${{ github.sha }}
+run-name: "CI: ${{ github.ref_name }} (${{ github.event.head_commit.message || github.event.pull_request.title || 'manual' }})"
 
 on:
   push:

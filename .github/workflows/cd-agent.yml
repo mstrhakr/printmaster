@@ -1,5 +1,5 @@
 name: CD Agent
-run-name: CD Agent - ${{ github.ref_name }} @ ${{ github.sha }}
+run-name: "CD Agent: ${{ github.ref_name }}"
 
 on:
   push:
