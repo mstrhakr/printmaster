@@ -2619,15 +2619,16 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 }
 
 // validateEmailAddress checks for email header injection attacks.
-// Returns an error if the email contains CR, LF, or null bytes.
-func validateEmailAddress(email string) error {
+// Returns the sanitized email and nil error if valid, or empty string and error if invalid.
+func validateEmailAddress(email string) (string, error) {
 	if strings.ContainsAny(email, "\r\n\x00") {
-		return fmt.Errorf("email address contains invalid characters")
+		return "", fmt.Errorf("email address contains invalid characters")
 	}
 	if !strings.Contains(email, "@") || len(email) < 3 {
-		return fmt.Errorf("invalid email address format")
+		return "", fmt.Errorf("invalid email address format")
 	}
-	return nil
+	// Return sanitized version to break taint chain
+	return sanitizeEmailHeader(email), nil
 }
 
 // sendHTMLEmail sends an email with optional HTML and plain-text content.
@@ -2635,13 +2636,13 @@ func validateEmailAddress(email string) error {
 // If both are provided, sends multipart/alternative (most email clients prefer HTML but fall back to text).
 func sendHTMLEmail(to string, subject string, htmlBody string, textBody string) error {
 	// Validate email address to prevent header injection attacks
-	if err := validateEmailAddress(to); err != nil {
+	validatedTo, err := validateEmailAddress(to)
+	if err != nil {
 		return fmt.Errorf("invalid recipient address: %w", err)
 	}
 
-	// Sanitize header values (additional defense-in-depth)
-	to = sanitizeEmailHeader(to)
-	subject = sanitizeEmailHeader(subject)
+	// Sanitize subject header
+	validatedSubject := sanitizeEmailHeader(subject)
 
 	var host, user, pass, from string
 	var port int
@@ -2684,16 +2685,16 @@ func sendHTMLEmail(to string, subject string, htmlBody string, textBody string) 
 	}
 
 	// Sanitize from address to prevent header injection
-	from = sanitizeEmailHeader(from)
+	validatedFrom := sanitizeEmailHeader(from)
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	auth := smtp.PlainAuth("", user, pass, host)
 
-	// Build email message
+	// Build email message using validated values
 	var msg string
-	headers := "From: " + from + "\r\n" +
-		"To: " + to + "\r\n" +
-		"Subject: " + subject + "\r\n" +
+	headers := "From: " + validatedFrom + "\r\n" +
+		"To: " + validatedTo + "\r\n" +
+		"Subject: " + validatedSubject + "\r\n" +
 		"MIME-Version: 1.0\r\n"
 
 	if htmlBody != "" && textBody != "" {
@@ -2727,7 +2728,7 @@ func sendHTMLEmail(to string, subject string, htmlBody string, textBody string) 
 			"\r\n" + textBody
 	}
 
-	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
+	return smtp.SendMail(addr, auth, validatedFrom, []string{validatedTo}, []byte(msg))
 }
 
 // getEmailTheme returns the configured email theme, defaulting to "auto"
