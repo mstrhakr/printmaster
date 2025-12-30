@@ -38,25 +38,26 @@ func maskTokenForLog(u *url.URL) string {
 
 // isValidProxyTargetURL validates that a proxy target URL is safe to fetch.
 // It blocks localhost, loopback addresses, and other potentially dangerous targets.
-func isValidProxyTargetURL(rawURL string) error {
+// Returns the validated URL and nil error if safe, or empty string and error if unsafe.
+func isValidProxyTargetURL(rawURL string) (string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+		return "", fmt.Errorf("invalid URL: %w", err)
 	}
 
 	// Only allow http and https schemes
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("URL scheme must be http or https, got %q", parsed.Scheme)
+		return "", fmt.Errorf("URL scheme must be http or https, got %q", parsed.Scheme)
 	}
 
 	hostname := parsed.Hostname()
 	if hostname == "" {
-		return fmt.Errorf("URL must have a hostname")
+		return "", fmt.Errorf("URL must have a hostname")
 	}
 
 	// Block localhost and loopback
 	if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {
-		return fmt.Errorf("cannot proxy to localhost")
+		return "", fmt.Errorf("cannot proxy to localhost")
 	}
 
 	// Try to resolve hostname and check for dangerous IPs
@@ -65,16 +66,17 @@ func isValidProxyTargetURL(rawURL string) error {
 		for _, ip := range ips {
 			// Block loopback
 			if ip.IsLoopback() {
-				return fmt.Errorf("cannot proxy to loopback address")
+				return "", fmt.Errorf("cannot proxy to loopback address")
 			}
 			// Block link-local
 			if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return fmt.Errorf("cannot proxy to link-local address")
+				return "", fmt.Errorf("cannot proxy to link-local address")
 			}
 		}
 	}
 
-	return nil
+	// Return the parsed URL string to break taint chain
+	return parsed.String(), nil
 }
 
 // Use shared message types from wscommon
@@ -548,7 +550,8 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	}
 
 	// Validate target URL to prevent SSRF attacks
-	if err := isValidProxyTargetURL(targetURL); err != nil {
+	validatedURL, err := isValidProxyTargetURL(targetURL)
+	if err != nil {
 		WarnCtx("Proxy request rejected: invalid target URL", "request_id", requestID, "url", targetURL, "error", err)
 		ws.sendProxyError(requestID, fmt.Sprintf("Invalid target URL: %v", err))
 		return
@@ -578,8 +581,8 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		}
 	}
 
-	maskedURL := targetURL
-	if parsed, err := url.Parse(targetURL); err == nil {
+	maskedURL := validatedURL
+	if parsed, err := url.Parse(validatedURL); err == nil {
 		maskedURL = maskTokenForLog(parsed)
 	}
 
@@ -612,13 +615,12 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		},
 	}
 
-	// Create request
+	// Create request using validated URL
 	var req *http.Request
-	var err error
 	if len(bodyBytes) > 0 {
-		req, err = http.NewRequest(method, targetURL, bytes.NewReader(bodyBytes))
+		req, err = http.NewRequest(method, validatedURL, bytes.NewReader(bodyBytes))
 	} else {
-		req, err = http.NewRequest(method, targetURL, nil)
+		req, err = http.NewRequest(method, validatedURL, nil)
 	}
 
 	if err != nil {
