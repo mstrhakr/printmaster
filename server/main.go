@@ -2618,11 +2618,28 @@ func handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"success": true})
 }
 
+// validateEmailAddress checks for email header injection attacks.
+// Returns an error if the email contains CR, LF, or null bytes.
+func validateEmailAddress(email string) error {
+	if strings.ContainsAny(email, "\r\n\x00") {
+		return fmt.Errorf("email address contains invalid characters")
+	}
+	if !strings.Contains(email, "@") || len(email) < 3 {
+		return fmt.Errorf("invalid email address format")
+	}
+	return nil
+}
+
 // sendHTMLEmail sends an email with optional HTML and plain-text content.
 // If htmlBody is empty, sends plain text only. If textBody is empty, sends HTML only.
 // If both are provided, sends multipart/alternative (most email clients prefer HTML but fall back to text).
 func sendHTMLEmail(to string, subject string, htmlBody string, textBody string) error {
-	// Sanitize email header values to prevent header injection attacks
+	// Validate email address to prevent header injection attacks
+	if err := validateEmailAddress(to); err != nil {
+		return fmt.Errorf("invalid recipient address: %w", err)
+	}
+
+	// Sanitize header values (additional defense-in-depth)
 	to = sanitizeEmailHeader(to)
 	subject = sanitizeEmailHeader(subject)
 
