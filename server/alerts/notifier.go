@@ -61,7 +61,7 @@ func isAllowedWebhookURL(rawURL string) (string, error) {
 		if err != nil {
 			// If DNS resolution fails, allow it (could be a valid external service)
 			// The HTTP request will fail anyway if unreachable
-			return rawURL, nil
+			return parsed.String(), nil
 		}
 
 		for _, ip := range ips {
@@ -71,7 +71,8 @@ func isAllowedWebhookURL(rawURL string) (string, error) {
 		}
 	}
 
-	return rawURL, nil
+	// Return parsed URL string to break taint tracking
+	return parsed.String(), nil
 }
 
 // isPrivateIP checks if an IP address is in a private/internal range.
