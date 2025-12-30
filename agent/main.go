@@ -2791,7 +2791,9 @@ func runInteractive(ctx context.Context, configFlag string) {
 				appLogger.Warn("Cannot write to DB path, falling back", "path", dbPath, "error", err)
 				agentConfig.Database.Path = ""
 			} else {
-				f.Close()
+				if err := f.Close(); err != nil {
+					appLogger.Warn("Failed to close DB probe file", "path", dbPath, "error", err)
+				}
 				agentConfig.Database.Path = dbPath
 				appLogger.Info("Database path overridden by environment", "path", agentConfig.Database.Path)
 			}
@@ -5333,11 +5335,10 @@ func runInteractive(ctx context.Context, configFlag string) {
 			}
 			if err == nil && cr != nil && cr.AuthType == "form" && cr.AutoLogin {
 				appLogger.Info("Proxy: form auth configured for device", "serial", serial, "manufacturer", device.Manufacturer)
-				// Check session cache first
-				sessionJar = proxySessionCache.Get(serial)
-				// Verify the jar is actually usable - sometimes cache returns non-nil but jar is invalid
-				//lint:ignore SA4023 sessionJar is an interface and can be nil
-				if sessionJar != nil {
+				// Check session cache first - Get returns *cookiejar.Jar which can be nil
+				cachedJar := proxySessionCache.Get(serial)
+				if cachedJar != nil {
+					sessionJar = cachedJar
 					// Test if jar is actually usable by trying to get cookies
 					func() {
 						defer func() {

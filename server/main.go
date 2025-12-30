@@ -584,7 +584,9 @@ func runServer(ctx context.Context, configFlag string) {
 					logWarn("Cannot write to DB path; falling back to default", "path", dbPath, "error", err)
 					cfg.Database.Path = ""
 				} else {
-					f.Close()
+					if err := f.Close(); err != nil {
+						logWarn("Failed to close DB probe file", "path", dbPath, "error", err)
+					}
 					cfg.Database.Path = dbPath
 					logInfo("Database path overridden by environment", "path", cfg.Database.Path)
 				}

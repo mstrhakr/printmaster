@@ -2,7 +2,6 @@ package util
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -271,11 +270,8 @@ func ShowCompletionScreen(success bool, message string) {
 
 // ClearScreen clears the terminal screen
 func ClearScreen() {
-	if runtime.GOOS == "windows" {
-		fmt.Print("\033[H\033[2J")
-	} else {
-		fmt.Print("\033[H\033[2J")
-	}
+	// ANSI escape sequence works on all modern terminals (Windows 10+, Linux, macOS)
+	fmt.Print("\033[H\033[2J")
 }
 
 // centerPrint prints text centered (assumes 80 char width)

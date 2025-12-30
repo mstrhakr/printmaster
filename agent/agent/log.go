@@ -63,8 +63,10 @@ func writeLine(level string, msg string) {
 	fpath := filepath.Join(ensureLogDir(), "agent.log")
 	f, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err == nil {
-		defer f.Close()
-		f.WriteString(line + "\n")
+		_, _ = f.WriteString(line + "\n")
+		if err := f.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "agent/log: failed to close log file: %v\n", err)
+		}
 	}
 }
 

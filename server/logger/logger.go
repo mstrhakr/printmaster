@@ -5,8 +5,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // LogLevel represents the severity level of a log message
@@ -241,6 +243,36 @@ func (l *Logger) SetTraceTags(tags map[string]bool) {
 	}
 }
 
+// sanitizeLogValue removes or escapes control characters (newlines, carriage returns, etc.)
+// to prevent log injection attacks where user input could forge log entries.
+func sanitizeLogValue(v interface{}) interface{} {
+	s, ok := v.(string)
+	if !ok {
+		return v
+	}
+	// Replace control characters that could be used for log injection
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			// Escape control characters as Unicode escape sequences
+			switch r {
+			case '\n':
+				b.WriteString("\\n")
+			case '\r':
+				b.WriteString("\\r")
+			case '\t':
+				b.WriteString("\\t")
+			default:
+				fmt.Fprintf(&b, "\\u%04x", r)
+			}
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 // log is the internal logging function
 func (l *Logger) log(level LogLevel, msg string, context ...interface{}) {
 	l.mu.Lock()
@@ -251,18 +283,21 @@ func (l *Logger) log(level LogLevel, msg string, context ...interface{}) {
 		return
 	}
 
-	// Parse context into map
+	// Sanitize message to prevent log injection
+	sanitizedMsg := sanitizeLogValue(msg).(string)
+
+	// Parse context into map with sanitization
 	ctx := make(map[string]interface{})
 	for i := 0; i < len(context)-1; i += 2 {
 		if key, ok := context[i].(string); ok {
-			ctx[key] = context[i+1]
+			ctx[sanitizeLogValue(key).(string)] = sanitizeLogValue(context[i+1])
 		}
 	}
 
 	entry := LogEntry{
 		Timestamp: time.Now(),
 		Level:     level,
-		Message:   msg,
+		Message:   sanitizedMsg,
 		Context:   ctx,
 	}
 
@@ -358,7 +393,10 @@ func (l *Logger) shouldRotate() bool {
 // rotate closes the current log file and starts a new one
 func (l *Logger) rotate() {
 	if l.currentFile != nil {
-		l.currentFile.Close()
+		if err := l.currentFile.Close(); err != nil {
+			// Log to stderr since we can't use the logger itself during rotation
+			fmt.Fprintf(os.Stderr, "logger: failed to close log file during rotation: %v\n", err)
+		}
 		l.currentFile = nil
 		// Small delay to ensure different timestamp in filename
 		time.Sleep(1 * time.Millisecond)
