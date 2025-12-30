@@ -32,27 +32,28 @@ func SetAllowTestWebhooks(allow bool) {
 
 // isAllowedWebhookURL validates webhook URLs to prevent SSRF attacks.
 // Only allows http/https schemes and blocks requests to private/internal networks.
-func isAllowedWebhookURL(rawURL string) error {
+// Returns the validated URL string and nil error if valid, or empty string and error if invalid.
+func isAllowedWebhookURL(rawURL string) (string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+		return "", fmt.Errorf("invalid URL: %w", err)
 	}
 
 	// Only allow http and https schemes
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("URL scheme must be http or https, got %q", parsed.Scheme)
+		return "", fmt.Errorf("URL scheme must be http or https, got %q", parsed.Scheme)
 	}
 
 	// Get the hostname
 	hostname := parsed.Hostname()
 	if hostname == "" {
-		return fmt.Errorf("URL must have a hostname")
+		return "", fmt.Errorf("URL must have a hostname")
 	}
 
 	// Block localhost and loopback addresses (unless in test mode)
 	if !allowTestWebhooks {
 		if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {
-			return fmt.Errorf("localhost URLs are not allowed for webhooks")
+			return "", fmt.Errorf("localhost URLs are not allowed for webhooks")
 		}
 
 		// Resolve hostname to check for private IPs
@@ -60,17 +61,17 @@ func isAllowedWebhookURL(rawURL string) error {
 		if err != nil {
 			// If DNS resolution fails, allow it (could be a valid external service)
 			// The HTTP request will fail anyway if unreachable
-			return nil
+			return rawURL, nil
 		}
 
 		for _, ip := range ips {
 			if isPrivateIP(ip) {
-				return fmt.Errorf("webhook URLs cannot target private/internal networks")
+				return "", fmt.Errorf("webhook URLs cannot target private/internal networks")
 			}
 		}
 	}
 
-	return nil
+	return rawURL, nil
 }
 
 // isPrivateIP checks if an IP address is in a private/internal range.
@@ -119,17 +120,19 @@ func sanitizeEmailHeader(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// validateEmailAddress performs basic email address validation.
-func validateEmailAddress(email string) error {
+// validateAndSanitizeEmail validates and sanitizes an email address.
+// Returns the sanitized address and nil error if valid, or empty string and error if invalid.
+func validateAndSanitizeEmail(email string) (string, error) {
 	// Check for header injection attempts
-	if strings.ContainsAny(email, "\r\n") {
-		return fmt.Errorf("email address contains invalid characters")
+	if strings.ContainsAny(email, "\r\n\x00") {
+		return "", fmt.Errorf("email address contains invalid characters")
 	}
 	// Basic format check
 	if !strings.Contains(email, "@") || len(email) < 3 {
-		return fmt.Errorf("invalid email address format")
+		return "", fmt.Errorf("invalid email address format")
 	}
-	return nil
+	// Return sanitized version
+	return sanitizeEmailHeader(email), nil
 }
 
 // NotifierConfig configures the notification dispatcher.
@@ -355,24 +358,25 @@ func (n *Notifier) sendEmail(ctx context.Context, config map[string]interface{},
 	}
 
 	// Validate and sanitize from address to prevent header injection
-	if err := validateEmailAddress(from); err != nil {
+	sanitizedFrom, err := validateAndSanitizeEmail(from)
+	if err != nil {
 		return fmt.Errorf("invalid from address: %w", err)
 	}
-	from = sanitizeEmailHeader(from)
 
 	// Build recipient list with validation
-	var to []string
+	var sanitizedTo []string
 	for _, addr := range toList {
 		if s, ok := addr.(string); ok {
-			if err := validateEmailAddress(s); err != nil {
+			sanitized, err := validateAndSanitizeEmail(s)
+			if err != nil {
 				n.logger.Warn("skipping invalid recipient address", "address", s, "error", err)
 				continue
 			}
-			to = append(to, sanitizeEmailHeader(s))
+			sanitizedTo = append(sanitizedTo, sanitized)
 		}
 	}
 
-	if len(to) == 0 {
+	if len(sanitizedTo) == 0 {
 		return fmt.Errorf("no valid recipient addresses")
 	}
 
@@ -390,7 +394,7 @@ This is an automated alert from PrintMaster.
 `, alert.Title, alert.Severity, alert.Scope, alert.TriggeredAt.Format(time.RFC3339), alert.Message)
 
 	msg := []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		from, strings.Join(to, ", "), subject, body))
+		sanitizedFrom, strings.Join(sanitizedTo, ", "), subject, body))
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 
@@ -402,18 +406,17 @@ This is an automated alert from PrintMaster.
 			auth = smtp.PlainAuth("", username, password, host)
 		}
 
-		err := smtp.SendMail(addr, auth, from, to, msg)
-		if err == nil {
+		// Recipients validated and sanitized via validateAndSanitizeEmail above
+		sendErr := smtp.SendMail(addr, auth, sanitizedFrom, sanitizedTo, msg)
+		if sendErr == nil {
 			return nil
 		}
-		lastErr = err
+		lastErr = sendErr
 		time.Sleep(n.config.RetryDelay)
 	}
 
 	return fmt.Errorf("email send failed after %d attempts: %w", n.config.MaxRetries, lastErr)
 }
-
-// Webhook notification
 func (n *Notifier) sendWebhook(ctx context.Context, config map[string]interface{}, alert *storage.Alert) error {
 	if config == nil {
 		return fmt.Errorf("webhook channel has no configuration")
@@ -600,7 +603,8 @@ func (n *Notifier) sendPagerDuty(ctx context.Context, config map[string]interfac
 // postJSON posts a JSON payload to the given URL with retry logic.
 func (n *Notifier) postJSON(ctx context.Context, url string, headers map[string]string, payload interface{}) error {
 	// Validate URL to prevent SSRF attacks
-	if err := isAllowedWebhookURL(url); err != nil {
+	validatedURL, err := isAllowedWebhookURL(url)
+	if err != nil {
 		return fmt.Errorf("webhook URL validation failed: %w", err)
 	}
 
@@ -611,7 +615,7 @@ func (n *Notifier) postJSON(ctx context.Context, url string, headers map[string]
 
 	var lastErr error
 	for i := 0; i < n.config.MaxRetries; i++ {
-		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+		req, err := http.NewRequestWithContext(ctx, "POST", validatedURL, bytes.NewReader(data))
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}
@@ -861,13 +865,14 @@ func basicAuth(user, pass string) string {
 // postText posts plain text to the given URL with retry logic.
 func (n *Notifier) postText(ctx context.Context, url string, headers map[string]string, body string) error {
 	// Validate URL to prevent SSRF attacks
-	if err := isAllowedWebhookURL(url); err != nil {
+	validatedURL, err := isAllowedWebhookURL(url)
+	if err != nil {
 		return fmt.Errorf("webhook URL validation failed: %w", err)
 	}
 
 	var lastErr error
 	for i := 0; i < n.config.MaxRetries; i++ {
-		req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, "POST", validatedURL, strings.NewReader(body))
 		if err != nil {
 			return fmt.Errorf("failed to create request: %w", err)
 		}
