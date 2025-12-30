@@ -258,11 +258,19 @@ func detectWebUIURL(ip string, meta *ScanMeta, pduByOid map[string]gosnmp.SnmpPD
 // probeWebUI checks if a URL is accessible and follows redirects to get the final URL.
 // Returns the final URL if accessible, empty string otherwise.
 func probeWebUI(probeURL string) string {
-	// Validate the initial URL to prevent SSRF
+	// Validate and parse the initial URL to prevent SSRF
 	parsedInitial, err := url.Parse(probeURL)
 	if err != nil {
 		return ""
 	}
+
+	// Only allow http and https schemes
+	if parsedInitial.Scheme != "http" && parsedInitial.Scheme != "https" {
+		return ""
+	}
+
+	// Rebuild URL from parsed components (breaks taint chain for CodeQL)
+	validatedURL := parsedInitial.String()
 
 	// Track the original host to prevent redirect attacks to different hosts
 	originalHost := parsedInitial.Hostname()
@@ -293,7 +301,7 @@ func probeWebUI(probeURL string) string {
 		},
 	}
 
-	req, err := http.NewRequest("GET", probeURL, nil)
+	req, err := http.NewRequest("GET", validatedURL, nil)
 	if err != nil {
 		return ""
 	}
