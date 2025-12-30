@@ -5288,7 +5288,18 @@ async function loadLocalPrinters() {
         if (!res.ok) {
             throw new Error('Failed to fetch local printers: ' + res.status);
         }
-        const printers = await res.json();
+        const data = await res.json();
+        
+        // Handle response format: { supported, running, printers: [...] }
+        if (!data.supported) {
+            if (cardsContainer) {
+                cardsContainer.innerHTML = `<div style="color:var(--muted);padding:12px;">Local printer monitoring is only supported on Windows.</div>`;
+            }
+            if (statusSpan) statusSpan.textContent = '';
+            return;
+        }
+        
+        const printers = data.printers || [];
 
         if (!printers || printers.length === 0) {
             cardsContainer.innerHTML = '';
