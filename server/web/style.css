@@ -7778,6 +7778,178 @@ input[type="checkbox"]:indeterminate::before {
   transform: translateY(0);
 }
 
+/* Clickable agent rows in table */
+.agent-row-clickable {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.agent-row-clickable:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.agent-row-clickable:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Clickable agent cards */
+.agent-card-clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.agent-card-clickable:hover {
+  border-color: var(--highlight);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.agent-card-clickable:active {
+  transform: translateY(0);
+}
+
+/* Agent Details Modal with Overlay */
+#agent_details_overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 9998;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  box-sizing: border-box;
+  animation: modal-fade-in 0.2s ease;
+  backdrop-filter: blur(4px);
+}
+
+.agent-details-dialog {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0;
+  width: 98%;
+  max-width: 1400px;
+  height: 85vh;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  animation: modal-slide-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Agent Modal header */
+.agent-details-dialog > h3,
+#agent_details_title {
+  margin: 0;
+  padding: 20px 24px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+
+/* Agent Modal body */
+#agent_details_body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 24px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+#agent_details_body::-webkit-scrollbar {
+  width: 8px;
+}
+
+#agent_details_body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#agent_details_body::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+#agent_details_body::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Agent Modal actions footer */
+#agent_details_actions {
+  padding: 16px 24px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+#agent_details_actions button {
+  min-width: 100px;
+}
+
+/* Agent Modal close button */
+.agent-details-dialog .modal-close-x,
+#agent_details_close_x {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  z-index: 10;
+}
+
+.agent-details-dialog .modal-close-x:hover,
+#agent_details_close_x:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+/* Agent details two-column grid layout */
+.agent-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+/* Full width panels for certain sections */
+.agent-details-grid > .agent-panel-full {
+  grid-column: 1 / -1;
+}
+
+/* Tablet breakpoint - single column for agent details */
+@media (max-width: 1100px) {
+  .agent-details-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .agent-details-dialog {
+    max-width: 98%;
+    width: 98%;
+  }
+}
+
 /* Device details layout refresh */
 .device-details-stack {
   display: grid;

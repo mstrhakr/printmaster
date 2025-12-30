@@ -8856,6 +8856,41 @@ function initAgentsUI() {
             head.dataset.bound = 'true';
             head.addEventListener('click', handleAgentTableSortClick);
         }
+        // Add click handler for clickable rows (opens agent details modal)
+        const tbody = table.querySelector('tbody');
+        if (tbody && !tbody.dataset.rowClickBound) {
+            tbody.dataset.rowClickBound = 'true';
+            tbody.addEventListener('click', (event) => {
+                // Don't trigger row click if clicking on a button or actions column
+                if (event.target.closest('button') || event.target.closest('.table-actions') || event.target.closest('.actions-col')) {
+                    return;
+                }
+                const row = event.target.closest('tr.agent-row-clickable');
+                if (!row) return;
+                const agentId = row.getAttribute('data-agent-id');
+                if (agentId) {
+                    viewAgentDetails(agentId);
+                }
+            });
+        }
+    }
+
+    // Add click handler for clickable agent cards (opens agent details modal)
+    const cardsContainer = document.getElementById('agents_cards');
+    if (cardsContainer && !cardsContainer.dataset.cardClickBound) {
+        cardsContainer.dataset.cardClickBound = 'true';
+        cardsContainer.addEventListener('click', (event) => {
+            // Don't trigger card click if clicking on a button or actions area
+            if (event.target.closest('button') || event.target.closest('.device-card-actions')) {
+                return;
+            }
+            const card = event.target.closest('.agent-card-clickable');
+            if (!card) return;
+            const agentId = card.getAttribute('data-agent-id');
+            if (agentId) {
+                viewAgentDetails(agentId);
+            }
+        });
     }
 
     syncAgentsViewToggle();
@@ -9514,7 +9549,7 @@ function renderAgentTable(agents) {
         const meta = agent.__meta || {};
         const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');
         return `
-            <tr data-agent-id="${escapeHtml(agent.agent_id || '')}">
+            <tr data-agent-id="${escapeHtml(agent.agent_id || '')}" class="agent-row-clickable" title="Click to view details">
                 <td>
                     <div class="table-primary">${escapeHtml(agent.name || agent.hostname || agent.agent_id || 'Unknown')}</div>
                     <div class="muted-text">${escapeHtml(agent.hostname || '')}</div>
@@ -9527,7 +9562,6 @@ function renderAgentTable(agents) {
                 <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
                 <td class="actions-col">
                     <div class="table-actions">
-                        <button data-action="view-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}">Details</button>
                         <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
                         <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
                         <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
@@ -9547,7 +9581,7 @@ function renderAgentCard(agent) {
     const statusColor = AGENT_STATUS_COLORS[meta.statusKey || 'inactive'] || 'var(--muted)';
     const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');
     return `
-        <div class="device-card" data-agent-id="${escapeHtml(agent.agent_id || '')}">
+        <div class="device-card agent-card-clickable" data-agent-id="${escapeHtml(agent.agent_id || '')}" title="Click to view details">
             <div class="device-card-header">
                 <div>
                     <div style="display:flex;align-items:center;gap:8px">
@@ -9596,7 +9630,6 @@ function renderAgentCard(agent) {
                 </div>` : ''}
             </div>
             <div class="device-card-actions">
-                <button data-action="view-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}">View Details</button>
                 <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
                 <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
                 <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
@@ -9892,13 +9925,13 @@ function addOrUpdateDeviceCard(device) {
 // ====== Agent Details ======
 async function viewAgentDetails(agentId) {
     try {
-        // Show modal immediately with loading state
-        const modal = document.getElementById('agent_details_modal');
+        // Show modal overlay immediately with loading state
+        const overlay = document.getElementById('agent_details_overlay');
         const body = document.getElementById('agent_details_body');
         const title = document.getElementById('agent_details_title');
         
-        modal.style.display = 'flex';
-        body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Loading agent details...</div>';
+        overlay.style.display = 'flex';
+        body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">Loading agent details...</div>';
         title.textContent = 'Agent Details';
         
         const response = await fetch(`/api/v1/agents/${agentId}`);
@@ -9911,7 +9944,7 @@ async function viewAgentDetails(agentId) {
     } catch (error) {
         window.__pm_shared.error('Failed to load agent details:', error);
         const body = document.getElementById('agent_details_body');
-        body.innerHTML = `<div style="color:var(--error);text-align:center;padding:20px;">Failed to load agent details: ${error.message}</div>`;
+        body.innerHTML = `<div style="color:var(--error);text-align:center;padding:40px;">Failed to load agent details: ${error.message}</div>`;
         window.__pm_shared.showToast('Failed to load agent details', 'error');
     }
 }
@@ -9951,7 +9984,7 @@ function renderAgentDetailsModal(agent) {
     const statusColor = statusColors[agent.status] || 'var(--muted)';
     
     body.innerHTML = `
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+        <div class="agent-details-grid">
             <!-- Basic Info -->
             <div class="panel">
                 <h4 style="margin-top:0;color:var(--highlight);font-size:14px;">Basic Information</h4>
@@ -16461,21 +16494,21 @@ function formatAuditMetadata(metadata) {
 }
 
 // ====== Modal Handlers ======
-// Agent Details Modal
+// Agent Details Modal (overlay)
 document.getElementById('agent_details_close_x')?.addEventListener('click', () => {
-    document.getElementById('agent_details_modal').style.display = 'none';
+    document.getElementById('agent_details_overlay').style.display = 'none';
 });
 document.getElementById('agent_details_close')?.addEventListener('click', () => {
-    document.getElementById('agent_details_modal').style.display = 'none';
+    document.getElementById('agent_details_overlay').style.display = 'none';
 });
 
 // Click outside modal to close
 window.addEventListener('click', (event) => {
-    const agentModal = document.getElementById('agent_details_modal');
+    const agentOverlay = document.getElementById('agent_details_overlay');
     const confirmModal = document.getElementById('confirm_modal');
     
-    if (event.target === agentModal) {
-        agentModal.style.display = 'none';
+    if (event.target === agentOverlay) {
+        agentOverlay.style.display = 'none';
     }
     if (event.target === confirmModal) {
         confirmModal.style.display = 'none';
