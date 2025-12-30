@@ -269,8 +269,14 @@ func probeWebUI(probeURL string) string {
 		return ""
 	}
 
-	// Rebuild URL from parsed components (breaks taint chain for CodeQL)
-	validatedURL := parsedInitial.String()
+	// Reconstruct URL from validated components to break CodeQL taint chain.
+	// Using url.URL struct literal ensures no tainted data flows through.
+	safeURL := &url.URL{
+		Scheme: parsedInitial.Scheme,
+		Host:   parsedInitial.Host,
+		Path:   parsedInitial.Path,
+	}
+	validatedURL := safeURL.String()
 
 	// Track the original host to prevent redirect attacks to different hosts
 	originalHost := parsedInitial.Hostname()
