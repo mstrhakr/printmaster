@@ -605,9 +605,16 @@
         const titleEl = document.getElementById('printer_details_title');
         const actionsEl = document.getElementById('printer_details_actions');
 
+        // Build a descriptive title with device name
         try {
-            titleEl.textContent = (source === 'saved') ? 'Saved Device' : 'Discovered Device';
-        } catch (e) {}
+            const mfg = p.manufacturer || p.make || '';
+            const model = p.model || '';
+            const deviceName = (mfg + ' ' + model).trim() || 'Unknown Device';
+            const sourceLabel = (source === 'saved') ? '' : ' (Discovered)';
+            titleEl.textContent = deviceName + sourceLabel;
+        } catch (e) {
+            titleEl.textContent = (source === 'saved') ? 'Device Details' : 'Discovered Device';
+        }
 
         // Store the current printer IP to prevent glitchy updates from live data
         try { overlay.dataset.currentPrinterIp = p.ip || p.IP || ''; } catch (e) {}

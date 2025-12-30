@@ -10766,6 +10766,45 @@ function initDevicesUI() {
             head.dataset.bound = 'true';
             head.addEventListener('click', handleDeviceTableSortClick);
         }
+        // Add click handler for clickable rows (opens device details modal)
+        const tbody = table.querySelector('tbody');
+        if (tbody && !tbody.dataset.rowClickBound) {
+            tbody.dataset.rowClickBound = 'true';
+            tbody.addEventListener('click', (event) => {
+                // Don't trigger row click if clicking on a button or actions column
+                if (event.target.closest('button') || event.target.closest('.table-actions') || event.target.closest('.actions-col')) {
+                    return;
+                }
+                const row = event.target.closest('tr.device-row-clickable');
+                if (!row) return;
+                const serial = row.getAttribute('data-serial');
+                const ip = row.getAttribute('data-ip');
+                const lookup = serial || ip;
+                if (lookup) {
+                    window.__pm_shared.showPrinterDetails(lookup, 'saved');
+                }
+            });
+        }
+    }
+
+    // Add click handler for clickable device cards (opens device details modal)
+    const cardsContainer = document.getElementById('devices_cards');
+    if (cardsContainer && !cardsContainer.dataset.cardClickBound) {
+        cardsContainer.dataset.cardClickBound = 'true';
+        cardsContainer.addEventListener('click', (event) => {
+            // Don't trigger card click if clicking on a button or actions area
+            if (event.target.closest('button') || event.target.closest('.device-card-actions')) {
+                return;
+            }
+            const card = event.target.closest('.device-card-clickable');
+            if (!card) return;
+            const serial = card.getAttribute('data-serial');
+            const ip = card.getAttribute('data-ip');
+            const lookup = serial || ip;
+            if (lookup) {
+                window.__pm_shared.showPrinterDetails(lookup, 'saved');
+            }
+        });
     }
 
     syncDevicesViewToggle();
@@ -11167,7 +11206,7 @@ function renderDeviceTable(devices, append = false) {
         const meta = device.__meta || {};
         const tenantLabel = formatTenantDisplay(meta.tenantId || device.tenant_id || '');
         return `
-            <tr data-serial="${escapeHtml(device.serial || '')}">
+            <tr data-serial="${escapeHtml(device.serial || '')}" data-ip="${escapeHtml(device.ip || '')}" class="device-row-clickable" title="Click to view details">
                 <td>
                     <div class="table-primary">${escapeHtml((device.manufacturer || 'Unknown') + ' ' + (device.model || ''))}</div>
                     <div class="muted-text">Serial ${escapeHtml(device.serial || '—')}</div>
@@ -11190,7 +11229,6 @@ function renderDeviceTable(devices, append = false) {
                     <div class="table-actions">
                         <button data-action="open-device" data-serial="${escapeHtml(device.serial || '')}" data-agent-id="${escapeHtml(device.agent_id || '')}" ${(!device.ip || !device.agent_id) ? 'disabled' : ''}>Web UI</button>
                         <button data-action="view-metrics" data-serial="${escapeHtml(device.serial || '')}" ${device.serial ? '' : 'disabled'}>Metrics</button>
-                        <button data-action="show-printer-details" data-ip="${escapeHtml(device.ip || '')}" data-serial="${escapeHtml(device.serial || '')}" data-source="saved">Details</button>
                     </div>
                 </td>
             </tr>
@@ -11265,7 +11303,7 @@ function renderServerDeviceCard(device) {
     const agentName = escapeHtml(meta.agentName || 'Unassigned');
     const capabilityBadges = renderDeviceCapabilityBadges(device);
     return `
-        <div class="device-card" data-serial="${serial}" data-agent-id="${agentId}">
+        <div class="device-card device-card-clickable" data-serial="${serial}" data-ip="${escapeHtml(device.ip || '')}" data-agent-id="${agentId}" data-source="saved" title="Click to view details">
             <div class="device-card-header">
                 <div>
                     <div class="device-card-title">${escapeHtml(device.manufacturer || 'Unknown')} ${escapeHtml(device.model || '')}</div>
@@ -11299,7 +11337,6 @@ function renderServerDeviceCard(device) {
             <div class="device-card-actions">
                 <button data-action="open-device" data-serial="${serial}" data-agent-id="${agentId}" ${(!device.ip || !device.agent_id) ? 'disabled title="Device has no IP or agent"' : ''}>Open Web UI</button>
                 <button data-action="view-metrics" data-serial="${serial}" ${device.serial ? '' : 'disabled title="No serial"'}>View Metrics</button>
-                <button data-action="show-printer-details" data-ip="${escapeHtml(device.ip || '')}" data-serial="${serial}" data-source="saved" ${device.ip ? '' : 'disabled title="No IP"'}>Details</button>
             </div>
         </div>
     `;

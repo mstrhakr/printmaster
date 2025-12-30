@@ -1940,13 +1940,11 @@
 
     <!-- Printer Details modal with overlay (shared) -->
     <div id="printer_details_overlay" class="modal" style="display:none;">
-        <div id="printer_details_modal" class="printer-details-dialog modal-content" style="max-width:900px;">
+        <div id="printer_details_modal" class="printer-details-dialog">
             <button class="modal-close-x" id="printer_details_close_x" title="Close">&times;</button>
-            <h3 id="printer_details_title" style="margin-top:0;color:var(--highlight)">Printer Details</h3>
-            <div id="printer_details_body"
-                style="overflow-x:hidden;overflow-y:auto;font-family:system-ui;color:var(--text);word-wrap:break-word;flex:1;max-height:60vh;padding-right:8px;">
-            </div>
-            <div id="printer_details_actions" style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;flex-shrink:0">
+            <h3 id="printer_details_title">Device Details</h3>
+            <div id="printer_details_body"></div>
+            <div id="printer_details_actions">
                 <button class="modal-button modal-button-secondary" id="printer_details_close">Close</button>
             </div>
         </div>
