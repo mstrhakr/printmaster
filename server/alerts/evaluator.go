@@ -435,6 +435,11 @@ func isInQuietHours(settings *storage.AlertSettings) bool {
 	startHour, startMin := parseTimeHHMM(settings.QuietHours.StartTime)
 	endHour, endMin := parseTimeHHMM(settings.QuietHours.EndTime)
 
+	// Special case: if start == end, quiet hours are always active (full 24h)
+	if startHour == endHour && startMin == endMin {
+		return true
+	}
+
 	currentMins := now.Hour()*60 + now.Minute()
 	startMins := startHour*60 + startMin
 	endMins := endHour*60 + endMin

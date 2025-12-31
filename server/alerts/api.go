@@ -1270,6 +1270,15 @@ func (api *API) handleSaveAlertSettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate quiet hours: if start == end, reject as this is likely a mistake
+	// (would cause ALL non-critical alerts to be suppressed 24/7)
+	if settings.QuietHours.Enabled &&
+		settings.QuietHours.StartTime != "" &&
+		settings.QuietHours.StartTime == settings.QuietHours.EndTime {
+		writeError(w, http.StatusBadRequest, "quiet hours start and end times cannot be the same (would suppress alerts 24/7)")
+		return
+	}
+
 	if err := api.store.SaveAlertSettings(r.Context(), &settings); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save alert settings")
 		return

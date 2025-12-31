@@ -688,12 +688,13 @@ func TestNotifier_QuietHours(t *testing.T) {
 
 	store := newMockNotifierStore()
 
-	// Enable quiet hours that should be active now
+	// Enable quiet hours using start == end to indicate "always active"
+	// This special case is handled in isInQuietHours() for full 24h coverage
 	store.settings = &storage.AlertSettings{
 		QuietHours: storage.QuietHoursConfig{
 			Enabled:       true,
 			StartTime:     "00:00",
-			EndTime:       "23:59",
+			EndTime:       "00:00",
 			Timezone:      "UTC",
 			AllowCritical: true,
 		},
