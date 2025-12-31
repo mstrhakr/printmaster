@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows/registry"
 )
 
 // IsSupported returns whether spooler watching is supported on this platform
@@ -420,12 +422,22 @@ func (w *Watcher) refreshPrinters() error {
 				TrackingEnabled: (printerType == PrinterTypeUSB && w.config.AutoTrackUSB) ||
 					(printerType == PrinterTypeLocal && w.config.AutoTrackLocal),
 			}
+
+			// Try to get serial number for USB printers
+			if printerType == PrinterTypeUSB {
+				if serial := getUSBPrinterSerial(portName); serial != "" {
+					printer.SerialNumber = serial
+					w.logger.Debug("Found USB printer serial", "name", name, "serial", serial)
+				}
+			}
+
 			w.printers[name] = printer
 			w.jobs[name] = make(map[uint32]*PrintJob)
 			w.logger.Info("Discovered local printer",
 				"name", name,
 				"port", portName,
 				"type", printerType,
+				"serial", printer.SerialNumber,
 				"tracking", printer.TrackingEnabled)
 		}
 
@@ -439,6 +451,14 @@ func (w *Watcher) refreshPrinters() error {
 		printer.StatusCode = info.Status
 		printer.JobCount = int(info.Jobs)
 		printer.LastSeen = now
+
+		// Try to get serial number for USB printers that don't have one yet
+		if printer.SerialNumber == "" && printerType == PrinterTypeUSB {
+			if serial := getUSBPrinterSerial(portName); serial != "" {
+				printer.SerialNumber = serial
+				w.logger.Debug("Found USB printer serial (existing)", "name", name, "serial", serial)
+			}
+		}
 
 		// Try to parse manufacturer/model from driver name
 		if printer.Manufacturer == "" || printer.Model == "" {
@@ -882,4 +902,137 @@ func parseDriverName(driverName string) (manufacturer, model string) {
 	}
 
 	return manufacturer, model
+}
+
+// getUSBPrinterSerial retrieves the serial number for a USB printer by querying the Windows registry.
+// It follows the chain: USBPRINT device -> ContainerID -> USB device -> Serial (folder name)
+// Returns empty string if serial cannot be found.
+func getUSBPrinterSerial(portName string) string {
+	// Only works for USB ports
+	if !strings.HasPrefix(strings.ToUpper(portName), "USB") {
+		return ""
+	}
+
+	// Step 1: Find the USBPRINT device matching this port and get its ContainerID
+	containerID := getUSBPrintContainerID(portName)
+	if containerID == "" {
+		return ""
+	}
+
+	// Step 2: Find the USB device with matching ContainerID - its folder name is the serial
+	return findUSBSerialByContainerID(containerID)
+}
+
+// getUSBPrintContainerID finds the ContainerID for a USB printer port
+// by searching HKLM\SYSTEM\CurrentControlSet\Enum\USBPRINT\*\*{portName}
+func getUSBPrintContainerID(portName string) string {
+	usbPrintKey, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Enum\USBPRINT`, registry.READ)
+	if err != nil {
+		return ""
+	}
+	defer usbPrintKey.Close()
+
+	// Enumerate printer subkeys (e.g., "Hewlett-PackardHP_LaserJet_M506")
+	printerNames, err := usbPrintKey.ReadSubKeyNames(-1)
+	if err != nil {
+		return ""
+	}
+
+	portUpper := strings.ToUpper(portName)
+
+	for _, printerName := range printerNames {
+		printerKey, err := registry.OpenKey(usbPrintKey, printerName, registry.READ)
+		if err != nil {
+			continue
+		}
+
+		// Enumerate instance subkeys (e.g., "7&10fa1da6&0&USB002")
+		instances, err := printerKey.ReadSubKeyNames(-1)
+		printerKey.Close()
+		if err != nil {
+			continue
+		}
+
+		for _, instance := range instances {
+			// Check if this instance matches our port (e.g., ends with "USB002")
+			if !strings.HasSuffix(strings.ToUpper(instance), portUpper) {
+				continue
+			}
+
+			// Found matching instance - get ContainerID
+			instanceKey, err := registry.OpenKey(usbPrintKey, printerName+`\`+instance, registry.READ)
+			if err != nil {
+				continue
+			}
+
+			containerID, _, err := instanceKey.GetStringValue("ContainerID")
+			instanceKey.Close()
+			if err == nil && containerID != "" {
+				return containerID
+			}
+		}
+	}
+
+	return ""
+}
+
+// findUSBSerialByContainerID searches HKLM\SYSTEM\CurrentControlSet\Enum\USB for a device
+// with matching ContainerID. The serial number is the subkey name (folder) that doesn't
+// contain '&' characters (interface instances have '&' in their names).
+func findUSBSerialByContainerID(targetContainerID string) string {
+	usbKey, err := registry.OpenKey(registry.LOCAL_MACHINE,
+		`SYSTEM\CurrentControlSet\Enum\USB`, registry.READ)
+	if err != nil {
+		return ""
+	}
+	defer usbKey.Close()
+
+	// Enumerate VID_xxxx&PID_xxxx subkeys
+	vidPidNames, err := usbKey.ReadSubKeyNames(-1)
+	if err != nil {
+		return ""
+	}
+
+	for _, vidPid := range vidPidNames {
+		// Skip non-VID entries
+		if !strings.HasPrefix(strings.ToUpper(vidPid), "VID_") {
+			continue
+		}
+
+		vidPidKey, err := registry.OpenKey(usbKey, vidPid, registry.READ)
+		if err != nil {
+			continue
+		}
+
+		// Enumerate serial/instance subkeys
+		instances, err := vidPidKey.ReadSubKeyNames(-1)
+		vidPidKey.Close()
+		if err != nil {
+			continue
+		}
+
+		for _, instance := range instances {
+			// Serial numbers don't contain '&' - interface instances do (e.g., "6&29f3b0e1&0&0000")
+			if strings.Contains(instance, "&") {
+				continue
+			}
+
+			// Check if this instance has matching ContainerID
+			instanceKey, err := registry.OpenKey(usbKey, vidPid+`\`+instance, registry.READ)
+			if err != nil {
+				continue
+			}
+
+			containerID, _, err := instanceKey.GetStringValue("ContainerID")
+			instanceKey.Close()
+
+			if err == nil && strings.EqualFold(containerID, targetContainerID) {
+				// Found it! The instance name is the serial number
+				return instance
+			}
+		}
+	}
+
+	return ""
 }
