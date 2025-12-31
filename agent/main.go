@@ -5185,6 +5185,17 @@ func runInteractive(ctx context.Context, configFlag string) {
 			}
 		}
 
+		// Check if this is a USB printer first - if so, route through USB proxy
+		// This provides seamless proxy support for both USB and network printers
+		if CanUSBProxySerial(serial) {
+			appLogger.Debug("Proxy: routing to USB proxy", "serial", serial, "path", r.URL.Path)
+			if HandleUSBProxy(w, r, serial) {
+				return // USB proxy handled the request
+			}
+			// Fall through to network proxy if USB proxy couldn't handle it
+			appLogger.Debug("Proxy: USB proxy couldn't handle request, falling back to network", "serial", serial)
+		}
+
 		// Look up device (use the timeout context from above)
 		device, err := deviceStore.Get(ctx, serial)
 		if err != nil {
@@ -7201,6 +7212,16 @@ window.top.location.href = '/proxy/%s/';
 	} else {
 		appLogger.Warn("Device store does not support local printer operations, spooler tracking disabled")
 	}
+
+	// Initialize USB proxy for IPP-USB printers (Windows only)
+	// This enables web UI access for USB-connected printers via the same /proxy/ endpoint
+	RegisterUSBProxyHandlers()
+	if err := InitUSBProxy(appLogger); err != nil {
+		appLogger.Warn("Failed to initialize USB proxy", "error", err)
+	} else {
+		appLogger.Info("USB proxy initialized")
+	}
+	defer StopUSBProxy()
 
 	// Get HTTP/HTTPS settings
 	enableHTTP := true
