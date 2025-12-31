@@ -5321,7 +5321,7 @@ async function loadLocalPrinters() {
                 <span><strong>${printers.length}</strong> printers</span>
                 <span><strong>${tracked}</strong> tracked</span>
                 <span><strong>${totalPages.toLocaleString()}</strong> total pages</span>
-                ${defaultPrinter ? `<span>Default: <strong>${escapeHTML(defaultPrinter.name)}</strong></span>` : ''}
+                ${defaultPrinter ? `<span>Default: <strong>${escapeHtml(defaultPrinter.name)}</strong></span>` : ''}
             `;
         }
 
@@ -5334,7 +5334,7 @@ async function loadLocalPrinters() {
         window.__pm_shared.error('loadLocalPrinters failed', err);
         if (statusSpan) statusSpan.textContent = 'Error loading printers';
         if (cardsContainer) {
-            cardsContainer.innerHTML = `<div style="color:var(--error);padding:12px;">Failed to load local printers: ${escapeHTML(err.message)}</div>`;
+            cardsContainer.innerHTML = `<div style="color:var(--error);padding:12px;">Failed to load local printers: ${escapeHtml(err.message)}</div>`;
         }
     }
 }
@@ -5343,11 +5343,11 @@ async function loadLocalPrinters() {
  * Renders a single local printer card
  */
 function renderLocalPrinterCard(printer) {
-    const name = escapeHTML(printer.name || 'Unknown');
-    const model = escapeHTML(printer.model || printer.driver_name || 'Unknown model');
-    const manufacturer = escapeHTML(printer.manufacturer || '');
-    const printerType = escapeHTML(printer.printer_type || 'unknown');
-    const status = escapeHTML(printer.status || 'unknown');
+    const name = escapeHtml(printer.name || 'Unknown');
+    const model = escapeHtml(printer.model || printer.driver_name || 'Unknown model');
+    const manufacturer = escapeHtml(printer.manufacturer || '');
+    const printerType = escapeHtml(printer.printer_type || 'unknown');
+    const status = escapeHtml(printer.status || 'unknown');
     const totalPages = (printer.total_pages || 0) + (printer.baseline_pages || 0);
     const lastSeen = printer.last_seen ? new Date(printer.last_seen).toLocaleString() : 'Never';
     
@@ -5364,7 +5364,7 @@ function renderLocalPrinterCard(printer) {
                      printerType === 'virtual' ? '📄' : '❓';
 
     return `
-        <div class="device-card" data-printer-name="${escapeHTML(printer.name)}">
+        <div class="device-card" data-printer-name="${escapeHtml(printer.name)}">
             <div class="device-card-header">
                 <span class="device-name" title="${name}">${typeIcon} ${name}</span>
                 <span class="status-indicator ${statusClass}" title="${status}">${status}</span>
@@ -5389,7 +5389,7 @@ function renderLocalPrinterCard(printer) {
                 ${badges.length ? `<div class="device-badges" style="margin-top:8px;">${badges.join(' ')}</div>` : ''}
             </div>
             <div class="device-card-actions">
-                <button class="small" onclick="toggleLocalPrinterTracking('${escapeHTML(printer.name)}', ${!printer.tracking_enabled})">
+                <button class="small" onclick="toggleLocalPrinterTracking('${escapeHtml(printer.name)}', ${!printer.tracking_enabled})">
                     ${printer.tracking_enabled ? 'Disable Tracking' : 'Enable Tracking'}
                 </button>
             </div>
