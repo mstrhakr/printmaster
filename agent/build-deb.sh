@@ -77,6 +77,10 @@ cat > "$PKG_DIR/etc/sudoers.d/printmaster-agent" << 'SUDOERS'
 # Debian/Ubuntu apt-get commands
 printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get update -qq
 printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get install -y -qq --only-upgrade printmaster-agent
+
+# Allow agent to restart itself after update
+printmaster ALL=(root) NOPASSWD: /usr/bin/systemctl restart --no-block printmaster-agent.service
+printmaster ALL=(root) NOPASSWD: /bin/systemctl restart --no-block printmaster-agent.service
 SUDOERS
 chmod 440 "$PKG_DIR/etc/sudoers.d/printmaster-agent"
 

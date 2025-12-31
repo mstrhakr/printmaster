@@ -60,6 +60,10 @@ printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp upgrade -y -q
 # RHEL/CentOS yum commands (fallback for older systems)
 printmaster ALL=(root) NOPASSWD: /usr/bin/yum check-update -q printmaster-agent
 printmaster ALL=(root) NOPASSWD: /usr/bin/yum upgrade -y -q printmaster-agent
+
+# Allow agent to restart itself after update
+printmaster ALL=(root) NOPASSWD: /usr/bin/systemctl restart --no-block printmaster-agent.service
+printmaster ALL=(root) NOPASSWD: /bin/systemctl restart --no-block printmaster-agent.service
 EOF
 chmod 440 %{buildroot}%{_sysconfdir}/sudoers.d/printmaster-agent
 

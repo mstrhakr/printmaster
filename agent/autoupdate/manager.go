@@ -1186,9 +1186,45 @@ func (m *Manager) rollback(backupPath string) error {
 }
 
 func (m *Manager) restartService() error {
-	// This will depend on how the agent is running
-	// For now, just exit - the service manager should restart us
 	m.logInfo("Triggering restart for update")
+
+	// On Linux with systemd, we need to explicitly request a restart because:
+	// - The service file uses Restart=on-failure
+	// - os.Exit(0) is a clean exit, so systemd won't auto-restart
+	// We use "systemctl restart --no-block" which returns immediately while
+	// systemd handles stopping us and starting the new version.
+	if runtime.GOOS == "linux" && m.isService {
+		serviceName := m.serviceName
+		if serviceName == "" {
+			serviceName = "printmaster-agent" // Default service name
+		}
+		// Always use .service suffix for explicit matching with sudoers rules
+		if !strings.HasSuffix(serviceName, ".service") {
+			serviceName += ".service"
+		}
+
+		m.logInfo("Requesting systemd restart", "service", serviceName)
+
+		// Use --no-block so the command returns immediately.
+		// systemd will handle stopping this process and starting the new one.
+		cmd := exec.Command("sudo", "systemctl", "restart", "--no-block", serviceName)
+		if err := cmd.Start(); err != nil {
+			m.logWarn("Failed to request systemd restart, falling back to exit", "error", err)
+			// Fall through to os.Exit - hopefully Restart=on-failure triggers
+			os.Exit(1) // Use exit code 1 so on-failure restart triggers
+			return nil
+		}
+
+		// Give systemd a moment to receive the request, then exit cleanly.
+		// The restart command has already been issued, so we can exit now.
+		time.Sleep(100 * time.Millisecond)
+		os.Exit(0)
+		return nil // Never reached
+	}
+
+	// For Windows or non-service mode, just exit.
+	// On Windows, the service manager (SCM) should handle restart.
+	// In non-service mode, the user will need to restart manually.
 	os.Exit(0)
 	return nil // Never reached
 }
