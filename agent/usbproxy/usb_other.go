@@ -14,19 +14,3 @@ func IsSupported() bool {
 func NewEnumerator(logger Logger) (USBDeviceEnumerator, error) {
 	return nil, errors.New("USB proxy not supported on this platform")
 }
-
-// Stub implementations for non-Windows builds
-
-type stubEnumerator struct{}
-
-func (e *stubEnumerator) Enumerate() ([]*USBPrinter, error) {
-	return nil, errors.New("USB proxy not supported on this platform")
-}
-
-func (e *stubEnumerator) GetDeviceDetails(devicePath string) (*USBPrinter, error) {
-	return nil, errors.New("USB proxy not supported on this platform")
-}
-
-func (e *stubEnumerator) CreateTransport(printer *USBPrinter) (USBTransport, error) {
-	return nil, errors.New("USB proxy not supported on this platform")
-}
