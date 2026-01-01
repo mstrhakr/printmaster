@@ -59,6 +59,60 @@
         return caps.length ? '<div class="capabilities-container">' + caps.join('') + '</div>' : '';
     }
     
+    // Render device source badges based on unified device type fields
+    function renderDeviceSourceBadges(item) {
+        if (!item) return '';
+        const badges = [];
+        
+        // Device type badge with icon
+        const deviceType = item.device_type || '';
+        const sourceType = item.source_type || '';
+        const isUSB = item.is_usb || false;
+        
+        // Device type icons
+        const typeIcons = {
+            'network': '🌐',
+            'usb': '🔌',
+            'local': '🖥️',
+            'shared': '📁',
+            'virtual': '📄'
+        };
+        
+        const icon = typeIcons[deviceType] || '🖨️';
+        
+        if (deviceType) {
+            let badgeClass = 'source-badge';
+            if (deviceType === 'usb') badgeClass += ' usb';
+            else if (deviceType === 'network') badgeClass += ' network';
+            else if (deviceType === 'shared') badgeClass += ' shared';
+            else if (deviceType === 'virtual') badgeClass += ' virtual';
+            else if (deviceType === 'local') badgeClass += ' local';
+            
+            badges.push('<span class="' + badgeClass + '">' + icon + ' ' + escapeHtmlCards(deviceType) + '</span>');
+        } else if (isUSB) {
+            badges.push('<span class="source-badge usb">🔌 USB</span>');
+        }
+        
+        // Source type badge (how it was discovered)
+        if (sourceType === 'spooler') {
+            badges.push('<span class="source-badge spooler">📋 Spooler</span>');
+        } else if (sourceType === 'snmp') {
+            badges.push('<span class="source-badge snmp">📡 SNMP</span>');
+        } else if (sourceType === 'manual') {
+            badges.push('<span class="source-badge manual">✏️ Manual</span>');
+        }
+        
+        // Additional flags
+        if (item.is_default) {
+            badges.push('<span class="source-badge default">⭐ Default</span>');
+        }
+        if (item.is_shared) {
+            badges.push('<span class="source-badge shared">🔗 Shared</span>');
+        }
+        
+        return badges.length ? '<div class="source-badges">' + badges.join('') + '</div>' : '';
+    }
+    
     // Simple HTML escaping for card content
     function escapeHtmlCards(str) {
         if (!str) return '';
@@ -84,20 +138,30 @@
                 '<div class="consumable-container">' + renderMiniConsumablesSection(toners) + '</div></div>') : '';
 
         const capabilitiesHTML = (typeof renderCapabilities === 'function') ? renderCapabilities(device) : renderCapabilitiesFallback(device);
+        const deviceSourceBadgesHTML = renderDeviceSourceBadges(item);
     const clipIcon = (window.__pm_shared && typeof window.__pm_shared.makeClipboardIcon === 'function') ? window.__pm_shared.makeClipboardIcon() : makeClipboardIconFallback();
 
         const ipVal = device.ip || 'N/A';
         const macVal = device.mac || '';
         const deviceKey = serial || ipVal || '';
+        
+        // Determine WebUI URL - use IPP-USB proxy for USB devices
+        let webUIUrl = item && item.web_ui_url ? item.web_ui_url : '';
+        const isUSB = item && (item.is_usb || item.device_type === 'usb');
+        if (isUSB && serial && !webUIUrl) {
+            // USB devices use the IPP-USB proxy endpoint
+            webUIUrl = '/api/usbproxy/' + encodeURIComponent(serial) + '/';
+        }
 
-        return `<div class="saved-device-card card-entering" data-device-key="${deviceKey}" data-make="${device.manufacturer||''}" data-model="${device.model||''}" data-ip="${device.ip||''}" data-serial="${serial}">` +
+        return `<div class="saved-device-card card-entering" data-device-key="${deviceKey}" data-make="${device.manufacturer||''}" data-model="${device.model||''}" data-ip="${device.ip||''}" data-serial="${serial}" data-device-type="${item&&item.device_type||''}" data-source-type="${item&&item.source_type||''}" data-is-usb="${isUSB}">` +
             `<div class="saved-device-card-header"><div class="saved-device-card-main">` +
             `<h5 class="saved-device-card-title">${device.manufacturer||'Unknown'} ${device.model||''}</h5>` +
             `${capabilitiesHTML}` +
+            `${deviceSourceBadgesHTML}` +
             `<p class="saved-device-card-subtitle copyable" data-copy="${serial}">Serial: ${serial}${clipIcon}</p>` +
             `<p class="saved-device-card-subtitle"><span class="copyable" data-copy="${ipVal}" style="display:inline-flex;align-items:center;gap:4px;">IP: ${ipVal}${clipIcon}</span>` + (macVal?`<span class="copyable" data-copy="${macVal}" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;"> • MAC: ${macVal}${clipIcon}</span>`:'') + `</p>` +
             `</div><div style="display:flex;gap:8px;flex-wrap:wrap;">` +
-            ((item && item.web_ui_url) ? `<button class="primary" style="font-size:12px" data-action="webui" data-webui-url="${item.web_ui_url}" data-serial="${serial}">WebUI</button>` : '') +
+            (webUIUrl ? `<button class="primary" style="font-size:12px" data-action="webui" data-webui-url="${webUIUrl}" data-serial="${serial}">WebUI</button>` : '') +
             `<button data-action="details" data-ip="${device.ip||''}" data-serial="${serial}" data-source="saved">Details</button>` +
             `<button class="delete" data-action="delete" data-serial="${serial}">Delete</button>` +
             `</div></div>` +

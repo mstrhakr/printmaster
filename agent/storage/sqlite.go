@@ -340,6 +340,24 @@ func (s *SQLiteStore) initSchema() error {
 
 	CREATE INDEX IF NOT EXISTS idx_local_print_jobs_printer ON local_print_jobs(printer_name);
 	CREATE INDEX IF NOT EXISTS idx_local_print_jobs_submitted ON local_print_jobs(submitted_at);
+
+	-- Page count audit trail for billing/accountability
+	CREATE TABLE IF NOT EXISTS page_count_audit (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		serial TEXT NOT NULL,
+		old_count INTEGER DEFAULT 0,
+		new_count INTEGER DEFAULT 0,
+		change_type TEXT NOT NULL,
+		changed_by TEXT,
+		reason TEXT,
+		timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		source_metric TEXT DEFAULT 'page_count',
+		FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_page_count_audit_serial ON page_count_audit(serial);
+	CREATE INDEX IF NOT EXISTS idx_page_count_audit_timestamp ON page_count_audit(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_page_count_audit_serial_timestamp ON page_count_audit(serial, timestamp);
 	`
 
 	_, err := s.db.Exec(schema)
@@ -754,6 +772,77 @@ func (s *SQLiteStore) runMigrations() error {
 		}
 	}
 
+	// Migration 8 -> 9: Add device classification columns and page_count_audit table
+	// This supports unified device view (network + USB/local printers)
+	if currentVersion < 9 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			// Add new device classification columns
+			columns := []struct {
+				name string
+				def  string
+			}{
+				{"device_type", "TEXT DEFAULT 'network'"},
+				{"source_type", "TEXT DEFAULT 'snmp'"},
+				{"is_usb", "BOOLEAN DEFAULT 0"},
+				{"initial_page_count", "INTEGER DEFAULT 0"},
+				{"port_name", "TEXT"},
+				{"driver_name", "TEXT"},
+				{"is_default", "BOOLEAN DEFAULT 0"},
+				{"is_shared", "BOOLEAN DEFAULT 0"},
+				{"spooler_status", "TEXT"},
+			}
+
+			for _, col := range columns {
+				_, err = s.db.Exec(fmt.Sprintf(`ALTER TABLE devices ADD COLUMN %s %s`, col.name, col.def))
+				if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+					return fmt.Errorf("failed to add %s column: %w", col.name, err)
+				}
+			}
+
+			// Set device_type and source_type for existing devices
+			_, _ = s.db.Exec(`UPDATE devices SET device_type = 'network', source_type = 'snmp' WHERE device_type IS NULL OR device_type = ''`)
+		}
+
+		// Create page_count_audit table if it doesn't exist
+		_, err = s.db.Exec(`
+			CREATE TABLE IF NOT EXISTS page_count_audit (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				serial TEXT NOT NULL,
+				old_count INTEGER DEFAULT 0,
+				new_count INTEGER DEFAULT 0,
+				change_type TEXT NOT NULL,
+				changed_by TEXT,
+				reason TEXT,
+				timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				source_metric TEXT DEFAULT 'page_count',
+				FOREIGN KEY (serial) REFERENCES devices(serial) ON DELETE CASCADE
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create page_count_audit table: %w", err)
+		}
+
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_page_count_audit_serial ON page_count_audit(serial)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_page_count_audit_timestamp ON page_count_audit(timestamp)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_page_count_audit_serial_timestamp ON page_count_audit(serial, timestamp)`)
+
+		// Add index for device_type filtering
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_device_type ON devices(device_type)`)
+		_, _ = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_source_type ON devices(source_type)`)
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (9, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+
+		if storageLogger != nil {
+			storageLogger.Info("Applied schema migration 8->9: Device classification and page count audit trail")
+		}
+	}
+
 	return nil
 }
 
@@ -787,8 +876,10 @@ func (s *SQLiteStore) Create(ctx context.Context, device *Device) error {
 			consumables, status_messages,
 			last_seen, created_at, first_seen, is_saved, visible,
 			discovery_method, walk_filename, last_scan_id, raw_data,
-			asset_number, location, description, web_ui_url, locked_fields
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			asset_number, location, description, web_ui_url, locked_fields,
+			device_type, source_type, is_usb, initial_page_count,
+			port_name, driver_name, is_default, is_shared, spooler_status
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
@@ -799,6 +890,8 @@ func (s *SQLiteStore) Create(ctx context.Context, device *Device) error {
 		device.LastSeen, device.CreatedAt, device.FirstSeen, device.IsSaved, device.Visible,
 		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
+		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
+		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
 	)
 
 	if err != nil {
@@ -833,13 +926,18 @@ func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
 			   consumables, status_messages,
 			   last_seen, created_at, first_seen, is_saved, visible,
 			   discovery_method, walk_filename, last_scan_id, raw_data,
-			   asset_number, location, description, web_ui_url, locked_fields
+			   asset_number, location, description, web_ui_url, locked_fields,
+			   device_type, source_type, is_usb, initial_page_count,
+			   port_name, driver_name, is_default, is_shared, spooler_status
 		FROM devices WHERE serial = ?
 	`
 
 	device := &Device{}
 	var consumablesJSON, statusJSON, dnsJSON, rawJSON sql.NullString
 	var assetNumber, location, description, webUIURL, lockedFieldsJSON sql.NullString
+	var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
+	var isUSB, isDefault, isShared sql.NullBool
+	var initialPageCount sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, query, serial).Scan(
 		&device.Serial, &device.IP, &device.Manufacturer, &device.Model,
@@ -849,6 +947,8 @@ func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
 		&device.LastSeen, &device.CreatedAt, &device.FirstSeen, &device.IsSaved, &device.Visible,
 		&device.DiscoveryMethod, &device.WalkFilename, &device.LastScanID, &rawJSON,
 		&assetNumber, &location, &description, &webUIURL, &lockedFieldsJSON,
+		&deviceType, &sourceType, &isUSB, &initialPageCount,
+		&portName, &driverName, &isDefault, &isShared, &spoolerStatus,
 	)
 
 	if err == sql.ErrNoRows {
@@ -886,6 +986,34 @@ func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
 	if lockedFieldsJSON.Valid && lockedFieldsJSON.String != "" {
 		json.Unmarshal([]byte(lockedFieldsJSON.String), &device.LockedFields)
 	}
+	// New device classification fields
+	if deviceType.Valid {
+		device.DeviceType = deviceType.String
+	}
+	if sourceType.Valid {
+		device.SourceType = sourceType.String
+	}
+	if isUSB.Valid {
+		device.IsUSB = isUSB.Bool
+	}
+	if initialPageCount.Valid {
+		device.InitialPageCount = int(initialPageCount.Int64)
+	}
+	if portName.Valid {
+		device.PortName = portName.String
+	}
+	if driverName.Valid {
+		device.DriverName = driverName.String
+	}
+	if isDefault.Valid {
+		device.IsDefault = isDefault.Bool
+	}
+	if isShared.Valid {
+		device.IsShared = isShared.Bool
+	}
+	if spoolerStatus.Valid {
+		device.SpoolerStatus = spoolerStatus.String
+	}
 
 	return device, nil
 }
@@ -911,7 +1039,9 @@ func (s *SQLiteStore) Update(ctx context.Context, device *Device) error {
 			consumables = ?, status_messages = ?,
 			last_seen = ?, is_saved = ?, visible = ?,
 			discovery_method = ?, walk_filename = ?, last_scan_id = ?, raw_data = ?,
-			asset_number = ?, location = ?, description = ?, web_ui_url = ?, locked_fields = ?
+			asset_number = ?, location = ?, description = ?, web_ui_url = ?, locked_fields = ?,
+			device_type = ?, source_type = ?, is_usb = ?, initial_page_count = ?,
+			port_name = ?, driver_name = ?, is_default = ?, is_shared = ?, spooler_status = ?
 		WHERE serial = ?
 	`
 
@@ -921,7 +1051,10 @@ func (s *SQLiteStore) Update(ctx context.Context, device *Device) error {
 		string(consumablesJSON), string(statusJSON),
 		device.LastSeen, device.IsSaved, device.Visible,
 		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
-		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON), device.Serial,
+		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
+		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
+		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
+		device.Serial,
 	)
 
 	if err != nil {
@@ -971,8 +1104,10 @@ func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 			consumables, status_messages,
 			last_seen, created_at, first_seen, is_saved, visible,
 			discovery_method, walk_filename, last_scan_id, raw_data,
-			asset_number, location, description, web_ui_url, locked_fields
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			asset_number, location, description, web_ui_url, locked_fields,
+			device_type, source_type, is_usb, initial_page_count,
+			port_name, driver_name, is_default, is_shared, spooler_status
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(serial) DO UPDATE SET
 			ip = excluded.ip,
 			manufacturer = excluded.manufacturer,
@@ -995,8 +1130,16 @@ func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 			asset_number = excluded.asset_number,
 			location = excluded.location,
 			description = excluded.description,
-			web_ui_url = excluded.web_ui_url
-			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields are NOT updated (preserved from existing row)
+			web_ui_url = excluded.web_ui_url,
+			device_type = excluded.device_type,
+			source_type = excluded.source_type,
+			is_usb = excluded.is_usb,
+			port_name = excluded.port_name,
+			driver_name = excluded.driver_name,
+			is_default = excluded.is_default,
+			is_shared = excluded.is_shared,
+			spooler_status = excluded.spooler_status
+			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields, initial_page_count are NOT updated (preserved from existing row)
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
@@ -1007,6 +1150,8 @@ func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 		device.LastSeen, device.CreatedAt, device.FirstSeen, device.IsSaved, device.Visible,
 		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
+		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
+		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert device: %w", err)
@@ -1091,7 +1236,9 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 			   consumables, status_messages,
 			   last_seen, created_at, first_seen, is_saved, visible,
 			   discovery_method, walk_filename, last_scan_id, raw_data,
-			   asset_number, location, description, web_ui_url, locked_fields
+			   asset_number, location, description, web_ui_url, locked_fields,
+			   device_type, source_type, is_usb, initial_page_count,
+			   port_name, driver_name, is_default, is_shared, spooler_status
 		FROM devices WHERE 1=1
 	`
 	args := []interface{}{}
@@ -1120,6 +1267,18 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 		query += " AND last_seen > ?"
 		args = append(args, *filter.LastSeenAfter)
 	}
+	if filter.DeviceType != "" {
+		query += " AND device_type = ?"
+		args = append(args, filter.DeviceType)
+	}
+	if filter.SourceType != "" {
+		query += " AND source_type = ?"
+		args = append(args, filter.SourceType)
+	}
+	if filter.IsUSB != nil {
+		query += " AND is_usb = ?"
+		args = append(args, *filter.IsUSB)
+	}
 
 	query += " ORDER BY last_seen DESC"
 
@@ -1139,6 +1298,9 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 		device := &Device{}
 		var consumablesJSON, statusJSON, dnsJSON, rawJSON sql.NullString
 		var assetNumber, location, description, webUIURL, lockedFieldsJSON sql.NullString
+		var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
+		var isUSB, isDefault, isShared sql.NullBool
+		var initialPageCount sql.NullInt64
 
 		err := rows.Scan(
 			&device.Serial, &device.IP, &device.Manufacturer, &device.Model,
@@ -1148,6 +1310,8 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 			&device.LastSeen, &device.CreatedAt, &device.FirstSeen, &device.IsSaved, &device.Visible,
 			&device.DiscoveryMethod, &device.WalkFilename, &device.LastScanID, &rawJSON,
 			&assetNumber, &location, &description, &webUIURL, &lockedFieldsJSON,
+			&deviceType, &sourceType, &isUSB, &initialPageCount,
+			&portName, &driverName, &isDefault, &isShared, &spoolerStatus,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan device: %w", err)
@@ -1180,6 +1344,34 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 		}
 		if lockedFieldsJSON.Valid && lockedFieldsJSON.String != "" {
 			json.Unmarshal([]byte(lockedFieldsJSON.String), &device.LockedFields)
+		}
+		// New device classification fields
+		if deviceType.Valid {
+			device.DeviceType = deviceType.String
+		}
+		if sourceType.Valid {
+			device.SourceType = sourceType.String
+		}
+		if isUSB.Valid {
+			device.IsUSB = isUSB.Bool
+		}
+		if initialPageCount.Valid {
+			device.InitialPageCount = int(initialPageCount.Int64)
+		}
+		if portName.Valid {
+			device.PortName = portName.String
+		}
+		if driverName.Valid {
+			device.DriverName = driverName.String
+		}
+		if isDefault.Valid {
+			device.IsDefault = isDefault.Bool
+		}
+		if isShared.Valid {
+			device.IsShared = isShared.Bool
+		}
+		if spoolerStatus.Valid {
+			device.SpoolerStatus = spoolerStatus.String
 		}
 
 		devices = append(devices, device)
@@ -1675,7 +1867,7 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 
 	// Single-statement UPSERT: insert or update while preserving important fields from the existing row.
 	// On conflict (serial exists), we:
-	// - Keep created_at, first_seen, is_saved, locked_fields from the existing row (devices.*)
+	// - Keep created_at, first_seen, is_saved, locked_fields, initial_page_count from the existing row (devices.*)
 	// - Update all other fields from incoming data (excluded.*)
 	query := `
 		INSERT INTO devices (
@@ -1684,8 +1876,10 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 			consumables, status_messages,
 			last_seen, created_at, first_seen, is_saved, visible,
 			discovery_method, walk_filename, last_scan_id, raw_data,
-			asset_number, location, description, web_ui_url, locked_fields
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			asset_number, location, description, web_ui_url, locked_fields,
+			device_type, source_type, is_usb, initial_page_count,
+			port_name, driver_name, is_default, is_shared, spooler_status
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(serial) DO UPDATE SET
 			ip = excluded.ip,
 			manufacturer = excluded.manufacturer,
@@ -1708,8 +1902,16 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 			asset_number = excluded.asset_number,
 			location = excluded.location,
 			description = excluded.description,
-			web_ui_url = excluded.web_ui_url
-			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields are NOT updated (preserved from existing row)
+			web_ui_url = excluded.web_ui_url,
+			device_type = excluded.device_type,
+			source_type = excluded.source_type,
+			is_usb = excluded.is_usb,
+			port_name = excluded.port_name,
+			driver_name = excluded.driver_name,
+			is_default = excluded.is_default,
+			is_shared = excluded.is_shared,
+			spooler_status = excluded.spooler_status
+			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields, initial_page_count are NOT updated (preserved from existing row)
 	`
 
 	_, err := ex.ExecContext(ctx, query,
@@ -1720,6 +1922,8 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 		device.LastSeen, device.CreatedAt, device.FirstSeen, device.IsSaved, device.Visible,
 		device.DiscoveryMethod, device.WalkFilename, device.LastScanID, string(rawJSON),
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
+		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
+		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert device: %w", err)

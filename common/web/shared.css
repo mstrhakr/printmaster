@@ -836,6 +836,85 @@ input[type="checkbox"]:disabled {
   border-color: rgba(108, 113, 196, 0.3);
 }
 
+/* ===== SOURCE BADGES (device type, source type) ===== */
+.source-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* Device type badges */
+.source-badge.network {
+  background: rgba(42, 161, 152, 0.15);
+  color: var(--success);
+  border-color: rgba(42, 161, 152, 0.35);
+}
+
+.source-badge.usb {
+  background: rgba(211, 54, 130, 0.15);
+  color: #d33682;
+  border-color: rgba(211, 54, 130, 0.35);
+}
+
+.source-badge.local {
+  background: rgba(38, 139, 210, 0.15);
+  color: var(--highlight);
+  border-color: rgba(38, 139, 210, 0.35);
+}
+
+.source-badge.shared {
+  background: rgba(181, 137, 0, 0.15);
+  color: var(--secondary);
+  border-color: rgba(181, 137, 0, 0.35);
+}
+
+.source-badge.virtual {
+  background: rgba(88, 110, 117, 0.15);
+  color: var(--muted);
+  border-color: rgba(88, 110, 117, 0.35);
+}
+
+/* Source type badges */
+.source-badge.snmp {
+  background: rgba(42, 161, 152, 0.1);
+  color: var(--success);
+  border-color: rgba(42, 161, 152, 0.25);
+}
+
+.source-badge.spooler {
+  background: rgba(108, 113, 196, 0.1);
+  color: #6c71c4;
+  border-color: rgba(108, 113, 196, 0.25);
+}
+
+.source-badge.manual {
+  background: rgba(181, 137, 0, 0.1);
+  color: var(--secondary);
+  border-color: rgba(181, 137, 0, 0.25);
+}
+
+/* Special badges */
+.source-badge.default {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
 .settings-badge {
   display: inline-block;
   padding: 2px 8px;

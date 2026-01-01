@@ -5816,6 +5816,16 @@ window.top.location.href = '/proxy/%s/';
 				"asset_number": device.AssetNumber,
 				"location":     device.Location,
 				"web_ui_url":   device.WebUIURL,
+				// New unified device type fields
+				"device_type":        device.DeviceType,
+				"source_type":        device.SourceType,
+				"is_usb":             device.IsUSB,
+				"initial_page_count": device.InitialPageCount,
+				"port_name":          device.PortName,
+				"driver_name":        device.DriverName,
+				"is_default":         device.IsDefault,
+				"is_shared":          device.IsShared,
+				"spooler_status":     device.SpoolerStatus,
 			})
 		}
 
@@ -5904,6 +5914,17 @@ window.top.location.href = '/proxy/%s/';
 				"first_seen":      device.FirstSeen,
 				"is_saved":        device.IsSaved,
 
+				// New unified device type fields
+				"device_type":        device.DeviceType,
+				"source_type":        device.SourceType,
+				"is_usb":             device.IsUSB,
+				"initial_page_count": device.InitialPageCount,
+				"port_name":          device.PortName,
+				"driver_name":        device.DriverName,
+				"is_default":         device.IsDefault,
+				"is_shared":          device.IsShared,
+				"spooler_status":     device.SpoolerStatus,
+
 				// Include RawData if present for extended fields
 				"raw_data": device.RawData,
 			}
@@ -5956,6 +5977,134 @@ window.top.location.href = '/proxy/%s/';
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"device":         device,
 			"latest_metrics": snapshot,
+		})
+	})
+
+	// POST /api/devices/initial-page-count - Set initial page count baseline for audit trail
+	http.HandleFunc("/api/devices/initial-page-count", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Serial   string `json:"serial"`
+			Count    int    `json:"count"`
+			Reason   string `json:"reason,omitempty"`
+			Username string `json:"username,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad json", http.StatusBadRequest)
+			return
+		}
+		if req.Serial == "" {
+			http.Error(w, "serial required", http.StatusBadRequest)
+			return
+		}
+		if req.Count < 0 {
+			http.Error(w, "count must be non-negative", http.StatusBadRequest)
+			return
+		}
+
+		// Default username if not provided
+		if req.Username == "" {
+			req.Username = "system"
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		if err := deviceStore.SetInitialPageCount(ctx, req.Serial, req.Count, req.Username, req.Reason); err != nil {
+			if err == storage.ErrNotFound {
+				http.Error(w, "device not found", http.StatusNotFound)
+				return
+			}
+			appLogger.Error("Failed to set initial page count", "serial", req.Serial, "error", err)
+			http.Error(w, "failed to set initial page count: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		appLogger.Info("Initial page count set", "serial", req.Serial, "count", req.Count, "by", req.Username)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"serial":  req.Serial,
+			"count":   req.Count,
+		})
+	})
+
+	// GET /api/devices/audit - Get page count audit history for a device
+	http.HandleFunc("/api/devices/audit", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		serial := r.URL.Query().Get("serial")
+		if serial == "" {
+			http.Error(w, "serial parameter required", http.StatusBadRequest)
+			return
+		}
+
+		// Optional limit parameter (default: 100)
+		limit := 100
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+				limit = parsed
+			}
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		audits, err := deviceStore.GetPageCountAudit(ctx, serial, limit)
+		if err != nil {
+			appLogger.Error("Failed to get page count audit", "serial", serial, "error", err)
+			http.Error(w, "failed to get audit history: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"serial": serial,
+			"audits": audits,
+			"count":  len(audits),
+		})
+	})
+
+	// GET /api/devices/usage - Get page count usage since initial baseline
+	http.HandleFunc("/api/devices/usage", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		serial := r.URL.Query().Get("serial")
+		if serial == "" {
+			http.Error(w, "serial parameter required", http.StatusBadRequest)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+
+		usage, initial, current, err := deviceStore.GetPageCountUsage(ctx, serial)
+		if err != nil {
+			if err == storage.ErrNotFound {
+				http.Error(w, "device not found", http.StatusNotFound)
+				return
+			}
+			appLogger.Error("Failed to get page count usage", "serial", serial, "error", err)
+			http.Error(w, "failed to get usage: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"serial":             serial,
+			"usage":              usage,
+			"initial_page_count": initial,
+			"current_page_count": current,
 		})
 	})
 

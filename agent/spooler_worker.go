@@ -11,13 +11,15 @@ import (
 
 	"printmaster/agent/spooler"
 	"printmaster/agent/storage"
+	commonstorage "printmaster/common/storage"
 )
 
 // SpoolerWorker manages the print spooler watcher and integrates with storage
 type SpoolerWorker struct {
-	watcher *spooler.Watcher
-	store   storage.LocalPrinterStore
-	logger  Logger
+	watcher     *spooler.Watcher
+	store       storage.LocalPrinterStore
+	deviceStore storage.DeviceStore // For syncing to unified devices table
+	logger      Logger
 
 	mu      sync.RWMutex
 	running bool
@@ -55,11 +57,18 @@ func NewSpoolerWorker(store storage.LocalPrinterStore, config SpoolerWorkerConfi
 		AutoTrackLocal:         config.AutoTrackLocal,
 	}
 
-	return &SpoolerWorker{
+	worker := &SpoolerWorker{
 		watcher: spooler.NewWatcher(watcherConfig, logger),
 		store:   store,
 		logger:  logger,
 	}
+
+	// Check if store also implements DeviceStore (SQLiteStore does)
+	if deviceStore, ok := store.(storage.DeviceStore); ok {
+		worker.deviceStore = deviceStore
+	}
+
+	return worker
 }
 
 // Start begins monitoring the print spooler
@@ -332,6 +341,175 @@ func (w *SpoolerWorker) syncPrinters() {
 				"printer", p.Name,
 				"error", err)
 		}
+
+		// Also sync to unified devices table if device store is available
+		// Only sync printers that have serial numbers (USB printers)
+		if w.deviceStore != nil && p.SerialNumber != "" {
+			w.syncPrinterToDevice(ctx, p, storagePrinter)
+		}
+	}
+}
+
+// syncPrinterToDevice syncs a local printer to the unified devices table
+// This uses a merge strategy: SNMP data is authoritative for network fields,
+// spooler data is authoritative for local/driver fields.
+func (w *SpoolerWorker) syncPrinterToDevice(ctx context.Context, p *spooler.LocalPrinter, storagePrinter *storage.LocalPrinter) {
+	// Map spooler printer type to device type
+	deviceType := commonstorage.DeviceTypeLocal
+	switch p.Type {
+	case spooler.PrinterTypeUSB:
+		deviceType = commonstorage.DeviceTypeUSB
+	case spooler.PrinterTypeNetwork:
+		deviceType = commonstorage.DeviceTypeNetwork
+	case spooler.PrinterTypeVirtual:
+		deviceType = commonstorage.DeviceTypeVirtual
+	case spooler.PrinterTypeLocal:
+		deviceType = commonstorage.DeviceTypeLocal
+	}
+
+	// Override to shared if the printer is shared (but not USB)
+	if p.IsShared && deviceType != commonstorage.DeviceTypeUSB {
+		deviceType = commonstorage.DeviceTypeShared
+	}
+
+	// Check if device already exists (may have been discovered via SNMP)
+	existingDevice, err := w.deviceStore.Get(ctx, p.SerialNumber)
+	existsInDB := err == nil && existingDevice != nil
+
+	// If device exists and was discovered via SNMP, use merge strategy
+	// SNMP provides richer network data, spooler provides local/driver data
+	if existsInDB && existingDevice.SourceType == commonstorage.SourceTypeSNMP {
+		// Merge: Update spooler-specific fields only, preserve SNMP network data
+		w.mergeSpoolerIntoSNMPDevice(ctx, existingDevice, p, storagePrinter)
+		return
+	}
+
+	// No existing device, or existing device was from spooler - do full sync
+	device := &storage.Device{
+		Device: commonstorage.Device{
+			Serial:          p.SerialNumber,
+			IP:              "", // Local/USB printers don't have IP
+			Manufacturer:    p.Manufacturer,
+			Model:           p.Model,
+			Hostname:        p.Name, // Use printer name as hostname
+			LastSeen:        p.LastSeen,
+			FirstSeen:       p.FirstSeen,
+			DiscoveryMethod: "spooler",
+			DeviceType:      deviceType,
+			SourceType:      commonstorage.SourceTypeSpooler,
+			IsUSB:           p.Type == spooler.PrinterTypeUSB,
+			PortName:        p.PortName,
+			DriverName:      p.DriverName,
+			IsDefault:       p.IsDefault,
+			IsShared:        p.IsShared,
+			SpoolerStatus:   p.Status,
+		},
+		IsSaved: true, // Auto-save spooler printers
+		Visible: true,
+	}
+
+	// Preserve user-set fields from existing device
+	if existsInDB {
+		// Keep existing values for user-configurable fields
+		if existingDevice.AssetNumber != "" {
+			device.AssetNumber = existingDevice.AssetNumber
+		}
+		if existingDevice.Location != "" {
+			device.Location = existingDevice.Location
+		}
+		if existingDevice.Description != "" {
+			device.Description = existingDevice.Description
+		}
+		if existingDevice.WebUIURL != "" {
+			device.WebUIURL = existingDevice.WebUIURL
+		}
+		// Preserve initial page count (for audit trail)
+		device.InitialPageCount = existingDevice.InitialPageCount
+		// Preserve created_at and first_seen
+		device.CreatedAt = existingDevice.CreatedAt
+		device.FirstSeen = existingDevice.FirstSeen
+		// Preserve locked fields
+		device.LockedFields = existingDevice.LockedFields
+		// Preserve save state
+		device.IsSaved = existingDevice.IsSaved
+	} else {
+		// New device - set creation timestamps
+		now := time.Now()
+		device.CreatedAt = now
+		device.FirstSeen = now
+	}
+
+	// Copy user-set fields from local printer storage
+	if storagePrinter.AssetNumber != "" && device.AssetNumber == "" {
+		device.AssetNumber = storagePrinter.AssetNumber
+	}
+	if storagePrinter.Location != "" && device.Location == "" {
+		device.Location = storagePrinter.Location
+	}
+	if storagePrinter.Description != "" && device.Description == "" {
+		device.Description = storagePrinter.Description
+	}
+
+	if err := w.deviceStore.Upsert(ctx, device); err != nil {
+		w.logger.Warn("Failed to sync spooler printer to devices table",
+			"printer", p.Name,
+			"serial", p.SerialNumber,
+			"error", err)
+	} else {
+		w.logger.Debug("Synced spooler printer to devices table",
+			"printer", p.Name,
+			"serial", p.SerialNumber,
+			"type", deviceType)
+	}
+}
+
+// mergeSpoolerIntoSNMPDevice updates an SNMP-discovered device with spooler-specific fields
+// without overwriting the richer SNMP network data (IP, firmware, MAC, etc.)
+func (w *SpoolerWorker) mergeSpoolerIntoSNMPDevice(ctx context.Context, existing *storage.Device, p *spooler.LocalPrinter, storagePrinter *storage.LocalPrinter) {
+	// Only update spooler-specific fields, preserve SNMP data
+	existing.PortName = p.PortName
+	existing.DriverName = p.DriverName
+	existing.IsDefault = p.IsDefault
+	existing.IsShared = p.IsShared
+	existing.SpoolerStatus = p.Status
+	existing.LastSeen = p.LastSeen
+
+	// If spooler says it's USB, update the IsUSB flag
+	if p.Type == spooler.PrinterTypeUSB {
+		existing.IsUSB = true
+	}
+
+	// Update device type to reflect shared status if applicable
+	// But preserve "network" if it was network AND shared
+	if p.IsShared && existing.DeviceType == commonstorage.DeviceTypeNetwork {
+		// Keep as network - it's a network printer that's also shared locally
+		// The IsShared flag will show this in the UI
+	} else if p.IsShared && existing.DeviceType != commonstorage.DeviceTypeUSB {
+		existing.DeviceType = commonstorage.DeviceTypeShared
+	}
+
+	// Merge user-set fields (prefer existing, then spooler storage)
+	if existing.AssetNumber == "" && storagePrinter.AssetNumber != "" {
+		existing.AssetNumber = storagePrinter.AssetNumber
+	}
+	if existing.Location == "" && storagePrinter.Location != "" {
+		existing.Location = storagePrinter.Location
+	}
+	if existing.Description == "" && storagePrinter.Description != "" {
+		existing.Description = storagePrinter.Description
+	}
+
+	if err := w.deviceStore.Update(ctx, existing); err != nil {
+		w.logger.Warn("Failed to merge spooler data into SNMP device",
+			"printer", p.Name,
+			"serial", p.SerialNumber,
+			"error", err)
+	} else {
+		w.logger.Debug("Merged spooler data into SNMP device",
+			"printer", p.Name,
+			"serial", p.SerialNumber,
+			"device_type", existing.DeviceType,
+			"is_shared", existing.IsShared)
 	}
 }
 

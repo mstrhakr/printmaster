@@ -135,4 +135,24 @@ type DeviceStore interface {
 	// DeleteMetricByID removes a single metrics row by id from a specified tier/table.
 	// If tier is empty, implementations should attempt to find and delete the id from known metric tables.
 	DeleteMetricByID(ctx context.Context, tier string, id int64) error
+
+	// Page Count Audit Trail
+
+	// AddPageCountAudit records a page count change in the audit trail
+	AddPageCountAudit(ctx context.Context, audit *PageCountAudit) error
+
+	// GetPageCountAudit retrieves page count audit history for a device
+	GetPageCountAudit(ctx context.Context, serial string, limit int) ([]*PageCountAudit, error)
+
+	// GetPageCountAuditSince retrieves audit entries after a specific time
+	GetPageCountAuditSince(ctx context.Context, serial string, since time.Time) ([]*PageCountAudit, error)
+
+	// DeleteOldPageCountAudit removes audit entries older than the specified time
+	DeleteOldPageCountAudit(ctx context.Context, olderThan time.Time) (int, error)
+
+	// SetInitialPageCount sets the initial page count for a device and records it in the audit trail
+	SetInitialPageCount(ctx context.Context, serial string, initialCount int, changedBy string, reason string) error
+
+	// GetPageCountUsage calculates the page count usage since the initial baseline
+	GetPageCountUsage(ctx context.Context, serial string) (usage int, initial int, current int, err error)
 }
