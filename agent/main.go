@@ -5185,30 +5185,44 @@ func runInteractive(ctx context.Context, configFlag string) {
 			}
 		}
 
-		// Check if this is a USB printer first - if so, route through USB proxy
-		// This provides seamless proxy support for both USB and network printers
-		if CanUSBProxySerial(serial) {
-			appLogger.Debug("Proxy: routing to USB proxy", "serial", serial, "path", r.URL.Path)
-			if HandleUSBProxy(w, r, serial) {
-				return // USB proxy handled the request
+		// Check if this is a USB printer - if so, we'll use USB transport with the standard proxy flow
+		// This ensures all URL rewriting logic is applied consistently
+		var usbTransport http.RoundTripper
+		isUSBDevice := CanUSBProxySerial(serial)
+		if isUSBDevice {
+			var err error
+			usbTransport, err = GetUSBTransportForSerial(serial)
+			if err != nil {
+				appLogger.Warn("Proxy: USB transport error", "serial", serial, "error", err.Error())
+				http.Error(w, "USB printer connection failed: "+err.Error(), http.StatusBadGateway)
+				return
 			}
-			// Fall through to network proxy if USB proxy couldn't handle it
-			appLogger.Debug("Proxy: USB proxy couldn't handle request, falling back to network", "serial", serial)
+			appLogger.Debug("Proxy: using USB transport", "serial", serial, "path", r.URL.Path)
 		}
 
-		// Look up device (use the timeout context from above)
-		device, err := deviceStore.Get(ctx, serial)
-		if err != nil {
-			appLogger.Warn("Proxy: device lookup failed", "serial", serial, "error", err.Error(), "path", r.URL.Path)
-			http.Error(w, "device not found: "+err.Error(), http.StatusNotFound)
-			return
-		}
-		appLogger.Debug("Proxy: device found", "serial", serial, "ip", device.IP, "manufacturer", device.Manufacturer)
+		// For USB devices, we don't need to look up network device info
+		// Create a virtual target URL for USB (localhost is standard for IPP-USB)
+		var device *storage.Device
+		var targetURL string
+		if isUSBDevice {
+			// USB devices use localhost as the virtual target (IPP-USB spec)
+			targetURL = "http://localhost"
+		} else {
+			// Look up network device (use the timeout context from above)
+			var err error
+			device, err = deviceStore.Get(ctx, serial)
+			if err != nil {
+				appLogger.Warn("Proxy: device lookup failed", "serial", serial, "error", err.Error(), "path", r.URL.Path)
+				http.Error(w, "device not found: "+err.Error(), http.StatusNotFound)
+				return
+			}
+			appLogger.Debug("Proxy: device found", "serial", serial, "ip", device.IP, "manufacturer", device.Manufacturer)
 
-		// Determine target URL (prefer web_ui_url, fallback to http://<ip>)
-		targetURL := device.WebUIURL
-		if targetURL == "" {
-			targetURL = "http://" + device.IP
+			// Determine target URL (prefer web_ui_url, fallback to http://<ip>)
+			targetURL = device.WebUIURL
+			if targetURL == "" {
+				targetURL = "http://" + device.IP
+			}
 		}
 
 		target, err := url.Parse(targetURL)
@@ -5555,23 +5569,27 @@ window.top.location.href = '/proxy/%s/';
 			}
 		}
 
-		// Configure transport to handle HTTPS with self-signed certs
-		rproxy.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				// #nosec G402 -- InsecureSkipVerify intentionally enabled:
-				// Network printers commonly use self-signed SSL certificates.
-				// This reverse proxy connects to printer web interfaces on local networks.
-				InsecureSkipVerify: true,
-			},
-			MaxIdleConns:          10,
-			IdleConnTimeout:       60 * time.Second,
-			DisableCompression:    false,
-			DisableKeepAlives:     false,
-			ResponseHeaderTimeout: 30 * time.Second,
-			DialContext: (&net.Dialer{
-				Timeout:   15 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
+		// Configure transport - use USB transport for USB devices, HTTP transport for network
+		if usbTransport != nil {
+			rproxy.Transport = usbTransport
+		} else {
+			rproxy.Transport = &http.Transport{
+				TLSClientConfig: &tls.Config{
+					// #nosec G402 -- InsecureSkipVerify intentionally enabled:
+					// Network printers commonly use self-signed SSL certificates.
+					// This reverse proxy connects to printer web interfaces on local networks.
+					InsecureSkipVerify: true,
+				},
+				MaxIdleConns:          10,
+				IdleConnTimeout:       60 * time.Second,
+				DisableCompression:    false,
+				DisableKeepAlives:     false,
+				ResponseHeaderTimeout: 30 * time.Second,
+				DialContext: (&net.Dialer{
+					Timeout:   15 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+			}
 		}
 
 		appLogger.TraceTag("proxy_request", "Proxy request", "method", r.Method, "path", originalPath, "prefix", proxyPrefix, "target", target.String(), "target_path", targetPath)

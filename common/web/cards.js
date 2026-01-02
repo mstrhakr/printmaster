@@ -149,8 +149,9 @@
         let webUIUrl = item && item.web_ui_url ? item.web_ui_url : '';
         const isUSB = item && (item.is_usb || item.device_type === 'usb');
         if (isUSB && serial && !webUIUrl) {
-            // USB devices use the IPP-USB proxy endpoint
-            webUIUrl = '/api/usbproxy/' + encodeURIComponent(serial) + '/';
+            // USB devices use the unified /proxy/ endpoint (same as network devices)
+            // The agent automatically routes USB serials to IPP-USB proxy
+            webUIUrl = '/proxy/' + encodeURIComponent(serial) + '/';
         }
 
         return `<div class="saved-device-card card-entering" data-device-key="${deviceKey}" data-make="${device.manufacturer||''}" data-model="${device.model||''}" data-ip="${device.ip||''}" data-serial="${serial}" data-device-type="${item&&item.device_type||''}" data-source-type="${item&&item.source_type||''}" data-is-usb="${isUSB}">` +

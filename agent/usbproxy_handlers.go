@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -77,6 +78,19 @@ func CanUSBProxySerial(serial string) bool {
 		return false
 	}
 	return manager.CanProxySerial(serial)
+}
+
+// GetUSBTransportForSerial returns an http.RoundTripper for a USB printer
+// This allows the main proxy handler to use USB transport with standard reverse proxy
+func GetUSBTransportForSerial(serial string) (http.RoundTripper, error) {
+	usbProxyManagerMu.RLock()
+	manager := usbProxyManager
+	usbProxyManagerMu.RUnlock()
+
+	if manager == nil {
+		return nil, fmt.Errorf("USB proxy not available")
+	}
+	return manager.GetTransportForSerial(serial)
 }
 
 // HandleUSBProxy handles proxy requests for USB printers

@@ -349,16 +349,17 @@ func (e *WindowsEnumerator) getInterfaceInfo(devicePath string) *USBInterface {
 func (e *WindowsEnumerator) getDeviceInfoFromRegistry(devicePath string, vid, pid uint16) (serial, product, manufacturer string) {
 	// Parse serial from device path if available
 	// Device path format: \\?\usb#vid_03f0&pid_422a#SERIAL#{guid}
+	// Or for composite: \\?\usb#vid_03f0&pid_422a&mi_03#INSTANCE#{guid}
 	pathUpper := strings.ToUpper(devicePath)
 
 	// Try to extract serial from the path
 	parts := strings.Split(pathUpper, "#")
 	if len(parts) >= 3 {
-		// The third part is typically the serial number
+		// The third part is typically the serial number or instance ID
 		potentialSerial := parts[2]
 		// Serial numbers don't contain '&' - interface instances do
 		if !strings.Contains(potentialSerial, "&") && potentialSerial != "" {
-			serial = parts[2] // Keep original case
+			// Extract with original case
 			if idx := strings.Index(devicePath, "#"); idx > 0 {
 				if idx2 := strings.Index(devicePath[idx+1:], "#"); idx2 > 0 {
 					if idx3 := strings.Index(devicePath[idx+idx2+2:], "#"); idx3 > 0 {
@@ -369,16 +370,26 @@ func (e *WindowsEnumerator) getDeviceInfoFromRegistry(devicePath string, vid, pi
 		}
 	}
 
-	// Look up device info in registry
+	// For composite devices (with &MI_xx in path), look up the parent device
+	// which contains the actual serial number
+	isComposite := strings.Contains(pathUpper, "&MI_")
+
+	// Look up device info in registry - try parent VID/PID key first (without MI)
 	vidPidKey := fmt.Sprintf("VID_%04X&PID_%04X", vid, pid)
 	usbKey, err := registry.OpenKey(registry.LOCAL_MACHINE,
 		`SYSTEM\CurrentControlSet\Enum\USB\`+vidPidKey, registry.READ)
 	if err == nil {
 		defer usbKey.Close()
 
-		// Enumerate instances to find one with matching serial or get info
+		// Enumerate instances to find one with a valid serial number
 		instances, _ := usbKey.ReadSubKeyNames(-1)
 		for _, instance := range instances {
+			// Skip instance IDs with '&' (these are Windows-generated, not real serials)
+			// Real serial numbers are alphanumeric without '&'
+			if strings.Contains(instance, "&") {
+				continue
+			}
+
 			instanceKey, err := registry.OpenKey(usbKey, instance, registry.READ)
 			if err != nil {
 				continue
@@ -403,9 +414,14 @@ func (e *WindowsEnumerator) getDeviceInfoFromRegistry(devicePath string, vid, pi
 				}
 			}
 
-			// If no serial from path and this instance doesn't have '&', use it as serial
-			if serial == "" && !strings.Contains(instance, "&") {
+			// Use this instance as the serial number (it's the actual USB serial)
+			if serial == "" {
 				serial = instance
+				e.logger.Debug("Found serial from registry",
+					"serial", serial,
+					"vid", fmt.Sprintf("%04X", vid),
+					"pid", fmt.Sprintf("%04X", pid),
+					"composite", isComposite)
 			}
 
 			instanceKey.Close()

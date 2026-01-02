@@ -311,6 +311,22 @@ func (m *Manager) GetSession(devicePath string) (*ProxySession, bool) {
 	return nil, false
 }
 
+// GetTransportForSerial returns an http.RoundTripper for a USB printer by serial
+// This allows using USB transport with httputil.ReverseProxy for URL rewriting
+func (m *Manager) GetTransportForSerial(serial string) (http.RoundTripper, error) {
+	printer, found := m.GetPrinterForProxy(serial)
+	if !found {
+		return nil, fmt.Errorf("USB printer not found: %s", serial)
+	}
+
+	session, err := m.GetOrCreateSession(printer.DevicePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return session.Transport, nil
+}
+
 // ProxyRequest handles a proxy request for a USB printer
 func (m *Manager) ProxyRequest(w http.ResponseWriter, r *http.Request, devicePath string) {
 	session, err := m.GetOrCreateSession(devicePath)
@@ -328,13 +344,39 @@ func (m *Manager) createProxyHandler(session *ProxySession) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session.UpdateLastUsed()
 
+		// Strip the /proxy/<serial> prefix from the path
+		// The incoming request has path like /proxy/SERIAL/path/to/resource
+		// We need to send just /path/to/resource to the printer
+		originalPath := r.URL.Path
+		strippedPath := originalPath
+
+		// Find and strip the /proxy/<serial> prefix
+		if strings.HasPrefix(originalPath, "/proxy/") {
+			parts := strings.SplitN(strings.TrimPrefix(originalPath, "/proxy/"), "/", 2)
+			if len(parts) >= 2 {
+				strippedPath = "/" + parts[1]
+			} else {
+				strippedPath = "/"
+			}
+		}
+
+		// Clone the request and update the path
+		proxyReq := r.Clone(r.Context())
+		proxyReq.URL.Path = strippedPath
+		proxyReq.RequestURI = "" // Must clear for client requests
+
+		m.logger.Debug("USB proxy request",
+			"original_path", originalPath,
+			"stripped_path", strippedPath,
+			"method", r.Method)
+
 		// Send request via USB transport
-		resp, err := session.Transport.RoundTrip(r)
+		resp, err := session.Transport.RoundTrip(proxyReq)
 		if err != nil {
 			m.logger.Error("USB transport error",
 				"device", session.Printer.DevicePath,
 				"error", err,
-				"path", r.URL.Path)
+				"path", strippedPath)
 			http.Error(w, fmt.Sprintf("USB transport error: %v", err), http.StatusBadGateway)
 			return
 		}
@@ -343,12 +385,15 @@ func (m *Manager) createProxyHandler(session *ProxySession) http.Handler {
 		// Copy response headers
 		copyResponseHeaders(w.Header(), resp.Header)
 
-		// Rewrite Location headers for redirects
+		// Rewrite Location headers for redirects to include proxy prefix
 		if loc := resp.Header.Get("Location"); loc != "" {
 			if strings.HasPrefix(loc, "/") {
-				// Preserve the proxy path prefix
-				// The actual prefix will be set by the agent's route handler
-				w.Header().Set("Location", loc)
+				// Add back the proxy prefix for redirects
+				serial := session.Printer.SerialNumber
+				if serial == "" {
+					serial = session.Printer.SpoolerPortName
+				}
+				w.Header().Set("Location", "/proxy/"+serial+loc)
 			}
 		}
 
