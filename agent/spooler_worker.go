@@ -385,6 +385,9 @@ func (w *SpoolerWorker) syncPrinterToDevice(ctx context.Context, p *spooler.Loca
 	}
 
 	// No existing device, or existing device was from spooler - do full sync
+	// Spooler devices now go through the same discovery flow as network devices:
+	// - New devices start with IsSaved=false (appear in discovered queue)
+	// - User can save/hide them, or auto-save setting applies
 	device := &storage.Device{
 		Device: commonstorage.Device{
 			Serial:          p.SerialNumber,
@@ -404,7 +407,7 @@ func (w *SpoolerWorker) syncPrinterToDevice(ctx context.Context, p *spooler.Loca
 			IsShared:        p.IsShared,
 			SpoolerStatus:   p.Status,
 		},
-		IsSaved: true, // Auto-save spooler printers
+		IsSaved: false, // Start in discovered queue, same as network devices
 		Visible: true,
 	}
 

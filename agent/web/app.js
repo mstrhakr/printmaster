@@ -890,13 +890,17 @@ function updatePrinters() {
             }
 
             // Autosave new discovered devices if enabled
+            // Works for both network devices (by IP) and USB/spooler devices (by serial)
             if (autosaveEnabled && Array.isArray(discovered) && discovered.length > 0) {
-                if (!window.autosavedIPs) window.autosavedIPs = new Set();
+                if (!window.autosavedSerials) window.autosavedSerials = new Set();
                 discovered.forEach(p => {
                     const isSaved = (p.serial && savedSerials.has(p.serial)) || (p.ip && savedIPs.has(p.ip));
-                    if (p.ip && !isSaved && !window.autosavedIPs.has(p.ip)) {
-                        window.autosavedIPs.add(p.ip);
-                        window.__pm_shared.saveDiscoveredDevice(p.ip, true).catch(() => { window.autosavedIPs.delete(p.ip); });
+                    // Use serial as the identifier (works for USB devices without IP)
+                    // Falls back to IP for legacy network devices without serial
+                    const identifier = p.serial || p.ip;
+                    if (identifier && !isSaved && !window.autosavedSerials.has(identifier)) {
+                        window.autosavedSerials.add(identifier);
+                        window.__pm_shared.saveDiscoveredDevice(identifier, true).catch(() => { window.autosavedSerials.delete(identifier); });
                     }
                 });
             }
@@ -3413,7 +3417,6 @@ function showTab(name) {
     if (label) {
         const tabNames = {
             'devices': 'Devices',
-            'local-printers': 'Local Printers',
             'settings': 'Settings',
             'logs': 'Logs'
         };
@@ -3430,11 +3433,6 @@ function showTab(name) {
     // if devices tab, refresh both discovered and saved devices tables
     if (name === 'devices') {
         updatePrinters();
-    }
-
-    // if local-printers tab, refresh local printers
-    if (name === 'local-printers') {
-        loadLocalPrinters();
     }
 
     // if settings tab, load settings
@@ -5255,190 +5253,3 @@ function initServerConnectionControls() {
 }
 
 try { document.addEventListener('DOMContentLoaded', initServerConnectionControls); } catch (e) {}
-
-// ============================================
-// LOCAL PRINTERS SECTION
-// ============================================
-
-/**
- * Updates the visibility of the Local Printers tab based on spooler enabled setting
- */
-function updateLocalPrintersTabVisibility(enabled) {
-    const tabMobile = document.getElementById('local_printers_tab_mobile');
-    const tabDesktop = document.getElementById('local_printers_tab_desktop');
-    if (tabMobile) tabMobile.style.display = enabled ? '' : 'none';
-    if (tabDesktop) tabDesktop.style.display = enabled ? '' : 'none';
-}
-
-/**
- * Fetches and displays local printers from the spooler API
- */
-async function loadLocalPrinters() {
-    const cardsContainer = document.getElementById('local_printers_cards');
-    const emptyMsg = document.getElementById('local_printers_empty');
-    const statsContainer = document.getElementById('local_printers_stats');
-    const statusSpan = document.getElementById('local_printers_status');
-
-    if (!cardsContainer) return;
-
-    try {
-        if (statusSpan) statusSpan.textContent = 'Loading...';
-        
-        const res = await fetch('/api/local-printers');
-        if (!res.ok) {
-            throw new Error('Failed to fetch local printers: ' + res.status);
-        }
-        const data = await res.json();
-        
-        // Handle response format: { supported, running, printers: [...] }
-        if (!data.supported) {
-            if (cardsContainer) {
-                cardsContainer.innerHTML = `<div style="color:var(--muted);padding:12px;">Local printer monitoring is only supported on Windows.</div>`;
-            }
-            if (statusSpan) statusSpan.textContent = '';
-            return;
-        }
-        
-        const printers = data.printers || [];
-
-        if (!printers || printers.length === 0) {
-            cardsContainer.innerHTML = '';
-            if (emptyMsg) emptyMsg.style.display = 'block';
-            if (statsContainer) statsContainer.innerHTML = '';
-            if (statusSpan) statusSpan.textContent = '';
-            return;
-        }
-
-        if (emptyMsg) emptyMsg.style.display = 'none';
-
-        // Calculate stats
-        const tracked = printers.filter(p => p.tracking_enabled).length;
-        const totalPages = printers.reduce((sum, p) => sum + (p.total_pages || 0) + (p.baseline_pages || 0), 0);
-        const defaultPrinter = printers.find(p => p.is_default);
-
-        if (statsContainer) {
-            statsContainer.innerHTML = `
-                <span><strong>${printers.length}</strong> printers</span>
-                <span><strong>${tracked}</strong> tracked</span>
-                <span><strong>${totalPages.toLocaleString()}</strong> total pages</span>
-                ${defaultPrinter ? `<span>Default: <strong>${escapeHtml(defaultPrinter.name)}</strong></span>` : ''}
-            `;
-        }
-
-        // Render printer cards
-        cardsContainer.innerHTML = printers.map(p => renderLocalPrinterCard(p)).join('');
-
-        if (statusSpan) statusSpan.textContent = 'Updated ' + new Date().toLocaleTimeString();
-
-    } catch (err) {
-        window.__pm_shared.error('loadLocalPrinters failed', err);
-        if (statusSpan) statusSpan.textContent = 'Error loading printers';
-        if (cardsContainer) {
-            cardsContainer.innerHTML = `<div style="color:var(--error);padding:12px;">Failed to load local printers: ${escapeHtml(err.message)}</div>`;
-        }
-    }
-}
-
-/**
- * Renders a single local printer card
- */
-function renderLocalPrinterCard(printer) {
-    const name = escapeHtml(printer.name || 'Unknown');
-    const model = escapeHtml(printer.model || printer.driver_name || 'Unknown model');
-    const manufacturer = escapeHtml(printer.manufacturer || '');
-    const printerType = escapeHtml(printer.printer_type || 'unknown');
-    const status = escapeHtml(printer.status || 'unknown');
-    const totalPages = (printer.total_pages || 0) + (printer.baseline_pages || 0);
-    const lastSeen = printer.last_seen ? new Date(printer.last_seen).toLocaleString() : 'Never';
-    
-    const statusClass = status.toLowerCase() === 'ready' || status.toLowerCase() === 'idle' ? 'status-online' : 
-                        status.toLowerCase() === 'error' ? 'status-offline' : 'status-unknown';
-    
-    const badges = [];
-    if (printer.is_default) badges.push('<span class="badge badge-highlight">Default</span>');
-    if (printer.is_shared) badges.push('<span class="badge badge-info">Shared</span>');
-    if (printer.tracking_enabled) badges.push('<span class="badge badge-success">Tracking</span>');
-    
-    const typeIcon = printerType === 'network' ? '🌐' : 
-                     printerType === 'local' ? '🖨️' : 
-                     printerType === 'virtual' ? '📄' : '❓';
-
-    return `
-        <div class="device-card" data-printer-name="${escapeHtml(printer.name)}">
-            <div class="device-card-header">
-                <span class="device-name" title="${name}">${typeIcon} ${name}</span>
-                <span class="status-indicator ${statusClass}" title="${status}">${status}</span>
-            </div>
-            <div class="device-card-body">
-                <div class="device-info-row">
-                    <span class="device-label">Model:</span>
-                    <span class="device-value">${manufacturer ? manufacturer + ' ' : ''}${model}</span>
-                </div>
-                <div class="device-info-row">
-                    <span class="device-label">Type:</span>
-                    <span class="device-value">${printerType}</span>
-                </div>
-                <div class="device-info-row">
-                    <span class="device-label">Pages:</span>
-                    <span class="device-value">${totalPages.toLocaleString()}</span>
-                </div>
-                <div class="device-info-row">
-                    <span class="device-label">Last Seen:</span>
-                    <span class="device-value">${lastSeen}</span>
-                </div>
-                ${badges.length ? `<div class="device-badges" style="margin-top:8px;">${badges.join(' ')}</div>` : ''}
-            </div>
-            <div class="device-card-actions">
-                <button class="small" onclick="toggleLocalPrinterTracking('${escapeHtml(printer.name)}', ${!printer.tracking_enabled})">
-                    ${printer.tracking_enabled ? 'Disable Tracking' : 'Enable Tracking'}
-                </button>
-            </div>
-        </div>
-    `;
-}
-
-/**
- * Toggle tracking for a local printer
- */
-async function toggleLocalPrinterTracking(printerName, enable) {
-    try {
-        const res = await fetch('/api/local-printers/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: printerName, tracking_enabled: enable })
-        });
-        if (!res.ok) {
-            throw new Error('Failed to update printer: ' + res.status);
-        }
-        window.__pm_shared.showToast(`Tracking ${enable ? 'enabled' : 'disabled'} for ${printerName}`, 'success', 2000);
-        loadLocalPrinters();
-    } catch (err) {
-        window.__pm_shared.error('toggleLocalPrinterTracking failed', err);
-        window.__pm_shared.showToast('Failed to update tracking: ' + err.message, 'error', 3000);
-    }
-}
-
-/**
- * Initialize local printers functionality
- */
-function initLocalPrinters() {
-    // Set up refresh button
-    const refreshBtn = document.getElementById('refresh_local_printers_btn');
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', loadLocalPrinters);
-    }
-
-    // Check initial spooler enabled state and show/hide tab
-    fetch('/api/settings')
-        .then(res => res.json())
-        .then(settings => {
-            const spoolerEnabled = settings?.spooler?.enabled !== false;
-            updateLocalPrintersTabVisibility(spoolerEnabled);
-        })
-        .catch(() => {
-            // If we can't fetch settings, hide the tab by default
-            updateLocalPrintersTabVisibility(false);
-        });
-}
-
-try { document.addEventListener('DOMContentLoaded', initLocalPrinters); } catch (e) {}
