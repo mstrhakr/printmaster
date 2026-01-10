@@ -20,7 +20,7 @@ type PostgresStore struct {
 	timescale *TimescaleSupport // TimescaleDB support (nil if disabled)
 }
 
-const pgSchemaVersion = 9
+const pgSchemaVersion = 10
 
 // NewPostgresStore creates a new PostgreSQL store.
 func NewPostgresStore(cfg *config.DatabaseConfig) (*PostgresStore, error) {
@@ -210,6 +210,14 @@ func (s *PostgresStore) initSchema() error {
 		web_ui_url TEXT,
 		raw_data TEXT,
 		tenant_id TEXT,
+		device_type TEXT,
+		source_type TEXT,
+		is_usb BOOLEAN DEFAULT FALSE,
+		port_name TEXT,
+		driver_name TEXT,
+		is_default BOOLEAN DEFAULT FALSE,
+		is_shared BOOLEAN DEFAULT FALSE,
+		spooler_status TEXT,
 		CONSTRAINT fk_devices_agent FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
 	);
 
@@ -879,6 +887,35 @@ func (s *PostgresStore) initSchema() error {
 			ALTER TABLE report_schedules
 			ADD CONSTRAINT fk_schedules_last_run
 			FOREIGN KEY (last_run_id) REFERENCES report_runs(id) ON DELETE SET NULL;
+		END IF;
+	END $$;
+
+	-- Add device columns for spooler integration (if not exists for upgrades)
+	DO $$
+	BEGIN
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'device_type') THEN
+			ALTER TABLE devices ADD COLUMN device_type TEXT;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'source_type') THEN
+			ALTER TABLE devices ADD COLUMN source_type TEXT;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'is_usb') THEN
+			ALTER TABLE devices ADD COLUMN is_usb BOOLEAN DEFAULT FALSE;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'port_name') THEN
+			ALTER TABLE devices ADD COLUMN port_name TEXT;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'driver_name') THEN
+			ALTER TABLE devices ADD COLUMN driver_name TEXT;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'is_default') THEN
+			ALTER TABLE devices ADD COLUMN is_default BOOLEAN DEFAULT FALSE;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'is_shared') THEN
+			ALTER TABLE devices ADD COLUMN is_shared BOOLEAN DEFAULT FALSE;
+		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'spooler_status') THEN
+			ALTER TABLE devices ADD COLUMN spooler_status TEXT;
 		END IF;
 	END $$;
 	`

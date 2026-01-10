@@ -723,3 +723,119 @@ func TestPostgresStore_FreshDatabaseInitialization(t *testing.T) {
 		})
 	})
 }
+
+// TestTimescaleDBStore_Integration runs tests against a TimescaleDB container
+// to verify TimescaleDB-specific features work correctly.
+func TestTimescaleDBStore_Integration(t *testing.T) {
+	WithTimescaleDBStore(t, func(t *testing.T, store *PostgresStore) {
+		ctx := context.Background()
+
+		// Test that TimescaleDB is detected and enabled
+		t.Run("TimescaleEnabled", func(t *testing.T) {
+			if !store.TimescaleEnabled() {
+				t.Error("TimescaleDB should be enabled when using TimescaleDB container")
+			}
+		})
+
+		// Test hypertable creation for metrics_history
+		t.Run("HypertableCreated", func(t *testing.T) {
+			var isHypertable bool
+			err := store.db.QueryRow(`
+				SELECT EXISTS (
+					SELECT 1 FROM timescaledb_information.hypertables 
+					WHERE hypertable_name = 'metrics_history'
+				)
+			`).Scan(&isHypertable)
+			if err != nil {
+				t.Fatalf("Failed to check hypertable: %v", err)
+			}
+			if !isHypertable {
+				t.Error("metrics_history should be a hypertable")
+			}
+		})
+
+		// Test server_metrics_history hypertable
+		t.Run("ServerMetricsHypertableCreated", func(t *testing.T) {
+			var isHypertable bool
+			err := store.db.QueryRow(`
+				SELECT EXISTS (
+					SELECT 1 FROM timescaledb_information.hypertables 
+					WHERE hypertable_name = 'server_metrics_history'
+				)
+			`).Scan(&isHypertable)
+			if err != nil {
+				t.Fatalf("Failed to check server_metrics_history hypertable: %v", err)
+			}
+			if !isHypertable {
+				t.Error("server_metrics_history should be a hypertable")
+			}
+		})
+
+		// Test basic CRUD operations work with TimescaleDB
+		t.Run("BasicOperations", func(t *testing.T) {
+			// Register an agent
+			agent := &Agent{
+				AgentID: "timescale-test-agent",
+				Name:    "TimescaleDB Test Agent",
+				Token:   "timescale-test-token",
+				Status:  "online",
+			}
+			if err := store.RegisterAgent(ctx, agent); err != nil {
+				t.Fatalf("RegisterAgent: %v", err)
+			}
+
+			// Create a device
+			device := &Device{
+				Device: commonstorage.Device{
+					Serial:       "SN-TSDB-001",
+					IP:           "192.168.1.200",
+					Manufacturer: "HP",
+					Model:        "LaserJet TSDB",
+				},
+				AgentID: "timescale-test-agent",
+			}
+			if err := store.UpsertDevice(ctx, device); err != nil {
+				t.Fatalf("UpsertDevice: %v", err)
+			}
+
+			// Save metrics (should use hypertable)
+			metrics := &MetricsSnapshot{
+				Serial:    "SN-TSDB-001",
+				AgentID:   "timescale-test-agent",
+				Timestamp: time.Now().UTC(),
+				PageCount: 5000,
+			}
+			if err := store.SaveMetrics(ctx, metrics); err != nil {
+				t.Fatalf("SaveMetrics: %v", err)
+			}
+
+			// Retrieve metrics
+			got, err := store.GetLatestMetrics(ctx, "SN-TSDB-001")
+			if err != nil {
+				t.Fatalf("GetLatestMetrics: %v", err)
+			}
+			if got == nil {
+				t.Fatal("GetLatestMetrics returned nil")
+			}
+			if got.PageCount != 5000 {
+				t.Errorf("PageCount = %d, want 5000", got.PageCount)
+			}
+		})
+
+		// Test compression policy (TimescaleDB feature)
+		t.Run("CompressionPolicyExists", func(t *testing.T) {
+			var hasPolicies bool
+			err := store.db.QueryRow(`
+				SELECT EXISTS (
+					SELECT 1 FROM timescaledb_information.jobs 
+					WHERE proc_name = 'policy_compression'
+				)
+			`).Scan(&hasPolicies)
+			if err != nil {
+				t.Fatalf("Failed to check compression policies: %v", err)
+			}
+			// Just log - compression policies are set up by initTimescale
+			t.Logf("Compression policies exist: %v", hasPolicies)
+		})
+	})
+}

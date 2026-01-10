@@ -128,3 +128,85 @@ func WithPostgresStore(t *testing.T, testFn func(t *testing.T, store *PostgresSt
 func PostgresTestDSN(host string, port int) string {
 	return fmt.Sprintf("postgres://testuser:testpass@%s:%d/printmaster_test?sslmode=disable", host, port)
 }
+
+// TimescaleDBTestContainer holds a running TimescaleDB container for testing
+type TimescaleDBTestContainer struct {
+	Container testcontainers.Container
+	DSN       string
+}
+
+// NewTimescaleDBTestContainer creates a new TimescaleDB container for testing.
+// This uses the official TimescaleDB image which includes PostgreSQL with the
+// TimescaleDB extension pre-installed.
+func NewTimescaleDBTestContainer(t *testing.T) (*TimescaleDBTestContainer, func()) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	// Use the official TimescaleDB image with PostgreSQL 16
+	pgContainer, err := postgres.Run(ctx,
+		"timescale/timescaledb:latest-pg16",
+		postgres.WithDatabase("printmaster_test"),
+		postgres.WithUsername("testuser"),
+		postgres.WithPassword("testpass"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(90*time.Second),
+		),
+	)
+	if err != nil {
+		t.Fatalf("failed to start TimescaleDB container: %v", err)
+	}
+
+	// Get connection string
+	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		pgContainer.Terminate(ctx)
+		t.Fatalf("failed to get connection string: %v", err)
+	}
+
+	cleanup := func() {
+		if err := pgContainer.Terminate(ctx); err != nil {
+			t.Logf("failed to terminate TimescaleDB container: %v", err)
+		}
+	}
+
+	return &TimescaleDBTestContainer{
+		Container: pgContainer,
+		DSN:       connStr,
+	}, cleanup
+}
+
+// NewTimescaleDBStoreFromContainer creates a PostgresStore connected to the TimescaleDB test container
+func NewTimescaleDBStoreFromContainer(t *testing.T, container *TimescaleDBTestContainer) *PostgresStore {
+	t.Helper()
+
+	cfg := &config.DatabaseConfig{
+		Driver: "postgres",
+		DSN:    container.DSN,
+	}
+
+	store, err := NewPostgresStore(cfg)
+	if err != nil {
+		t.Fatalf("failed to create PostgresStore with TimescaleDB: %v", err)
+	}
+
+	return store
+}
+
+// WithTimescaleDBStore is a test helper that creates a TimescaleDB container,
+// initializes a store, runs the test function, and cleans up.
+func WithTimescaleDBStore(t *testing.T, testFn func(t *testing.T, store *PostgresStore)) {
+	t.Helper()
+
+	SkipIfNoDocker(t)
+
+	container, cleanup := NewTimescaleDBTestContainer(t)
+	defer cleanup()
+
+	store := NewTimescaleDBStoreFromContainer(t, container)
+	defer store.Close()
+
+	testFn(t, store)
+}
