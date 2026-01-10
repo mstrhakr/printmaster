@@ -36,6 +36,7 @@ import (
 	"printmaster/agent/proxy"
 	"printmaster/agent/scanner"
 	"printmaster/agent/storage"
+	"printmaster/agent/usbproxy/metrics"
 	"printmaster/common/config"
 	"printmaster/common/logger"
 	pmsettings "printmaster/common/settings"
@@ -6706,18 +6707,109 @@ window.top.location.href = '/proxy/%s/';
 			return
 		}
 
-		if req.IP == "" {
-			// Try to get IP from database
+		// Check if this is a USB device - if so, use USB metrics collection
+		var device *storage.Device
+		if deviceStore != nil {
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			defer cancel()
-			device, err := deviceStore.Get(ctx, req.Serial)
-			if err == nil {
-				req.IP = device.IP
+			var err error
+			device, err = deviceStore.Get(ctx, req.Serial)
+			if err == nil && device != nil {
+				if req.IP == "" {
+					req.IP = device.IP
+				}
 			}
-			if req.IP == "" {
-				http.Error(w, "ip required", http.StatusBadRequest)
+		}
+
+		// Check for USB device type
+		if device != nil && (device.DeviceType == "usb" || device.IsUSB) {
+			// USB device - use USB proxy metrics collection
+			appLogger.Info("Collecting USB metrics", "serial", req.Serial)
+
+			usbProxyManagerMu.RLock()
+			manager := usbProxyManager
+			usbProxyManagerMu.RUnlock()
+
+			if manager == nil {
+				http.Error(w, "USB proxy not available", http.StatusServiceUnavailable)
 				return
 			}
+
+			// Get printer info
+			printer, found := manager.GetPrinterBySerial(req.Serial)
+			if !found {
+				http.Error(w, "USB printer not found", http.StatusNotFound)
+				return
+			}
+
+			// Get transport for the printer
+			transport, err := manager.GetTransportForSerial(req.Serial)
+			if err != nil {
+				http.Error(w, "Failed to get USB transport: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Create metrics collector
+			collector := metrics.NewCollector(transport, printer.Manufacturer, printer.Product, printer.VendorID)
+
+			// Collect metrics with timeout (USB is slow - allow 90 seconds)
+			metricsCtx, cancelMetrics := context.WithTimeout(r.Context(), 90*time.Second)
+			defer cancelMetrics()
+
+			usbMetrics, err := collector.Collect(metricsCtx)
+			if err != nil {
+				appLogger.Warn("USB metrics collection failed", "serial", req.Serial, "error", err.Error())
+				http.Error(w, "USB metrics collection failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			// Convert USB metrics to storage snapshot and save
+			storageSnapshot := &storage.MetricsSnapshot{}
+			storageSnapshot.Serial = req.Serial
+			storageSnapshot.Timestamp = time.Now()
+			storageSnapshot.PageCount = usbMetrics.TotalPages
+			storageSnapshot.ColorPages = usbMetrics.ColorPages
+			storageSnapshot.MonoPages = usbMetrics.MonoPages
+			storageSnapshot.CopyPages = usbMetrics.CopyPages
+			storageSnapshot.ScanCount = usbMetrics.ScanPages
+			storageSnapshot.TonerLevels = make(map[string]interface{})
+			if usbMetrics.TonerBlack > 0 {
+				storageSnapshot.TonerLevels["black"] = usbMetrics.TonerBlack
+			}
+			if usbMetrics.TonerCyan > 0 {
+				storageSnapshot.TonerLevels["cyan"] = usbMetrics.TonerCyan
+			}
+			if usbMetrics.TonerMagenta > 0 {
+				storageSnapshot.TonerLevels["magenta"] = usbMetrics.TonerMagenta
+			}
+			if usbMetrics.TonerYellow > 0 {
+				storageSnapshot.TonerLevels["yellow"] = usbMetrics.TonerYellow
+			}
+
+			// Save to database
+			saveCtx, saveCancel := context.WithTimeout(r.Context(), 10*time.Second)
+			defer saveCancel()
+			if err := deviceStore.SaveMetricsSnapshot(saveCtx, storageSnapshot); err != nil {
+				appLogger.Warn("Failed to save USB metrics", "serial", req.Serial, "error", err.Error())
+				http.Error(w, "failed to save USB metrics: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+
+			appLogger.Info("USB metrics collected and saved", "serial", req.Serial, "total_pages", usbMetrics.TotalPages)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"serial":      req.Serial,
+				"total_pages": usbMetrics.TotalPages,
+				"source":      "usb",
+				"saved":       true,
+			})
+			return
+		}
+
+		// Network device - use SNMP metrics collection (original code)
+		if req.IP == "" {
+			http.Error(w, "ip required", http.StatusBadRequest)
+			return
 		}
 
 		// Collect metrics snapshot using new scanner

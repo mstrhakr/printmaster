@@ -932,6 +932,7 @@
             (source === 'saved' ? '<button id="collect_metrics_btn">Collect Metrics</button>' : '') +
             '<span id="refresh_status" class="device-live-status"></span>' +
             '</div>' +
+            (source === 'saved' && (p.type === 'usb' || p.connection_type === 'usb') ? '<div style="color:var(--muted);font-size:11px;margin-top:4px">⚠️ USB metrics collection can take 30+ seconds</div>' : '') +
             '<div id="diff_container"></div>' +
             '</div>';
         html += renderInfoCard('Live Data Tools', liveTools, { className: 'device-live-card' });
@@ -1169,17 +1170,69 @@
                     const btn = document.getElementById('collect_metrics_btn');
                     if (!btn) return;
                     btn.disabled = true;
-                    if (statusEl) statusEl.textContent = ' Collecting metrics...';
-                    try {
-                        const body = { serial: p.serial, ip: p.ip };
-                        const r = await fetch('/devices/metrics/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                        if (!r.ok) { const t = await r.text(); if (statusEl) statusEl.textContent = ' Error: ' + t; btn.disabled = false; return; }
-                        const result = await r.json();
-                        if (statusEl) statusEl.textContent = ' Metrics saved ✓';
-                        setTimeout(() => { if (statusEl) statusEl.textContent = ''; if (btn) btn.disabled = false; }, 2000);
-                    } catch (err) {
-                        if (statusEl) statusEl.textContent = ' Failed: ' + err;
-                        if (btn) btn.disabled = false;
+                    
+                    // Check if this is a USB device
+                    const isUSB = (p.type === 'usb' || p.connection_type === 'usb');
+                    
+                    if (isUSB) {
+                        // USB device - use USB metrics endpoint (can take 30+ seconds)
+                        if (statusEl) statusEl.innerHTML = ' <span class="spinner"></span> Collecting USB metrics (this may take 30+ seconds)...';
+                        try {
+                            const r = await fetch('/api/usb-printers/metrics/' + encodeURIComponent(p.serial));
+                            if (!r.ok) { const t = await r.text(); if (statusEl) statusEl.textContent = ' Error: ' + t; btn.disabled = false; return; }
+                            const usbMetrics = await r.json();
+                            
+                            // If we got valid metrics, save them to the device store
+                            if (usbMetrics && usbMetrics.total_pages > 0) {
+                                // Convert USB metrics to storage format and save
+                                const saveBody = {
+                                    serial: p.serial,
+                                    page_count: usbMetrics.total_pages,
+                                    color_pages: usbMetrics.color_pages || 0,
+                                    mono_pages: usbMetrics.mono_pages || 0,
+                                    copy_pages: usbMetrics.copy_pages || 0,
+                                    scan_count: usbMetrics.scan_pages || 0,
+                                    toner_levels: {}
+                                };
+                                if (usbMetrics.toner_black) saveBody.toner_levels.black = usbMetrics.toner_black;
+                                if (usbMetrics.toner_cyan) saveBody.toner_levels.cyan = usbMetrics.toner_cyan;
+                                if (usbMetrics.toner_magenta) saveBody.toner_levels.magenta = usbMetrics.toner_magenta;
+                                if (usbMetrics.toner_yellow) saveBody.toner_levels.yellow = usbMetrics.toner_yellow;
+                                
+                                // Try to save to metrics store
+                                try {
+                                    await fetch('/api/devices/metrics/save', { 
+                                        method: 'POST', 
+                                        headers: { 'Content-Type': 'application/json' }, 
+                                        body: JSON.stringify(saveBody) 
+                                    });
+                                } catch (saveErr) {
+                                    console.warn('Failed to save USB metrics to store:', saveErr);
+                                }
+                                
+                                if (statusEl) statusEl.textContent = ' USB metrics collected: ' + usbMetrics.total_pages.toLocaleString() + ' pages ✓';
+                            } else {
+                                if (statusEl) statusEl.textContent = ' No metrics data found';
+                            }
+                            setTimeout(() => { if (statusEl) statusEl.textContent = ''; if (btn) btn.disabled = false; }, 3000);
+                        } catch (err) {
+                            if (statusEl) statusEl.textContent = ' Failed: ' + err;
+                            if (btn) btn.disabled = false;
+                        }
+                    } else {
+                        // Network device - use SNMP metrics collection
+                        if (statusEl) statusEl.textContent = ' Collecting metrics...';
+                        try {
+                            const body = { serial: p.serial, ip: p.ip };
+                            const r = await fetch('/devices/metrics/collect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                            if (!r.ok) { const t = await r.text(); if (statusEl) statusEl.textContent = ' Error: ' + t; btn.disabled = false; return; }
+                            const result = await r.json();
+                            if (statusEl) statusEl.textContent = ' Metrics saved ✓';
+                            setTimeout(() => { if (statusEl) statusEl.textContent = ''; if (btn) btn.disabled = false; }, 2000);
+                        } catch (err) {
+                            if (statusEl) statusEl.textContent = ' Failed: ' + err;
+                            if (btn) btn.disabled = false;
+                        }
                     }
                 });
             }
