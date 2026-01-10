@@ -7616,23 +7616,49 @@ window.top.location.href = '/proxy/%s/';
 
 	// Start HTTPS server
 	if enableHTTPS && certFile != "" && keyFile != "" {
-		httpsServer = &http.Server{
-			Addr:              ":" + httpsPort,
-			Handler:           rootHandler,
-			ReadTimeout:       30 * time.Second,
-			ReadHeaderTimeout: 10 * time.Second,
-			WriteTimeout:      120 * time.Second, // USB proxy can be very slow (5-10s per page)
-			IdleTimeout:       120 * time.Second,
-		}
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			appLogger.Info("Starting HTTPS server", "port", httpsPort)
-			if err := httpsServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
-				appLogger.Error("HTTPS server failed", "error", err.Error())
+		// Load TLS certificate
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			appLogger.Error("Failed to load TLS certificate", "error", err.Error())
+		} else {
+			tlsCfg := &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				MinVersion:   tls.VersionTLS12,
 			}
-		}()
+
+			httpsServer = &http.Server{
+				Handler:           rootHandler,
+				ReadTimeout:       30 * time.Second,
+				ReadHeaderTimeout: 10 * time.Second,
+				WriteTimeout:      120 * time.Second, // USB proxy can be very slow (5-10s per page)
+				IdleTimeout:       120 * time.Second,
+			}
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				// Create base TCP listener
+				baseListener, err := net.Listen("tcp", ":"+httpsPort)
+				if err != nil {
+					appLogger.Error("Failed to create HTTPS listener", "error", err.Error())
+					return
+				}
+
+				// Wrap with HTTP redirect detection (handles http:// requests to HTTPS port)
+				redirectListener := newHTTPRedirectListener(baseListener, httpsPort)
+
+				// Wrap with TLS
+				tlsListener := tls.NewListener(redirectListener, tlsCfg)
+
+				appLogger.Info("Starting HTTPS server", "port", httpsPort)
+				appLogger.Info("HTTP→HTTPS redirect enabled on HTTPS port")
+
+				if err := httpsServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
+					appLogger.Error("HTTPS server failed", "error", err.Error())
+				}
+			}()
+		}
 	}
 
 	// Wait for shutdown signal

@@ -1356,10 +1356,20 @@ func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
 
 	logInfo("Server ready to accept agent connections (HTTPS only)")
 
+	// Create base TCP listener
+	baseListener, err := net.Listen("tcp", httpsAddr)
+	if err != nil {
+		logFatal("Failed to create listener", "error", err, "addr", httpsAddr)
+	}
+
+	// Wrap with HTTP redirect detection (handles http:// requests to HTTPS port)
+	redirectListener := newHTTPRedirectListener(baseListener, tlsConfig.HTTPSPort)
+
+	// Wrap with TLS
+	tlsListener := tls.NewListener(redirectListener, tlsCfg)
+
 	// Create HTTPS server with security headers and timeouts to prevent slowloris attacks
 	httpsServer := &http.Server{
-		Addr:         httpsAddr,
-		TLSConfig:    tlsCfg,
 		Handler:      loggingMiddleware(securityHeadersMiddleware(http.DefaultServeMux)),
 		ReadTimeout:  httpReadTimeout,
 		WriteTimeout: httpWriteTimeout,
@@ -1373,11 +1383,11 @@ func startStandaloneMode(ctx context.Context, tlsConfig *TLSConfig) {
 	}
 
 	logInfo("HTTPS server starting", "addr", httpsAddr)
-	logDebug("Calling ListenAndServeTLS", "cert_empty", "", "key_empty", "")
+	logInfo("HTTP→HTTPS redirect enabled on HTTPS port")
 
 	// Start server in goroutine
 	go func() {
-		if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+		if err := httpsServer.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
 			logFatal("HTTPS server failed", "error", err, "addr", httpsAddr)
 		}
 	}()
