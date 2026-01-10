@@ -268,7 +268,10 @@ func newAgentAuthManager(cfg *AgentConfig, sessions *agentSessionManager) *agent
 			"/api/v1/auth/me":       {},
 			"/api/v1/auth/callback": {}, // Server auth callback
 		},
-		publicPrefixes: []string{"/static/"},
+		publicPrefixes: []string{
+			"/static/",
+			"/api/usb-printers/", // USB printer metrics (public for testing)
+		},
 	}
 }
 
@@ -7526,7 +7529,7 @@ window.top.location.href = '/proxy/%s/';
 			Handler:           rootHandler,
 			ReadTimeout:       30 * time.Second,
 			ReadHeaderTimeout: 10 * time.Second,
-			WriteTimeout:      30 * time.Second,
+			WriteTimeout:      120 * time.Second, // USB proxy can be very slow (5-10s per page)
 			IdleTimeout:       120 * time.Second,
 		}
 
