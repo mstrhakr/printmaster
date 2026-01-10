@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"printmaster/agent/storage"
 	"printmaster/agent/usbproxy"
 	"printmaster/agent/usbproxy/metrics"
 )
@@ -474,4 +475,67 @@ func (a *usbProxyLoggerAdapter) Debug(msg string, context ...interface{}) {
 	if a.logger != nil {
 		a.logger.Debug(msg, context...)
 	}
+}
+
+// CollectUSBMetricsSnapshot collects metrics from a USB printer and returns a storage snapshot.
+// This is Windows-only functionality.
+func CollectUSBMetricsSnapshot(ctx context.Context, serial string) (*storage.MetricsSnapshot, error) {
+	usbProxyManagerMu.RLock()
+	manager := usbProxyManager
+	usbProxyManagerMu.RUnlock()
+
+	if manager == nil {
+		return nil, fmt.Errorf("USB proxy not available")
+	}
+
+	// Get printer info
+	printer, found := manager.GetPrinterBySerial(serial)
+	if !found {
+		return nil, fmt.Errorf("USB printer not found")
+	}
+
+	// Get transport for the printer
+	transport, err := manager.GetTransportForSerial(serial)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get USB transport: %w", err)
+	}
+
+	// Create metrics collector
+	collector := metrics.NewCollector(transport, printer.Manufacturer, printer.Product, printer.VendorID)
+
+	// Collect metrics with timeout (USB is slow - allow 90 seconds)
+	metricsCtx, cancelMetrics := context.WithTimeout(ctx, 90*time.Second)
+	defer cancelMetrics()
+
+	usbMetrics, err := collector.Collect(metricsCtx)
+	if err != nil {
+		return nil, fmt.Errorf("USB metrics collection failed: %w", err)
+	}
+
+	// Convert USB metrics to storage snapshot
+	snapshot := &storage.MetricsSnapshot{
+		CopyPages: usbMetrics.CopyPages,
+	}
+	// Set embedded common fields
+	snapshot.Serial = serial
+	snapshot.Timestamp = time.Now()
+	snapshot.PageCount = usbMetrics.TotalPages
+	snapshot.ColorPages = usbMetrics.ColorPages
+	snapshot.MonoPages = usbMetrics.MonoPages
+	snapshot.ScanCount = usbMetrics.ScanPages
+	snapshot.TonerLevels = make(map[string]interface{})
+	if usbMetrics.TonerBlack > 0 {
+		snapshot.TonerLevels["black"] = usbMetrics.TonerBlack
+	}
+	if usbMetrics.TonerCyan > 0 {
+		snapshot.TonerLevels["cyan"] = usbMetrics.TonerCyan
+	}
+	if usbMetrics.TonerMagenta > 0 {
+		snapshot.TonerLevels["magenta"] = usbMetrics.TonerMagenta
+	}
+	if usbMetrics.TonerYellow > 0 {
+		snapshot.TonerLevels["yellow"] = usbMetrics.TonerYellow
+	}
+
+	return snapshot, nil
 }

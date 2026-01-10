@@ -36,7 +36,6 @@ import (
 	"printmaster/agent/proxy"
 	"printmaster/agent/scanner"
 	"printmaster/agent/storage"
-	"printmaster/agent/usbproxy/metrics"
 	"printmaster/common/config"
 	"printmaster/common/logger"
 	pmsettings "printmaster/common/settings"
@@ -6775,64 +6774,11 @@ window.top.location.href = '/proxy/%s/';
 			// USB device - use USB proxy metrics collection
 			appLogger.Info("Collecting USB metrics", "serial", req.Serial)
 
-			usbProxyManagerMu.RLock()
-			manager := usbProxyManager
-			usbProxyManagerMu.RUnlock()
-
-			if manager == nil {
-				http.Error(w, "USB proxy not available", http.StatusServiceUnavailable)
-				return
-			}
-
-			// Get printer info
-			printer, found := manager.GetPrinterBySerial(req.Serial)
-			if !found {
-				http.Error(w, "USB printer not found", http.StatusNotFound)
-				return
-			}
-
-			// Get transport for the printer
-			transport, err := manager.GetTransportForSerial(req.Serial)
-			if err != nil {
-				http.Error(w, "Failed to get USB transport: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			// Create metrics collector
-			collector := metrics.NewCollector(transport, printer.Manufacturer, printer.Product, printer.VendorID)
-
-			// Collect metrics with timeout (USB is slow - allow 90 seconds)
-			metricsCtx, cancelMetrics := context.WithTimeout(r.Context(), 90*time.Second)
-			defer cancelMetrics()
-
-			usbMetrics, err := collector.Collect(metricsCtx)
+			storageSnapshot, err := CollectUSBMetricsSnapshot(r.Context(), req.Serial)
 			if err != nil {
 				appLogger.Warn("USB metrics collection failed", "serial", req.Serial, "error", err.Error())
-				http.Error(w, "USB metrics collection failed: "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
-			}
-
-			// Convert USB metrics to storage snapshot and save
-			storageSnapshot := &storage.MetricsSnapshot{}
-			storageSnapshot.Serial = req.Serial
-			storageSnapshot.Timestamp = time.Now()
-			storageSnapshot.PageCount = usbMetrics.TotalPages
-			storageSnapshot.ColorPages = usbMetrics.ColorPages
-			storageSnapshot.MonoPages = usbMetrics.MonoPages
-			storageSnapshot.CopyPages = usbMetrics.CopyPages
-			storageSnapshot.ScanCount = usbMetrics.ScanPages
-			storageSnapshot.TonerLevels = make(map[string]interface{})
-			if usbMetrics.TonerBlack > 0 {
-				storageSnapshot.TonerLevels["black"] = usbMetrics.TonerBlack
-			}
-			if usbMetrics.TonerCyan > 0 {
-				storageSnapshot.TonerLevels["cyan"] = usbMetrics.TonerCyan
-			}
-			if usbMetrics.TonerMagenta > 0 {
-				storageSnapshot.TonerLevels["magenta"] = usbMetrics.TonerMagenta
-			}
-			if usbMetrics.TonerYellow > 0 {
-				storageSnapshot.TonerLevels["yellow"] = usbMetrics.TonerYellow
 			}
 
 			// Save to database
@@ -6844,11 +6790,11 @@ window.top.location.href = '/proxy/%s/';
 				return
 			}
 
-			appLogger.Info("USB metrics collected and saved", "serial", req.Serial, "total_pages", usbMetrics.TotalPages)
+			appLogger.Info("USB metrics collected and saved", "serial", req.Serial, "total_pages", storageSnapshot.PageCount)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"serial":      req.Serial,
-				"total_pages": usbMetrics.TotalPages,
+				"total_pages": storageSnapshot.PageCount,
 				"source":      "usb",
 				"saved":       true,
 			})

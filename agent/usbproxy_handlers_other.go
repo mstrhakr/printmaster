@@ -3,7 +3,13 @@
 
 package main
 
-import "net/http"
+import (
+	"context"
+	"errors"
+	"net/http"
+
+	"printmaster/agent/storage"
+)
 
 // InitUSBProxy is a no-op on non-Windows platforms
 func InitUSBProxy(logger Logger) error {
@@ -24,6 +30,16 @@ func CanUSBProxySerial(serial string) bool {
 // HandleUSBProxy always returns false on non-Windows platforms
 func HandleUSBProxy(w http.ResponseWriter, r *http.Request, serial string) bool {
 	return false
+}
+
+// GetUSBTransportForSerial returns an error on non-Windows platforms
+func GetUSBTransportForSerial(serial string) (http.RoundTripper, error) {
+	return nil, errors.New("USB proxy not supported on this platform")
+}
+
+// CollectUSBMetricsSnapshot returns an error on non-Windows platforms
+func CollectUSBMetricsSnapshot(ctx context.Context, serial string) (*storage.MetricsSnapshot, error) {
+	return nil, errors.New("USB proxy not supported on this platform")
 }
 
 // RegisterUSBProxyHandlers registers stub endpoints on non-Windows platforms
