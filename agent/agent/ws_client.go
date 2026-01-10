@@ -667,10 +667,17 @@ func (ws *WSClient) handleLocalProxyRequest(requestID, method, path, rawQuery st
 		return
 	}
 
-	// Extract response headers
+	// Extract response headers, filtering out frame-busting headers that would
+	// prevent the proxied content from being displayed in the server's UI
 	respHeaders := make(map[string]string)
 	for k, v := range result.Header {
 		if len(v) > 0 {
+			// Skip frame-busting security headers - these would block proxied device web UIs
+			if strings.EqualFold(k, "X-Frame-Options") ||
+				strings.EqualFold(k, "Content-Security-Policy") ||
+				strings.EqualFold(k, "Content-Security-Policy-Report-Only") {
+				continue
+			}
 			respHeaders[k] = v[0]
 		}
 	}
