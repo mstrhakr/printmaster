@@ -597,6 +597,15 @@ func (w *UploadWorker) uploadDevices() error {
 			"description":      dev.Description,
 			"web_ui_url":       dev.WebUIURL,
 			"raw_data":         dev.RawData,
+			// Device classification fields (for unified device view)
+			"device_type":    dev.DeviceType,
+			"source_type":    dev.SourceType,
+			"is_usb":         dev.IsUSB,
+			"port_name":      dev.PortName,
+			"driver_name":    dev.DriverName,
+			"is_default":     dev.IsDefault,
+			"is_shared":      dev.IsShared,
+			"spooler_status": dev.SpoolerStatus,
 		}
 		deviceMaps = append(deviceMaps, deviceMap)
 	}

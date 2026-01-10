@@ -551,8 +551,10 @@ func (s *BaseStore) UpsertDevice(ctx context.Context, device *Device) error {
 			serial, agent_id, ip, manufacturer, model, hostname, firmware,
 			mac_address, subnet_mask, gateway, consumables, status_messages,
 			last_seen, first_seen, created_at, discovery_method,
-			asset_number, location, description, web_ui_url, raw_data
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			asset_number, location, description, web_ui_url, raw_data,
+			device_type, source_type, is_usb, port_name, driver_name,
+			is_default, is_shared, spooler_status
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(serial) DO UPDATE SET
 			agent_id = excluded.agent_id,
 			ip = excluded.ip,
@@ -567,7 +569,15 @@ func (s *BaseStore) UpsertDevice(ctx context.Context, device *Device) error {
 			status_messages = excluded.status_messages,
 			last_seen = excluded.last_seen,
 			discovery_method = excluded.discovery_method,
-			raw_data = excluded.raw_data
+			raw_data = excluded.raw_data,
+			device_type = excluded.device_type,
+			source_type = excluded.source_type,
+			is_usb = excluded.is_usb,
+			port_name = excluded.port_name,
+			driver_name = excluded.driver_name,
+			is_default = excluded.is_default,
+			is_shared = excluded.is_shared,
+			spooler_status = excluded.spooler_status
 	`
 
 	_, err := s.execContext(ctx, query,
@@ -577,7 +587,9 @@ func (s *BaseStore) UpsertDevice(ctx context.Context, device *Device) error {
 		string(statusJSON), device.LastSeen, device.FirstSeen,
 		device.CreatedAt, device.DiscoveryMethod, device.AssetNumber,
 		device.Location, device.Description, device.WebUIURL,
-		string(rawDataJSON))
+		string(rawDataJSON),
+		device.DeviceType, device.SourceType, device.IsUSB, device.PortName,
+		device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus)
 
 	return err
 }
@@ -588,13 +600,17 @@ func (s *BaseStore) GetDevice(ctx context.Context, serial string) (*Device, erro
 		SELECT serial, agent_id, ip, manufacturer, model, hostname, firmware,
 		       mac_address, subnet_mask, gateway, consumables, status_messages,
 		       last_seen, first_seen, created_at, discovery_method,
-		       asset_number, location, description, web_ui_url, raw_data
+		       asset_number, location, description, web_ui_url, raw_data,
+		       device_type, source_type, is_usb, port_name, driver_name,
+		       is_default, is_shared, spooler_status
 		FROM devices
 		WHERE serial = ?
 	`
 
 	var device Device
 	var consumablesJSON, statusJSON, rawDataJSON sql.NullString
+	var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
+	var isUSB, isDefault, isShared sql.NullBool
 
 	err := s.queryRowContext(ctx, query, serial).Scan(
 		&device.Serial, &device.AgentID, &device.IP, &device.Manufacturer,
@@ -602,7 +618,9 @@ func (s *BaseStore) GetDevice(ctx context.Context, serial string) (*Device, erro
 		&device.SubnetMask, &device.Gateway, &consumablesJSON, &statusJSON,
 		&device.LastSeen, &device.FirstSeen, &device.CreatedAt,
 		&device.DiscoveryMethod, &device.AssetNumber, &device.Location,
-		&device.Description, &device.WebUIURL, &rawDataJSON)
+		&device.Description, &device.WebUIURL, &rawDataJSON,
+		&deviceType, &sourceType, &isUSB, &portName, &driverName,
+		&isDefault, &isShared, &spoolerStatus)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("device not found: %s", serial)
@@ -622,6 +640,32 @@ func (s *BaseStore) GetDevice(ctx context.Context, serial string) (*Device, erro
 		json.Unmarshal([]byte(rawDataJSON.String), &device.RawData)
 	}
 
+	// Set USB/spooler fields
+	if deviceType.Valid {
+		device.DeviceType = deviceType.String
+	}
+	if sourceType.Valid {
+		device.SourceType = sourceType.String
+	}
+	if isUSB.Valid {
+		device.IsUSB = isUSB.Bool
+	}
+	if portName.Valid {
+		device.PortName = portName.String
+	}
+	if driverName.Valid {
+		device.DriverName = driverName.String
+	}
+	if isDefault.Valid {
+		device.IsDefault = isDefault.Bool
+	}
+	if isShared.Valid {
+		device.IsShared = isShared.Bool
+	}
+	if spoolerStatus.Valid {
+		device.SpoolerStatus = spoolerStatus.String
+	}
+
 	return &device, nil
 }
 
@@ -631,7 +675,9 @@ func (s *BaseStore) ListDevices(ctx context.Context, agentID string) ([]*Device,
 		SELECT serial, agent_id, ip, manufacturer, model, hostname, firmware,
 		       mac_address, subnet_mask, gateway, consumables, status_messages,
 		       last_seen, first_seen, created_at, discovery_method,
-		       asset_number, location, description, web_ui_url, raw_data
+		       asset_number, location, description, web_ui_url, raw_data,
+		       device_type, source_type, is_usb, port_name, driver_name,
+		       is_default, is_shared, spooler_status
 		FROM devices
 		WHERE agent_id = ?
 		ORDER BY last_seen DESC
@@ -652,7 +698,9 @@ func (s *BaseStore) ListAllDevices(ctx context.Context) ([]*Device, error) {
 		SELECT serial, agent_id, ip, manufacturer, model, hostname, firmware,
 		       mac_address, subnet_mask, gateway, consumables, status_messages,
 		       last_seen, first_seen, created_at, discovery_method,
-		       asset_number, location, description, web_ui_url, raw_data
+		       asset_number, location, description, web_ui_url, raw_data,
+		       device_type, source_type, is_usb, port_name, driver_name,
+		       is_default, is_shared, spooler_status
 		FROM devices
 		ORDER BY last_seen DESC
 	`
@@ -694,7 +742,9 @@ func (s *BaseStore) ListAllDevicesPaginated(ctx context.Context, limit, offset i
 			SELECT serial, agent_id, ip, manufacturer, model, hostname, firmware,
 			       mac_address, subnet_mask, gateway, consumables, status_messages,
 			       last_seen, first_seen, created_at, discovery_method,
-			       asset_number, location, description, web_ui_url, raw_data
+			       asset_number, location, description, web_ui_url, raw_data,
+			       device_type, source_type, is_usb, port_name, driver_name,
+			       is_default, is_shared, spooler_status
 			FROM devices
 			ORDER BY last_seen DESC
 			LIMIT ? OFFSET ?
@@ -710,7 +760,9 @@ func (s *BaseStore) ListAllDevicesPaginated(ctx context.Context, limit, offset i
 			SELECT serial, agent_id, ip, manufacturer, model, hostname, firmware,
 			       mac_address, subnet_mask, gateway, consumables, status_messages,
 			       last_seen, first_seen, created_at, discovery_method,
-			       asset_number, location, description, web_ui_url, raw_data
+			       asset_number, location, description, web_ui_url, raw_data,
+			       device_type, source_type, is_usb, port_name, driver_name,
+			       is_default, is_shared, spooler_status
 			FROM devices
 			WHERE agent_id IN (%s)
 			ORDER BY last_seen DESC
@@ -734,6 +786,8 @@ func (s *BaseStore) scanDevices(rows *sql.Rows) ([]*Device, error) {
 	for rows.Next() {
 		var device Device
 		var consumablesJSON, statusJSON, rawDataJSON sql.NullString
+		var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
+		var isUSB, isDefault, isShared sql.NullBool
 
 		err := rows.Scan(
 			&device.Serial, &device.AgentID, &device.IP, &device.Manufacturer,
@@ -741,7 +795,9 @@ func (s *BaseStore) scanDevices(rows *sql.Rows) ([]*Device, error) {
 			&device.SubnetMask, &device.Gateway, &consumablesJSON, &statusJSON,
 			&device.LastSeen, &device.FirstSeen, &device.CreatedAt,
 			&device.DiscoveryMethod, &device.AssetNumber, &device.Location,
-			&device.Description, &device.WebUIURL, &rawDataJSON)
+			&device.Description, &device.WebUIURL, &rawDataJSON,
+			&deviceType, &sourceType, &isUSB, &portName, &driverName,
+			&isDefault, &isShared, &spoolerStatus)
 		if err != nil {
 			return nil, err
 		}
@@ -755,6 +811,32 @@ func (s *BaseStore) scanDevices(rows *sql.Rows) ([]*Device, error) {
 		}
 		if rawDataJSON.Valid {
 			json.Unmarshal([]byte(rawDataJSON.String), &device.RawData)
+		}
+
+		// Set USB/spooler fields
+		if deviceType.Valid {
+			device.DeviceType = deviceType.String
+		}
+		if sourceType.Valid {
+			device.SourceType = sourceType.String
+		}
+		if isUSB.Valid {
+			device.IsUSB = isUSB.Bool
+		}
+		if portName.Valid {
+			device.PortName = portName.String
+		}
+		if driverName.Valid {
+			device.DriverName = driverName.String
+		}
+		if isDefault.Valid {
+			device.IsDefault = isDefault.Bool
+		}
+		if isShared.Valid {
+			device.IsShared = isShared.Bool
+		}
+		if spoolerStatus.Valid {
+			device.SpoolerStatus = spoolerStatus.String
 		}
 
 		devices = append(devices, &device)

@@ -126,7 +126,7 @@ func (s *SQLiteStore) initSchema() error {
 	CREATE TABLE IF NOT EXISTS devices (
 		serial TEXT PRIMARY KEY,
 		agent_id TEXT NOT NULL,
-		ip TEXT NOT NULL,
+		ip TEXT NOT NULL DEFAULT '',
 		manufacturer TEXT,
 		model TEXT,
 		hostname TEXT,
@@ -146,6 +146,14 @@ func (s *SQLiteStore) initSchema() error {
 		web_ui_url TEXT,
 		raw_data TEXT,
 		tenant_id TEXT,
+		device_type TEXT,
+		source_type TEXT,
+		is_usb INTEGER DEFAULT 0,
+		port_name TEXT,
+		driver_name TEXT,
+		is_default INTEGER DEFAULT 0,
+		is_shared INTEGER DEFAULT 0,
+		spooler_status TEXT,
 		FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
 	);
 
@@ -848,6 +856,15 @@ func (s *SQLiteStore) runMigrations() error {
 		"ALTER TABLE agents ADD COLUMN last_device_sync DATETIME",
 		"ALTER TABLE agents ADD COLUMN last_metrics_sync DATETIME",
 		"ALTER TABLE users ADD COLUMN email TEXT",
+		// USB/spooler device classification support
+		"ALTER TABLE devices ADD COLUMN device_type TEXT",
+		"ALTER TABLE devices ADD COLUMN source_type TEXT",
+		"ALTER TABLE devices ADD COLUMN is_usb INTEGER DEFAULT 0",
+		"ALTER TABLE devices ADD COLUMN port_name TEXT",
+		"ALTER TABLE devices ADD COLUMN driver_name TEXT",
+		"ALTER TABLE devices ADD COLUMN is_default INTEGER DEFAULT 0",
+		"ALTER TABLE devices ADD COLUMN is_shared INTEGER DEFAULT 0",
+		"ALTER TABLE devices ADD COLUMN spooler_status TEXT",
 	}
 
 	for _, stmt := range altStmts {

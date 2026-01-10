@@ -4925,7 +4925,9 @@ func proxyDeviceRequest(w http.ResponseWriter, r *http.Request, serial string, t
 		return
 	}
 
-	if device.IP == "" {
+	// USB devices don't have an IP - they're proxied via USB transport on the agent
+	// Network devices require an IP address
+	if device.IP == "" && !device.IsUSB && device.DeviceType != "usb" {
 		logWarn("Device proxy missing IP", "serial", serial)
 		http.Error(w, "Device has no IP address", http.StatusBadRequest)
 		return
@@ -5658,6 +5660,31 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		if v, ok := deviceMap["mac_address"].(string); ok {
 			device.MACAddress = v
+		}
+		// Device classification fields (USB/spooler support)
+		if v, ok := deviceMap["device_type"].(string); ok {
+			device.DeviceType = v
+		}
+		if v, ok := deviceMap["source_type"].(string); ok {
+			device.SourceType = v
+		}
+		if v, ok := deviceMap["is_usb"].(bool); ok {
+			device.IsUSB = v
+		}
+		if v, ok := deviceMap["port_name"].(string); ok {
+			device.PortName = v
+		}
+		if v, ok := deviceMap["driver_name"].(string); ok {
+			device.DriverName = v
+		}
+		if v, ok := deviceMap["is_default"].(bool); ok {
+			device.IsDefault = v
+		}
+		if v, ok := deviceMap["is_shared"].(bool); ok {
+			device.IsShared = v
+		}
+		if v, ok := deviceMap["spooler_status"].(string); ok {
+			device.SpoolerStatus = v
 		}
 		device.RawData = deviceMap
 
