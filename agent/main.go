@@ -321,6 +321,11 @@ func (a *agentAuthManager) shouldBypass(r *http.Request) bool {
 	if a == nil || a.mode == "disabled" {
 		return true
 	}
+	// Bypass auth for server-proxied requests (header is set by ws_client.go handleProxyRequest)
+	// This is safe because only the internal proxy code path can set this header
+	if r.Header.Get("X-PrintMaster-Proxy") == "server" {
+		return true
+	}
 	path := r.URL.Path
 	if _, ok := a.publicExact[path]; ok {
 		return true
@@ -2127,6 +2132,12 @@ func performServerJoin(
 			uploadWorkerMu.Lock()
 			uploadWorker = worker
 			uploadWorkerMu.Unlock()
+
+			// Check if local proxy handler was set while we were starting up
+			if h := getLocalProxyHandler(); h != nil {
+				worker.SetLocalHandler(h)
+			}
+
 			maybeStartAutoUpdateWorker(appCtx, agentCfg, dataDir, isSvc, logger)
 		}()
 	}
@@ -4127,6 +4138,12 @@ func runInteractive(ctx context.Context, configFlag string) {
 			uploadWorkerMu.Lock()
 			uploadWorker = worker
 			uploadWorkerMu.Unlock()
+
+			// Check if local proxy handler was set while we were starting up
+			// This handles the race condition where web server starts before upload worker finishes
+			if h := getLocalProxyHandler(); h != nil {
+				worker.SetLocalHandler(h)
+			}
 
 			// Start auto-update worker after upload worker is ready
 			go initAutoUpdateWorker(ctx, agentConfig, dataDir, isService, appLogger)
