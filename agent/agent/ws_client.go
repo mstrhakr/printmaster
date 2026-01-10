@@ -3,23 +3,21 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	"crypto/tls"
 	wscommon "printmaster/common/ws"
 )
-
-const proxySlowLogThreshold = 5 * time.Second
 
 // maskTokenForLog returns a copy of the URL string with the token query parameter masked
 func maskTokenForLog(u *url.URL) string {
@@ -34,57 +32,6 @@ func maskTokenForLog(u *url.URL) string {
 		return u2.String()
 	}
 	return u.String()
-}
-
-// isValidProxyTargetURL validates that a proxy target URL is safe to fetch.
-// It blocks localhost, loopback addresses, and other potentially dangerous targets.
-// Returns the validated URL and nil error if safe, or empty string and error if unsafe.
-func isValidProxyTargetURL(rawURL string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
-	}
-
-	// Only allow http and https schemes
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("URL scheme must be http or https, got %q", parsed.Scheme)
-	}
-
-	hostname := parsed.Hostname()
-	if hostname == "" {
-		return "", fmt.Errorf("URL must have a hostname")
-	}
-
-	// Block localhost and loopback
-	if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" {
-		return "", fmt.Errorf("cannot proxy to localhost")
-	}
-
-	// Try to resolve hostname and check for dangerous IPs
-	ips, err := net.LookupIP(hostname)
-	if err == nil {
-		for _, ip := range ips {
-			// Block loopback
-			if ip.IsLoopback() {
-				return "", fmt.Errorf("cannot proxy to loopback address")
-			}
-			// Block link-local
-			if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-				return "", fmt.Errorf("cannot proxy to link-local address")
-			}
-		}
-	}
-
-	// Reconstruct URL from validated components to break CodeQL taint chain.
-	// Using url.URL struct literal ensures no tainted data flows through.
-	safeURL := &url.URL{
-		Scheme:   parsed.Scheme,
-		Host:     parsed.Host,
-		Path:     parsed.Path,
-		RawQuery: parsed.RawQuery,
-		Fragment: parsed.Fragment,
-	}
-	return safeURL.String(), nil
 }
 
 // Use shared message types from wscommon
@@ -110,6 +57,11 @@ type WSClient struct {
 	handshakeTimeout   time.Duration
 	maxReconnectDelay  time.Duration
 	insecureSkipVerify bool
+
+	// Local handler for direct invocation (avoids localhost HTTP round-trip)
+	localHandler      http.Handler
+	localHandlerMu    sync.RWMutex
+	localHandlerReady chan struct{} // closed when handler is set
 }
 
 // NewWSClient creates a new WebSocket client
@@ -117,12 +69,13 @@ func NewWSClient(serverURL, token string, insecureSkipVerify bool) *WSClient {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &WSClient{
-		serverURL:     serverURL,
-		token:         token,
-		reconnectChan: make(chan struct{}, 1),
-		stopChan:      make(chan struct{}),
-		ctx:           ctx,
-		cancel:        cancel,
+		serverURL:         serverURL,
+		token:             token,
+		reconnectChan:     make(chan struct{}, 1),
+		stopChan:          make(chan struct{}),
+		ctx:               ctx,
+		cancel:            cancel,
+		localHandlerReady: make(chan struct{}),
 		// No stdlib logger; use agent package logging helpers instead
 		reconnectDelay:     5 * time.Second,
 		pingInterval:       30 * time.Second,
@@ -132,6 +85,50 @@ func NewWSClient(serverURL, token string, insecureSkipVerify bool) *WSClient {
 		maxReconnectDelay:  5 * time.Minute,
 		insecureSkipVerify: insecureSkipVerify,
 	}
+}
+
+// SetLocalHandler sets the local HTTP handler for direct invocation.
+// When proxy requests target localhost:8080, the handler is invoked directly
+// instead of making an HTTP round-trip. This avoids SSRF validation issues
+// and is more efficient.
+func (ws *WSClient) SetLocalHandler(handler http.Handler) {
+	ws.localHandlerMu.Lock()
+	alreadySet := ws.localHandler != nil
+	ws.localHandler = handler
+	ws.localHandlerMu.Unlock()
+
+	// Signal that the handler is ready (only close once)
+	if !alreadySet && handler != nil {
+		close(ws.localHandlerReady)
+	}
+	InfoCtx("Local handler registered for direct proxy invocation")
+}
+
+// waitForLocalHandler blocks until the local handler is registered or context is cancelled.
+// Returns the handler if available, nil if cancelled/timed out.
+func (ws *WSClient) waitForLocalHandler(timeout time.Duration) http.Handler {
+	// Fast path: already set
+	if h := ws.getLocalHandler(); h != nil {
+		return h
+	}
+
+	// Wait for handler to be set
+	select {
+	case <-ws.localHandlerReady:
+		return ws.getLocalHandler()
+	case <-ws.ctx.Done():
+		return nil
+	case <-time.After(timeout):
+		WarnCtx("Timeout waiting for local handler", "timeout", timeout)
+		return nil
+	}
+}
+
+// getLocalHandler returns the registered local handler, if any
+func (ws *WSClient) getLocalHandler() http.Handler {
+	ws.localHandlerMu.RLock()
+	defer ws.localHandlerMu.RUnlock()
+	return ws.localHandler
 }
 
 // Start begins the WebSocket connection and management goroutines
@@ -543,7 +540,9 @@ func (ws *WSClient) SendMessage(msg wscommon.Message) error {
 	return nil
 }
 
-// handleProxyRequest handles incoming HTTP proxy requests from the server
+// handleProxyRequest handles incoming HTTP proxy requests from the server.
+// All proxy requests from the server target localhost:8080 (either the agent's
+// web UI or the agent's device proxy endpoint). Non-localhost URLs are rejected.
 func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	requestID, ok := msg.Data["request_id"].(string)
 	if !ok {
@@ -554,14 +553,6 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 	targetURL, ok := msg.Data["url"].(string)
 	if !ok {
 		ws.sendProxyError(requestID, "Missing target URL")
-		return
-	}
-
-	// Validate target URL to prevent SSRF attacks
-	validatedURL, err := isValidProxyTargetURL(targetURL)
-	if err != nil {
-		WarnCtx("Proxy request rejected: invalid target URL", "request_id", requestID, "url", targetURL, "error", err)
-		ws.sendProxyError(requestID, fmt.Sprintf("Invalid target URL: %v", err))
 		return
 	}
 
@@ -589,58 +580,65 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		}
 	}
 
-	maskedURL := validatedURL
-	if parsed, err := url.Parse(validatedURL); err == nil {
-		maskedURL = maskTokenForLog(parsed)
-	}
-
-	start := time.Now()
-	TraceTagCtx("proxy", "Proxy request dispatched", "request_id", requestID, "method", method, "url", maskedURL, "body_bytes", len(bodyBytes))
-
-	// If stop requested, bail early
-	select {
-	case <-ws.ctx.Done():
-		DebugCtx("handleProxyRequest: context cancelled before proxying", "request_id", requestID)
-		ws.sendProxyError(requestID, "Server shutdown")
-		return
-	default:
-	}
-
-	// Create HTTP client with timeout. Accept self-signed certs from devices
-	// because many printers expose self-signed HTTPS interfaces.
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				// #nosec G402 -- InsecureSkipVerify intentionally enabled:
-				// This proxy client connects to network printers and embedded devices
-				// that commonly use self-signed SSL certificates. SSRF protections
-				// are implemented via isValidProxyTargetURL() validation above.
-				InsecureSkipVerify: true,
-			},
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 30 * time.Second,
-		},
-	}
-
-	// Create request using validated URL
-	var req *http.Request
-	if len(bodyBytes) > 0 {
-		req, err = http.NewRequest(method, validatedURL, bytes.NewReader(bodyBytes))
-	} else {
-		req, err = http.NewRequest(method, validatedURL, nil)
-	}
-
+	// Parse and validate the target URL
+	parsed, err := url.Parse(targetURL)
 	if err != nil {
-		duration := time.Since(start)
-		ws.sendProxyError(requestID, fmt.Sprintf("Failed to create request: %v", err))
-		WarnCtx("Proxy request build failed", "request_id", requestID, "error", err, "duration", duration)
+		ws.sendProxyError(requestID, fmt.Sprintf("Invalid URL: %v", err))
 		return
 	}
 
-	// Set headers
+	// Only allow localhost - all server proxy requests should target our local web server
+	hostname := parsed.Hostname()
+	if hostname != "localhost" && hostname != "127.0.0.1" && hostname != "::1" {
+		WarnCtx("Proxy request rejected: non-localhost URL", "request_id", requestID, "hostname", hostname)
+		ws.sendProxyError(requestID, "Proxy only supports localhost targets")
+		return
+	}
+
+	// Wait for local handler to be registered (handles web server startup race)
+	localHandler := ws.waitForLocalHandler(10 * time.Second)
+	if localHandler == nil {
+		ws.sendProxyError(requestID, "Local handler not available (server may be shutting down)")
+		return
+	}
+
+	// Direct invocation - bypass HTTP round-trip entirely
+	DebugCtx("Using local handler for proxy request", "request_id", requestID, "path", parsed.Path)
+	ws.handleLocalProxyRequest(requestID, method, parsed.Path, parsed.RawQuery, headers, bodyBytes, localHandler)
+}
+
+// handleLocalProxyRequest handles proxy requests to the agent's own web server
+// by invoking the HTTP handler directly instead of making an HTTP round-trip.
+// This is more efficient and avoids SSRF validation for trusted localhost requests.
+func (ws *WSClient) handleLocalProxyRequest(requestID, method, path, rawQuery string, headers map[string]string, body []byte, handler http.Handler) {
+	start := time.Now()
+
+	// Build the request URL path with query string
+	reqPath := path
+	if reqPath == "" {
+		reqPath = "/"
+	}
+	if rawQuery != "" {
+		reqPath = reqPath + "?" + rawQuery
+	}
+
+	TraceTagCtx("proxy", "Local proxy request (direct handler)", "request_id", requestID, "method", method, "path", reqPath, "body_bytes", len(body))
+
+	// Create request for the handler
+	var req *http.Request
+	var err error
+	if len(body) > 0 {
+		req, err = http.NewRequest(method, reqPath, bytes.NewReader(body))
+	} else {
+		req, err = http.NewRequest(method, reqPath, nil)
+	}
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Failed to create local request: %v", err))
+		return
+	}
+
+	// Set headers (skip hop-by-hop headers)
 	for k, v := range headers {
-		// Skip hop-by-hop headers
 		if strings.EqualFold(k, "Connection") || strings.EqualFold(k, "Keep-Alive") ||
 			strings.EqualFold(k, "Proxy-Authenticate") || strings.EqualFold(k, "Proxy-Authorization") ||
 			strings.EqualFold(k, "TE") || strings.EqualFold(k, "Trailers") ||
@@ -650,41 +648,34 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		req.Header.Set(k, v)
 	}
 
-	// Execute request
-	resp, err := client.Do(req)
-	if err != nil {
-		duration := time.Since(start)
-		WarnCtx("Proxy request failed", "request_id", requestID, "error", err, "duration", duration)
-		ws.sendProxyError(requestID, fmt.Sprintf("Request failed: %v", err))
-		return
-	}
-	defer resp.Body.Close()
+	// Use httptest.ResponseRecorder to capture the response
+	recorder := httptest.NewRecorder()
 
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
+	// Invoke the handler directly
+	handler.ServeHTTP(recorder, req)
+
+	// Extract response
+	result := recorder.Result()
+	respBody, err := io.ReadAll(result.Body)
+	result.Body.Close()
 	if err != nil {
-		duration := time.Since(start)
-		WarnCtx("Proxy response read failed", "request_id", requestID, "error", err, "duration", duration)
-		ws.sendProxyError(requestID, fmt.Sprintf("Failed to read response: %v", err))
+		ws.sendProxyError(requestID, fmt.Sprintf("Failed to read local response: %v", err))
 		return
 	}
 
 	// Extract response headers
 	respHeaders := make(map[string]string)
-	for k, v := range resp.Header {
+	for k, v := range result.Header {
 		if len(v) > 0 {
 			respHeaders[k] = v[0]
 		}
 	}
 
 	duration := time.Since(start)
-	TraceTagCtx("proxy", "Proxy response completed", "request_id", requestID, "status", resp.StatusCode, "duration", duration, "bytes", len(respBody))
-	if duration > proxySlowLogThreshold {
-		WarnCtx("Proxy response slow", "request_id", requestID, "duration", duration, "threshold", proxySlowLogThreshold, "url", maskedURL)
-	}
+	TraceTagCtx("proxy", "Local proxy response completed", "request_id", requestID, "status", result.StatusCode, "duration", duration, "bytes", len(respBody))
 
 	// Send proxy response back to server
-	ws.sendProxyResponse(requestID, resp.StatusCode, respHeaders, respBody)
+	ws.sendProxyResponse(requestID, result.StatusCode, respHeaders, respBody)
 }
 
 // sendProxyResponse sends a successful proxy response back to the server

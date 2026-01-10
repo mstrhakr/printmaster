@@ -1050,6 +1050,10 @@ var (
 	staticCache    = newStaticResourceCache()
 	uploadWorkerMu sync.RWMutex
 	uploadWorker   *UploadWorker
+	// localProxyHandler is the root HTTP handler for direct proxy invocation
+	// This is set when the web server starts and used by WebSocket proxy requests
+	localProxyHandler   http.Handler
+	localProxyHandlerMu sync.RWMutex
 	// deviceStore is shared across the agent for persistence access
 	deviceStore storage.DeviceStore
 	// agentConfigStore stores user-configurable settings/ranges
@@ -1073,6 +1077,29 @@ var (
 		DiscoverConcurrency int
 	}
 )
+
+// setLocalProxyHandler sets the global HTTP handler for direct proxy invocation.
+// Called when the web server starts.
+func setLocalProxyHandler(h http.Handler) {
+	localProxyHandlerMu.Lock()
+	localProxyHandler = h
+	localProxyHandlerMu.Unlock()
+
+	// Also set it on the upload worker if it exists
+	uploadWorkerMu.RLock()
+	w := uploadWorker
+	uploadWorkerMu.RUnlock()
+	if w != nil {
+		w.SetLocalHandler(h)
+	}
+}
+
+// getLocalProxyHandler returns the global HTTP handler for direct proxy invocation.
+func getLocalProxyHandler() http.Handler {
+	localProxyHandlerMu.RLock()
+	defer localProxyHandlerMu.RUnlock()
+	return localProxyHandler
+}
 
 func runGarbageCollection(ctx context.Context, store storage.DeviceStore, config *agent.RetentionConfig) {
 	ticker := time.NewTicker(24 * time.Hour) // Run daily
@@ -1916,6 +1943,11 @@ func startServerUploadWorker(
 	}
 
 	uploadWorker := NewUploadWorker(serverClient, deviceStore, workerLogger, settings, workerConfig, dataDir)
+
+	// Set local handler if web server has already started
+	if h := getLocalProxyHandler(); h != nil {
+		uploadWorker.SetLocalHandler(h)
+	}
 
 	// Build version info for heartbeats
 	versionInfo := &agent.AgentVersionInfo{
@@ -7562,6 +7594,11 @@ window.top.location.href = '/proxy/%s/';
 	if agentAuth != nil {
 		rootHandler = agentAuth.Wrap(rootHandler)
 	}
+
+	// Register local handler globally for direct proxy invocation
+	// This allows the server to proxy to the agent's web UI without HTTP round-trip
+	// The handler is set globally so it's available even if upload worker starts later
+	setLocalProxyHandler(rootHandler)
 
 	// Create server instances for graceful shutdown
 	var httpServer *http.Server

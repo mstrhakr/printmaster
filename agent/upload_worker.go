@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -37,6 +38,10 @@ type UploadWorker struct {
 	wsClient     *agent.WSClient
 	useWebSocket bool
 	wsClientMu   sync.RWMutex
+
+	// Local handler for proxy requests (stored here until wsClient is created)
+	pendingLocalHandler   http.Handler
+	pendingLocalHandlerMu sync.RWMutex
 
 	// Configuration
 	heartbeatInterval time.Duration
@@ -105,6 +110,28 @@ func (w *UploadWorker) WSClient() *agent.WSClient {
 	w.wsClientMu.RLock()
 	defer w.wsClientMu.RUnlock()
 	return w.wsClient
+}
+
+// SetLocalHandler sets the local HTTP handler for direct proxy invocation.
+// When proxy requests target localhost, the handler is invoked directly
+// instead of making an HTTP round-trip.
+func (w *UploadWorker) SetLocalHandler(handler http.Handler) {
+	if w == nil {
+		return
+	}
+
+	// Store the handler for later use (in case wsClient doesn't exist yet)
+	w.pendingLocalHandlerMu.Lock()
+	w.pendingLocalHandler = handler
+	w.pendingLocalHandlerMu.Unlock()
+
+	// Apply immediately if wsClient exists
+	w.wsClientMu.RLock()
+	wsClient := w.wsClient
+	w.wsClientMu.RUnlock()
+	if wsClient != nil {
+		wsClient.SetLocalHandler(handler)
+	}
 }
 
 func (w *UploadWorker) currentSettingsVersion() string {
@@ -195,6 +222,14 @@ func (w *UploadWorker) StartWithVersionInfo(ctx context.Context, version string,
 		w.wsClientMu.Lock()
 		w.wsClient = agent.NewWSClient(serverURL, token, w.client.IsInsecureSkipVerify())
 		w.wsClientMu.Unlock()
+
+		// Apply pending local handler if one was set before wsClient existed
+		w.pendingLocalHandlerMu.RLock()
+		pendingHandler := w.pendingLocalHandler
+		w.pendingLocalHandlerMu.RUnlock()
+		if pendingHandler != nil {
+			w.wsClient.SetLocalHandler(pendingHandler)
+		}
 
 		// Start WebSocket client (non-blocking, handles reconnection internally)
 		if err := w.wsClient.Start(); err != nil {
