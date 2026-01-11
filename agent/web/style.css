@@ -2884,36 +2884,109 @@ input[type="checkbox"]:indeterminate::before {
   font-size: 13px;
 }
 
-/* Hamburger menu for mobile */
+/* Hamburger menu for mobile - DEPRECATED, using bottom tab bar now */
 .hamburger-menu {
-  display: none;
-  cursor: pointer;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  padding: 12px 16px;
-  border-radius: 6px;
-  width: 100%;
-  margin-bottom: 8px;
-  box-shadow: var(--shadow-sm);
-  transition: var(--transition-fast);
-}
-
-.hamburger-menu:hover {
-  border-color: var(--highlight);
-  box-shadow: var(--shadow-md);
+  display: none !important;
 }
 
 .hamburger-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: none;
 }
 
 .hamburger-header span {
-  font-size: 16px;
-  color: var(--text);
-  font-weight: 500;
+  display: none;
 }
+
+/* ============================================
+   MOBILE BOTTOM TAB BAR
+   Standard iOS/Material Design pattern
+   ============================================ */
+.mobile-bottom-tabs {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  z-index: 1000;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.mobile-bottom-tabs-inner {
+  display: flex;
+  height: 64px;
+  max-width: 100%;
+  margin: 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.mobile-bottom-tabs-inner::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-tab-item {
+  flex: 1;
+  min-width: 64px;
+  max-width: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-tab-item:active {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mobile-tab-item.active {
+  color: var(--highlight);
+}
+
+.mobile-tab-item.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 3px;
+  background: var(--highlight);
+  border-radius: 0 0 3px 3px;
+}
+
+.mobile-tab-item svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+
+.mobile-tab-item span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* RBAC-gated tabs use inline style="display:none" which shared.js RBAC will clear */
+/* No CSS override needed - flex display is default for .mobile-tab-item */
 
 /* Flatpickr custom theme (Solarized Dark) */
 .flatpickr-calendar {
@@ -3007,48 +3080,34 @@ span.flatpickr-weekday {
   background: rgba(38, 139, 210, 0.2) !important;
 }
 
+/* Old hamburger icon - deprecated */
 .hamburger-icon {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 24px;
+  display: none;
 }
 
 .hamburger-icon div {
-  width: 100%;
-  height: 3px;
-  background: var(--text);
-  transition: 0.3s;
+  display: none;
 }
 
+/* Old mobile nav dropdown - deprecated, using bottom tabs now */
 .mobile-nav {
-  display: none;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 0;
-  width: 100%;
+  display: none !important;
 }
 
 .mobile-nav.open {
-  display: flex;
-}
-
-/* Position mobile nav dropdown on mobile */
-@media (max-width: 768px) {
-  .mobile-nav {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-top: none;
-    border-radius: 0 0 6px 6px;
-    padding: 8px;
-    box-shadow: var(--shadow-md);
-  }
+  display: none !important;
 }
 
 /* Mobile responsive styles */
 @media (max-width: 768px) {
+  /* Show the mobile bottom tab bar */
+  .mobile-bottom-tabs {
+    display: block;
+  }
+
   body {
     padding: 8px;
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); /* Space for bottom tabs */
     font-size: 15px;
     max-width: 100vw;
     overflow-x: hidden;
@@ -3116,7 +3175,7 @@ span.flatpickr-weekday {
     padding: 14px !important;
   }
 
-  /* Hamburger menu for tabs */
+  /* Hide desktop tabs and old hamburger menu on mobile */
   .tabbar {
     position: relative;
     width: 100%;
@@ -3124,31 +3183,17 @@ span.flatpickr-weekday {
   }
 
   .hamburger-menu {
-    display: block;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
+    display: none !important;
   }
 
   .tabbar>.tab {
     display: none !important;
-    /* Hide regular tabs on mobile */
+    /* Hide regular tabs on mobile - using bottom tab bar */
   }
 
-  .mobile-nav .tab {
-    display: block;
-    width: 100%;
-    text-align: left;
-    padding: 14px 16px;
-    margin: 0;
-    font-size: 16px;
-    border: 1px solid #004b56;
-    background: var(--panel);
-  }
-
-  .mobile-nav .tab.active {
-    background: rgba(0, 180, 140, 0.15);
-    border-color: #005b4a;
+  /* Content container needs bottom padding for tab bar */
+  .content-container {
+    padding-bottom: 80px;
   }
 
   button {

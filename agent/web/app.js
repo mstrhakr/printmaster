@@ -2808,6 +2808,52 @@ function toggleMobileNav() {
     }
 }
 
+// Initialize mobile bottom tab bar navigation
+function initMobileBottomTabs() {
+    const bottomTabs = document.getElementById('mobile_bottom_tabs');
+    if (!bottomTabs) return;
+    
+    const tabItems = bottomTabs.querySelectorAll('.mobile-tab-item');
+    tabItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const target = item.dataset.target;
+            if (target) {
+                showTab(target);
+            }
+        });
+    });
+}
+
+// Update mobile bottom tabs active state when switching tabs
+function updateMobileBottomTabsActiveState(targetTab) {
+    const bottomTabs = document.getElementById('mobile_bottom_tabs');
+    if (!bottomTabs) return;
+    
+    const tabItems = bottomTabs.querySelectorAll('.mobile-tab-item');
+    tabItems.forEach(item => {
+        if (item.dataset.target === targetTab) {
+            item.classList.add('active');
+        } else {
+            item.classList.remove('active');
+        }
+    });
+}
+
+// Show/hide RBAC-gated tabs in mobile bottom tab bar
+function updateMobileBottomTabsRBAC(role) {
+    const bottomTabs = document.getElementById('mobile_bottom_tabs');
+    if (!bottomTabs) return;
+    
+    const adminTabs = bottomTabs.querySelectorAll('.mobile-tab-item[data-role="admin"]');
+    adminTabs.forEach(tab => {
+        if (role === 'admin') {
+            tab.style.display = 'flex';
+        } else {
+            tab.style.display = 'none';
+        }
+    });
+}
+
 // Theme toggle functionality
 function toggleTheme() {
     const checkbox = document.getElementById('theme-toggle-checkbox');
@@ -2980,6 +3026,10 @@ document.addEventListener('DOMContentLoaded', async function () {
         themeToggle.addEventListener('change', toggleTheme);
     }
 
+    // Initialize mobile bottom tab bar
+    initMobileBottomTabs();
+
+    // Old hamburger menu (deprecated - kept for backwards compatibility)
     const hamburger = document.querySelector('.hamburger-menu');
     if (hamburger) {
         hamburger.addEventListener('click', toggleMobileNav);
@@ -3412,7 +3462,10 @@ function showTab(name) {
     const activeBtns = document.querySelectorAll('.tab[data-target="' + name + '"]');
     activeBtns.forEach(btn => { btn.classList.add('active'); });
 
-    // Update mobile menu label
+    // Update mobile bottom tabs active state
+    updateMobileBottomTabsActiveState(name);
+
+    // Update mobile menu label (legacy)
     const label = document.getElementById('current_tab_label');
     if (label) {
         const tabNames = {
@@ -3423,7 +3476,7 @@ function showTab(name) {
         label.textContent = 'Menu - ' + (tabNames[name] || name);
     }
 
-    // Close mobile nav after selection
+    // Close mobile nav after selection (legacy)
     const nav = document.getElementById('mobile_nav');
     if (nav) {
         nav.classList.remove('open');
