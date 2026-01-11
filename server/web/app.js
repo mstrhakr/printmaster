@@ -565,6 +565,17 @@ function createTabButtons(tabId, label) {
         mobile.appendChild(btn);
         registerTabButton(btn);
     }
+    
+    // Also add to mobile bottom tabs with appropriate icon
+    const iconMap = {
+        'settings': '<svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
+        'alerts': '<svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>',
+        'admin': '<svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>'
+    };
+    
+    if (iconMap[tabId]) {
+        ensureMobileBottomTab(tabId, label, iconMap[tabId]);
+    }
 }
 
 function ensureTabPanel(tabId, templateId) {
@@ -1044,6 +1055,9 @@ function initTabs() {
     
     allTabs.forEach(registerTabButton);
     
+    // Initialize mobile bottom tab bar
+    initMobileBottomTabs();
+    
     // Legacy hamburger menu (kept for backwards compatibility)
     if (hamburger) {
         hamburger.addEventListener('click', () => {
@@ -1051,7 +1065,7 @@ function initTabs() {
         });
     }
 
-    // New floating toggle button for mobile navigation
+    // Old floating toggle button for mobile navigation (deprecated)
     if (mobileNavToggle && mobileNav) {
         mobileNavToggle.addEventListener('click', () => {
             const isActive = mobileNav.classList.toggle('active');
@@ -1075,6 +1089,62 @@ function initTabs() {
             closeMobileNav();
         }
     });
+}
+
+// Initialize the mobile bottom tab bar navigation
+function initMobileBottomTabs() {
+    const bottomTabs = document.getElementById('mobile_bottom_tabs');
+    if (!bottomTabs) return;
+    
+    const tabItems = bottomTabs.querySelectorAll('.mobile-tab-item');
+    tabItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const target = item.dataset.target;
+            if (target) {
+                switchTab(target);
+            }
+        });
+    });
+}
+
+// Update mobile bottom tabs active state when switching tabs
+function updateMobileBottomTabsActiveState(targetTab) {
+    const bottomTabs = document.getElementById('mobile_bottom_tabs');
+    if (!bottomTabs) return;
+    
+    const tabItems = bottomTabs.querySelectorAll('.mobile-tab-item');
+    tabItems.forEach(item => {
+        if (item.dataset.target === targetTab) {
+            item.classList.add('active');
+        } else {
+            item.classList.remove('active');
+        }
+    });
+}
+
+// Dynamically add a tab to mobile bottom tabs if needed
+function ensureMobileBottomTab(tabId, label, iconSvg) {
+    const bottomTabs = document.getElementById('mobile_bottom_tabs');
+    if (!bottomTabs) return;
+    
+    const inner = bottomTabs.querySelector('.mobile-bottom-tabs-inner');
+    if (!inner) return;
+    
+    // Check if tab already exists
+    if (inner.querySelector(`[data-target="${tabId}"]`)) return;
+    
+    // Create new tab item
+    const item = document.createElement('button');
+    item.className = 'mobile-tab-item';
+    item.dataset.target = tabId;
+    item.setAttribute('aria-label', label);
+    item.innerHTML = iconSvg + `<span>${label}</span>`;
+    
+    item.addEventListener('click', () => {
+        switchTab(tabId);
+    });
+    
+    inner.appendChild(item);
 }
 
 function closeMobileNav() {
@@ -4885,6 +4955,9 @@ function switchTab(targetTab, updateHash = true) {
         tab.classList.add('active');
     });
     
+    // Update mobile bottom tabs active state
+    updateMobileBottomTabsActiveState(targetTab);
+    
     // Update mobile menu label
     const label = document.getElementById('current_tab_label');
     if (label) {
@@ -5019,6 +5092,11 @@ function initDashboard() {
         sidebarToggle.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
+        
+        // Start collapsed on mobile for cleaner UX
+        if (window.innerWidth <= 900) {
+            sidebar.classList.add('collapsed');
+        }
     }
 
     // Search input
@@ -8732,6 +8810,11 @@ function initAgentsUI() {
         sidebarToggle.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
+        
+        // Start collapsed on mobile for cleaner UX
+        if (window.innerWidth <= 900) {
+            sidebar.classList.add('collapsed');
+        }
     }
 
     const searchInput = document.getElementById('agents_search');
@@ -10696,6 +10779,11 @@ function initDevicesUI() {
         sidebarToggle.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
+        
+        // Start collapsed on mobile for cleaner UX
+        if (window.innerWidth <= 900) {
+            sidebar.classList.add('collapsed');
+        }
     }
 
     const searchInput = document.getElementById('devices_search');
