@@ -22,7 +22,10 @@ func TestSQLiteStore_GetTieredMetricsHistory_RangeBounded(t *testing.T) {
 		t.Fatalf("Failed to create device: %v", err)
 	}
 
-	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	// Use a base time relative to now so the tier selection logic works correctly.
+	// GetTieredMetricsHistory determines tiers based on time.Now(), so we need
+	// test data within the "raw" tier window (last 7 days).
+	base := time.Now().UTC().Truncate(time.Hour)
 
 	// Helper inserts directly into tier tables using the store's DB.
 	insertRaw := func(ts time.Time, pages int) {
