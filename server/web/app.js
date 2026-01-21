@@ -16217,8 +16217,8 @@ function handleLiveMetricsSnapshot(snapshot) {
 
     // Server metrics
     appendPoint('goroutines', server.goroutines);
-    appendPoint('heap_alloc', server.heap_alloc);
-    appendPoint('db_size', server.database?.size_bytes);
+    appendPoint('heap_alloc', server.heap_alloc_mb);
+    appendPoint('db_size', server.db_size_bytes);
 
     // Prune old data points outside current time window
     const rangeWindow = getMetricsRangeWindow(metricsVM.range);
