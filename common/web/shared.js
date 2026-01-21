@@ -546,9 +546,9 @@ function createTemporaryAlertModal(message, title = 'Notice', showDontRemindChec
                 </div>
                 <div class="modal-body">
                     <div style="white-space:pre-wrap;">${isHtml ? message : safeEscape(message)}</div>
-                    ${showDontRemindCheckbox ? `<div style="margin-top:12px"><label><input type="checkbox" id="_tmp_alert_dont_remind"> Don't show this again</label></div>` : ''}
                 </div>
-                <div class="modal-footer">
+                <div class="modal-footer" style="display:flex;align-items:center;gap:12px;">
+                    ${showDontRemindCheckbox ? `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-right:auto;"><input type="checkbox" id="_tmp_alert_dont_remind" style="cursor:pointer;"><span style="font-size:13px;color:var(--muted);">Don't show this again</span></label>` : ''}
                     <button class="modal-button modal-button-primary" data-action="ok">OK</button>
                 </div>
             </div>
@@ -694,22 +694,19 @@ function showAlert(message, title = 'Notice', isDangerous = false, showDontRemin
         messageEl.textContent = message;
     }
     
-    // Add "Don't remind me" checkbox if requested
+    // Add "Don't remind me" toggle if requested - insert into footer area
     let dontRemindCheckbox = null;
-    if (showDontRemindCheckbox) {
-        const checkboxHTML = `
-            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="dont_remind_checkbox" style="cursor: pointer;">
-                    <span style="font-size: 14px; color: var(--muted);">Don't show this again</span>
-                </label>
-            </div>
+    const buttonsContainer = confirmBtn.parentElement;
+    if (showDontRemindCheckbox && buttonsContainer) {
+        // Create toggle element and insert before buttons
+        const toggleWrapper = document.createElement('label');
+        toggleWrapper.id = 'dont_remind_wrapper';
+        toggleWrapper.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;margin-right:auto;';
+        toggleWrapper.innerHTML = `
+            <input type="checkbox" id="dont_remind_checkbox" style="cursor:pointer;">
+            <span style="font-size:13px;color:var(--muted);">Don't show this again</span>
         `;
-        if (isHtml) {
-            messageEl.innerHTML = message + checkboxHTML;
-        } else {
-            messageEl.innerHTML = message.replace(/\\n/g, '<br>') + checkboxHTML;
-        }
+        buttonsContainer.insertBefore(toggleWrapper, buttonsContainer.firstChild);
         dontRemindCheckbox = modal.querySelector('#dont_remind_checkbox');
     }
     
@@ -741,6 +738,9 @@ function showAlert(message, title = 'Notice', isDangerous = false, showDontRemin
         messageEl.style.whiteSpace = ''; // Reset style
         messageEl.innerHTML = ''; // Clear HTML
         confirmBtn.textContent = 'Confirm'; // Reset text
+        // Remove toggle wrapper if it was added
+        const toggleWrapper = modal.querySelector('#dont_remind_wrapper');
+        if (toggleWrapper) toggleWrapper.remove();
         confirmBtn.removeEventListener('click', onDismiss);
         if (closeX) closeX.removeEventListener('click', onDismiss);
         modal.removeEventListener('click', onBackdropClick);
