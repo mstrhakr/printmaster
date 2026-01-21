@@ -15505,6 +15505,56 @@ const SERVER_SERIES_COLORS = {
     agents_offline: '#f56565', // Red for offline
 };
 
+/**
+ * Helper to render chart cards without flashing.
+ * Reuses existing canvas elements when possible to avoid DOM thrashing during live updates.
+ * @param {HTMLElement} grid - Container element
+ * @param {Array} cards - Array of {id, title, series, formatY?} objects
+ * @param {Function} drawFn - Chart drawing function (drawFleetChart or custom)
+ * @param {string} noDataHtml - HTML to show when no data
+ */
+function renderChartCardsSmooth(grid, cards, drawFn, noDataHtml) {
+    if (!grid) return;
+
+    // Filter to cards with actual data
+    const validCards = cards.filter(card => 
+        card.series && card.series.some(s => s.points && s.points.length > 0)
+    );
+
+    if (validCards.length === 0) {
+        grid.innerHTML = noDataHtml;
+        return;
+    }
+
+    // Check if we can reuse existing canvases (same card IDs in same order)
+    const existingIds = Array.from(grid.querySelectorAll('canvas.metric-chart-canvas')).map(c => c.id);
+    const newIds = validCards.map(c => c.id);
+    const canReuse = existingIds.length === newIds.length && existingIds.every((id, i) => id === newIds[i]);
+
+    if (!canReuse) {
+        // Need to rebuild DOM structure
+        grid.innerHTML = validCards.map(card => `
+            <div class="metric-chart-card">
+                <div class="card-title">${card.title}</div>
+                <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
+            </div>
+        `).join('');
+    }
+
+    // Draw charts (reuses existing canvas elements if structure matches)
+    requestAnimationFrame(() => {
+        validCards.forEach(card => {
+            const canvas = document.getElementById(card.id);
+            if (canvas) {
+                drawFn(canvas, card.series, { 
+                    label: card.title,
+                    formatY: card.formatY,
+                });
+            }
+        });
+    });
+}
+
 // Consumables Time-Series Charts - Historical view of toner levels across fleet
 function renderConsumablesTimeSeriesCharts(timeseries) {
     const grid = document.getElementById('metrics_consumables_charts');
@@ -15584,46 +15634,23 @@ function renderConsumablesTimeSeriesCharts(timeseries) {
         },
     ];
 
-    // Filter out charts with no data
-    const validCards = cards.filter(card => {
-        return card.series.some(s => s.points && s.points.length > 0);
-    });
-
-    if (validCards.length === 0) {
-        grid.innerHTML = `
-            <div class="metric-chart-card">
-                <div class="card-title">Consumables Distribution Over Time</div>
-                <div class="no-data-placeholder">
-                    <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                    <span>Collecting data…</span>
-                </div>
+    const noDataHtml = `
+        <div class="metric-chart-card">
+            <div class="card-title">Consumables Distribution Over Time</div>
+            <div class="no-data-placeholder">
+                <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Collecting data…</span>
             </div>
-            <div class="metric-chart-card">
-                <div class="card-title">Low & Critical Consumables Trend</div>
-                <div class="no-data-placeholder">
-                    <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                    <span>Collecting data…</span>
-                </div>
-            </div>`;
-        return;
-    }
-
-    grid.innerHTML = validCards.map(card => `
-        <div class="metric-chart-card data-loading">
-            <div class="card-title">${card.title}</div>
-            <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
         </div>
-    `).join('');
+        <div class="metric-chart-card">
+            <div class="card-title">Low & Critical Consumables Trend</div>
+            <div class="no-data-placeholder">
+                <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Collecting data…</span>
+            </div>
+        </div>`;
 
-    requestAnimationFrame(() => {
-        validCards.forEach(card => {
-            const canvas = document.getElementById(card.id);
-            if (canvas) {
-                drawFleetChart(canvas, card.series, { label: card.title });
-                canvas.closest('.metric-chart-card')?.classList.remove('data-loading');
-            }
-        });
-    });
+    renderChartCardsSmooth(grid, cards, drawFleetChart, noDataHtml);
 }
 
 // Agent Fleet Time-Series Charts - Historical view of agent fleet health
@@ -15695,46 +15722,23 @@ function renderAgentFleetCharts(timeseries) {
         },
     ];
 
-    // Filter out charts with no data
-    const validCards = cards.filter(card => {
-        return card.series.some(s => s.points && s.points.length > 0);
-    });
-
-    if (validCards.length === 0) {
-        grid.innerHTML = `
-            <div class="metric-chart-card">
-                <div class="card-title">Agent & Device Count</div>
-                <div class="no-data-placeholder">
-                    <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                    <span>Collecting data…</span>
-                </div>
+    const noDataHtml = `
+        <div class="metric-chart-card">
+            <div class="card-title">Agent & Device Count</div>
+            <div class="no-data-placeholder">
+                <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Collecting data…</span>
             </div>
-            <div class="metric-chart-card">
-                <div class="card-title">Device Status</div>
-                <div class="no-data-placeholder">
-                    <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                    <span>Collecting data…</span>
-                </div>
-            </div>`;
-        return;
-    }
-
-    grid.innerHTML = validCards.map(card => `
-        <div class="metric-chart-card data-loading">
-            <div class="card-title">${card.title}</div>
-            <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
         </div>
-    `).join('');
+        <div class="metric-chart-card">
+            <div class="card-title">Device Health</div>
+            <div class="no-data-placeholder">
+                <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Collecting data…</span>
+            </div>
+        </div>`;
 
-    requestAnimationFrame(() => {
-        validCards.forEach(card => {
-            const canvas = document.getElementById(card.id);
-            if (canvas) {
-                drawFleetChart(canvas, card.series, { label: card.title });
-                canvas.closest('.metric-chart-card')?.classList.remove('data-loading');
-            }
-        });
-    });
+    renderChartCardsSmooth(grid, cards, drawFleetChart, noDataHtml);
 }
 
 function renderServerTimeSeriesCharts(timeseries) {
@@ -15868,56 +15872,30 @@ function renderServerTimeSeriesCharts(timeseries) {
         },
     ];
 
-    // Filter out charts with no data
-    const validCards = cards.filter(card => {
-        return card.series.some(s => s.points && s.points.length > 0);
-    });
-
-    if (validCards.length === 0) {
-        grid.innerHTML = `
-            <div class="metric-chart-card">
-                <div class="card-title">Goroutines</div>
-                <div class="no-data-placeholder">
-                    <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                    <span>Collecting data…</span>
-                </div>
+    const noDataHtml = `
+        <div class="metric-chart-card">
+            <div class="card-title">Goroutines</div>
+            <div class="no-data-placeholder">
+                <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Collecting data…</span>
             </div>
-            <div class="metric-chart-card">
-                <div class="card-title">Memory (Heap)</div>
-                <div class="no-data-placeholder">
-                    <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                    <span>Collecting data…</span>
-                </div>
-            </div>
-            <div class="metric-chart-card">
-                <div class="card-title">Database Size</div>
-                <div class="no-data-placeholder">
-                    <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
-                    <span>Collecting data…</span>
-                </div>
-            </div>`;
-        return;
-    }
-
-    grid.innerHTML = validCards.map(card => `
-        <div class="metric-chart-card data-loading">
-            <div class="card-title">${card.title}</div>
-            <canvas id="${card.id}" class="metric-chart-canvas" height="220"></canvas>
         </div>
-    `).join('');
+        <div class="metric-chart-card">
+            <div class="card-title">Memory (Heap)</div>
+            <div class="no-data-placeholder">
+                <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Collecting data…</span>
+            </div>
+        </div>
+        <div class="metric-chart-card">
+            <div class="card-title">Database Size</div>
+            <div class="no-data-placeholder">
+                <svg class="no-data-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+                <span>Collecting data…</span>
+            </div>
+        </div>`;
 
-    requestAnimationFrame(() => {
-        validCards.forEach(card => {
-            const canvas = document.getElementById(card.id);
-            if (canvas) {
-                drawFleetChart(canvas, card.series, { 
-                    label: card.title,
-                    formatY: card.formatY,
-                });
-                canvas.closest('.metric-chart-card')?.classList.remove('data-loading');
-            }
-        });
-    });
+    renderChartCardsSmooth(grid, cards, drawFleetChart, noDataHtml);
 }
 
 function renderServerPanel(server) {
