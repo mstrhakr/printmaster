@@ -7726,10 +7726,10 @@ input[type="checkbox"]:indeterminate::before {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 0;
-  width: 98%;
-  max-width: 1600px;
-  height: 90vh;
-  max-height: 90vh;
+  width: 95%;
+  max-width: 1200px;
+  height: 85vh;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
@@ -7757,7 +7757,7 @@ input[type="checkbox"]:indeterminate::before {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 24px;
+  padding: 20px;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
@@ -8027,13 +8027,24 @@ input[type="checkbox"]:indeterminate::before {
 .device-details-stack {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 20px;
+  gap: 16px;
 }
 
 /* Make certain cards span full width */
 .device-details-stack > .device-metrics-card,
-.device-details-stack > .device-live-card {
+.device-details-stack > .device-live-card,
+.device-details-stack > .device-report-card {
   grid-column: 1 / -1;
+}
+
+/* Report card is interactive - keep it compact and full-width */
+.device-details-stack > .device-report-card {
+  order: 100; /* Push to bottom of grid */
+}
+
+/* Live tools card should appear after report card */
+.device-details-stack > .device-live-card {
+  order: 99; /* Just before report card */
 }
 
 /* Tablet breakpoint - single column for details */
@@ -8051,8 +8062,8 @@ input[type="checkbox"]:indeterminate::before {
 .device-details-card {
   background: var(--panel);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 10px;
+  padding: 16px;
   box-shadow: var(--shadow-md);
   transition: border-color 0.15s ease;
 }
@@ -8062,28 +8073,28 @@ input[type="checkbox"]:indeterminate::before {
 }
 
 .device-details-card-title {
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .device-details-card-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   font-size: 13px;
 }
 
 .device-metrics-card .device-details-card-content {
-  gap: 12px;
+  gap: 10px;
 }
 
 .device-metrics-card-content {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .device-metrics-summary-placeholder {
@@ -8093,36 +8104,36 @@ input[type="checkbox"]:indeterminate::before {
 
 .device-metrics-summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
 }
 
 .device-metric-pill {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.07);
-  border-radius: 10px;
-  padding: 12px;
+  border-radius: 8px;
+  padding: 10px;
   box-shadow: var(--shadow-sm);
 }
 
 .device-metric-label {
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: var(--muted);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
 
 .device-metric-value {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text);
 }
 
 .device-metric-subtext {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .device-metrics-actions {
