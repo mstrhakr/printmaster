@@ -38,6 +38,7 @@ import (
 	"printmaster/agent/storage"
 	"printmaster/common/config"
 	"printmaster/common/logger"
+	"printmaster/common/report"
 	pmsettings "printmaster/common/settings"
 	commonutil "printmaster/common/util"
 	sharedweb "printmaster/common/web"
@@ -4216,6 +4217,11 @@ func runInteractive(ctx context.Context, configFlag string) {
 			w.Write([]byte(sharedweb.CardsJS))
 			return
 		}
+		if fileName == "report.js" {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Write([]byte(sharedweb.ReportJS))
+			return
+		}
 		// Serve vendored flatpickr files from the embedded common/web package so
 		// they are served with correct MIME types and avoid CDN/CSP issues.
 		if fileName == "flatpickr/flatpickr.min.js" {
@@ -4730,6 +4736,111 @@ func runInteractive(ctx context.Context, configFlag string) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(data)
+	})
+
+	// POST /api/report - Submit a device data report to the proxy service
+	// This endpoint collects diagnostic data and forwards it to the cloud proxy
+	// which creates a GitHub Gist and returns URLs for the pre-filled issue.
+	http.HandleFunc("/api/report", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req agent.ReportRequest
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("invalid request: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// Validate required fields
+		if req.IssueType == "" {
+			http.Error(w, "issue_type is required", http.StatusBadRequest)
+			return
+		}
+
+		// Create the report submitter with a salt derived from agent ID
+		agentID := agentConfig.Server.AgentID
+		submitter := agent.NewReportSubmitter(Version, agentID, appLogger)
+
+		// Get parse debug data if available
+		var parseDebug *agent.ParseDebug
+		if req.DeviceIP != "" {
+			if pd, ok := agent.GetParseDebug(req.DeviceIP); ok {
+				parseDebug = &pd
+			}
+		}
+
+		// Get recent logs for context (last 50 lines, sanitized)
+		var recentLogs []string
+		logPath := filepath.Join(".", "logs", "agent.log")
+		if logData, err := os.ReadFile(logPath); err == nil {
+			lines := strings.Split(string(logData), "\n")
+			start := len(lines) - 50
+			if start < 0 {
+				start = 0
+			}
+			recentLogs = lines[start:]
+		}
+
+		// Build the report
+		issueType := agent.ParseIssueType(req.IssueType)
+		rpt := submitter.BuildReport(
+			issueType,
+			req.ExpectedValue,
+			req.UserMessage,
+			req.DeviceIP,
+			req.DeviceSerial,
+			req.DeviceModel,
+			req.DeviceMAC,
+			req.CurrentManufacturer,
+			req.CurrentHostname,
+			req.CurrentPageCount,
+			parseDebug,
+			recentLogs,
+		)
+
+		// Supplement with any client-provided SNMP data (if parse debug wasn't on server)
+		if len(rpt.SNMPResponses) == 0 && len(req.SNMPResponses) > 0 {
+			rpt.SNMPResponses = req.SNMPResponses
+		}
+		if rpt.DetectedVendor == "" && req.DetectedVendor != "" {
+			rpt.DetectedVendor = req.DetectedVendor
+		}
+		if len(rpt.DetectionSteps) == 0 && len(req.DetectionSteps) > 0 {
+			rpt.DetectionSteps = req.DetectionSteps
+		}
+
+		// Try to submit to proxy
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+
+		proxyResp, err := submitter.SubmitToProxy(ctx, rpt)
+		if err != nil {
+			if appLogger != nil {
+				appLogger.Warn("Failed to submit report to proxy", "error", err)
+			}
+			// Return the report data so frontend can use fallback
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":     err.Error(),
+				"report":    rpt,
+				"issue_url": report.BuildGitHubIssueURL(rpt, ""),
+				"fallback":  true,
+			})
+			return
+		}
+
+		if appLogger != nil {
+			appLogger.Info("Report submitted successfully",
+				"report_id", rpt.ReportID,
+				"gist_url", proxyResp.GistURL,
+				"issue_type", issueType.String())
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(proxyResp)
 	})
 
 	// Endpoint to return current scan metrics snapshot

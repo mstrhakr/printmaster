@@ -7044,6 +7044,12 @@ func handleStatic(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(sharedweb.CardsJS))
 		return
 	}
+	if fileName == "report.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		w.Write([]byte(sharedweb.ReportJS))
+		return
+	}
 	// Serve vendored flatpickr files from the embedded common/web package so
 	// they are served with correct MIME types and avoid CDN/CSP issues.
 	if fileName == "flatpickr/flatpickr.min.js" {

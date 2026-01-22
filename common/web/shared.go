@@ -42,3 +42,9 @@ var FlatpickrCSS string
 
 //go:embed flatpickr/LICENSE.md
 var FlatpickrLicense string
+
+// ReportJS contains the device data issue reporting UI component.
+// Embedded from report.js and served as /static/report.js
+//
+//go:embed report.js
+var ReportJS string

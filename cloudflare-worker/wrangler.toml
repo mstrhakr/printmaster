@@ -1,0 +1,11 @@
+name = "printmaster-diagnostic-proxy"
+main = "src/worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+GITHUB_REPO = "mstrhakr/printmaster"
+
+# Route for custom domain
+[[routes]]
+pattern = "api.printmaster.work/*"
+zone_name = "printmaster.work"

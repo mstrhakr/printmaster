@@ -918,13 +918,21 @@
         } catch (e) { /* ignore */ }
         if (statusSection) html += renderInfoCard('Status Messages', statusSection);
 
-        // Parse debug link (fallback to constructed endpoint if not present)
-        let diagnosticsSection = '';
+        // Device Data Report section (replaces old parse debug link)
+        let reportSection = '';
         try {
-            const dbgLink = p.parse_debug_path || ('/parse_debug?ip=' + encodeURIComponent(p.ip || ''));
-            diagnosticsSection = '<a class="device-diagnostics-link" href="' + dbgLink + '" target="_blank" rel="noreferrer">View Parse Debug</a>';
-        } catch (e) {}
-        if (diagnosticsSection) html += renderInfoCard('Diagnostics', diagnosticsSection);
+            if (window.__pm_report && typeof window.__pm_report.renderReportForm === 'function') {
+                reportSection = window.__pm_report.renderReportForm(p, parseDebug);
+            } else {
+                // Fallback: simple button that triggers report UI when JS loads
+                reportSection = '<div id="device_report_placeholder" class="device-report-container">' +
+                    '<p style="color:var(--muted);font-size:13px;">Loading report form...</p>' +
+                    '</div>';
+            }
+        } catch (e) {
+            console.warn('Report form render error:', e);
+        }
+        if (reportSection) html += renderInfoCard('Report Data Issue', reportSection, { className: 'device-report-card' });
 
         const liveTools = '<div id="action_buttons_area" class="device-live-tools">' +
             '<div class="device-live-actions-row">' +
@@ -1351,6 +1359,13 @@
                 });
             }
         } catch (e) { window.__pm_shared.warn('cred wiring failed', e); }
+
+        // Initialize device report form
+        try {
+            if (window.__pm_report && typeof window.__pm_report.initReportForm === 'function') {
+                window.__pm_report.initReportForm(p, parseDebug);
+            }
+        } catch (e) { window.__pm_shared.warn('report form wiring failed', e); }
     }
 
     // Export shared modal renderer
