@@ -84,21 +84,21 @@ type DiagnosticReport struct {
 	CurrentPageCount    int    `json:"current_page_count,omitempty"`
 
 	// Extended device info (all available data)
-	Firmware         string   `json:"firmware,omitempty"`
-	SubnetMask       string   `json:"subnet_mask,omitempty"`
-	Gateway          string   `json:"gateway,omitempty"`
-	Consumables      []string `json:"consumables,omitempty"`
-	StatusMessages   []string `json:"status_messages,omitempty"`
-	DiscoveryMethod  string   `json:"discovery_method,omitempty"`
-	WebUIURL         string   `json:"web_ui_url,omitempty"`
-	DeviceType       string   `json:"device_type,omitempty"`   // network, usb, local, shared, virtual
-	SourceType       string   `json:"source_type,omitempty"`   // snmp, spooler, manual
-	IsUSB            bool     `json:"is_usb,omitempty"`
-	PortName         string   `json:"port_name,omitempty"`     // USB001, LPT1:, etc.
-	DriverName       string   `json:"driver_name,omitempty"`
-	IsDefault        bool     `json:"is_default,omitempty"`
-	IsShared         bool     `json:"is_shared,omitempty"`
-	SpoolerStatus    string   `json:"spooler_status,omitempty"`
+	Firmware        string   `json:"firmware,omitempty"`
+	SubnetMask      string   `json:"subnet_mask,omitempty"`
+	Gateway         string   `json:"gateway,omitempty"`
+	Consumables     []string `json:"consumables,omitempty"`
+	StatusMessages  []string `json:"status_messages,omitempty"`
+	DiscoveryMethod string   `json:"discovery_method,omitempty"`
+	WebUIURL        string   `json:"web_ui_url,omitempty"`
+	DeviceType      string   `json:"device_type,omitempty"` // network, usb, local, shared, virtual
+	SourceType      string   `json:"source_type,omitempty"` // snmp, spooler, manual
+	IsUSB           bool     `json:"is_usb,omitempty"`
+	PortName        string   `json:"port_name,omitempty"` // USB001, LPT1:, etc.
+	DriverName      string   `json:"driver_name,omitempty"`
+	IsDefault       bool     `json:"is_default,omitempty"`
+	IsShared        bool     `json:"is_shared,omitempty"`
+	SpoolerStatus   string   `json:"spooler_status,omitempty"`
 
 	// Metrics data
 	ColorPages  int                    `json:"color_pages,omitempty"`
