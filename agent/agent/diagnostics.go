@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gosnmp/gosnmp"
 )
 
 // ParseDebug holds structured debugging information for a parsed IP
@@ -23,6 +25,11 @@ type ParseDebug struct {
 	IsPrinter         bool                   `json:"is_printer"`
 	DetectionReasons  []string               `json:"detection_reasons"`
 	Extra             map[string]interface{} `json:"extra,omitempty"`
+
+	// FullWalkData contains the results of a diagnostic SNMP walk performed
+	// during report submission. This captures ALL OIDs the device responds to,
+	// which helps debug vendor-specific issues where standard OIDs don't work.
+	FullWalkData []RawPDU `json:"full_walk_data,omitempty"`
 }
 
 // RawPDU is a JSON-serializable representation of a gosnmp.SnmpPDU
@@ -83,4 +90,31 @@ func ipToFileName(ip string) string {
 	fn := filepath.Base(ip)
 	fn = strings.ReplaceAll(fn, ".", "_")
 	return fn
+}
+
+// PDUToRawPDU converts a gosnmp.SnmpPDU to a RawPDU for JSON serialization.
+// This is used when capturing full SNMP walks for diagnostic reports.
+func PDUToRawPDU(pdu gosnmp.SnmpPDU) RawPDU {
+	rp := RawPDU{
+		OID:  strings.TrimPrefix(pdu.Name, "."),
+		Type: fmt.Sprintf("%v", pdu.Type),
+	}
+	if b, ok := pdu.Value.([]byte); ok {
+		rp.HexValue = fmt.Sprintf("%x", b)
+		// Decode as string if printable, otherwise keep hex only
+		str := string(b)
+		printable := true
+		for _, c := range str {
+			if c < 32 && c != '\t' && c != '\n' && c != '\r' {
+				printable = false
+				break
+			}
+		}
+		if printable {
+			rp.StrValue = str
+		}
+	} else {
+		rp.StrValue = fmt.Sprintf("%v", pdu.Value)
+	}
+	return rp
 }

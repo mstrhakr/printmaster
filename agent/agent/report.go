@@ -171,6 +171,11 @@ type ReportRequest struct {
 	DetectedVendor string                `json:"detected_vendor"`
 	DetectionSteps []string              `json:"detection_steps"`
 	SNMPResponses  []report.SNMPResponse `json:"snmp_responses"`
+
+	// FullWalk enables a full SNMP walk during report submission for diagnostics.
+	// When true, the agent will perform an SNMP walk of common MIB trees and
+	// include ALL OIDs the device responds to, helping debug vendor-specific issues.
+	FullWalk bool `json:"full_walk,omitempty"`
 }
 
 // ParseIssueType converts a string to an IssueType.

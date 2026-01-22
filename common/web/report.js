@@ -87,6 +87,17 @@
                                   maxlength="1000"></textarea>
                     </div>
                     
+                    <div class="device-report-field device-report-checkbox-field">
+                        <label class="device-report-checkbox-label">
+                            <input type="checkbox" id="report_full_walk" checked>
+                            <span class="device-report-checkbox-text">Include full SNMP diagnostic data</span>
+                        </label>
+                        <span class="device-report-checkbox-hint">
+                            Performs a complete SNMP walk to capture all device data. This helps us debug 
+                            vendor-specific issues but may take a few extra seconds.
+                        </span>
+                    </div>
+                    
                     <div class="device-report-privacy">
                         <span class="device-report-privacy-icon">🔒</span>
                         <span class="device-report-privacy-text">
@@ -162,6 +173,9 @@
                 value: pdu.str_value || pdu.StrValue || '',
                 hex_value: pdu.hex_value || pdu.HexValue || ''
             })),
+            
+            // Full SNMP walk option - triggers server-side diagnostic walk
+            full_walk: formData.fullWalk,
             
             // Recent logs (will be populated server-side)
             recent_logs: []
@@ -277,7 +291,8 @@
             const formData = {
                 issueType: document.getElementById('report_issue_type').value,
                 expectedValue: document.getElementById('report_expected_value').value.trim(),
-                userMessage: document.getElementById('report_user_message').value.trim()
+                userMessage: document.getElementById('report_user_message').value.trim(),
+                fullWalk: document.getElementById('report_full_walk').checked
             };
             
             if (!formData.issueType) {
@@ -285,9 +300,11 @@
                 return;
             }
             
-            // Disable button, show loading
+            // Disable button, show loading (different message if full walk)
             submitBtn.disabled = true;
             submitText.style.display = 'none';
+            submitLoading.textContent = formData.fullWalk ? 
+                'Collecting SNMP data...' : 'Submitting...';
             submitLoading.style.display = 'inline';
             statusEl.style.display = 'none';
             

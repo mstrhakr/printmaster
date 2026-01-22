@@ -4771,6 +4771,50 @@ func runInteractive(ctx context.Context, configFlag string) {
 			}
 		}
 
+		// If FullWalk is requested, perform a complete SNMP walk to capture all OIDs
+		// This helps debug vendor-specific issues where standard OIDs don't work
+		if req.FullWalk && req.DeviceIP != "" {
+			if appLogger != nil {
+				appLogger.Info("Performing full SNMP walk for report", "ip", req.DeviceIP)
+			}
+			cfg, err := agent.GetSNMPConfig()
+			if err == nil {
+				client, err := agent.NewSNMPClient(cfg, req.DeviceIP, 10)
+				if err == nil {
+					defer client.Close()
+					// Walk standard MIB-2, Printer-MIB, and enterprise OIDs
+					cols := agent.FullDiagnosticWalk(client, nil, []string{
+						"1.3.6.1.2.1",     // MIB-2 (system, interfaces, etc.)
+						"1.3.6.1.2.1.43",  // Printer-MIB
+						"1.3.6.1.4.1",     // Enterprise MIBs (vendor-specific)
+					}, 5000) // Cap at 5000 OIDs to keep report size reasonable
+
+					// Convert PDUs to RawPDU format for JSON serialization
+					fullWalkData := make([]agent.RawPDU, 0, len(cols))
+					for _, pdu := range cols {
+						fullWalkData = append(fullWalkData, agent.PDUToRawPDU(pdu))
+					}
+
+					// Create or update parseDebug with full walk data
+					if parseDebug == nil {
+						parseDebug = &agent.ParseDebug{
+							IP:        req.DeviceIP,
+							Timestamp: time.Now().Format(time.RFC3339),
+						}
+					}
+					parseDebug.FullWalkData = fullWalkData
+
+					if appLogger != nil {
+						appLogger.Info("Full SNMP walk complete", "ip", req.DeviceIP, "oids_collected", len(fullWalkData))
+					}
+				} else if appLogger != nil {
+					appLogger.Warn("Failed to create SNMP client for full walk", "ip", req.DeviceIP, "error", err)
+				}
+			} else if appLogger != nil {
+				appLogger.Warn("Failed to get SNMP config for full walk", "error", err)
+			}
+		}
+
 		// Get recent logs for context (last 50 lines, sanitized)
 		var recentLogs []string
 		logPath := filepath.Join(".", "logs", "agent.log")
