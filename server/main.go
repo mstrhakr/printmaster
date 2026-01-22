@@ -5551,9 +5551,8 @@ func handleDevicePreviewProxy(w http.ResponseWriter, r *http.Request) {
 	// Proxy to agent's /devices/preview endpoint
 	agentURL := "http://localhost:8080/devices/preview"
 
-	// Reconstruct the request with body
-	proxyReq, _ := http.NewRequest(http.MethodPost, agentURL, bytes.NewReader(bodyBytes))
-	proxyReq.Header.Set("Content-Type", "application/json")
+	// Restore the request body so proxyThroughWebSocket can read it
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	// Use the WebSocket proxy infrastructure
 	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
@@ -5602,6 +5601,9 @@ func handleDeviceMetricsCollectProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Proxy to agent's /devices/metrics/collect endpoint
 	agentURL := "http://localhost:8080/devices/metrics/collect"
+
+	// Restore the request body so proxyThroughWebSocket can read it
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	// Use the WebSocket proxy infrastructure
 	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
