@@ -681,26 +681,37 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 
 	tonerLevels := map[string]int{}
 	consumables := []string{}
-	// placeholders for per-color descs
+	// placeholders for per-color descs (raw descriptions for display)
 	var descBlack, descCyan, descMagenta, descYellow string
 	for idx, lvl := range supplyLevels {
 		if desc, ok := supplyDesc[idx]; ok {
 			key := desc
-			if normalized := supplies.NormalizeDescription(desc); normalized != "" {
+			normalized := supplies.NormalizeDescription(desc)
+			if normalized != "" {
 				key = normalized
+				// Use normalized key to determine color assignment
+				// This is more accurate than substring matching on raw descriptions
+				switch normalized {
+				case "toner_black":
+					if descBlack == "" {
+						descBlack = desc
+					}
+				case "toner_cyan":
+					if descCyan == "" {
+						descCyan = desc
+					}
+				case "toner_magenta":
+					if descMagenta == "" {
+						descMagenta = desc
+					}
+				case "toner_yellow":
+					if descYellow == "" {
+						descYellow = desc
+					}
+				}
 			}
 			tonerLevels[key] = lvl
 			consumables = append(consumables, desc)
-			lcase := strings.ToLower(desc)
-			if strings.Contains(lcase, "black") || strings.Contains(lcase, "k") {
-				descBlack = desc
-			} else if strings.Contains(lcase, "cyan") || strings.Contains(lcase, "c") {
-				descCyan = desc
-			} else if strings.Contains(lcase, "magenta") || strings.Contains(lcase, "m") {
-				descMagenta = desc
-			} else if strings.Contains(lcase, "yellow") || strings.Contains(lcase, "y") {
-				descYellow = desc
-			}
 		} else {
 			// fallback to numeric index as string (idx is already a string)
 			key := idx
@@ -1201,27 +1212,28 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 	}
 
 	// populate per-color toner level fields from discovered descriptions when present
+	// Use the normalized key (toner_black, etc.) to look up levels since that's how we store them
 	if descBlack != "" {
 		pi.TonerDescBlack = descBlack
-		if v, ok := tonerLevels[descBlack]; ok {
+		if v, ok := tonerLevels["toner_black"]; ok {
 			pi.TonerLevelBlack = v
 		}
 	}
 	if descCyan != "" {
 		pi.TonerDescCyan = descCyan
-		if v, ok := tonerLevels[descCyan]; ok {
+		if v, ok := tonerLevels["toner_cyan"]; ok {
 			pi.TonerLevelCyan = v
 		}
 	}
 	if descMagenta != "" {
 		pi.TonerDescMagenta = descMagenta
-		if v, ok := tonerLevels[descMagenta]; ok {
+		if v, ok := tonerLevels["toner_magenta"]; ok {
 			pi.TonerLevelMagenta = v
 		}
 	}
 	if descYellow != "" {
 		pi.TonerDescYellow = descYellow
-		if v, ok := tonerLevels[descYellow]; ok {
+		if v, ok := tonerLevels["toner_yellow"]; ok {
 			pi.TonerLevelYellow = v
 		}
 	}

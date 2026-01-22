@@ -93,6 +93,15 @@ func TestNormalizeDescription(t *testing.T) {
 		{"HP CE400A black", "CE400K", "toner_black"},
 		{"HP CF410 cyan", "CF410C", "toner_cyan"},
 
+		// Brother HL-L8260CDW consumables (full descriptive names)
+		{"brother black cartridge", "Black Toner Cartridge", "toner_black"},
+		{"brother cyan cartridge", "Cyan Toner Cartridge", "toner_cyan"},
+		{"brother magenta cartridge", "Magenta Toner Cartridge", "toner_magenta"},
+		{"brother yellow cartridge", "Yellow Toner Cartridge", "toner_yellow"},
+
+		// Kyocera ECOSYS P2040dw monochrome
+		{"TK-1162 mono", "TK-1162", "toner_black"},
+
 		// Unknown/unmapped
 		{"unknown supply", "Paper Tray", ""},
 		{"random text", "Something Else", ""},
