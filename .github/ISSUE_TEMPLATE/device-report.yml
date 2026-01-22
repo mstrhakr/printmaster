@@ -22,21 +22,12 @@ body:
     validations:
       required: false
 
-  - type: dropdown
+  - type: input
     id: issue_type
     attributes:
       label: Issue Type
-      description: What type of data issue are you reporting?
-      options:
-        - Wrong manufacturer detection
-        - Wrong model detection
-        - Missing serial number
-        - Wrong serial number
-        - Incorrect page counters
-        - Missing toner/ink levels
-        - Missing supplies data
-        - Wrong hostname
-        - Other
+      description: Auto-filled by PrintMaster agent
+      placeholder: e.g., Missing toner/ink levels
     validations:
       required: true
 

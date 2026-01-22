@@ -153,6 +153,7 @@ ${JSON.stringify(report.snmp_responses || [], null, 2)}
 }
 
 function buildIssueUrl(repo, report, gistUrl) {
+  // These MUST match the dropdown options in .github/ISSUE_TEMPLATE/device-report.yml exactly
   const issueTypeLabels = {
     'wrong_manufacturer': 'Wrong manufacturer detection',
     'wrong_model': 'Wrong model detection',
@@ -165,13 +166,14 @@ function buildIssueUrl(repo, report, gistUrl) {
     'other': 'Other',
   };
 
-  const title = `[Device Report] ${report.issue_type} – ${report.device_model || 'Unknown Device'}`;
+  const issueTypeLabel = issueTypeLabels[report.issue_type] || 'Other';
+  const title = `[Device Report] ${issueTypeLabel} – ${report.device_model || 'Unknown Device'}`;
   
   const params = new URLSearchParams({
     template: 'device-report.yml',
     title: title,
     gist_url: gistUrl,
-    issue_type: issueTypeLabels[report.issue_type] || 'Other',
+    issue_type: issueTypeLabel,
     expected_value: report.expected_value || '',
     device_model: report.device_model || '',
     device_manufacturer: report.current_manufacturer || '',
