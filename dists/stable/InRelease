@@ -8,30 +8,30 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: PrintMaster Agent APT Repository
-Date: Sun, 11 Jan 2026 21:28:50 +0000
+Date: Thu, 22 Jan 2026 15:02:54 +0000
 MD5Sum:
- 3592b7b517cbdbe0ccf1f36439a85dcc 948 main/binary-amd64/Packages
- 6d352590f494b4bff45e706a9adf1594 598 main/binary-amd64/Packages.gz
- 545d8129c65c12e9dfbfa3613078f495 948 main/binary-arm64/Packages
- d28c07684c7ad82af4b2cb49055135d2 597 main/binary-arm64/Packages.gz
+ fcefe338933e92965b5047d09c3fd48f 948 main/binary-amd64/Packages
+ aeb5b0ec45742a2a0170c2885d0c2f6d 597 main/binary-amd64/Packages.gz
+ b9504595057ce3b9eb1803bf25b9cfb8 948 main/binary-arm64/Packages
+ 2ffebce0e42464e3ea4d0ad9db63a0a6 600 main/binary-arm64/Packages.gz
 SHA256:
- 3888e109fb64cd8f7a96c8fabe946ab3b1b685c8a1a6ecc2f978c584b2238de2 948 main/binary-amd64/Packages
- b90c9e38249b96e1248d1b6d3bbb621c26ba0c184acaebd12373f14a6aad322f 598 main/binary-amd64/Packages.gz
- 7f85274b39318335a2b341ea84332239df57f1cbdea819f2fb5fca959c61f9a5 948 main/binary-arm64/Packages
- 144138f4faaa759932969c9aac56129fe2cd309684f77ee08699051a3513e766 597 main/binary-arm64/Packages.gz
+ 9e72c190d027faf019c45632b3c427c417149196153eb36a2e079c35af59c0a7 948 main/binary-amd64/Packages
+ 62c8fbb5807574055d8ec9e898a208c80b74c9323bab3e5efc16468be5e6d010 597 main/binary-amd64/Packages.gz
+ fb5737058be309484cbc3dfe66e683286b7a566679a05faaa95122dd1a0317f1 948 main/binary-arm64/Packages
+ 27d6d370e34d5736ebf87d2e66b18bdac3239b196754f9aa5c413959353d1c65 600 main/binary-arm64/Packages.gz
 -----BEGIN PGP SIGNATURE-----
 
-iQIzBAEBCgAdFiEEQcsUrxW4IxLeXtLq9c9pJAf/998FAmlkFhIACgkQ9c9pJAf/
-999PcQ/8CaoNVGbNgoj0g7ol+eELJ538+m9u8hgdYAo4IIe/aaEp+J1pRZjWtlDM
-5XHUlW52ne9TugSXYPd5OdPYoG+jI8MGZY7yaHMT0rJgSR7+hx8gXSC8r8pZp/3b
-lrG3U+lvBPWNYBMgmOMdvanoE3IEs3Di8QizA017siv03MJK3Pz8kt0m/lVdLtVr
-rTrh/InyRFdwZxM7jtCf5XA5lLFyptNLXlO1RZNDWG0cm0+GkX4AJiEQUepQfefB
-BcNCj/+wzIDM6xzRwhD6VSUGpqgtUXY41pPI8oaLlAXzwreCrRAnerp3buO7Vbv0
-9MlYSOh2Z5ZFeu2T2qZ9uFt7GdVq08cCkOOEP1eHqN9ufoyTpUKdk/Wo3gmx7MIo
-2Utobc72FhxPcSE+VfDCpTDapEp6nMlakHdW4Tr4np5NRj1qwv3rW4r9WBViE6CU
-0GMT0u5XGU50Bg95othBj2VB2TNA1xIQj+AqVoqaL0AiXO/dXUf/+lhlcJskkkve
-FHleU6lxRsAoemzRFrHhaGbG+GawhcGZrjrLMQc4ECoPtkddNsGld1qYjxOoVW+8
-z/4GejGLL/IRXGtXXBZ6OPVGr71cuKFcBwYwk9+9qh3oPrtGgZf/2RwCclWjgLMw
-fcKzjquwGnm/NXjhFA9AVuKtSZ4QgYdMmFlyRPwuW2aoc8udQZ4=
-=oi3Y
+iQIzBAEBCgAdFiEEQcsUrxW4IxLeXtLq9c9pJAf/998FAmlyPB4ACgkQ9c9pJAf/
+9982cg/+ITd3nRnVzT2JKZmFGCQ7FWRCz44NHNMBsBEvJ2xWJo9kFRd0PbEgHPIx
+hnGRQvKQK1tQ4SnjvWqw51ywGTFrVR9w3IO9sKgAlgGr4SWJANGemSgAec6eVqlq
+r5wu5b/vFjP1eA/hcU3KThhQavVMtj4xgflvE9UqYDa2HxrGY98ooLG5dCRAuX05
+mLQc+4pV3wJg7CE/UA1xeuPxynWat/yElhspmtgM3brVZngB+TwtWaE4/00qbzl4
+V/pGdESqiL8o/7wRJlXeoXbrapbdfVe+gxoPKsH1+nfQrJihGW6651ObW2WKbfbV
+edPZqWEjNciFRsZVAjKGl4eLm58wFv+bbR7tj0g3rk/B8F++KrSIqdsoIOwVQkfX
+o8bloo67o2AufL9PAvODRQt9648VvUrThy6qQERUk+XBxqkb0EOKVV+yn0XxqS3X
++smJtYIgl2RepNOR9eCKVD3S2usVCNAnC5BFudCN4gaL2MKGNPOJuGh8IkL12VMS
+WX/JCoabEZ78Njfy0HEDMD/lDLlRVUNrCP8SM1kVnWZnZuWvJ1xg7PCx+4vhmm3z
+1/aOMyvTgHjloMkdamyg6NSMuG9bsKAFU7cJ9KZ3N/C+SqNIxBnzQHsMMPKm825O
+RuTzqJDFOtiwrDZX7GeHP9ZOXmtI3RhcQJo+DLCWK5GlZFhF55I=
+=vOKZ
 -----END PGP SIGNATURE-----
