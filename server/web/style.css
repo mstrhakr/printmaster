@@ -3134,11 +3134,17 @@ select:focus {
   padding: 14px;
   box-shadow: var(--shadow-md);
   color: var(--text);
-  min-height: 280px; /* Fixed height to prevent layout shift */
+  min-height: 280px; /* Fixed height to prevent layout shift - for chart cards */
   box-sizing: border-box;
   overflow: hidden;
   max-width: 100%;
   position: relative;
+}
+
+/* KPI cards in overview grids - much smaller, no chart */
+.metrics-overview-grid .metric-card {
+  min-height: auto;
+  padding: 12px;
 }
 
 .metric-card.loading,
@@ -3524,6 +3530,7 @@ select:focus {
 @media (max-width: 900px) {
   .sidebar-layout {
     flex-direction: column;
+    gap: 8px;
   }
   
   .filter-sidebar {
@@ -3543,8 +3550,8 @@ select:focus {
   
   .filter-sidebar .filter-sidebar-content {
     background: var(--bg); /* Solid background for content area */
-    padding: 12px;
-    max-height: 400px; /* Limit height on mobile */
+    padding: 8px;
+    max-height: 300px; /* Limit height on mobile */
     overflow-y: auto;
   }
   
@@ -8264,7 +8271,7 @@ input[type="checkbox"]:indeterminate::before {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 64px;
+  height: 52px;
   background: var(--panel);
   border-top: 1px solid var(--border);
   z-index: 1000;
@@ -8274,7 +8281,7 @@ input[type="checkbox"]:indeterminate::before {
 
 .mobile-bottom-tabs-inner {
   display: flex;
-  height: 64px;
+  height: 52px;
   max-width: 100%;
   margin: 0 auto;
   overflow-x: auto;
@@ -8289,18 +8296,18 @@ input[type="checkbox"]:indeterminate::before {
 
 .mobile-tab-item {
   flex: 1;
-  min-width: 64px;
-  max-width: 96px;
+  min-width: 56px;
+  max-width: 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 8px 4px;
+  gap: 2px;
+  padding: 4px 2px;
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 500;
   cursor: pointer;
   transition: color 0.15s ease, background 0.15s ease;
@@ -8322,15 +8329,15 @@ input[type="checkbox"]:indeterminate::before {
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 32px;
-  height: 3px;
+  width: 28px;
+  height: 2px;
   background: var(--highlight);
-  border-radius: 0 0 3px 3px;
+  border-radius: 0 0 2px 2px;
 }
 
 .mobile-tab-item svg {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   fill: currentColor;
   flex-shrink: 0;
 }
@@ -8512,12 +8519,12 @@ span.flatpickr-weekday {
   }
 }
 
-/* Mobile responsive styles */
+/* Mobile responsive styles - DENSE layout */
 @media (max-width: 768px) {
   body {
-    padding: 8px;
-    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); /* Space for bottom tabs */
-    font-size: 15px;
+    padding: 4px;
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); /* Space for bottom tabs */
+    font-size: 14px;
     max-width: 100vw;
     overflow-x: hidden;
     box-sizing: border-box;
@@ -8528,49 +8535,54 @@ span.flatpickr-weekday {
   }
 
   .content-container {
-    width: 98%;
-    padding: 12px;
-    padding-bottom: 80px; /* Extra padding to avoid bottom tabs overlap */
-    border-radius: 8px;
+    width: 100%;
+    padding: 8px;
+    padding-bottom: 60px; /* Extra padding to avoid bottom tabs overlap */
+    border-radius: 6px;
     box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.1);
   }
 
   h1 {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
+    margin-bottom: 4px;
+  }
+
+  h3 {
+    font-size: 1rem;
     margin-bottom: 6px;
   }
 
   .compact-time-filter {
-    min-width: 150px;
-    padding: 5px 10px;
+    min-width: 120px;
+    padding: 4px 8px;
     gap: 8px;
   }
 
   .compact-time-filter-label {
-    font-size: 12px;
-    min-width: 60px;
+    font-size: 11px;
+    min-width: 50px;
   }
 
   .capability-badge {
-    font-size: 10px;
-    padding: 3px 8px;
-    gap: 4px;
+    font-size: 9px;
+    padding: 2px 6px;
+    gap: 3px;
   }
 
   .capabilities-container {
-    gap: 4px;
-    margin: 4px 0 6px 0;
+    gap: 3px;
+    margin: 2px 0 4px 0;
   }
 
   .color-dot {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
   }
 
   .controls {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
     align-items: stretch;
   }
 
@@ -8582,18 +8594,19 @@ span.flatpickr-weekday {
   .status {
     margin-left: 0;
     display: block;
-    margin-top: 6px;
-    font-size: 14px;
+    margin-top: 4px;
+    font-size: 13px;
   }
 
   /* Full width cards on mobile */
   .saved-device-cards-container {
     max-width: 100% !important;
-    padding: 4px !important;
+    padding: 2px !important;
+    gap: 8px !important;
   }
 
   .saved-device-card {
-    padding: 14px !important;
+    padding: 10px !important;
   }
 
   /* Mobile navigation - hide desktop tabs */
@@ -8601,6 +8614,7 @@ span.flatpickr-weekday {
     position: relative;
     width: 100%;
     max-width: 100%;
+    margin-bottom: 6px;
   }
 
   .tabbar>.tab,
@@ -8610,8 +8624,8 @@ span.flatpickr-weekday {
   }
 
   button {
-    padding: 14px 16px;
-    font-size: 16px;
+    padding: 10px 12px;
+    font-size: 14px;
     touch-action: manipulation;
     min-height: 48px;
   }
@@ -8623,73 +8637,80 @@ span.flatpickr-weekday {
   textarea,
   select {
     font-size: 16px;
-    padding: 12px;
-    min-height: 48px;
+    padding: 8px;
+    min-height: 40px;
   }
 
   /* Card layouts on mobile */
   .device-cards-container {
     grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .saved-device-card-grid {
     grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   table {
-    font-size: 14px;
+    font-size: 13px;
   }
 
   table th,
   table td {
-    padding: 10px 6px;
+    padding: 6px 4px;
   }
 
   .scan-status-indicator {
-    margin-left: 8px;
-    padding: 6px 10px;
-    font-size: 13px;
+    margin-left: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
     flex-wrap: wrap;
   }
 
   .panel {
-    padding: 12px;
+    padding: 8px;
+    margin-bottom: 8px;
   }
 
   .device-details-card {
-    padding: 12px;
+    padding: 8px;
   }
 
   .device-metrics-summary-grid {
     grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .device-details-grid {
     grid-template-columns: 1fr;
+    gap: 8px;
   }
 
   .device-live-actions-row {
     flex-direction: column;
     align-items: stretch;
+    gap: 6px;
   }
 
   #log,
   pre {
-    font-size: 13px;
-    max-height: 240px;
+    font-size: 12px;
+    max-height: 200px;
   }
 
-  /* Stack header on mobile */
+  /* Stack header on mobile - compact */
   .header-flex {
     flex-direction: row !important;
     align-items: center !important;
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
+    margin-bottom: 8px !important;
   }
 
   .header-flex>div:first-child {
     flex: 1;
-    min-width: 200px;
+    min-width: 160px;
   }
 
   .scan-status-indicator {
@@ -8788,32 +8809,158 @@ span.flatpickr-weekday {
 
   /* Web UI buttons in modal */
   #printer_details_body button {
-    font-size: 13px !important;
-    padding: 8px 12px !important;
+    font-size: 12px !important;
+    padding: 6px 10px !important;
     white-space: nowrap;
   }
 
   /* Metrics section mobile optimizations */
   #metrics_content {
-    font-size: 13px !important;
+    font-size: 12px !important;
   }
 
   #metrics_stats {
-    font-size: 13px !important;
+    font-size: 12px !important;
   }
 
   #metrics_chart {
-    height: 180px !important;
-    max-height: 180px !important;
+    height: 160px !important;
+    max-height: 160px !important;
   }
 
   #metrics_custom_range {
-    padding: 10px !important;
+    padding: 8px !important;
   }
 
   #metrics_datetime_range {
     font-size: 14px !important;
-    min-height: 38px !important;
+    min-height: 36px !important;
+  }
+
+  /* Dashboard summary cards - compact on mobile */
+  .dashboard-summary-grid {
+    gap: 6px !important;
+  }
+
+  .dashboard-summary-card {
+    padding: 8px 10px !important;
+  }
+
+  .dashboard-summary-value {
+    font-size: 20px !important;
+  }
+
+  .dashboard-summary-label {
+    font-size: 10px !important;
+    margin-top: 2px !important;
+  }
+
+  /* Alert summary cards - compact */
+  .alert-summary-grid {
+    gap: 6px !important;
+  }
+
+  .alert-summary-card {
+    padding: 10px !important;
+    gap: 8px !important;
+  }
+
+  .summary-card-value {
+    font-size: 22px !important;
+  }
+
+  .summary-card-label {
+    font-size: 11px !important;
+  }
+
+  /* Agents/Devices main headers - compact */
+  .agents-main-header,
+  .devices-main-header,
+  .tenants-main-header {
+    gap: 8px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .agents-main-header h3,
+  .devices-main-header h3,
+  .tenants-main-header h3 {
+    font-size: 1rem !important;
+    margin-bottom: 4px !important;
+  }
+
+  /* Subtab bar - compact */
+  .subtab-bar {
+    gap: 4px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .subtab {
+    padding: 4px 10px !important;
+    font-size: 12px !important;
+  }
+
+  /* Filter pills - compact */
+  .filter-pill,
+  .status-filter-pill {
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+  }
+
+  /* Section headers - compact */
+  .settings-section-header,
+  .alerts-section-header {
+    padding: 8px 10px !important;
+  }
+
+  /* Metrics overview grid - compact KPI cards on mobile */
+  .metrics-overview-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .metrics-overview-grid .metric-card {
+    padding: 10px !important;
+    min-height: auto !important;
+  }
+
+  .metrics-overview-grid .card-title {
+    font-size: 10px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .metric-kpi-value {
+    font-size: 22px !important;
+    line-height: 1.1;
+  }
+
+  .metric-kpi-label {
+    font-size: 11px !important;
+    margin-top: 2px;
+  }
+
+  .metric-status-chips {
+    gap: 4px !important;
+    margin-top: 6px !important;
+  }
+
+  .metric-chip {
+    padding: 2px 6px !important;
+    font-size: 10px !important;
+    gap: 4px !important;
+  }
+
+  .metric-footnote {
+    font-size: 9px !important;
+    margin-top: 6px !important;
+  }
+
+  /* Metric chart cards - smaller on mobile */
+  .metric-chart-card {
+    min-height: 180px !important;
+    padding: 10px !important;
   }
 }
 
@@ -8823,14 +8970,14 @@ span.flatpickr-weekday {
   /* Search boxes slightly smaller on tablets */
   #discovered_search,
   #saved_search {
-    width: 250px;
+    width: 200px;
   }
 
   /* Stats can stay inline but compact */
   #discovered_stats,
   #saved_stats {
-    font-size: 12px;
-    gap: 10px;
+    font-size: 11px;
+    gap: 8px;
   }
 
   /* Slightly smaller buttons in tables */
