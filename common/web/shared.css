@@ -1188,6 +1188,7 @@ input[type="checkbox"]:disabled {
   border-radius: 6px;
   padding: 10px 12px;
   margin: 0;
+  transition: background 0.4s ease;
 }
 
 .device-report-current-title {
@@ -1233,6 +1234,7 @@ input[type="checkbox"]:disabled {
   font-size: 10px;
   color: var(--muted);
   line-height: 1.4;
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .device-report-privacy-icon {
@@ -1262,7 +1264,7 @@ input[type="checkbox"]:disabled {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all 0.4s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1332,6 +1334,25 @@ input[type="checkbox"]:disabled {
 
 .device-report-status a:hover {
   color: var(--accent);
+}
+
+/* Light mode overrides for report form */
+body.light-mode .device-report-current {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+body.light-mode .device-report-submit {
+  background: linear-gradient(180deg, #859900 0%, #6c8c00 100%);
+  border-color: #859900;
+}
+
+body.light-mode .device-report-submit:hover:not(:disabled) {
+  background: linear-gradient(180deg, #95a900 0%, #859900 100%);
+}
+
+body.light-mode .device-report-privacy {
+  background: rgba(181, 137, 0, 0.08);
+  border-color: rgba(181, 137, 0, 0.2);
 }
 
 /* Light mode overrides for elements with hardcoded dark-theme colors */
