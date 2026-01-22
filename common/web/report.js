@@ -136,6 +136,10 @@
      * Collect diagnostic data from device and parse debug
      */
     function collectDiagnosticData(device, parseDebug, formData) {
+        // Collect toner levels from various possible sources
+        const tonerLevels = device.toner_levels || device.tonerLevels || 
+            (device.raw_data && device.raw_data.toner_levels) || {};
+        
         const report = {
             report_id: generateReportId(),
             timestamp: new Date().toISOString(),
@@ -148,18 +152,41 @@
             expected_value: formData.expectedValue,
             user_message: formData.userMessage,
             
-            // Device info
+            // Device identification
             device_ip: device.ip || '',
             device_serial: device.serial || '',
             device_model: device.model || '',
             device_mac: device.mac || device.mac_address || '',
             
-            // Current detected values
+            // Current detected values (basic)
             current_manufacturer: device.manufacturer || device.make || '',
             current_model: device.model || '',
             current_serial: device.serial || '',
             current_hostname: device.hostname || '',
             current_page_count: device.page_count || device.pageCount || 0,
+            
+            // Extended device info
+            firmware: device.firmware || '',
+            subnet_mask: device.subnet_mask || device.subnetMask || '',
+            gateway: device.gateway || '',
+            consumables: device.consumables || [],
+            status_messages: device.status_messages || device.statusMessages || [],
+            discovery_method: device.discovery_method || device.discoveryMethod || '',
+            web_ui_url: device.web_ui_url || device.webUIURL || '',
+            device_type: device.device_type || device.deviceType || '',
+            source_type: device.source_type || device.sourceType || '',
+            is_usb: device.is_usb || device.isUSB || false,
+            port_name: device.port_name || device.portName || '',
+            driver_name: device.driver_name || device.driverName || '',
+            is_default: device.is_default || device.isDefault || false,
+            is_shared: device.is_shared || device.isShared || false,
+            spooler_status: device.spooler_status || device.spoolerStatus || '',
+            
+            // Metrics data
+            color_pages: device.color_pages || device.colorPages || 0,
+            mono_pages: device.mono_pages || device.monoPages || 0,
+            scan_count: device.scan_count || device.scanCount || 0,
+            toner_levels: tonerLevels,
             
             // Diagnostic data
             detected_vendor: parseDebug?.final_manufacturer || device.manufacturer || '',
@@ -176,6 +203,9 @@
             
             // Full SNMP walk option - triggers server-side diagnostic walk
             full_walk: formData.fullWalk,
+            
+            // Raw data catch-all (may contain additional OEM-specific fields)
+            raw_data: device.raw_data || device.rawData || {},
             
             // Recent logs (will be populated server-side)
             recent_logs: []

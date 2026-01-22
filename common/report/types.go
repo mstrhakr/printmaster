@@ -76,12 +76,35 @@ type DiagnosticReport struct {
 	DeviceModel  string `json:"device_model,omitempty"`
 	DeviceMAC    string `json:"device_mac,omitempty"`
 
-	// Current detected values
+	// Current detected values (basic)
 	CurrentManufacturer string `json:"current_manufacturer,omitempty"`
 	CurrentModel        string `json:"current_model,omitempty"`
 	CurrentSerial       string `json:"current_serial,omitempty"`
 	CurrentHostname     string `json:"current_hostname,omitempty"`
 	CurrentPageCount    int    `json:"current_page_count,omitempty"`
+
+	// Extended device info (all available data)
+	Firmware         string   `json:"firmware,omitempty"`
+	SubnetMask       string   `json:"subnet_mask,omitempty"`
+	Gateway          string   `json:"gateway,omitempty"`
+	Consumables      []string `json:"consumables,omitempty"`
+	StatusMessages   []string `json:"status_messages,omitempty"`
+	DiscoveryMethod  string   `json:"discovery_method,omitempty"`
+	WebUIURL         string   `json:"web_ui_url,omitempty"`
+	DeviceType       string   `json:"device_type,omitempty"`   // network, usb, local, shared, virtual
+	SourceType       string   `json:"source_type,omitempty"`   // snmp, spooler, manual
+	IsUSB            bool     `json:"is_usb,omitempty"`
+	PortName         string   `json:"port_name,omitempty"`     // USB001, LPT1:, etc.
+	DriverName       string   `json:"driver_name,omitempty"`
+	IsDefault        bool     `json:"is_default,omitempty"`
+	IsShared         bool     `json:"is_shared,omitempty"`
+	SpoolerStatus    string   `json:"spooler_status,omitempty"`
+
+	// Metrics data
+	ColorPages  int                    `json:"color_pages,omitempty"`
+	MonoPages   int                    `json:"mono_pages,omitempty"`
+	ScanCount   int                    `json:"scan_count,omitempty"`
+	TonerLevels map[string]interface{} `json:"toner_levels,omitempty"`
 
 	// Diagnostic data for developers
 	DetectedVendor   string   `json:"detected_vendor,omitempty"`
@@ -93,6 +116,9 @@ type DiagnosticReport struct {
 
 	// Recent relevant log entries
 	RecentLogs []string `json:"recent_logs,omitempty"`
+
+	// Full raw_data from device (catch-all for any extra fields)
+	RawData map[string]interface{} `json:"raw_data,omitempty"`
 }
 
 // SNMPResponse represents a single SNMP OID/value pair from device query.

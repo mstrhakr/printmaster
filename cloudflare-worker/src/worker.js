@@ -113,42 +113,27 @@ function generateSummary(report) {
 
   return `# Device Data Report
 
-## Issue Type
-${issueTypeLabels[report.issue_type] || report.issue_type}
+**Issue Type:** ${issueTypeLabels[report.issue_type] || report.issue_type}
 
-## Expected Value
-${report.expected_value || 'Not specified'}
+**Device:** ${report.current_manufacturer || 'Unknown'} ${report.current_model || 'Unknown'}
 
-## User Message
-${report.user_message || 'No additional message'}
+**Expected Value:** ${report.expected_value || 'Not specified'}
 
-## Current Detection Results
-- **Manufacturer**: ${report.current_manufacturer || 'Unknown'}
-- **Model**: ${report.current_model || 'Unknown'}
-- **Serial**: ${report.current_serial || 'Unknown'}
-- **Page Count**: ${report.current_page_count || 'N/A'}
-
-## Device Info
-- **IP**: ${report.device_ip || 'Unknown'}
-- **MAC**: ${report.device_mac || 'Unknown'}
-- **Detected Vendor**: ${report.detected_vendor || 'Unknown'}
-
-## Agent Info
-- **Version**: ${report.agent_version || 'Unknown'}
-- **OS**: ${report.os || 'Unknown'}
-- **Arch**: ${report.arch || 'Unknown'}
-
-## Detection Steps
-${(report.detection_steps || []).map(s => '- ' + s).join('\n') || 'No steps recorded'}
-
-## SNMP Responses
-\`\`\`json
-${JSON.stringify(report.snmp_responses || [], null, 2)}
-\`\`\`
+**User Notes:** ${report.user_message || 'None'}
 
 ---
-*Report ID: ${report.report_id}*  
-*Timestamp: ${report.timestamp}*
+
+| Field | Value |
+|-------|-------|
+| Serial | ${report.current_serial || 'Unknown'} |
+| IP | ${report.device_ip || 'N/A'} |
+| Agent Version | ${report.agent_version || 'Unknown'} |
+
+---
+
+📎 **Full diagnostic data is in \`diagnostic_report.json\`**
+
+*Report ID: ${report.report_id}*
 `;
 }
 

@@ -4855,6 +4855,30 @@ func runInteractive(ctx context.Context, configFlag string) {
 			rpt.DetectionSteps = req.DetectionSteps
 		}
 
+		// Populate extended device info from request
+		rpt.Firmware = req.Firmware
+		rpt.SubnetMask = req.SubnetMask
+		rpt.Gateway = req.Gateway
+		rpt.Consumables = req.Consumables
+		rpt.StatusMessages = req.StatusMessages
+		rpt.DiscoveryMethod = req.DiscoveryMethod
+		rpt.WebUIURL = req.WebUIURL
+		rpt.DeviceType = req.DeviceType
+		rpt.SourceType = req.SourceType
+		rpt.IsUSB = req.IsUSB
+		rpt.PortName = req.PortName
+		rpt.DriverName = req.DriverName
+		rpt.IsDefault = req.IsDefault
+		rpt.IsShared = req.IsShared
+		rpt.SpoolerStatus = req.SpoolerStatus
+
+		// Populate metrics data
+		rpt.ColorPages = req.ColorPages
+		rpt.MonoPages = req.MonoPages
+		rpt.ScanCount = req.ScanCount
+		rpt.TonerLevels = req.TonerLevels
+		rpt.RawData = req.RawData
+
 		// Try to submit to proxy
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()

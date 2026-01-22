@@ -168,6 +168,32 @@ type ReportRequest struct {
 	CurrentHostname     string `json:"current_hostname"`
 	CurrentPageCount    int    `json:"current_page_count"`
 
+	// Extended device info
+	Firmware        string   `json:"firmware,omitempty"`
+	SubnetMask      string   `json:"subnet_mask,omitempty"`
+	Gateway         string   `json:"gateway,omitempty"`
+	Consumables     []string `json:"consumables,omitempty"`
+	StatusMessages  []string `json:"status_messages,omitempty"`
+	DiscoveryMethod string   `json:"discovery_method,omitempty"`
+	WebUIURL        string   `json:"web_ui_url,omitempty"`
+	DeviceType      string   `json:"device_type,omitempty"`
+	SourceType      string   `json:"source_type,omitempty"`
+	IsUSB           bool     `json:"is_usb,omitempty"`
+	PortName        string   `json:"port_name,omitempty"`
+	DriverName      string   `json:"driver_name,omitempty"`
+	IsDefault       bool     `json:"is_default,omitempty"`
+	IsShared        bool     `json:"is_shared,omitempty"`
+	SpoolerStatus   string   `json:"spooler_status,omitempty"`
+
+	// Metrics data
+	ColorPages  int                    `json:"color_pages,omitempty"`
+	MonoPages   int                    `json:"mono_pages,omitempty"`
+	ScanCount   int                    `json:"scan_count,omitempty"`
+	TonerLevels map[string]interface{} `json:"toner_levels,omitempty"`
+
+	// Raw data catch-all
+	RawData map[string]interface{} `json:"raw_data,omitempty"`
+
 	DetectedVendor string                `json:"detected_vendor"`
 	DetectionSteps []string              `json:"detection_steps"`
 	SNMPResponses  []report.SNMPResponse `json:"snmp_responses"`
