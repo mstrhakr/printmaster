@@ -11,6 +11,12 @@ import (
 // Format: letters/numbers followed by color suffix (K/C/M/Y)
 var partNumberPattern = regexp.MustCompile(`(?i)^(tk|tn|ce|cf|w\d|cb|cc|q\d|c\d)[- ]?\d{3,5}([kcmy])$`)
 
+// monoTonerPattern matches monochrome toner part numbers without color suffix:
+// - Kyocera: TK-3182, TK-1172, TK-1152
+// - Brother: TN-760, TN-850
+// These are always black toner for monochrome printers
+var monoTonerPattern = regexp.MustCompile(`(?i)^(tk|tn)[- ]?\d{3,5}$`)
+
 // NormalizeDescription maps a raw supply description to a canonical metric key
 // understood by storage and server layers (e.g., "Black Toner" -> "toner_black").
 // Returns an empty string if the description cannot be classified.
@@ -86,8 +92,9 @@ func NormalizeDescription(desc string) string {
 
 // extractColorFromPartNumber checks if the description is a vendor part number
 // with color encoded in the suffix (K=black, C=cyan, M=magenta, Y=yellow)
+// or a monochrome toner part number (no suffix = black)
 func extractColorFromPartNumber(desc string) string {
-	// Try the regex pattern first
+	// Try the color suffix regex pattern first (e.g., TK-8517K)
 	if matches := partNumberPattern.FindStringSubmatch(desc); len(matches) >= 3 {
 		colorCode := strings.ToLower(matches[2])
 		switch colorCode {
@@ -100,6 +107,12 @@ func extractColorFromPartNumber(desc string) string {
 		case "y":
 			return "toner_yellow"
 		}
+	}
+
+	// Try monochrome toner pattern (e.g., TK-3182, TN-760)
+	// These are black toner for monochrome printers
+	if monoTonerPattern.MatchString(desc) {
+		return "toner_black"
 	}
 
 	// Fallback: check for common patterns not caught by regex

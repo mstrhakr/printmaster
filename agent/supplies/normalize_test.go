@@ -79,6 +79,16 @@ func TestNormalizeDescription(t *testing.T) {
 		{"supply prefix TK", "Supply TK-8517K", "toner_black"},
 		{"supply prefix Tk", "Supply Tk-8517c", "toner_cyan"},
 
+		// Monochrome toner part numbers (no color suffix = black)
+		{"kyocera TK-3182 mono", "TK-3182", "toner_black"},
+		{"kyocera TK-1172 mono", "TK-1172", "toner_black"},
+		{"kyocera TK-1152 mono", "TK-1152", "toner_black"},
+		{"kyocera lowercase mono", "tk-3182", "toner_black"},
+		{"kyocera no dash mono", "TK3182", "toner_black"},
+		{"brother TN-760 mono", "TN-760", "toner_black"},
+		{"brother TN-850 mono", "TN-850", "toner_black"},
+		{"brother lowercase mono", "tn-760", "toner_black"},
+
 		// Other vendor part number patterns
 		{"HP CE400A black", "CE400K", "toner_black"},
 		{"HP CF410 cyan", "CF410C", "toner_cyan"},
