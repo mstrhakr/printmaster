@@ -84,8 +84,18 @@ func (s *ReportSubmitter) BuildReport(
 		r.DetectedVendor = parseDebug.FinalManufacturer
 		r.DetectionSteps = parseDebug.Steps
 
-		// Convert raw PDUs
+		// Convert raw PDUs from initial scan
 		for _, pdu := range parseDebug.RawPDUs {
+			r.SNMPResponses = append(r.SNMPResponses, report.SNMPResponse{
+				OID:      pdu.OID,
+				Type:     pdu.Type,
+				Value:    pdu.StrValue,
+				HexValue: pdu.HexValue,
+			})
+		}
+
+		// Include full diagnostic walk data if present (from FullWalk=true reports)
+		for _, pdu := range parseDebug.FullWalkData {
 			r.SNMPResponses = append(r.SNMPResponses, report.SNMPResponse{
 				OID:      pdu.OID,
 				Type:     pdu.Type,
