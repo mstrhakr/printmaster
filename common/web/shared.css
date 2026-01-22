@@ -1127,7 +1127,7 @@ input[type="checkbox"]:disabled {
 .device-report-form > .device-report-privacy,
 .device-report-form > .device-report-actions,
 .device-report-form > .device-report-status,
-.device-report-form > .device-report-checkbox-field {
+.device-report-form > .device-report-toggle-row {
   grid-column: 1 / -1;
 }
 
@@ -1238,37 +1238,12 @@ input[type="checkbox"]:disabled {
   flex-shrink: 0;
 }
 
-/* Checkbox field for full SNMP walk option */
-.device-report-checkbox-field {
-  margin-bottom: 4px;
-}
-
-.device-report-checkbox-label {
+/* Toggle row for report options - uses global toggle-switch styles */
+.device-report-toggle-row {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  user-select: none;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.device-report-checkbox-label input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--highlight);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.device-report-checkbox-hint {
-  display: block;
-  margin-top: 2px;
-  margin-left: 20px;
-  font-size: 10px;
-  color: var(--muted);
-  line-height: 1.3;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
 }
 
 .device-report-actions {
