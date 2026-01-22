@@ -4784,9 +4784,9 @@ func runInteractive(ctx context.Context, configFlag string) {
 					defer client.Close()
 					// Walk standard MIB-2, Printer-MIB, and enterprise OIDs
 					cols := agent.FullDiagnosticWalk(client, nil, []string{
-						"1.3.6.1.2.1",     // MIB-2 (system, interfaces, etc.)
-						"1.3.6.1.2.1.43",  // Printer-MIB
-						"1.3.6.1.4.1",     // Enterprise MIBs (vendor-specific)
+						"1.3.6.1.2.1",    // MIB-2 (system, interfaces, etc.)
+						"1.3.6.1.2.1.43", // Printer-MIB
+						"1.3.6.1.4.1",    // Enterprise MIBs (vendor-specific)
 					}, 5000) // Cap at 5000 OIDs to keep report size reasonable
 
 					// Convert PDUs to RawPDU format for JSON serialization
