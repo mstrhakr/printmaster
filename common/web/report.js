@@ -88,10 +88,7 @@
                     </div>
                     
                     <div class="device-report-toggle-row">
-                        <div class="toggle-switch">
-                            <input type="checkbox" id="report_full_walk" checked>
-                            <span class="toggle-slider"></span>
-                        </div>
+                        <input type="checkbox" id="report_full_walk" checked>
                         <div class="toggle-content">
                             <span class="toggle-label">Include full SNMP diagnostic data</span>
                             <span class="toggle-description">Performs a complete SNMP walk to capture all device data. This helps us debug vendor-specific issues but may take a few extra seconds.</span>

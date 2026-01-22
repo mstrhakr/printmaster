@@ -961,6 +961,7 @@ input[type="checkbox"]:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px;
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .saved-device-card-section {
@@ -1001,6 +1002,7 @@ input[type="checkbox"]:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .usage-graph-canvas {
@@ -1332,3 +1334,11 @@ input[type="checkbox"]:disabled {
   color: var(--accent);
 }
 
+/* Light mode overrides for elements with hardcoded dark-theme colors */
+body.light-mode .saved-device-card-inner-panel {
+  background: rgba(238, 232, 213, 0.6);
+}
+
+body.light-mode .usage-graph-container {
+  background: rgba(238, 232, 213, 0.6);
+}

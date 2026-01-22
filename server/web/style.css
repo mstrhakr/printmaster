@@ -392,6 +392,15 @@ body.light-mode {
   --shadow-inset-md: inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+/* Light mode overrides for elements with hardcoded dark-theme colors */
+body.light-mode .saved-device-card-inner-panel {
+  background: rgba(238, 232, 213, 0.6);
+}
+
+body.light-mode .usage-graph-container {
+  background: linear-gradient(to bottom, rgba(147, 161, 161, 0.1) 0%, rgba(147, 161, 161, 0.2) 100%);
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -4764,29 +4773,7 @@ select:focus {
   height: 0;
 }
 
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 24px;
-  transition: 0.2s;
-}
-
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background: var(--fg);
-  border-radius: 50%;
-  transition: 0.2s;
-}
+/* Toggle slider styles are now in shared.css */
 
 .onboarding-toggle input:checked + .toggle-slider {
   background: var(--highlight);
@@ -7059,6 +7046,7 @@ input[type="checkbox"]:indeterminate::before {
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px;
+  transition: background 0.4s ease, border-color 0.4s ease;
 }
 
 .saved-device-card-section {
@@ -7153,6 +7141,7 @@ input[type="checkbox"]:indeterminate::before {
   border-radius: 8px;
   padding: 12px 8px 24px 8px;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: background 0.4s ease, box-shadow 0.4s ease;
 }
 
 .usage-graph-svg {
@@ -10285,52 +10274,7 @@ select:hover {
   text-transform: uppercase;
 }
 
-/* Toggle Switch */
-.toggle-switch {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  flex-shrink: 0;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--border);
-  transition: 0.3s;
-  border-radius: 24px;
-}
-
-.toggle-slider:before {
-  position: absolute;
-  content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background: var(--text);
-  transition: 0.3s;
-  border-radius: 50%;
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background: var(--accent);
-}
-
-.toggle-switch input:checked + .toggle-slider:before {
-  transform: translateX(20px);
-  background: white;
-}
+/* Toggle Switch styles are now in shared.css - removed duplicate */
 
 .alert-rule-enable-row {
   display: flex;
