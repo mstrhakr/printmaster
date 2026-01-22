@@ -99,6 +99,12 @@ func TestNormalizeDescription(t *testing.T) {
 		{"brother magenta cartridge", "Magenta Toner Cartridge", "toner_magenta"},
 		{"brother yellow cartridge", "Yellow Toner Cartridge", "toner_yellow"},
 
+		// Epson ST-C8090 inkjet (Ink Bottle format)
+		{"epson black ink bottle", "Black Ink Bottle", "toner_black"},
+		{"epson cyan ink bottle", "Cyan Ink Bottle", "toner_cyan"},
+		{"epson magenta ink bottle", "Magenta Ink Bottle", "toner_magenta"},
+		{"epson yellow ink bottle", "Yellow Ink Bottle", "toner_yellow"},
+
 		// Kyocera ECOSYS P2040dw monochrome
 		{"TK-1162 mono", "TK-1162", "toner_black"},
 
