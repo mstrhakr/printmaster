@@ -1,0 +1,89 @@
+name: Device Data Report
+description: Report incorrect or missing data for a printer/copier device
+title: "[Device Report] "
+labels: ["device-report", "user-submitted"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Device Data Report
+        
+        Thank you for helping improve PrintMaster's device detection!
+        
+        This report was auto-generated from the PrintMaster agent. If you're filling this out manually,
+        please provide as much detail as possible.
+
+  - type: input
+    id: gist_url
+    attributes:
+      label: Diagnostic Data (Gist URL)
+      description: URL to the Gist containing full diagnostic data (auto-filled if submitted via agent)
+      placeholder: https://gist.github.com/...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Issue Type
+      description: What type of data issue are you reporting?
+      options:
+        - Wrong manufacturer detection
+        - Wrong model detection
+        - Missing serial number
+        - Wrong serial number
+        - Incorrect page counters
+        - Missing toner/ink levels
+        - Missing supplies data
+        - Wrong hostname
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: expected_value
+    attributes:
+      label: Expected Value
+      description: What should the correct value be?
+      placeholder: e.g., "HP LaserJet Pro M404dn" or "Serial should be VNC12345"
+    validations:
+      required: true
+
+  - type: input
+    id: device_model
+    attributes:
+      label: Device Model
+      description: The actual model of your device (from the label/documentation)
+      placeholder: e.g., "HP LaserJet Pro M404dn"
+    validations:
+      required: true
+
+  - type: input
+    id: device_manufacturer
+    attributes:
+      label: Device Manufacturer
+      description: The actual manufacturer of your device
+      placeholder: e.g., "HP", "Canon", "Brother", "Lexmark"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Any additional information that might help us fix this issue
+      placeholder: |
+        - Where did you find the correct information?
+        - Is this a rebadged/OEM device?
+        - Any special firmware version?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Privacy Confirmation
+      description: The diagnostic data has been automatically anonymized to remove identifying information
+      options:
+        - label: I understand that anonymized SNMP response data will be shared to help debug this issue
+          required: true
