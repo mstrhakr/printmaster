@@ -480,9 +480,32 @@ body.light-mode .settings-sticky-bar {
   border-color: rgba(181, 137, 0, 0.3);
 }
 
+body.light-mode .server-info-dialog {
+  background: rgba(253, 246, 227, 0.98);
+  border-color: rgba(181, 137, 0, 0.3);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.15);
+}
+
 body.light-mode .server-info-field {
   background: rgba(238, 232, 213, 0.7);
   border-color: rgba(181, 137, 0, 0.2);
+}
+
+body.light-mode .server-info-field .label {
+  color: #657b83;
+}
+
+body.light-mode .server-info-field code {
+  color: #073642;
+}
+
+body.light-mode .server-status-chip {
+  color: #073642;
+}
+
+body.light-mode .server-status-chip.connected {
+  background: rgba(133, 153, 0, 0.25);
+  color: #859900;
 }
 
 body.light-mode .modal-button-secondary {
@@ -2543,6 +2566,7 @@ input[type="checkbox"]:indeterminate::before {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
 }
 
 .server-status-chip {
@@ -2555,6 +2579,7 @@ input[type="checkbox"]:indeterminate::before {
   background: rgba(220, 50, 47, 0.18);
   color: #fdf6e3;
   text-transform: uppercase;
+  transition: background 0.4s ease, color 0.4s ease;
 }
 
 .server-status-chip.connected {
