@@ -3618,6 +3618,7 @@ func setupRoutes(cfg *Config) {
 	// Device management endpoints that proxy to agent (for server UI Details modal)
 	http.HandleFunc("/devices/preview", requireWebAuth(handleDevicePreviewProxy))
 	http.HandleFunc("/devices/metrics/collect", requireWebAuth(handleDeviceMetricsCollectProxy))
+	http.HandleFunc("/api/report", requireWebAuth(handleDeviceReportProxy)) // Proxy device reports to agent
 
 	// Web UI endpoints - keep landing/static public so login assets load
 	http.HandleFunc("/", handleWebUI)
@@ -5601,6 +5602,81 @@ func handleDeviceMetricsCollectProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Proxy to agent's /devices/metrics/collect endpoint
 	agentURL := "http://localhost:8080/devices/metrics/collect"
+
+	// Restore the request body so proxyThroughWebSocket can read it
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	// Use the WebSocket proxy infrastructure
+	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
+}
+
+// handleDeviceReportProxy proxies /api/report requests to the device's agent
+// This allows the server UI to submit device reports with full diagnostic data
+// (parseDebug, SNMP responses, logs) that only the agent has access to
+func handleDeviceReportProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body to extract device IP for agent lookup
+	var req struct {
+		DeviceIP     string `json:"device_ip"`
+		DeviceSerial string `json:"device_serial"`
+	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Look up device to find the agent - try by serial first, then IP
+	ctx := context.Background()
+	var device *storage.Device
+
+	if req.DeviceSerial != "" {
+		device, _ = serverStore.GetDevice(ctx, req.DeviceSerial)
+	}
+
+	// If no device found by serial, try to find by IP
+	if device == nil && req.DeviceIP != "" {
+		devices, err := serverStore.ListAllDevices(ctx)
+		if err == nil {
+			for _, d := range devices {
+				if d.IP == req.DeviceIP {
+					device = d
+					break
+				}
+			}
+		}
+	}
+
+	if device == nil {
+		logWarn("Device report: device not found", "serial", req.DeviceSerial, "ip", req.DeviceIP)
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	if device.AgentID == "" {
+		logWarn("Device report: device has no agent", "serial", device.Serial)
+		http.Error(w, "Device has no associated agent", http.StatusBadRequest)
+		return
+	}
+
+	if !isAgentConnectedWS(device.AgentID) {
+		logWarn("Device report: agent not connected", "agent_id", device.AgentID, "serial", device.Serial)
+		http.Error(w, "Device's agent not connected - please submit from agent UI", http.StatusServiceUnavailable)
+		return
+	}
+
+	logInfo("Proxying device report to agent", "agent_id", device.AgentID, "serial", device.Serial)
+
+	// Proxy to agent's /api/report endpoint
+	agentURL := "http://localhost:8080/api/report"
 
 	// Restore the request body so proxyThroughWebSocket can read it
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
