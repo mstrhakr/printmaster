@@ -98,8 +98,8 @@ type DiagnosticReport struct {
 // SNMPResponse represents a single SNMP OID/value pair from device query.
 type SNMPResponse struct {
 	OID      string `json:"oid"`
-	Type     string `json:"type"`               // Integer, OctetString, etc.
-	Value    string `json:"value"`              // String representation
+	Type     string `json:"type"`                // Integer, OctetString, etc.
+	Value    string `json:"value"`               // String representation
 	HexValue string `json:"hex_value,omitempty"` // For binary data
 }
 

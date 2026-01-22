@@ -168,9 +168,9 @@ type ReportRequest struct {
 	CurrentHostname     string `json:"current_hostname"`
 	CurrentPageCount    int    `json:"current_page_count"`
 
-	DetectedVendor   string                `json:"detected_vendor"`
-	DetectionSteps   []string              `json:"detection_steps"`
-	SNMPResponses    []report.SNMPResponse `json:"snmp_responses"`
+	DetectedVendor string                `json:"detected_vendor"`
+	DetectionSteps []string              `json:"detection_steps"`
+	SNMPResponses  []report.SNMPResponse `json:"snmp_responses"`
 }
 
 // ParseIssueType converts a string to an IssueType.
