@@ -42,7 +42,6 @@ $ColorRed = "`e[31m"
 $ColorGreen = "`e[32m"
 $ColorYellow = "`e[33m"
 $ColorBlue = "`e[34m"
-$ColorCyan = "`e[36m"
 
 function Write-Status {
     param([string]$Message, [string]$Level = "INFO")
@@ -51,11 +50,11 @@ function Write-Status {
     $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
     
     # Determine color based on level
+    # STEP displays as INFO so uses the same color for consistency
     $levelColor = switch ($Level) {
         "ERROR"   { $ColorRed }
         "WARN"    { $ColorYellow }
-        "STEP"    { $ColorCyan }
-        default   { $ColorBlue }  # INFO
+        default   { $ColorBlue }  # INFO and STEP
     }
     
     # Map STEP to INFO for standard log levels
