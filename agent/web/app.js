@@ -4070,7 +4070,7 @@ function saveDevSettings() {
         epson_remote_mode_enabled: document.getElementById('dev_epson_remote_mode')?.checked ?? false
     };
     const loggingSettings = {
-        log_level: logLevel,
+        level: logLevel,
         dump_parse_debug: document.getElementById('dev_dump_parse_debug').checked
     };
     // POST settings as part of the unified /settings endpoint
@@ -4387,7 +4387,7 @@ async function saveAllSettings(btn) {
 
         // Compose logging settings (agent-local)
         const loggingSettings = {
-            log_level: logLevel,
+            level: logLevel,
             dump_parse_debug: document.getElementById('dev_dump_parse_debug').checked
         };
 
