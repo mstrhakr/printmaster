@@ -5,14 +5,14 @@ Codename: stable
 Architectures: amd64 arm64
 Components: main
 Description: PrintMaster Agent APT Repository
-Date: Fri, 23 Jan 2026 13:52:11 +0000
+Date: Fri, 23 Jan 2026 15:00:13 +0000
 MD5Sum:
- c8b3e08f8f8da97310d1271d5f8de479 948 main/binary-amd64/Packages
- 62d9566e9e6f0784a135f9512ca4933b 598 main/binary-amd64/Packages.gz
- 20813fc01b9b01d5f0db42849575ba13 948 main/binary-arm64/Packages
- f33bbf8b959f6d1997ce02eebcf7f9a7 596 main/binary-arm64/Packages.gz
+ d79faeed365a5d191a8141d3b15fc558 948 main/binary-amd64/Packages
+ 80cec05d1e8cda74cde2e6381c42939a 598 main/binary-amd64/Packages.gz
+ cf3c9106ca3528adb72cef7233718cae 948 main/binary-arm64/Packages
+ 43bc027d84a98c1472565ea2517fcc1d 597 main/binary-arm64/Packages.gz
 SHA256:
- b3cf53fe1d2604a1810123ad014e0a25662487b670a0bd0467e00c6c991719a1 948 main/binary-amd64/Packages
- 4b93e801b78305483b5be4cc75bc360b1d11ec74322970b325ba79385a7f4a25 598 main/binary-amd64/Packages.gz
- 03226de570390e544c9c8af384eb43522e1a9d2970c265752affca46bb9ebc87 948 main/binary-arm64/Packages
- 91bdcbb48cda483b3456bba6ed1c91cccdada12115523c0d6d567c530455bf9b 596 main/binary-arm64/Packages.gz
+ 7ff793f021fd3839cc8588db7078b7bcf9325341f31e23ed7d64f6426b07c7cb 948 main/binary-amd64/Packages
+ 1d58ca0b73509c509315ab69af5886032b96b850b9eec8a5a64b87cc2f0d7e90 598 main/binary-amd64/Packages.gz
+ 3f197f0f9d4ef98e65bef8ff18c19bc58c4dd754ca15b8dbd76b67d767bc37d0 948 main/binary-arm64/Packages
+ 6d6eee5e5a82a9663b022a8b615d207284a042515631df62a360d1a62dd5dbb1 597 main/binary-arm64/Packages.gz
