@@ -183,8 +183,8 @@ func (c *ServerClient) Register(ctx context.Context, version string) (string, er
 		ProtocolVersion: "1",
 		Hostname:        hostname,
 		IP:              localIP,
-		Platform:        runtime.GOOS,
-		OSVersion:       getOSVersion(),
+		Platform:        GetPlatformInfo(),
+		OSVersion:       GetOSVersionDetailed(),
 		GoVersion:       runtime.Version(),
 		Architecture:    runtime.GOARCH,
 		NumCPU:          runtime.NumCPU(),
@@ -633,13 +633,6 @@ var getHostnameInternal = func() (string, error) {
 var getLocalIPInternal = func() (string, error) {
 	// Implementation will use net.InterfaceAddrs()
 	return "192.168.1.100", nil
-}
-
-// getOSVersion returns the operating system version
-func getOSVersion() string {
-	// This is a placeholder - actual implementation would use platform-specific APIs
-	// For now, just return the OS name
-	return runtime.GOOS
 }
 
 // getTotalMemoryMB returns the total system memory in MB

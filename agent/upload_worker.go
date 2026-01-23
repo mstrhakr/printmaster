@@ -411,7 +411,8 @@ func (w *UploadWorker) heartbeatLoop() {
 func (w *UploadWorker) buildHeartbeatMetadata() map[string]interface{} {
 	meta := map[string]interface{}{
 		"status":       "active",
-		"platform":     runtime.GOOS,
+		"platform":     agent.GetPlatformInfo(),
+		"os_version":   agent.GetOSVersionDetailed(),
 		"architecture": runtime.GOARCH,
 		"go_version":   runtime.Version(),
 		"num_cpu":      runtime.NumCPU(),

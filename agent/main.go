@@ -6588,7 +6588,7 @@ window.top.location.href = '/proxy/%s/';
 				"enabled":  false,
 				"reason":   "not initialized (no server connection)",
 				"status":   "disabled",
-				"platform": runtime.GOOS,
+				"platform": agent.GetPlatformInfo(),
 				"arch":     runtime.GOARCH,
 			})
 			return
@@ -7506,7 +7506,7 @@ window.top.location.href = '/proxy/%s/';
 			AgentName:    agentName,
 			AgentVersion: Version,
 			Hostname:     hostname,
-			Platform:     runtime.GOOS,
+			Platform:     agent.GetPlatformInfo(),
 		}
 		client := agent.NewServerClientWithName(serverURL, agentID, agentName, "", caPath, in.Insecure)
 		respBody, err := client.DeviceAuthStart(r.Context(), reqBody)
