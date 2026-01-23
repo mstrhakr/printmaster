@@ -5008,8 +5008,15 @@ func appendQueryToPath(path, rawQuery string) string {
 	return path + separator + rawQuery
 }
 
-// proxyThroughWebSocket sends an HTTP request through WebSocket and returns the response
+// proxyThroughWebSocket sends an HTTP request through WebSocket and returns the response.
+// Uses default 30-second timeout.
 func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID string, targetURL string) {
+	proxyThroughWebSocketWithTimeout(w, r, agentID, targetURL, 30*time.Second)
+}
+
+// proxyThroughWebSocketWithTimeout sends an HTTP request through WebSocket with custom timeout.
+// Use longer timeouts for operations like metrics collection that may take significant time.
+func proxyThroughWebSocketWithTimeout(w http.ResponseWriter, r *http.Request, agentID string, targetURL string, timeout time.Duration) {
 	// Detect if we're proxying to the agent's device proxy endpoint
 	// In this case, the agent already handles all content rewriting, so we just need
 	// to translate the agent's prefix (/proxy/{serial}/) to server's prefix (/api/v1/proxy/device/{serial}/)
@@ -5310,13 +5317,14 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 			w.Write(bodyBytes)
 		}
 
-	case <-time.After(30 * time.Second):
+	case <-time.After(timeout):
 		duration := time.Since(start)
 		http.Error(w, "Proxy request timeout", http.StatusGatewayTimeout)
 		logWarn("Proxy request timeout",
 			"agent_id", agentID,
 			"request_id", requestID,
 			"url", targetURL,
+			"timeout", timeout,
 			"duration_ms", duration.Milliseconds())
 	}
 }
@@ -5555,8 +5563,10 @@ func handleDevicePreviewProxy(w http.ResponseWriter, r *http.Request) {
 	// Restore the request body so proxyThroughWebSocket can read it
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-	// Use the WebSocket proxy infrastructure
-	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
+	// Use the WebSocket proxy infrastructure with extended timeout.
+	// Preview involves SNMP deep scan that can take 30+ seconds for slow devices,
+	// so we use a 60-second timeout to allow enough time.
+	proxyThroughWebSocketWithTimeout(w, r, device.AgentID, agentURL, 60*time.Second)
 }
 
 // handleDeviceMetricsCollectProxy proxies /devices/metrics/collect requests to the device's agent
@@ -5606,8 +5616,10 @@ func handleDeviceMetricsCollectProxy(w http.ResponseWriter, r *http.Request) {
 	// Restore the request body so proxyThroughWebSocket can read it
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-	// Use the WebSocket proxy infrastructure
-	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
+	// Use the WebSocket proxy infrastructure with extended timeout.
+	// Metrics collection involves SNMP queries that can take 30+ seconds for slow devices,
+	// so we use a 60-second timeout to allow enough time.
+	proxyThroughWebSocketWithTimeout(w, r, device.AgentID, agentURL, 60*time.Second)
 }
 
 // handleDeviceReportProxy proxies /api/report requests to the device's agent
