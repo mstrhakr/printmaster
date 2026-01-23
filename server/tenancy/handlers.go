@@ -1467,8 +1467,10 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
 		if platform == "windows" {
-			// Use WebClient for better compatibility with older PowerShell/Windows versions
-			oneLiner = fmt.Sprintf("[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;iex(New-Object Net.WebClient).DownloadString('%s')", downloadURL)
+			// Use HTTP for initial fetch (maximum compatibility with older PowerShell/Windows)
+			// The bootstrap script will upgrade to HTTPS when possible for MSI download
+			httpURL := strings.Replace(downloadURL, "https://", "http://", 1)
+			oneLiner = fmt.Sprintf("irm %s | iex", httpURL)
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"script":       script,
@@ -1594,8 +1596,10 @@ func handleSendDeploymentEmail(w http.ResponseWriter, r *http.Request) {
 	downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
 	oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
 	if platform == "windows" {
-		// Use WebClient for better compatibility with older PowerShell/Windows versions
-		oneLiner = fmt.Sprintf("[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;iex(New-Object Net.WebClient).DownloadString('%s')", downloadURL)
+		// Use HTTP for initial fetch (maximum compatibility with older PowerShell/Windows)
+		// The bootstrap script will upgrade to HTTPS when possible for MSI download
+		httpURL := strings.Replace(downloadURL, "https://", "http://", 1)
+		oneLiner = fmt.Sprintf("irm %s | iex", httpURL)
 	}
 
 	// Get the sender name from the request context (user who initiated)
@@ -1983,30 +1987,37 @@ Show-Success "Configuration saved to $configPath"
 
 # Step 4: Download installer
 Show-Progress -Percent 35 -Message "Downloading installer..."
-Show-Info "Downloading from $server..."
 
+# Try HTTPS first, fall back to HTTP for older systems
+$httpsServer = $server -replace '^http://', 'https://'
+$httpServer = $server -replace '^https://', 'http://'
+$downloadUri = "/api/v1/agents/download/latest?platform=windows&arch=amd64&format=msi&proxy=1"
+$downloaded = $false
+
+# Attempt 1: HTTPS with modern TLS
 try {
-	$downloadParams = @{
-		Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64&format=msi&proxy=1"
-		OutFile = $msiPath
-		ErrorAction = 'Stop'
-	}
-	try {
-		$invokeCmd = Get-Command Invoke-WebRequest -ErrorAction Stop
-		if ($invokeCmd.Parameters.Keys -contains 'UseBasicParsing') {
-			$downloadParams.UseBasicParsing = $true
-		}
-		if ($invokeCmd.Parameters.Keys -contains 'SkipCertificateCheck') {
-			$downloadParams.SkipCertificateCheck = $true
-		}
-	} catch {
-		# Fall back to relaxed certificate policy only
-	}
-	Invoke-WebRequest @downloadParams
+	Show-Info "Trying secure download (HTTPS)..."
+	[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+	$wc = New-Object System.Net.WebClient
+	$wc.DownloadFile("$httpsServer$downloadUri", $msiPath)
+	$downloaded = $true
+	Show-Success "Downloaded via HTTPS"
 } catch {
-	Show-Error "Failed to download MSI: $_"
-	Show-CompletionBox -Success $false -Message "Download Failed"
-	exit 1
+	Show-Warning "HTTPS download failed, trying HTTP fallback..."
+}
+
+# Attempt 2: HTTP fallback for older systems
+if (-not $downloaded) {
+	try {
+		$wc = New-Object System.Net.WebClient
+		$wc.DownloadFile("$httpServer$downloadUri", $msiPath)
+		$downloaded = $true
+		Show-Success "Downloaded via HTTP"
+	} catch {
+		Show-Error "Failed to download MSI: $_"
+		Show-CompletionBox -Success $false -Message "Download Failed"
+		exit 1
+	}
 }
 
 if (-not (Test-Path $msiPath)) {
