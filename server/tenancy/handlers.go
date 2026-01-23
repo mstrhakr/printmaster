@@ -665,9 +665,9 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 			TenantID:   id,
 			Details:    fmt.Sprintf("Deleted tenant %s", tenantName),
 			Metadata: map[string]interface{}{
-				"name":           tenantName,
+				"name":            tenantName,
 				"orphaned_agents": agentCount,
-				"force":          forceDelete,
+				"force":           forceDelete,
 			},
 		})
 
