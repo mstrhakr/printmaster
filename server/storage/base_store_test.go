@@ -489,6 +489,99 @@ func TestTenantLifecycle(t *testing.T) {
 	}
 }
 
+func TestTenantDelete(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create tenant
+	tenant := &Tenant{
+		ID:          "tenant-del",
+		Name:        "Delete Test Tenant",
+		LoginDomain: "delete.com",
+	}
+	if err := s.CreateTenant(ctx, tenant); err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+
+	// Create a site for this tenant (should cascade delete)
+	site := &Site{
+		ID:       "site-del-1",
+		TenantID: "tenant-del",
+		Name:     "Test Site",
+	}
+	if err := s.CreateSite(ctx, site); err != nil {
+		t.Fatalf("CreateSite: %v", err)
+	}
+
+	// Verify site exists
+	sites, _ := s.ListSitesByTenant(ctx, "tenant-del")
+	if len(sites) != 1 {
+		t.Fatalf("expected 1 site, got %d", len(sites))
+	}
+
+	// Register an agent for this tenant
+	agent := &Agent{
+		AgentID:         "agent-del-1",
+		Hostname:        "testhost",
+		IP:              "127.0.0.1",
+		Platform:        "linux",
+		Version:         "1.0.0",
+		ProtocolVersion: "1",
+		Token:           "test-token",
+		TenantID:        "tenant-del",
+	}
+	if err := s.RegisterAgent(ctx, agent); err != nil {
+		t.Fatalf("RegisterAgent: %v", err)
+	}
+
+	// Test CountTenantAgents
+	count, err := s.CountTenantAgents(ctx, "tenant-del")
+	if err != nil {
+		t.Fatalf("CountTenantAgents: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 agent, got %d", count)
+	}
+
+	// Delete tenant
+	if err := s.DeleteTenant(ctx, "tenant-del"); err != nil {
+		t.Fatalf("DeleteTenant: %v", err)
+	}
+
+	// Verify tenant is deleted
+	_, err = s.GetTenant(ctx, "tenant-del")
+	if err == nil {
+		t.Error("expected error getting deleted tenant")
+	}
+
+	// Verify site was cascade deleted
+	sites, _ = s.ListSitesByTenant(ctx, "tenant-del")
+	if len(sites) != 0 {
+		t.Errorf("expected 0 sites after tenant delete, got %d", len(sites))
+	}
+
+	// Verify agent still exists but is orphaned (tenant_id = NULL)
+	gotAgent, err := s.GetAgent(ctx, "agent-del-1")
+	if err != nil {
+		t.Fatalf("GetAgent after tenant delete: %v", err)
+	}
+	if gotAgent.TenantID != "" {
+		t.Errorf("expected agent tenant_id to be empty, got %q", gotAgent.TenantID)
+	}
+
+	// Test delete non-existent tenant
+	err = s.DeleteTenant(ctx, "nonexistent")
+	if err == nil {
+		t.Error("expected error deleting non-existent tenant")
+	}
+}
+
 func TestTenantDomainNotFound(t *testing.T) {
 	t.Parallel()
 	s, err := NewSQLiteStore(":memory:")

@@ -1195,6 +1195,58 @@ func (s *BaseStore) FindTenantByDomain(ctx context.Context, domain string) (*Ten
 	return &t, nil
 }
 
+// DeleteTenant deletes a tenant by ID. This will cascade delete related data
+// (sites, join_tokens, settings, etc.) but agents are not automatically deleted.
+// Caller should check CountTenantAgents first and handle agent reassignment.
+func (s *BaseStore) DeleteTenant(ctx context.Context, id string) error {
+	if id == "" {
+		return fmt.Errorf("tenant id required")
+	}
+
+	// Clean up agents' tenant_id reference first (set to NULL to orphan them, preserving them)
+	_, _ = s.execContext(ctx, `UPDATE agents SET tenant_id = NULL WHERE tenant_id = ?`, id)
+
+	// Clean up user_tenants mappings
+	_, _ = s.execContext(ctx, `DELETE FROM user_tenants WHERE tenant_id = ?`, id)
+
+	// Explicitly delete sites (cascade should handle agent_sites)
+	_, _ = s.execContext(ctx, `DELETE FROM sites WHERE tenant_id = ?`, id)
+
+	// Explicitly delete join tokens
+	_, _ = s.execContext(ctx, `DELETE FROM join_tokens WHERE tenant_id = ?`, id)
+
+	// Explicitly delete tenant settings
+	_, _ = s.execContext(ctx, `DELETE FROM settings_tenant WHERE tenant_id = ?`, id)
+
+	// Explicitly delete fleet update policies
+	_, _ = s.execContext(ctx, `DELETE FROM fleet_update_policies WHERE tenant_id = ?`, id)
+
+	// Delete the tenant itself
+	query := `DELETE FROM tenants WHERE id = ?`
+	res, err := s.execContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+
+	return nil
+}
+
+// CountTenantAgents returns the number of agents assigned to a tenant.
+// This is useful for safety checks before tenant deletion.
+func (s *BaseStore) CountTenantAgents(ctx context.Context, tenantID string) (int64, error) {
+	var count int64
+	query := `SELECT COUNT(*) FROM agents WHERE tenant_id = ?`
+	err := s.queryRowContext(ctx, query, tenantID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // ============================================================================
 // Site Management Methods
 // ============================================================================

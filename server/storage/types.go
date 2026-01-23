@@ -682,6 +682,9 @@ type Store interface {
 	GetTenant(ctx context.Context, id string) (*Tenant, error)
 	ListTenants(ctx context.Context) ([]*Tenant, error)
 	FindTenantByDomain(ctx context.Context, domain string) (*Tenant, error)
+	DeleteTenant(ctx context.Context, id string) error
+	// CountTenantAgents returns number of agents assigned to a tenant (for delete safety checks)
+	CountTenantAgents(ctx context.Context, tenantID string) (int64, error)
 
 	// Sites (sub-tenant grouping for agents/devices)
 	CreateSite(ctx context.Context, site *Site) error

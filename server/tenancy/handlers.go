@@ -613,6 +613,64 @@ func handleTenantByID(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 
+	case http.MethodDelete:
+		if !authorizeOrReject(w, r, authz.ActionTenantsWrite, authz.ResourceRef{TenantIDs: []string{id}}) {
+			return
+		}
+		if dbStore == nil {
+			w.WriteHeader(http.StatusNotImplemented)
+			w.Write([]byte(`{"error":"tenant deletion requires database storage"}`))
+			return
+		}
+		// Check for assigned agents (safety check)
+		agentCount, err := dbStore.CountTenantAgents(r.Context(), id)
+		if err != nil {
+			logError("failed to count tenant agents", "tenant_id", id, "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to check tenant dependencies"}`))
+			return
+		}
+		// Check for force parameter to allow deletion even with agents
+		forceDelete := r.URL.Query().Get("force") == "true"
+		if agentCount > 0 && !forceDelete {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":       "tenant has assigned agents",
+				"agent_count": agentCount,
+				"hint":        "Reassign or delete agents first, or use ?force=true to orphan them",
+			})
+			return
+		}
+		// Get tenant info for audit before deletion
+		tn, err := dbStore.GetTenant(r.Context(), id)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error":"tenant not found"}`))
+			return
+		}
+		tenantName := tn.Name
+		// Perform deletion
+		if err := dbStore.DeleteTenant(r.Context(), id); err != nil {
+			logError("failed to delete tenant", "tenant_id", id, "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"error":"failed to delete tenant"}`))
+			return
+		}
+		logInfo("tenant deleted", "id", id, "name", tenantName, "orphaned_agents", agentCount)
+		w.WriteHeader(http.StatusNoContent)
+		recordAudit(r, &storage.AuditEntry{
+			Action:     "tenant.delete",
+			TargetType: "tenant",
+			TargetID:   id,
+			TenantID:   id,
+			Details:    fmt.Sprintf("Deleted tenant %s", tenantName),
+			Metadata: map[string]interface{}{
+				"name":           tenantName,
+				"orphaned_agents": agentCount,
+				"force":          forceDelete,
+			},
+		})
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}

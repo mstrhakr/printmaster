@@ -8086,6 +8086,7 @@ function renderTenants(list){
                         <button data-action="view-tokens" data-tenant="${idAttr}">Tokens</button>
                         <button data-action="tenant-settings" data-tenant="${idAttr}">Settings</button>
                         <button data-action="edit-tenant" data-tenant="${idAttr}">Edit</button>
+                        <button data-action="delete-tenant" data-tenant="${idAttr}" data-tenant-name="${escapeHtml(t.name || '')}" class="btn-danger">Delete</button>
                     </div>
                 </td>
             </tr>
@@ -8150,6 +8151,13 @@ function renderTenants(list){
             openTenantModal(tenant || null);
         });
     });
+    el.querySelectorAll('button[data-action="delete-tenant"]').forEach(b=>{
+        b.addEventListener('click', async ()=>{
+            const tenantId = b.getAttribute('data-tenant') || '';
+            const tenantName = b.getAttribute('data-tenant-name') || tenantId;
+            await handleDeleteTenant(tenantId, tenantName);
+        });
+    });
 }
 
 function renderTenantsFiltered() {
@@ -8180,6 +8188,55 @@ async function updateTenant(id, body){
     const r = await fetch('/api/v1/tenants/'+encodeURIComponent(id), {method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
     if(!r.ok) throw new Error(await r.text());
     return r.json();
+}
+
+async function deleteTenant(id, force = false){
+    const url = '/api/v1/tenants/' + encodeURIComponent(id) + (force ? '?force=true' : '');
+    const r = await fetch(url, {method:'DELETE'});
+    if (r.status === 204) return {success: true};
+    if (r.status === 409) {
+        // Conflict - has agents
+        const data = await r.json();
+        return {success: false, conflict: true, ...data};
+    }
+    if (!r.ok) throw new Error(await r.text());
+    return {success: true};
+}
+
+async function handleDeleteTenant(tenantId, tenantName) {
+    // Initial confirmation
+    const confirmed = await window.__pm_shared.showConfirm(
+        `Are you sure you want to delete the tenant "${tenantName}"?\n\nThis will permanently remove all sites, join tokens, and tenant settings.\n\nThis action cannot be undone.`,
+        'Delete Tenant'
+    );
+    if (!confirmed) return;
+
+    try {
+        const result = await deleteTenant(tenantId, false);
+        if (result.success) {
+            window.__pm_shared.showToast('Tenant deleted successfully', 'success');
+            await loadTenants();
+            return;
+        }
+        if (result.conflict) {
+            // Has agents - ask if they want to force
+            const forceConfirmed = await window.__pm_shared.showConfirm(
+                `This tenant has ${result.agent_count} agent(s) assigned.\n\nIf you proceed, these agents will be orphaned (their tenant assignment will be cleared, but they will not be deleted).\n\nAre you sure you want to continue?`,
+                'Delete Anyway'
+            );
+            if (!forceConfirmed) return;
+
+            const forceResult = await deleteTenant(tenantId, true);
+            if (forceResult.success) {
+                window.__pm_shared.showToast(`Tenant deleted. ${result.agent_count} agent(s) orphaned.`, 'warning');
+                await loadTenants();
+                return;
+            }
+        }
+    } catch (e) {
+        console.error('Failed to delete tenant:', e);
+        window.__pm_shared.showToast('Failed to delete tenant: ' + e.message, 'error');
+    }
 }
 
 // ====== Tenant Sites Expandable Rows ======
