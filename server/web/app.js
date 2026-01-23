@@ -8323,6 +8323,7 @@ function renderSitesTree(tenantId, sites, agents) {
     // Sites with their agents
     sites.forEach(site => {
         const siteAgentList = siteAgents[site.id] || [];
+        const escapedSiteName = escapeHtml(site.name).replace(/'/g, "\\'");
         html += `
             <div class="site-node" data-site-id="${site.id}">
                 <div class="site-header">
@@ -8331,7 +8332,7 @@ function renderSitesTree(tenantId, sites, agents) {
                     <span class="site-meta">${siteAgentList.length} agents, ${site.device_count || 0} devices</span>
                     <div class="site-actions">
                         <button class="btn btn-xs" onclick="openSiteModal('${tenantId}', '${site.id}')">Edit</button>
-                        <button class="btn btn-xs btn-danger" onclick="deleteSiteInline('${tenantId}', '${site.id}')">×</button>
+                        <button class="btn btn-xs btn-danger" onclick="deleteSiteInline('${tenantId}', '${site.id}', '${escapedSiteName}')">×</button>
                     </div>
                 </div>
                 <div class="site-agents">
@@ -8378,15 +8379,21 @@ function wireSitesTreeEvents(container, tenantId) {
     // Events are wired via onclick attributes for simplicity
 }
 
-async function deleteSiteInline(tenantId, siteId) {
-    if (!confirm('Delete this site? Agents will be unassigned.')) return;
+async function deleteSiteInline(tenantId, siteId, siteName) {
+    const displayName = siteName || siteId;
+    const confirmed = await window.__pm_shared.showConfirm(
+        `Delete site "${displayName}"? This will remove all agent assignments.`,
+        'Delete Site'
+    );
+    if (!confirmed) return;
     try {
         const r = await fetch(`/api/v1/tenants/${encodeURIComponent(tenantId)}/sites/${encodeURIComponent(siteId)}`, {method: 'DELETE'});
         if (!r.ok) throw new Error(await r.text());
+        window.__pm_shared.showToast('Site deleted', 'success');
         // Refresh the tree
         await refreshTenantSitesTree(tenantId);
     } catch (e) {
-        alert('Failed to delete site: ' + e.message);
+        window.__pm_shared.showToast('Failed to delete site: ' + e.message, 'error');
     }
 }
 
