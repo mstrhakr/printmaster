@@ -4076,7 +4076,7 @@ function applyServerManagedState() {
 
 // Load settings from /settings endpoint and populate ALL UI elements
 function loadSettings() {
-    fetch('/settings').then(async r => {
+    return fetch('/settings').then(async r => {
         if (!r.ok) { window.__pm_shared.warn('failed to load settings'); return; }
         const s = await r.json();
         const snmp = s.snmp || {};
@@ -4271,7 +4271,6 @@ function loadSettings() {
             updateLocalPrintersTabVisibility(spooler.enabled !== false);
         }
 
-        updatePrinters();
         loadTraceTags();
     }).catch(e => { window.__pm_shared.error('loadSettings failed', e); });
 }
@@ -4952,7 +4951,7 @@ async function resetSettings() {
                 window.__pm_shared.showToast('Reset failed: ' + t, 'error');
                 return;
             }
-            loadSettings();
+            loadSettings().then(() => updatePrinters());
             window.__pm_shared.showToast('Settings reset successfully', 'success');
         })
         .catch(e => { window.__pm_shared.error('Reset failed:', e); window.__pm_shared.showToast('Reset failed: ' + e.message, 'error'); });
@@ -5036,8 +5035,16 @@ function toggleMetricsTimeSelector(targetId) {
 }
 
 // Initialize UI after all functions are defined
-updatePrinters();
-loadSavedRanges();
+// Load settings first to ensure visibility states are correct before rendering
+// loadSettings() is async, so we chain the dependent calls
+loadSettings().then(() => {
+    updatePrinters();
+    loadSavedRanges();
+}).catch(() => {
+    // Fallback: still try to render even if settings fail
+    updatePrinters();
+    loadSavedRanges();
+});
 
 // Clear search filter boxes on page load
 const discoveredSearchInput = document.getElementById('discovered_search');
