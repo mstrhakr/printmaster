@@ -353,17 +353,29 @@
                         }
                     }
                 } else {
-                    // No explicit consumables list. If device seems mono (no color usage),
-                    // drop CMY entries unless they have non-empty descriptive values.
-                    const hasColor = !!(p.color_impressions || p.color_pages || (p.meters && (p.meters.color_pages || p.meters.cyan)));
-                    if (!hasColor) {
+                    // No explicit consumables list. Detect if device is mono-only.
+                    // Check multiple sources for mono/color indicators:
+                    const raw = p.raw_data || p.metrics || p.latest || p.latest_metrics || {};
+                    const isMono = p.is_mono || raw.is_mono || 
+                        (p.device_type && /mono/i.test(p.device_type)) ||
+                        (raw.device_type && /mono/i.test(raw.device_type));
+                    const isColor = p.is_color || raw.is_color ||
+                        (p.device_type && /color/i.test(p.device_type)) ||
+                        (raw.device_type && /color/i.test(raw.device_type));
+                    const hasColorUsage = !!(p.color_impressions || p.color_pages || 
+                        (p.meters && (p.meters.color_pages || p.meters.cyan)) ||
+                        raw.color_impressions || raw.color_pages);
+                    
+                    // Device is mono if explicitly flagged as mono, or if not flagged as color
+                    // and has no color usage history
+                    const deviceIsMono = isMono || (!isColor && !hasColorUsage);
+                    
+                    if (deviceIsMono) {
+                        // Drop CMY entries for mono devices - they don't have color supplies
                         for (const k of Object.keys(out)) {
                             const lk = normalize(k);
                             if (lk.includes('cyan') || lk.includes('magenta') || lk.includes('yellow')) {
-                                const v = out[k];
-                                const isEmptyDesc = (v === '' || v === null || v === undefined);
-                                const isZero = (typeof v === 'number' && v === 0);
-                                if (isEmptyDesc || isZero) delete out[k];
+                                delete out[k];
                             }
                         }
                     }
