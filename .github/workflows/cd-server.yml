@@ -240,17 +240,99 @@ jobs:
       id: changelog
       run: |
         TAG_NAME="server-v${{ steps.version.outputs.version }}"
-        LAST_TAG=$(git tag -l "server-v*" --sort=-version:refname | grep -v "^${TAG_NAME}$" | head -n 1)
+        VERSION="${{ steps.version.outputs.version }}"
+        
+        # Parse version components
+        MAJOR=$(echo "$VERSION" | cut -d. -f1)
+        MINOR=$(echo "$VERSION" | cut -d. -f2)
+        PATCH=$(echo "$VERSION" | cut -d. -f3)
+        
+        # Determine release type and find appropriate comparison tag
+        if [ "$PATCH" = "0" ] && [ "$MINOR" = "0" ]; then
+          # Major release (x.0.0) - compare against last major
+          RELEASE_TYPE="major"
+          PREV_MAJOR=$((MAJOR - 1))
+          LAST_TAG=$(git tag -l "server-v${PREV_MAJOR}.*" --sort=-version:refname | head -n 1)
+        elif [ "$PATCH" = "0" ]; then
+          # Minor release (x.y.0) - compare against last minor's first tag
+          RELEASE_TYPE="minor"
+          PREV_MINOR=$((MINOR - 1))
+          LAST_TAG=$(git tag -l "server-v${MAJOR}.${PREV_MINOR}.*" --sort=-version:refname | head -n 1)
+        else
+          # Patch release - compare against previous patch
+          RELEASE_TYPE="patch"
+          LAST_TAG=$(git tag -l "server-v*" --sort=-version:refname | grep -v "^${TAG_NAME}$" | head -n 1)
+        fi
+        
+        echo "Release type: $RELEASE_TYPE, comparing against: ${LAST_TAG:-none}"
         
         if [ -z "$LAST_TAG" ]; then
           CHANGELOG="Initial release"
         else
-          CHANGELOG=$(git log ${LAST_TAG}..${TAG_NAME} --pretty=format:"- %s (%h)" --no-merges | grep -v "^- chore: Release" || echo "- Bug fixes and improvements")
+          # Get commits, filter release commits, and categorize
+          RAW_LOG=$(git log ${LAST_TAG}..${TAG_NAME} --pretty=format:"%s|||%h" --no-merges 2>/dev/null || echo "")
+          
+          if [ -z "$RAW_LOG" ]; then
+            CHANGELOG="- Bug fixes and improvements"
+          else
+            # Categorize commits by conventional commit type
+            FEATURES=""
+            FIXES=""
+            DOCS=""
+            REFACTORS=""
+            OTHER=""
+            
+            while IFS= read -r line; do
+              [ -z "$line" ] && continue
+              MSG=$(echo "$line" | cut -d'|' -f1)
+              HASH=$(echo "$line" | rev | cut -d'|' -f1 | rev)
+              
+              # Skip release commits
+              echo "$MSG" | grep -q "^chore: Release" && continue
+              echo "$MSG" | grep -q "^chore(release)" && continue
+              
+              # Categorize by type
+              if echo "$MSG" | grep -qE "^feat(\([^)]+\))?:"; then
+                DESC=$(echo "$MSG" | sed 's/^feat[^:]*: //')
+                FEATURES="${FEATURES}- ${DESC} (${HASH})\n"
+              elif echo "$MSG" | grep -qE "^fix(\([^)]+\))?:"; then
+                DESC=$(echo "$MSG" | sed 's/^fix[^:]*: //')
+                FIXES="${FIXES}- ${DESC} (${HASH})\n"
+              elif echo "$MSG" | grep -qE "^docs(\([^)]+\))?:"; then
+                DESC=$(echo "$MSG" | sed 's/^docs[^:]*: //')
+                DOCS="${DOCS}- ${DESC} (${HASH})\n"
+              elif echo "$MSG" | grep -qE "^refactor(\([^)]+\))?:"; then
+                DESC=$(echo "$MSG" | sed 's/^refactor[^:]*: //')
+                REFACTORS="${REFACTORS}- ${DESC} (${HASH})\n"
+              elif ! echo "$MSG" | grep -qE "^(chore|test|ci|build)(\([^)]+\))?:"; then
+                # Include non-chore/test/ci/build commits in OTHER
+                OTHER="${OTHER}- ${MSG} (${HASH})\n"
+              fi
+            done <<< "$RAW_LOG"
+            
+            # Build changelog with sections
+            CHANGELOG=""
+            [ -n "$FEATURES" ] && CHANGELOG="${CHANGELOG}### ✨ Features\n${FEATURES}\n"
+            [ -n "$FIXES" ] && CHANGELOG="${CHANGELOG}### 🐛 Bug Fixes\n${FIXES}\n"
+            [ -n "$REFACTORS" ] && CHANGELOG="${CHANGELOG}### ♻️ Refactoring\n${REFACTORS}\n"
+            [ -n "$DOCS" ] && CHANGELOG="${CHANGELOG}### 📚 Documentation\n${DOCS}\n"
+            [ -n "$OTHER" ] && CHANGELOG="${CHANGELOG}### 📝 Other Changes\n${OTHER}\n"
+            
+            # Fallback if nothing was categorized
+            if [ -z "$CHANGELOG" ]; then
+              CHANGELOG="- Bug fixes and improvements"
+            fi
+          fi
+        fi
+        
+        # For major releases, add a note about checking full changelog
+        if [ "$RELEASE_TYPE" = "major" ]; then
+          CHANGELOG="**🎉 Major Release**\n\nThis is a major version update. Please review the [full changelog](https://github.com/mstrhakr/printmaster/compare/${LAST_TAG}...${TAG_NAME}) for breaking changes.\n\n${CHANGELOG}"
         fi
         
         {
           echo 'CHANGELOG<<EOF'
-          echo "$CHANGELOG"
+          echo -e "$CHANGELOG"
           echo 'EOF'
         } >> $GITHUB_OUTPUT
     
