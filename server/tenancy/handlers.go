@@ -1892,6 +1892,7 @@ function Remove-ExistingInstallation {
 			Show-Success "Service stopped"
 		}
 		
+		# Check for MSI-based installation first
 		$uninstallKeys = @(
 			"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
 			"HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
@@ -1912,28 +1913,64 @@ function Remove-ExistingInstallation {
 		}
 		
 		if ($productCode) {
-			Show-Info "Uninstalling previous version..."
+			Show-Info "Uninstalling previous MSI version..."
 			$uninstallProc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/x",$productCode,"/qn","/norestart" -Wait -PassThru
 			if ($uninstallProc.ExitCode -eq 0 -or $uninstallProc.ExitCode -eq 1605) {
-				Show-Success "Previous installation removed"
+				Show-Success "Previous MSI installation removed"
 			} else {
-				Show-Warning "Uninstall returned code $($uninstallProc.ExitCode). Continuing..."
+				Show-Warning "MSI uninstall returned code $($uninstallProc.ExitCode). Continuing..."
 			}
 			Start-Sleep -Seconds 2
 		} else {
-			Show-Info "No MSI product found. Removing service directly..."
-			& sc.exe delete "PrintMasterAgent" 2>$null
+			# No MSI found - try to uninstall service via exe or sc.exe
+			$programData = ${env:ProgramData}
+			if ([string]::IsNullOrWhiteSpace($programData)) { $programData = "C:\\ProgramData" }
+			$existingExe = Join-Path $programData "PrintMaster\bin\printmaster-agent.exe"
+			
+			if (Test-Path $existingExe) {
+				Show-Info "Uninstalling existing service..."
+				$uninstallProc = Start-Process -FilePath $existingExe -ArgumentList "--service","uninstall","--silent" -Wait -PassThru -NoNewWindow
+				if ($uninstallProc.ExitCode -eq 0) {
+					Show-Success "Service uninstalled"
+				} else {
+					Show-Warning "Service uninstall returned code $($uninstallProc.ExitCode)"
+				}
+			} else {
+				Show-Info "Removing service entry directly..."
+				& sc.exe delete "PrintMasterAgent" 2>$null
+				Show-Success "Service entry removed"
+			}
 			Start-Sleep -Seconds 1
-			Show-Success "Service entry removed"
 		}
 	}
 	
+	# Stop any running processes
 	$procs = Get-Process -Name "printmaster-agent" -ErrorAction SilentlyContinue
 	if ($procs) {
 		Show-Info "Stopping running processes..."
 		$procs | Stop-Process -Force -ErrorAction SilentlyContinue
 		Start-Sleep -Seconds 1
 		Show-Success "Processes stopped"
+	}
+	
+	# Clean up old installation directories
+	$programData = ${env:ProgramData}
+	if ([string]::IsNullOrWhiteSpace($programData)) { $programData = "C:\\ProgramData" }
+	$oldBinDir = Join-Path $programData "PrintMaster\bin"
+	if (Test-Path $oldBinDir) {
+		Show-Info "Removing old binaries..."
+		Remove-Item -Path $oldBinDir -Recurse -Force -ErrorAction SilentlyContinue
+		Show-Success "Old binaries removed"
+	}
+	
+	# Also clean up Program Files location (from old MSI installs)
+	$programFiles = ${env:ProgramFiles}
+	if ([string]::IsNullOrWhiteSpace($programFiles)) { $programFiles = "C:\\Program Files" }
+	$oldMsiDir = Join-Path $programFiles "PrintMaster"
+	if (Test-Path $oldMsiDir) {
+		Show-Info "Removing old MSI installation directory..."
+		Remove-Item -Path $oldMsiDir -Recurse -Force -ErrorAction SilentlyContinue
+		Show-Success "Old MSI directory removed"
 	}
 }
 
@@ -1951,8 +1988,10 @@ if ([string]::IsNullOrWhiteSpace($programData)) {
 $dataRoot = Join-Path $programData "PrintMaster"
 $configDir = Join-Path $dataRoot "agent"
 $configPath = Join-Path $configDir "config.toml"
+$installDir = Join-Path $programData "PrintMaster\bin"
+$exePath = Join-Path $installDir "printmaster-agent.exe"
 $tempDir = Join-Path $env:TEMP "PrintMaster-Install"
-$msiPath = Join-Path $tempDir "printmaster-agent.msi"
+$tempExePath = Join-Path $tempDir "printmaster-agent.exe"
 
 # Step 1: Remove existing installation
 Show-Progress -Percent 5 -Message "Checking for existing installation..."
@@ -1963,6 +2002,7 @@ Remove-ExistingInstallation
 Show-Progress -Percent 15 -Message "Preparing directories..."
 Start-Sleep -Milliseconds 200
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 Show-Success "Directories ready"
 
@@ -1985,13 +2025,13 @@ insecure_skip_verify = true
 Set-Content -Path $configPath -Value $configContent -Encoding UTF8
 Show-Success "Configuration saved to $configPath"
 
-# Step 4: Download installer
-Show-Progress -Percent 35 -Message "Downloading installer..."
+# Step 4: Download agent
+Show-Progress -Percent 35 -Message "Downloading agent..."
 
 # Try HTTPS first, fall back to HTTP for older systems
 $httpsServer = $server -replace '^http://', 'https://'
 $httpServer = $server -replace '^https://', 'http://'
-$downloadUri = "/api/v1/agents/download/latest?platform=windows&arch=amd64&format=msi&proxy=1"
+$downloadUri = "/api/v1/agents/download/latest?platform=windows&arch=amd64&format=exe&proxy=1"
 $downloaded = $false
 
 # Attempt 1: HTTPS with modern TLS
@@ -1999,7 +2039,7 @@ try {
 	Show-Info "Trying secure download (HTTPS)..."
 	[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 	$wc = New-Object System.Net.WebClient
-	$wc.DownloadFile("$httpsServer$downloadUri", $msiPath)
+	$wc.DownloadFile("$httpsServer$downloadUri", $tempExePath)
 	$downloaded = $true
 	Show-Success "Downloaded via HTTPS"
 } catch {
@@ -2010,57 +2050,73 @@ try {
 if (-not $downloaded) {
 	try {
 		$wc = New-Object System.Net.WebClient
-		$wc.DownloadFile("$httpServer$downloadUri", $msiPath)
+		$wc.DownloadFile("$httpServer$downloadUri", $tempExePath)
 		$downloaded = $true
 		Show-Success "Downloaded via HTTP"
 	} catch {
-		Show-Error "Failed to download MSI: $_"
+		Show-Error "Failed to download agent: $_"
 		Show-CompletionBox -Success $false -Message "Download Failed"
 		exit 1
 	}
 }
 
-if (-not (Test-Path $msiPath)) {
-	Show-Error "MSI installer missing after download."
+if (-not (Test-Path $tempExePath)) {
+	Show-Error "Agent executable missing after download."
 	Show-CompletionBox -Success $false -Message "Download Failed"
 	exit 1
 }
 
 try {
-	Unblock-File -Path $msiPath -ErrorAction SilentlyContinue
+	Unblock-File -Path $tempExePath -ErrorAction SilentlyContinue
 } catch { }
 
-$fileSize = (Get-Item $msiPath).Length / 1MB
-Show-Success "Downloaded installer ($([math]::Round($fileSize, 1)) MB)"
+$fileSize = (Get-Item $tempExePath).Length / 1MB
+Show-Success "Downloaded agent ($([math]::Round($fileSize, 1)) MB)"
 
-# Step 5: Install MSI
-Show-Progress -Percent 60 -Message "Installing PrintMaster Agent..."
-Show-Info "Running MSI installer (this may take a moment)..."
+# Step 5: Install agent
+Show-Progress -Percent 50 -Message "Installing PrintMaster Agent..."
 
-$logPath = Join-Path $tempDir "install.log"
-$proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i",$msiPath,"/qn","/norestart","/l*v",$logPath -Wait -PassThru
-if ($proc.ExitCode -ne 0) {
-	Show-Error "MSI installation failed with exit code $($proc.ExitCode)"
-	Show-Info "See log: $logPath"
-	Show-CompletionBox -Success $false -Message "Installation Failed"
-	exit $proc.ExitCode
+# Copy executable to install directory
+Show-Info "Copying agent to install directory..."
+Copy-Item -Path $tempExePath -Destination $exePath -Force
+Show-Success "Agent installed to $installDir"
+
+# Step 6: Install and start service
+Show-Progress -Percent 70 -Message "Configuring Windows service..."
+Show-Info "Installing service..."
+
+$installProc = Start-Process -FilePath $exePath -ArgumentList "--service","install","--silent" -Wait -PassThru -NoNewWindow
+if ($installProc.ExitCode -ne 0) {
+	Show-Error "Service installation failed with exit code $($installProc.ExitCode)"
+	Show-CompletionBox -Success $false -Message "Service Install Failed"
+	exit $installProc.ExitCode
 }
-Show-Success "MSI installation complete"
+Show-Success "Service installed"
 
-# Step 6: Clean up
-Show-Progress -Percent 85 -Message "Cleaning up..."
-Remove-Item -Path $msiPath -Force -ErrorAction SilentlyContinue
+Show-Progress -Percent 85 -Message "Starting service..."
+Show-Info "Starting PrintMaster Agent service..."
+
+$startProc = Start-Process -FilePath $exePath -ArgumentList "--service","start","--silent" -Wait -PassThru -NoNewWindow
+if ($startProc.ExitCode -ne 0) {
+	Show-Warning "Service start returned exit code $($startProc.ExitCode)"
+}
+
+# Step 7: Clean up
+Show-Progress -Percent 90 -Message "Cleaning up..."
+Remove-Item -Path $tempExePath -Force -ErrorAction SilentlyContinue
+Remove-Item -Path $tempDir -Force -Recurse -ErrorAction SilentlyContinue
 Show-Success "Temporary files removed"
 
-# Step 7: Verify service
+# Step 8: Verify service
 Show-Progress -Percent 95 -Message "Verifying installation..."
 
+Start-Sleep -Seconds 2
 $svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq 'Running') {
 	Show-Success "Service is running"
 } elseif ($svc) {
 	Show-Info "Service status: $($svc.Status)"
-	Show-Info "Starting service..."
+	Show-Info "Attempting to start service..."
 	Start-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
 	Start-Sleep -Seconds 2
 	$svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
@@ -2070,7 +2126,9 @@ if ($svc -and $svc.Status -eq 'Running') {
 		Show-Warning "Service may need manual start"
 	}
 } else {
-	Show-Warning "Service not found - check installation log"
+	Show-Error "Service not found after installation"
+	Show-CompletionBox -Success $false -Message "Service Not Found"
+	exit 1
 }
 
 Show-Progress -Percent 100 -Message "Complete!"
@@ -2079,6 +2137,7 @@ Show-Progress -Percent 100 -Message "Complete!"
 Show-CompletionBox -Success $true -Message "Installation Complete!"
 
 Write-Host ""
+Show-Info "Executable:    $exePath"
 Show-Info "Configuration: $configPath"
 Show-Info "Logs folder:   $(Join-Path $configDir 'logs')"
 Show-Info "Web UI:        https://localhost:8443"
