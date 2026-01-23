@@ -1463,7 +1463,7 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		installStore.m[code] = installEntry{Script: script, Filename: filename, ExpiresAt: expiresAt, OneTime: oneTimeDownload}
 		installStore.mu.Unlock()
 
-		downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
+		downloadURL := fmt.Sprintf("%s/install/%s", serverURL, code)
 		w.Header().Set("Content-Type", "application/json")
 		oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
 		if platform == "windows" {
@@ -1593,7 +1593,7 @@ func handleSendDeploymentEmail(w http.ResponseWriter, r *http.Request) {
 	installStore.m[code] = installEntry{Script: script, Filename: filename, ExpiresAt: expiresAt, OneTime: false}
 	installStore.mu.Unlock()
 
-	downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
+	downloadURL := fmt.Sprintf("%s/install/%s", serverURL, code)
 	oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
 	if platform == "windows" {
 		// Use HTTP for initial fetch (maximum compatibility with older PowerShell/Windows)
