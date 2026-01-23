@@ -732,6 +732,12 @@ func (c *ServerClient) GetLatestManifest(ctx context.Context, component, platfor
 // Supports resuming partial downloads via HTTP Range requests.
 // Returns the total bytes downloaded (including resumed bytes).
 func (c *ServerClient) DownloadArtifact(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64) (int64, error) {
+	return c.DownloadArtifactWithProgress(ctx, manifest, destPath, resumeFrom, nil)
+}
+
+// DownloadArtifactWithProgress downloads an artifact with optional progress reporting.
+// The callback receives progress percentage (0-100) and total bytes read.
+func (c *ServerClient) DownloadArtifactWithProgress(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64, progressCb DownloadProgressCallback) (int64, error) {
 	if manifest == nil {
 		return 0, fmt.Errorf("manifest required")
 	}
@@ -791,7 +797,18 @@ func (c *ServerClient) DownloadArtifact(ctx context.Context, manifest *UpdateMan
 	}
 	defer file.Close()
 
-	written, err := io.Copy(file, resp.Body)
+	// Use progress reader if callback is provided and we know the total size
+	var reader io.Reader = resp.Body
+	totalSize := manifest.SizeBytes
+	if resumeFrom > 0 && resp.StatusCode == http.StatusPartialContent {
+		// For resumed downloads, remaining size is total - already downloaded
+		totalSize = manifest.SizeBytes - resumeFrom
+	}
+	if progressCb != nil && totalSize > 0 {
+		reader = newProgressReader(resp.Body, totalSize, progressCb)
+	}
+
+	written, err := io.Copy(file, reader)
 	if err != nil {
 		return resumeFrom + written, fmt.Errorf("download interrupted: %w", err)
 	}

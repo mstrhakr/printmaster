@@ -27,6 +27,11 @@ func (a *ClientAdapter) GetLatestManifest(ctx context.Context, component, platfo
 
 // DownloadArtifact downloads the artifact via the server client.
 func (a *ClientAdapter) DownloadArtifact(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64) (int64, error) {
+	return a.DownloadArtifactWithProgress(ctx, manifest, destPath, resumeFrom, nil)
+}
+
+// DownloadArtifactWithProgress downloads the artifact with progress reporting.
+func (a *ClientAdapter) DownloadArtifactWithProgress(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64, progressCb DownloadProgressCallback) (int64, error) {
 	// Convert back to agent manifest for the download call
 	agentManifest := &agent.UpdateManifest{
 		ManifestVersion: manifest.ManifestVersion,
@@ -44,7 +49,16 @@ func (a *ClientAdapter) DownloadArtifact(ctx context.Context, manifest *UpdateMa
 		GeneratedAt:     manifest.GeneratedAt,
 		Signature:       manifest.Signature,
 	}
-	return a.client.DownloadArtifact(ctx, agentManifest, destPath, resumeFrom)
+
+	// Convert progress callback if provided
+	var agentProgressCb agent.DownloadProgressCallback
+	if progressCb != nil {
+		agentProgressCb = func(percent int, bytesRead int64) {
+			progressCb(percent, bytesRead)
+		}
+	}
+
+	return a.client.DownloadArtifactWithProgress(ctx, agentManifest, destPath, resumeFrom, agentProgressCb)
 }
 
 // convertManifest converts from agent.UpdateManifest to autoupdate.UpdateManifest.

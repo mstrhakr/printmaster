@@ -28,6 +28,10 @@ func (m *mockUpdateClient) DownloadArtifact(ctx context.Context, manifest *Updat
 	return 0, m.err
 }
 
+func (m *mockUpdateClient) DownloadArtifactWithProgress(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64, progressCb DownloadProgressCallback) (int64, error) {
+	return 0, m.err
+}
+
 // mockPolicyProvider implements PolicyProvider for testing.
 type mockPolicyProvider struct {
 	spec    updatepolicy.PolicySpec
@@ -325,6 +329,17 @@ func (m *forceInstallClient) GetLatestManifest(ctx context.Context, component, p
 }
 
 func (m *forceInstallClient) DownloadArtifact(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64) (int64, error) {
+	if err := os.WriteFile(destPath, m.payload, 0o644); err != nil {
+		return 0, err
+	}
+	return int64(len(m.payload)), nil
+}
+
+func (m *forceInstallClient) DownloadArtifactWithProgress(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64, progressCb DownloadProgressCallback) (int64, error) {
+	// Call progress callback at 100% if provided
+	if progressCb != nil {
+		progressCb(100, int64(len(m.payload)))
+	}
 	if err := os.WriteFile(destPath, m.payload, 0o644); err != nil {
 		return 0, err
 	}

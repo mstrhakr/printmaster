@@ -42,6 +42,10 @@ const (
 // version, progress percentage (0-100, -1 if unknown), and optional message/error.
 type ProgressCallback func(status Status, targetVersion string, progress int, message string, err error)
 
+// DownloadProgressCallback is invoked during download to report bytes progress.
+// percent is 0-100, bytesRead is total bytes downloaded so far.
+type DownloadProgressCallback func(percent int, bytesRead int64)
+
 // Options configure the auto-update manager.
 type Options struct {
 	Log              *logger.Logger
@@ -69,6 +73,8 @@ type UpdateClient interface {
 	GetLatestManifest(ctx context.Context, component, platform, arch, channel string) (*UpdateManifest, error)
 	// DownloadArtifact downloads the artifact to the specified path, supporting range requests.
 	DownloadArtifact(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64) (int64, error)
+	// DownloadArtifactWithProgress downloads with progress reporting callback.
+	DownloadArtifactWithProgress(ctx context.Context, manifest *UpdateManifest, destPath string, resumeFrom int64, progressCb DownloadProgressCallback) (int64, error)
 }
 
 // PolicyProvider resolves the effective update policy.
@@ -732,6 +738,11 @@ func (m *Manager) downloadWithRetry(ctx context.Context, manifest *UpdateManifes
 	var lastErr error
 	delay := defaultRetryBaseDelay
 
+	// Create progress callback that reports download progress
+	progressCb := func(percent int, bytesRead int64) {
+		m.setStatusWithProgress(StatusDownloading, percent, fmt.Sprintf("Downloading... %d%%", percent))
+	}
+
 	for attempt := 1; attempt <= m.maxRetries; attempt++ {
 		// Check for existing partial download
 		var resumeFrom int64
@@ -739,7 +750,7 @@ func (m *Manager) downloadWithRetry(ctx context.Context, manifest *UpdateManifes
 			resumeFrom = info.Size()
 		}
 
-		downloaded, err := m.client.DownloadArtifact(ctx, manifest, destPath+".partial", resumeFrom)
+		downloaded, err := m.client.DownloadArtifactWithProgress(ctx, manifest, destPath+".partial", resumeFrom, progressCb)
 		if err == nil && downloaded > 0 {
 			// Rename partial to final
 			if err := os.Rename(destPath+".partial", destPath); err != nil {
