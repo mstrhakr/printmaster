@@ -524,6 +524,18 @@ function debounce(fn, wait = 250) {
     };
 }
 
+/**
+ * Get a human-readable display name for an agent.
+ * Fallback chain: name → hostname → agent_id → 'Unknown'
+ * @param {Object} agent - Agent object with name, hostname, agent_id fields
+ * @param {string} [fallbackId] - Optional fallback if agent_id is missing
+ * @returns {string} Display name for the agent
+ */
+function getAgentDisplayName(agent, fallbackId) {
+    if (!agent) return fallbackId || 'Unknown';
+    return agent.name || agent.hostname || agent.agent_id || fallbackId || 'Unknown';
+}
+
 function buildDynamicTabs() {
     Object.entries(TAB_DEFINITIONS).forEach(([tabId, config]) => {
         const requiredAction = config && config.requiredAction;
@@ -5655,7 +5667,7 @@ function buildAgentNodeHTML(agent, tenantId, siteId) {
     html += `<button class="dashboard-tree-toggle${isExpanded ? ' expanded' : ''}${hasChildren ? '' : ' no-children'}" aria-expanded="${isExpanded}">▶</button>`;
     html += `<span class="dashboard-tree-icon agent">💻</span>`;
     html += `<div class="dashboard-tree-content">`;
-    html += `<span class="dashboard-tree-name">${highlightMatch(escapeHtml(agent.name || agent.agent_id))}</span>`;
+    html += `<span class="dashboard-tree-name">${highlightMatch(escapeHtml(getAgentDisplayName(agent)))}</span>`;
     html += `<span class="dashboard-status-badge ${statusClass}"><span class="dashboard-status-dot"></span>${statusClass}</span>`;
     html += `</div>`;
     html += `<div class="dashboard-tree-metrics">`;
@@ -8610,7 +8622,7 @@ async function loadSiteAgentsList(selectedAgentIds) {
             return `
                 <label class="site-agent-item">
                     <input type="checkbox" value="${escapeHtml(agent.agent_id)}" ${checked} />
-                    <span class="agent-name">${escapeHtml(agent.name || agent.hostname || agent.agent_id)}</span>
+                    <span class="agent-name">${escapeHtml(getAgentDisplayName(agent))}</span>
                     <span class="agent-meta">${escapeHtml(status)}</span>
                 </label>
             `;
@@ -9308,7 +9320,7 @@ function getAgentSortValue(agent, key) {
     const meta = agent.__meta || {};
     switch (key) {
         case 'name':
-            return (agent.name || agent.hostname || agent.agent_id || '').toLowerCase();
+            return getAgentDisplayName(agent).toLowerCase();
         case 'status':
             return AGENT_STATUS_ORDER[meta.statusKey || 'inactive'] || 0;
         case 'connection':
@@ -9698,7 +9710,7 @@ function renderAgentTable(agents) {
         return `
             <tr data-agent-id="${escapeHtml(agent.agent_id || '')}" class="agent-row-clickable" title="Click to view details">
                 <td>
-                    <div class="table-primary">${escapeHtml(agent.name || agent.hostname || agent.agent_id || 'Unknown')}</div>
+                    <div class="table-primary">${escapeHtml(getAgentDisplayName(agent))}</div>
                     <div class="muted-text">${escapeHtml(agent.hostname || '')}</div>
                 </td>
                 <td>${escapeHtml(tenantLabel)}</td>
@@ -9711,7 +9723,7 @@ function renderAgentTable(agents) {
                     <div class="table-actions">
                         <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
                         <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
-                        <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
+                        <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(getAgentDisplayName(agent))}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
                     </div>
                 </td>
             </tr>
@@ -9732,7 +9744,7 @@ function renderAgentCard(agent) {
             <div class="device-card-header">
                 <div>
                     <div style="display:flex;align-items:center;gap:8px">
-                        <div class="device-card-title">${escapeHtml(agent.name || agent.hostname || agent.agent_id || 'Unknown')}</div>
+                        <div class="device-card-title">${escapeHtml(getAgentDisplayName(agent))}</div>
                         <span class="agent-joined-bubble" style="margin-left:8px;display:${registeredDate ? 'inline-flex' : 'none'};align-items:center;padding:2px 6px;border-radius:12px;background:var(--panel);font-size:12px;color:var(--muted);border:1px solid var(--border);">${registeredDate ? 'Joined' : ''}</span>
                     </div>
                     <div class="device-card-subtitle">
@@ -9779,7 +9791,7 @@ function renderAgentCard(agent) {
             <div class="device-card-actions">
                 <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
                 <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
-                <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(agent.name || agent.hostname || agent.agent_id || '')}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
+                <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(getAgentDisplayName(agent))}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
             </div>
         </div>
     `;
@@ -10100,7 +10112,7 @@ function renderAgentDetailsModal(agent) {
     const title = document.getElementById('agent_details_title');
     const body = document.getElementById('agent_details_body');
     
-    title.textContent = `Agent: ${agent.name || agent.hostname || agent.agent_id}`;
+    title.textContent = `Agent: ${getAgentDisplayName(agent)}`;
     
     const lastSeenDate = agent.last_seen ? new Date(agent.last_seen) : null;
     const registeredDate = agent.registered_at ? new Date(agent.registered_at) : null;
@@ -11174,7 +11186,7 @@ function syncDevicesAgentFilterOptions() {
     });
     let options = '<option value="">All Agents</option>';
     agents.forEach(agent => {
-        const label = agent.name || agent.hostname || agent.agent_id;
+        const label = getAgentDisplayName(agent);
         options += `<option value="${escapeHtml(agent.agent_id)}">${escapeHtml(label)}</option>`;
     });
     select.innerHTML = options;
@@ -11690,7 +11702,7 @@ function renderDevicesActiveFilters() {
     }
     if (filters.agentId) {
         const agent = getAgentInfo(filters.agentId);
-        const label = agent ? (agent.name || agent.hostname || agent.agent_id) : filters.agentId;
+        const label = agent ? getAgentDisplayName(agent) : filters.agentId;
         chips.push(buildFilterChip('Agent', label, 'agent'));
     }
     if (filters.tenantId) {
@@ -11945,7 +11957,7 @@ function enrichSingleDevice(device) {
         return device;
     }
     const agent = getAgentInfo(device.agent_id);
-    const agentName = agent ? (agent.name || agent.hostname || agent.agent_id) : '';
+    const agentName = agent ? getAgentDisplayName(agent) : '';
     const tenantId = device.tenant_id || (agent && agent.tenant_id) || '';
     const tenantLabel = tenantId ? tenantDisplayNameById(tenantId) : '';
     const lastSeenIso = device.last_seen || device.lastSeen || device.last_seen_at || device.updated_at || device.last_metrics_at;
@@ -13250,7 +13262,7 @@ function updateAgentSelect() {
     settingsUIState.agentList.forEach(agent => {
         const opt = document.createElement('option');
         const agentId = resolveAgentId(agent);
-        const label = agent.name || agent.hostname || agentId;
+        const label = getAgentDisplayName(agent, agentId);
         opt.value = agentId;
         opt.textContent = label;
         if (agentId === settingsUIState.selectedAgentId) {

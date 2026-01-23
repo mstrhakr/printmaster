@@ -6366,9 +6366,14 @@ func handleDashboardTree(w http.ResponseWriter, r *http.Request) {
 
 // buildDashboardAgent creates a DashboardAgent from an Agent and its devices
 func buildDashboardAgent(a *storage.Agent, agentDevices []*storage.DeviceWithMetrics, includeDevices bool) DashboardAgent {
+	// Use name if set, otherwise fall back to hostname
+	displayName := a.Name
+	if displayName == "" {
+		displayName = a.Hostname
+	}
 	da := DashboardAgent{
 		AgentID:        a.AgentID,
-		Name:           a.Name,
+		Name:           displayName,
 		Status:         a.Status,
 		ConnectionType: deriveAgentConnectionType(a),
 		Version:        a.Version,
