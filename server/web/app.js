@@ -8335,7 +8335,8 @@ function renderSitesTree(tenantId, sites, agents) {
     // Sites with their agents
     sites.forEach(site => {
         const siteAgentList = siteAgents[site.id] || [];
-        const escapedSiteName = escapeHtml(site.name).replace(/'/g, "\\'");
+        // Escape backslashes first, then single quotes to prevent injection via \'
+        const escapedSiteName = escapeHtml(site.name).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         html += `
             <div class="site-node" data-site-id="${site.id}">
                 <div class="site-header">
