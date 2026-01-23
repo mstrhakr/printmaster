@@ -1871,6 +1871,17 @@ func disconnectFromServer(agentCfg *AgentConfig, dataDir string) error {
 		}
 	}
 
+	// Clear server-managed settings snapshot so settings become editable again
+	if settingsManager != nil {
+		if err := settingsManager.ClearManagedSnapshot(); err != nil {
+			if appLogger != nil {
+				appLogger.Warn("Failed to clear server-managed settings", "error", err)
+			}
+		} else if appLogger != nil {
+			appLogger.Info("Cleared server-managed settings, local editing now unlocked")
+		}
+	}
+
 	broadcastServerStatus(agentCfg, dataDir, "disconnected", true)
 	return nil
 }
@@ -7291,6 +7302,16 @@ window.top.location.href = '/proxy/%s/';
 				mapIntoStruct(req.Logging, &updated)
 				envelope["logging"] = structToMap(updated)
 				current.Logging = updated
+				// Apply log level immediately
+				if appLogger != nil && updated.Level != "" {
+					if lvl := logger.LevelFromString(updated.Level); lvl >= 0 {
+						appLogger.SetLevel(lvl)
+						appLogger.Info("Log level changed", "level", updated.Level)
+					}
+				}
+				// Apply debug flags
+				agent.SetDebugEnabled(updated.Level == "debug")
+				agent.SetDumpParseDebug(updated.DumpParseDebug)
 			}
 
 			if req.Web != nil {

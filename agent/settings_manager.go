@@ -105,3 +105,20 @@ func (m *SettingsManager) ApplyServerSnapshot(snapshot *agent.SettingsSnapshot) 
 	m.mu.Unlock()
 	return loadUnifiedSettings(m.store), nil
 }
+
+// ClearManagedSnapshot removes the server-managed settings snapshot, unlocking
+// all settings for local editing. This should be called when disconnecting from
+// the server to allow standalone operation without locked settings.
+func (m *SettingsManager) ClearManagedSnapshot() error {
+	if m == nil || m.store == nil {
+		return nil
+	}
+	// Delete the server managed settings key from storage
+	if err := m.store.DeleteConfigValue(serverManagedSettingsKey); err != nil {
+		return fmt.Errorf("failed to clear managed settings: %w", err)
+	}
+	m.mu.Lock()
+	m.managed = nil
+	m.mu.Unlock()
+	return nil
+}
