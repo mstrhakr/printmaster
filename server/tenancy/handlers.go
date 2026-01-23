@@ -1730,11 +1730,138 @@ $ErrorActionPreference = "Stop"
 $server = "%s"
 $token = "%s"
 
+# ANSI color codes
+$ESC = [char]27
+$ColorReset   = "$ESC[0m"
+$ColorRed     = "$ESC[31m"
+$ColorGreen   = "$ESC[32m"
+$ColorYellow  = "$ESC[33m"
+$ColorCyan    = "$ESC[36m"
+$ColorWhite   = "$ESC[37m"
+$ColorBold    = "$ESC[1m"
+$ColorDim     = "$ESC[2m"
+
+# Enable virtual terminal processing for ANSI colors on Windows
+$null = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+try {
+	$mode = 0
+	$handle = [Console]::OutputHandle
+	$null = [Console]::TreatControlCAsInput = $false
+	# Enable ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x0004)
+	Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class ConsoleHelper {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GetStdHandle(int nStdHandle);
+}
+"@
+	$stdout = [ConsoleHelper]::GetStdHandle(-11)
+	$mode = 0
+	$null = [ConsoleHelper]::GetConsoleMode($stdout, [ref]$mode)
+	$null = [ConsoleHelper]::SetConsoleMode($stdout, $mode -bor 0x0004)
+} catch {
+	# ANSI might not work on older systems, but continue anyway
+}
+
+# Build ASCII art with backticks using char code to avoid escaping issues
+$BT = [char]96
+$asciiArt = @"
+
+  $ColorCyan+----------------------------------------------------------------------------------+
+  |                                                                                  |
+  |   ____________ _____ _   _ ________  ___  ___   _____ _____ ___________          |
+  |   | ___ \ ___ \_   _| \ | |_   _|  \/  | / _ \ /  ___|_   _|  ___| ___ \         |
+  |   | |_/ / |_/ / | | |  \| | | | | .  . |/ /_\ \\ $BT--.  | | | |__ | |_/ /         |
+  |   |  __/|    /  | | | . $BT | | | | |\/| ||  _  | $BT--. \ | | |  __||    /          |
+  |   | |   | |\ \ _| |_| |\  | | | | |  | || | | |/\__/ / | | | |___| |\ \          |
+  |   \_|   \_| \_|\___/\_| \_/ \_/ \_|  |_/\_| |_/\____/  \_/ \____/\_| \_|         |
+  |                                                                                  |
+  +----------------------------------------------------------------------------------+$ColorReset
+
+"@
+
+function Show-Banner {
+	Clear-Host
+	Write-Host $asciiArt
+	$centerPad = "                         "
+	Write-Host "$centerPad${ColorBold}Fleet Management Agent Installer${ColorReset}"
+	Write-Host "$centerPad${ColorDim}Server: $server${ColorReset}"
+	Write-Host ""
+	Write-Host ""
+}
+
+function Show-Success {
+	param([string]$Message)
+	Write-Host "  ${ColorGreen}[OK]${ColorReset} $Message"
+}
+
+function Show-Error {
+	param([string]$Message)
+	Write-Host "  ${ColorRed}[X]${ColorReset} $Message"
+}
+
+function Show-Info {
+	param([string]$Message)
+	Write-Host "  ${ColorCyan}[*]${ColorReset} $Message"
+}
+
+function Show-Warning {
+	param([string]$Message)
+	Write-Host "  ${ColorYellow}[!]${ColorReset} $Message"
+}
+
+function Show-Progress {
+	param([int]$Percent, [string]$Message)
+	$barWidth = 40
+	$filled = [math]::Floor(($Percent * $barWidth) / 100)
+	$empty = $barWidth - $filled
+	$bar = ("$ColorGreen" + ([string][char]9608 * $filled) + "$ColorDim" + ([string][char]9617 * $empty) + "$ColorReset")
+	$pct = $Percent.ToString().PadLeft(3)
+	$CR = [char]13
+	Write-Host "$CR  $ColorCyan[$bar$ColorCyan]$ColorReset $pct%% $ColorWhite$Message$ColorReset   " -NoNewline
+}
+
+function Show-CompletionBox {
+	param([bool]$Success, [string]$Message)
+	Write-Host ""
+	Write-Host ""
+	if ($Success) {
+		$color = $ColorGreen
+		$icon = "[OK]"
+	} else {
+		$color = $ColorRed
+		$icon = "[X]"
+	}
+	$boxWidth = 60
+	$topBottom = "=" * ($boxWidth - 2)
+	$emptyLine = " " * ($boxWidth - 2)
+	$contentWidth = $boxWidth - 4
+	$textWithIcon = "  $icon  $Message"
+	$paddingNeeded = $contentWidth - $textWithIcon.Length
+	$paddingLeft = [math]::Floor($paddingNeeded / 2)
+	$paddingRight = $paddingNeeded - $paddingLeft
+	$indent = "          "
+	
+	Write-Host "$indent$color+$topBottom+$ColorReset"
+	Write-Host "$indent$color|$emptyLine|$ColorReset"
+	Write-Host "$indent$color|$(" " * $paddingLeft)  $icon  ${ColorBold}$Message${ColorReset}$color$(" " * $paddingRight)|$ColorReset"
+	Write-Host "$indent$color|$emptyLine|$ColorReset"
+	Write-Host "$indent$color+$topBottom+$ColorReset"
+	Write-Host ""
+}
+
 function Assert-Administrator {
 	$current = [Security.Principal.WindowsIdentity]::GetCurrent()
 	$principal = New-Object Security.Principal.WindowsPrincipal($current)
 	if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-		Write-Error "This installer must be run from an elevated PowerShell session."
+		Show-Error "This installer must be run from an elevated PowerShell session."
+		Write-Host ""
+		Write-Host "  ${ColorDim}Run PowerShell as Administrator and try again.${ColorReset}"
 		exit 1
 	}
 }
@@ -1744,24 +1871,22 @@ function Set-RelaxedCertificatePolicy {
 		[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 		[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 	} catch {
-		Write-Warning "Unable to relax certificate validation: $_"
+		Show-Warning "Unable to relax certificate validation: $_"
 	}
 }
 
 function Remove-ExistingInstallation {
-	# Check for existing service
 	$svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
 	if ($svc) {
-		Write-Host "Found existing PrintMaster Agent installation. Removing..."
+		Show-Warning "Found existing installation. Removing..."
 		
-		# Stop the service if running
 		if ($svc.Status -eq 'Running') {
-			Write-Host "  Stopping service..."
+			Show-Info "Stopping service..."
 			Stop-Service -Name "PrintMasterAgent" -Force -ErrorAction SilentlyContinue
 			Start-Sleep -Seconds 2
+			Show-Success "Service stopped"
 		}
 		
-		# Find and uninstall existing MSI
 		$uninstallKeys = @(
 			"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
 			"HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
@@ -1782,31 +1907,34 @@ function Remove-ExistingInstallation {
 		}
 		
 		if ($productCode) {
-			Write-Host "  Uninstalling previous version (Product: $productCode)..."
+			Show-Info "Uninstalling previous version..."
 			$uninstallProc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/x",$productCode,"/qn","/norestart" -Wait -PassThru
 			if ($uninstallProc.ExitCode -eq 0 -or $uninstallProc.ExitCode -eq 1605) {
-				Write-Host "  Previous installation removed."
+				Show-Success "Previous installation removed"
 			} else {
-				Write-Warning "  MSI uninstall returned code $($uninstallProc.ExitCode). Continuing anyway..."
+				Show-Warning "Uninstall returned code $($uninstallProc.ExitCode). Continuing..."
 			}
 			Start-Sleep -Seconds 2
 		} else {
-			# Fallback: try to remove service directly if no MSI found
-			Write-Host "  No MSI product found. Attempting direct service removal..."
+			Show-Info "No MSI product found. Removing service directly..."
 			& sc.exe delete "PrintMasterAgent" 2>$null
 			Start-Sleep -Seconds 1
+			Show-Success "Service entry removed"
 		}
 	}
 	
-	# Also check for running printmaster-agent.exe processes
 	$procs = Get-Process -Name "printmaster-agent" -ErrorAction SilentlyContinue
 	if ($procs) {
-		Write-Host "  Stopping PrintMaster Agent processes..."
+		Show-Info "Stopping running processes..."
 		$procs | Stop-Process -Force -ErrorAction SilentlyContinue
 		Start-Sleep -Seconds 1
+		Show-Success "Processes stopped"
 	}
 }
 
+# ========== MAIN INSTALLATION ==========
+
+Show-Banner
 Assert-Administrator
 Set-RelaxedCertificatePolicy
 
@@ -1821,19 +1949,30 @@ $configPath = Join-Path $configDir "config.toml"
 $tempDir = Join-Path $env:TEMP "PrintMaster-Install"
 $msiPath = Join-Path $tempDir "printmaster-agent.msi"
 
-# Remove existing installation before proceeding
+# Step 1: Remove existing installation
+Show-Progress -Percent 5 -Message "Checking for existing installation..."
+Start-Sleep -Milliseconds 300
+Write-Host ""
 Remove-ExistingInstallation
 
-Write-Host "Preparing directories..."
+# Step 2: Prepare directories
+Show-Progress -Percent 15 -Message "Preparing directories..."
+Start-Sleep -Milliseconds 200
+Write-Host ""
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+Show-Success "Directories ready"
+
+# Step 3: Write configuration
+Show-Progress -Percent 25 -Message "Writing configuration..."
+Start-Sleep -Milliseconds 200
+Write-Host ""
 
 $agentName = $env:COMPUTERNAME
 if ([string]::IsNullOrWhiteSpace($agentName)) {
 	$agentName = "windows-agent"
 }
 
-Write-Host "Writing configuration to $configPath"
 $configContent = @"
 [server]
 enabled = true
@@ -1843,8 +1982,13 @@ token = "$token"
 insecure_skip_verify = true
 "@
 Set-Content -Path $configPath -Value $configContent -Encoding UTF8
+Show-Success "Configuration saved to $configPath"
 
-Write-Host "Downloading MSI installer..."
+# Step 4: Download installer
+Show-Progress -Percent 35 -Message "Downloading installer..."
+Write-Host ""
+Show-Info "Downloading from $server..."
+
 try {
 	$downloadParams = @{
 		Uri = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64&format=msi&proxy=1"
@@ -1864,45 +2008,80 @@ try {
 	}
 	Invoke-WebRequest @downloadParams
 } catch {
-	Write-Error "Failed to download MSI: $_"
+	Show-Error "Failed to download MSI: $_"
+	Show-CompletionBox -Success $false -Message "Download Failed"
 	exit 1
 }
 
 if (-not (Test-Path $msiPath)) {
-	Write-Error "MSI installer missing after download."
+	Show-Error "MSI installer missing after download."
+	Show-CompletionBox -Success $false -Message "Download Failed"
 	exit 1
 }
 
 try {
 	Unblock-File -Path $msiPath -ErrorAction SilentlyContinue
-} catch {
-	# Ignore if Unblock-File is unavailable
-}
+} catch { }
 
-Write-Host "Installing PrintMaster Agent via MSI..."
+$fileSize = (Get-Item $msiPath).Length / 1MB
+Show-Success "Downloaded installer ($([math]::Round($fileSize, 1)) MB)"
+
+# Step 5: Install MSI
+Show-Progress -Percent 60 -Message "Installing PrintMaster Agent..."
+Write-Host ""
+Show-Info "Running MSI installer (this may take a moment)..."
+
 $logPath = Join-Path $tempDir "install.log"
 $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i",$msiPath,"/qn","/norestart","/l*v",$logPath -Wait -PassThru
 if ($proc.ExitCode -ne 0) {
-	Write-Error "MSI installation failed with exit code $($proc.ExitCode). See log: $logPath"
+	Show-Error "MSI installation failed with exit code $($proc.ExitCode)"
+	Show-Info "See log: $logPath"
+	Show-CompletionBox -Success $false -Message "Installation Failed"
 	exit $proc.ExitCode
 }
+Show-Success "MSI installation complete"
 
-# Clean up temp MSI
+# Step 6: Clean up
+Show-Progress -Percent 85 -Message "Cleaning up..."
+Start-Sleep -Milliseconds 200
+Write-Host ""
 Remove-Item -Path $msiPath -Force -ErrorAction SilentlyContinue
+Show-Success "Temporary files removed"
 
-# Verify service is running
+# Step 7: Verify service
+Show-Progress -Percent 95 -Message "Verifying installation..."
+Start-Sleep -Milliseconds 500
+Write-Host ""
+
 $svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq 'Running') {
-	Write-Host "PrintMaster Agent service is running."
-	Write-Host "Configuration: $configPath"
-	Write-Host "Logs:          $(Join-Path $configDir 'logs')"
+	Show-Success "Service is running"
 } elseif ($svc) {
-	Write-Host "PrintMaster Agent installed. Service status: $($svc.Status)"
-	Write-Host "Starting service..."
+	Show-Info "Service status: $($svc.Status)"
+	Show-Info "Starting service..."
 	Start-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
+	Start-Sleep -Seconds 2
+	$svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
+	if ($svc -and $svc.Status -eq 'Running') {
+		Show-Success "Service started"
+	} else {
+		Show-Warning "Service may need manual start"
+	}
 } else {
-	Write-Warning "PrintMaster Agent installed but service not found. Check installation log: $logPath"
+	Show-Warning "Service not found - check installation log"
 }
+
+Show-Progress -Percent 100 -Message "Complete!"
+Write-Host ""
+
+# Show completion
+Show-CompletionBox -Success $true -Message "Installation Complete!"
+
+Write-Host ""
+Show-Info "Configuration: $configPath"
+Show-Info "Logs folder:   $(Join-Path $configDir 'logs')"
+Show-Info "Web UI:        https://localhost:8443"
+Write-Host ""
 `
 
 const unixBootstrapScript = `#!/bin/sh
