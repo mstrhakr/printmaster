@@ -16790,6 +16790,9 @@ function openAddAgentModal(opts){
 function closeAddAgentModal(){
     const modal = document.getElementById('add_agent_modal');
     if(modal){ modal.style.display = 'none'; document.body.style.overflow = ''; }
+    // Clean up floating dropdown if it exists
+    const dropdown = document.getElementById('add_agent_options_dropdown');
+    if(dropdown) dropdown.remove();
     try{ delete window._addAgentState; }catch(e){}
 }
 
@@ -17084,19 +17087,26 @@ function renderAddAgentStep(step){
                     ${ oneLiner ? `<div style="font-family:monospace;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);word-break:break-all;">${escapeHtml(oneLiner)}</div>` : `<div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` }
                     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                         <button id="add_agent_copy" class="modal-button" style="flex:1;min-width:200px;font-weight:600;">${ oneLiner ? 'Copy one-liner' : 'Copy script' }</button>
-                        ${ oneLiner ? `<div style="position:relative;">
-                            <button id="add_agent_more_options" class="modal-button modal-button-secondary" style="padding:8px 12px;">More options ▾</button>
-                            <div id="add_agent_options_dropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:var(--bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:100;min-width:180px;">
-                                <button id="add_agent_download" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;">Download script</button>
-                                ${ (window._addAgentState && window._addAgentState.scriptDownloadURL) ? `<a id="add_agent_download_url" href="${escapeHtml(window._addAgentState.scriptDownloadURL)}" target="_blank" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;text-decoration:none;border-top:1px solid var(--border);">Open hosted URL</a>` : '' }
-                                <button id="add_agent_show_full" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;border-top:1px solid var(--border);">Show full script</button>
-                            </div>
-                        </div>` : `<button id="add_agent_download" class="modal-button modal-button-secondary">Download script</button>` }
+                        ${ oneLiner ? `<button id="add_agent_more_options" class="modal-button modal-button-secondary" style="padding:8px 12px;">More options ▾</button>` : `<button id="add_agent_download" class="modal-button modal-button-secondary">Download script</button>` }
                     </div>
                     <div style="color:var(--muted);font-size:13px">This script was generated for the selected platform. Download or copy it and execute it on the target machine to install and register the agent.</div>
                     ${ oneLiner ? `<div id="add_agent_full_script" style="display:none;margin-top:8px;font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` : '' }
                 </div>
             `;
+            // Create floating dropdown for more options (appended to body to escape modal overflow)
+            let existingDropdown = document.getElementById('add_agent_options_dropdown');
+            if(existingDropdown) existingDropdown.remove();
+            if(oneLiner){
+                const dropdown = document.createElement('div');
+                dropdown.id = 'add_agent_options_dropdown';
+                dropdown.style.cssText = 'display:none;position:fixed;background:var(--bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:100000;min-width:180px;';
+                dropdown.innerHTML = `
+                    <button id="add_agent_download" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;">Download script</button>
+                    ${ (window._addAgentState && window._addAgentState.scriptDownloadURL) ? `<a id="add_agent_download_url" href="${escapeHtml(window._addAgentState.scriptDownloadURL)}" target="_blank" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;text-decoration:none;border-top:1px solid var(--border);">Open hosted URL</a>` : '' }
+                    <button id="add_agent_show_full" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;border-top:1px solid var(--border);">Show full script</button>
+                `;
+                document.body.appendChild(dropdown);
+            }
             const copyBtn = document.getElementById('add_agent_copy');
             if(copyBtn) copyBtn.addEventListener('click', ()=>{
                 const textToCopy = oneLiner ? oneLiner : script;
@@ -17106,9 +17116,19 @@ function renderAddAgentStep(step){
             const moreOptionsBtn = document.getElementById('add_agent_more_options');
             const dropdown = document.getElementById('add_agent_options_dropdown');
             if(moreOptionsBtn && dropdown){
+                const positionDropdown = ()=>{
+                    const rect = moreOptionsBtn.getBoundingClientRect();
+                    dropdown.style.top = (rect.bottom + 4) + 'px';
+                    dropdown.style.left = rect.left + 'px';
+                };
                 moreOptionsBtn.addEventListener('click', (e)=>{
                     e.stopPropagation();
-                    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+                    if(dropdown.style.display === 'none'){
+                        positionDropdown();
+                        dropdown.style.display = 'block';
+                    } else {
+                        dropdown.style.display = 'none';
+                    }
                 });
                 // Close dropdown when clicking outside
                 document.addEventListener('click', (e)=>{
