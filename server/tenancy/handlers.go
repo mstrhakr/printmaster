@@ -22,6 +22,25 @@ import (
 	"printmaster/common/logger"
 )
 
+// getEffectiveScheme determines the protocol scheme, checking X-Forwarded-Proto
+// for requests behind a reverse proxy (Cloudflare, nginx, etc.) where TLS
+// termination happens at the proxy level.
+func getEffectiveScheme(r *http.Request) string {
+	// Check for proxy-forwarded protocol header first (Cloudflare, nginx, etc.)
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		return proto
+	}
+	// Check the internal header set by reverseProxyMiddleware
+	if proto := r.Header.Get("X-Detected-Proto"); proto != "" {
+		return proto
+	}
+	// Fall back to direct TLS detection
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
+}
+
 // RegisterRoutes registers HTTP handlers for tenancy endpoints.
 // dbStore, when set via RegisterRoutes, will be used for persistence. If nil,
 // the package in-memory `store` is used (keeps tests and backwards compatibility).
@@ -1407,10 +1426,7 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		rawToken = jt.Token
 	}
 
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
+	scheme := getEffectiveScheme(r)
 	serverURL := scheme + "://" + r.Host
 
 	recordAudit(r, &storage.AuditEntry{
@@ -1536,11 +1552,8 @@ func handleSendDeploymentEmail(w http.ResponseWriter, r *http.Request) {
 		tenantName = t.Name
 	}
 
-	// Determine server URL
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
+	// Determine server URL (respects X-Forwarded-Proto for proxy scenarios)
+	scheme := getEffectiveScheme(r)
 	serverURL := scheme + "://" + r.Host
 
 	// Create a join token
@@ -1735,6 +1748,65 @@ function Set-RelaxedCertificatePolicy {
 	}
 }
 
+function Remove-ExistingInstallation {
+	# Check for existing service
+	$svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
+	if ($svc) {
+		Write-Host "Found existing PrintMaster Agent installation. Removing..."
+		
+		# Stop the service if running
+		if ($svc.Status -eq 'Running') {
+			Write-Host "  Stopping service..."
+			Stop-Service -Name "PrintMasterAgent" -Force -ErrorAction SilentlyContinue
+			Start-Sleep -Seconds 2
+		}
+		
+		# Find and uninstall existing MSI
+		$uninstallKeys = @(
+			"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+			"HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+		)
+		
+		$productCode = $null
+		foreach ($keyPath in $uninstallKeys) {
+			$items = Get-ItemProperty $keyPath -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like "*PrintMaster*Agent*" }
+			if ($items) {
+				foreach ($item in $items) {
+					if ($item.PSChildName -match '^\{[A-F0-9-]+\}$') {
+						$productCode = $item.PSChildName
+						break
+					}
+				}
+			}
+			if ($productCode) { break }
+		}
+		
+		if ($productCode) {
+			Write-Host "  Uninstalling previous version (Product: $productCode)..."
+			$uninstallProc = Start-Process -FilePath "msiexec.exe" -ArgumentList "/x",$productCode,"/qn","/norestart" -Wait -PassThru
+			if ($uninstallProc.ExitCode -eq 0 -or $uninstallProc.ExitCode -eq 1605) {
+				Write-Host "  Previous installation removed."
+			} else {
+				Write-Warning "  MSI uninstall returned code $($uninstallProc.ExitCode). Continuing anyway..."
+			}
+			Start-Sleep -Seconds 2
+		} else {
+			# Fallback: try to remove service directly if no MSI found
+			Write-Host "  No MSI product found. Attempting direct service removal..."
+			& sc.exe delete "PrintMasterAgent" 2>$null
+			Start-Sleep -Seconds 1
+		}
+	}
+	
+	# Also check for running printmaster-agent.exe processes
+	$procs = Get-Process -Name "printmaster-agent" -ErrorAction SilentlyContinue
+	if ($procs) {
+		Write-Host "  Stopping PrintMaster Agent processes..."
+		$procs | Stop-Process -Force -ErrorAction SilentlyContinue
+		Start-Sleep -Seconds 1
+	}
+}
+
 Assert-Administrator
 Set-RelaxedCertificatePolicy
 
@@ -1748,6 +1820,9 @@ $configDir = Join-Path $dataRoot "agent"
 $configPath = Join-Path $configDir "config.toml"
 $tempDir = Join-Path $env:TEMP "PrintMaster-Install"
 $msiPath = Join-Path $tempDir "printmaster-agent.msi"
+
+# Remove existing installation before proceeding
+Remove-ExistingInstallation
 
 Write-Host "Preparing directories..."
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
