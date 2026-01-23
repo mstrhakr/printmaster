@@ -1824,8 +1824,7 @@ function Show-Progress {
 	$empty = $barWidth - $filled
 	$bar = ("$ColorGreen" + ([string][char]9608 * $filled) + "$ColorDim" + ([string][char]9617 * $empty) + "$ColorReset")
 	$pct = $Percent.ToString().PadLeft(3)
-	$CR = [char]13
-	Write-Host "$CR  $ColorCyan[$bar$ColorCyan]$ColorReset $pct%% $ColorWhite$Message$ColorReset   " -NoNewline
+	Write-Host "  $ColorCyan[$bar$ColorCyan]$ColorReset $pct%% $ColorWhite$Message$ColorReset"
 }
 
 function Show-CompletionBox {
@@ -1954,21 +1953,17 @@ $msiPath = Join-Path $tempDir "printmaster-agent.msi"
 # Step 1: Remove existing installation
 Show-Progress -Percent 5 -Message "Checking for existing installation..."
 Start-Sleep -Milliseconds 300
-Write-Host ""
 Remove-ExistingInstallation
 
 # Step 2: Prepare directories
 Show-Progress -Percent 15 -Message "Preparing directories..."
 Start-Sleep -Milliseconds 200
-Write-Host ""
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
 New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 Show-Success "Directories ready"
 
 # Step 3: Write configuration
 Show-Progress -Percent 25 -Message "Writing configuration..."
-Start-Sleep -Milliseconds 200
-Write-Host ""
 
 $agentName = $env:COMPUTERNAME
 if ([string]::IsNullOrWhiteSpace($agentName)) {
@@ -1988,7 +1983,6 @@ Show-Success "Configuration saved to $configPath"
 
 # Step 4: Download installer
 Show-Progress -Percent 35 -Message "Downloading installer..."
-Write-Host ""
 Show-Info "Downloading from $server..."
 
 try {
@@ -2030,7 +2024,6 @@ Show-Success "Downloaded installer ($([math]::Round($fileSize, 1)) MB)"
 
 # Step 5: Install MSI
 Show-Progress -Percent 60 -Message "Installing PrintMaster Agent..."
-Write-Host ""
 Show-Info "Running MSI installer (this may take a moment)..."
 
 $logPath = Join-Path $tempDir "install.log"
@@ -2045,15 +2038,11 @@ Show-Success "MSI installation complete"
 
 # Step 6: Clean up
 Show-Progress -Percent 85 -Message "Cleaning up..."
-Start-Sleep -Milliseconds 200
-Write-Host ""
 Remove-Item -Path $msiPath -Force -ErrorAction SilentlyContinue
 Show-Success "Temporary files removed"
 
 # Step 7: Verify service
 Show-Progress -Percent 95 -Message "Verifying installation..."
-Start-Sleep -Milliseconds 500
-Write-Host ""
 
 $svc = Get-Service -Name "PrintMasterAgent" -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq 'Running') {
@@ -2074,7 +2063,6 @@ if ($svc -and $svc.Status -eq 'Running') {
 }
 
 Show-Progress -Percent 100 -Message "Complete!"
-Write-Host ""
 
 # Show completion
 Show-CompletionBox -Success $true -Message "Installation Complete!"
