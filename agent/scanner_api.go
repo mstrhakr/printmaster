@@ -269,7 +269,7 @@ func fullDiscovery(
 		return results, fmt.Errorf("no IPs to scan after parsing ranges")
 	}
 
-	appLogger.Info("Full discovery starting", "ips", len(allIPs))
+	appLogger.Info("Full discovery starting", "ips", len(allIPs), "ranges", ranges)
 
 	// Step 2: Configure scanner pipeline
 	// Adjust timeout based on discovery config
@@ -302,9 +302,47 @@ func fullDiscovery(
 	close(jobs)
 
 	// Step 4: Run full pipeline: Liveness -> Detection -> DeepScan
+	// Wrap channels with debug logging to track flow through pipeline
 	livenessResults := scanner.StartLivenessPool(ctx, scannerConfig, jobs)
-	detectionResults := scanner.StartDetectionPool(ctx, scannerConfig, livenessResults)
-	deepScanResults := scanner.StartDeepScanPool(ctx, scannerConfig, detectionResults)
+
+	// Tap liveness results to count alive hosts
+	livenessLogged := make(chan scanner.LivenessResult)
+	go func() {
+		aliveCount := 0
+		totalCount := 0
+		for lr := range livenessResults {
+			totalCount++
+			if lr.Alive {
+				aliveCount++
+				appLogger.Debug("Liveness: host alive", "ip", lr.Job.IP, "ports", lr.OpenPorts)
+			}
+			livenessLogged <- lr
+		}
+		close(livenessLogged)
+		appLogger.Debug("Liveness scan complete", "total_scanned", totalCount, "alive", aliveCount)
+	}()
+
+	detectionResults := scanner.StartDetectionPool(ctx, scannerConfig, livenessLogged)
+
+	// Tap detection results to count printers
+	detectionLogged := make(chan scanner.DetectionResult)
+	go func() {
+		printerCount := 0
+		nonPrinterCount := 0
+		for dr := range detectionResults {
+			if dr.IsPrinter {
+				printerCount++
+				appLogger.Debug("Detection: printer found", "ip", dr.Job.IP)
+			} else {
+				nonPrinterCount++
+			}
+			detectionLogged <- dr
+		}
+		close(detectionLogged)
+		appLogger.Debug("Detection scan complete", "printers", printerCount, "non_printers", nonPrinterCount)
+	}()
+
+	deepScanResults := scanner.StartDeepScanPool(ctx, scannerConfig, detectionLogged)
 
 	// Step 5: Collect results and convert QueryResult to PrinterInfo
 	for rawResult := range deepScanResults {
