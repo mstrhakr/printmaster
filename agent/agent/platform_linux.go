@@ -147,14 +147,14 @@ func normalizeLinuxName(name string) string {
 
 	// Normalize common distro names
 	lowered := strings.ToLower(name)
-	
+
 	// Common fixes
 	if strings.Contains(lowered, "red hat enterprise") {
 		// Shorten "Red Hat Enterprise Linux X.Y" to "RHEL X.Y"
 		re := regexp.MustCompile(`(?i)red\s*hat\s*enterprise\s*linux\s*`)
 		name = re.ReplaceAllString(name, "RHEL ")
 	}
-	
+
 	if strings.Contains(lowered, "centos stream") {
 		// Keep CentOS Stream as-is
 	} else if strings.Contains(lowered, "centos linux") {
