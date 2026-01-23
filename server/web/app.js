@@ -17081,13 +17081,18 @@ function renderAddAgentStep(step){
             const oneLiner = (window._addAgentState && window._addAgentState.oneLiner) ? window._addAgentState.oneLiner : null;
             content.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:12px;">
-                    ${ oneLiner ? `<div style="font-family:monospace;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(oneLiner)}</div>` : `<div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` }
-                    <div style="display:flex;gap:8px;">
-                        <button id="add_agent_copy" class="modal-button modal-button-secondary">${ oneLiner ? 'Copy one-liner' : 'Copy script' }</button>
-                        <button id="add_agent_download" class="modal-button">Download script</button>
-                        ${ (window._addAgentState && window._addAgentState.scriptDownloadURL) ? `<a id="add_agent_download_url" class="modal-button" href="${escapeHtml(window._addAgentState.scriptDownloadURL)}" target="_blank">Open hosted URL</a>` : '' }
+                    ${ oneLiner ? `<div style="font-family:monospace;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);word-break:break-all;">${escapeHtml(oneLiner)}</div>` : `<div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` }
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <button id="add_agent_copy" class="modal-button" style="flex:1;min-width:200px;font-weight:600;">${ oneLiner ? 'Copy one-liner' : 'Copy script' }</button>
+                        ${ oneLiner ? `<div style="position:relative;">
+                            <button id="add_agent_more_options" class="modal-button modal-button-secondary" style="padding:8px 12px;">More options ▾</button>
+                            <div id="add_agent_options_dropdown" style="display:none;position:absolute;top:100%;left:0;margin-top:4px;background:var(--bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:100;min-width:180px;">
+                                <button id="add_agent_download" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;">Download script</button>
+                                ${ (window._addAgentState && window._addAgentState.scriptDownloadURL) ? `<a id="add_agent_download_url" href="${escapeHtml(window._addAgentState.scriptDownloadURL)}" target="_blank" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;text-decoration:none;border-top:1px solid var(--border);">Open hosted URL</a>` : '' }
+                                <button id="add_agent_show_full" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;border-top:1px solid var(--border);">Show full script</button>
+                            </div>
+                        </div>` : `<button id="add_agent_download" class="modal-button modal-button-secondary">Download script</button>` }
                     </div>
-                    ${ oneLiner ? `<button id="add_agent_show_full" class="modal-button modal-button-secondary">Show full script</button>` : '' }
                     <div style="color:var(--muted);font-size:13px">This script was generated for the selected platform. Download or copy it and execute it on the target machine to install and register the agent.</div>
                     ${ oneLiner ? `<div id="add_agent_full_script" style="display:none;margin-top:8px;font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` : '' }
                 </div>
@@ -17097,11 +17102,32 @@ function renderAddAgentStep(step){
                 const textToCopy = oneLiner ? oneLiner : script;
                 navigator.clipboard?.writeText(textToCopy).then(()=>{ window.__pm_shared.showToast((oneLiner ? 'One-liner' : 'Script') + ' copied to clipboard','success'); }).catch(err=>{ window.__pm_shared.showAlert('Failed to copy: ' + (err && err.message ? err.message : err), 'Error', true, false); });
             });
+            // Wire up dropdown toggle for more options
+            const moreOptionsBtn = document.getElementById('add_agent_more_options');
+            const dropdown = document.getElementById('add_agent_options_dropdown');
+            if(moreOptionsBtn && dropdown){
+                moreOptionsBtn.addEventListener('click', (e)=>{
+                    e.stopPropagation();
+                    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+                });
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e)=>{
+                    if(!moreOptionsBtn.contains(e.target) && !dropdown.contains(e.target)){
+                        dropdown.style.display = 'none';
+                    }
+                });
+                // Add hover effect to dropdown items
+                dropdown.querySelectorAll('button, a').forEach(item=>{
+                    item.addEventListener('mouseenter', ()=>{ item.style.background = 'var(--panel)'; });
+                    item.addEventListener('mouseleave', ()=>{ item.style.background = 'none'; });
+                });
+            }
             const dlBtn = document.getElementById('add_agent_download');
             if(dlBtn) dlBtn.addEventListener('click', ()=>{
                 const blob = new Blob([script], {type:'application/octet-stream'});
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+                if(dropdown) dropdown.style.display = 'none';
             });
             const showFull = document.getElementById('add_agent_show_full');
             if(showFull){
@@ -17111,6 +17137,7 @@ function renderAddAgentStep(step){
                     if(full.style.display === 'none'){
                         full.style.display = 'block'; showFull.textContent = 'Hide full script';
                     } else { full.style.display = 'none'; showFull.textContent = 'Show full script'; }
+                    if(dropdown) dropdown.style.display = 'none';
                 });
             }
         } else {
