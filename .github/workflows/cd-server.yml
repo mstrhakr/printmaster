@@ -102,28 +102,38 @@ jobs:
         path: server/printmaster-server-v${{ steps.version.outputs.server_version }}-${{ matrix.goos }}-${{ matrix.goarch }}*
 
   build-docker:
-    name: Build Docker Images (Multi-Arch)
+    name: Build Docker (${{ matrix.platform }})
     needs: [wait-for-ci]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+          - platform: linux/arm/v7
+            runner: ubuntu-latest
+            suffix: armv7
     
     steps:
     - name: Checkout code
       uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
     
     - name: Set up QEMU
+      if: matrix.platform == 'linux/arm/v7'
       uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
       with:
-        platforms: linux/amd64,linux/arm64,linux/arm/v7
+        platforms: linux/arm/v7
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
-      with:
-        driver-opts: |
-          image=moby/buildkit:latest
-          network=host
     
     - name: Log in to GitHub Container Registry
       uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
@@ -139,6 +149,72 @@ jobs:
         echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
         echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
     
+    - name: Build and push by digest
+      id: build
+      uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v5
+      with:
+        context: .
+        file: ./server/Dockerfile
+        platforms: ${{ matrix.platform }}
+        build-args: |
+          VERSION=${{ steps.version.outputs.version }}
+          BUILD_TIME=${{ steps.version.outputs.build_time }}
+          GIT_COMMIT=${{ steps.version.outputs.git_commit }}
+        cache-from: type=gha,scope=server-${{ matrix.suffix }}
+        cache-to: type=gha,mode=max,scope=server-${{ matrix.suffix }}
+        outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-server,push-by-digest=true,name-canonical=true,push=true
+        provenance: false
+        sbom: false
+    
+    - name: Export digest
+      run: |
+        mkdir -p /tmp/digests
+        digest="${{ steps.build.outputs.digest }}"
+        touch "/tmp/digests/${digest#sha256:}"
+    
+    - name: Upload digest
+      uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.3.0
+      with:
+        name: server-digests-${{ matrix.suffix }}
+        path: /tmp/digests/*
+        if-no-files-found: error
+        retention-days: 1
+
+  merge-docker:
+    name: Create Docker Manifest
+    needs: [build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+    
+    - name: Download digests
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        path: /tmp/digests
+        pattern: server-digests-*
+        merge-multiple: true
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Get version
+      id: version
+      run: |
+        echo "version=$(cat server/VERSION)" >> $GITHUB_OUTPUT
+        echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+    
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
@@ -152,27 +228,19 @@ jobs:
         labels: |
           org.opencontainers.image.description=PrintMaster Server container image (build ${{ steps.version.outputs.version }} / commit ${{ steps.version.outputs.git_commit }})
     
-    - name: Build and push Docker image
-      uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v5
-      with:
-        context: .
-        file: ./server/Dockerfile
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        build-args: |
-          VERSION=${{ steps.version.outputs.version }}
-          BUILD_TIME=${{ steps.version.outputs.build_time }}
-          GIT_COMMIT=${{ steps.version.outputs.git_commit }}
-        cache-from: type=gha,scope=distroless
-        cache-to: type=gha,mode=max,scope=distroless
-        platforms: linux/amd64,linux/arm64,linux/arm/v7
-        provenance: false
-        sbom: false
+    - name: Create manifest list and push
+      working-directory: /tmp/digests
+      run: |
+        docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-server@sha256:%s ' *)
+    
+    - name: Inspect image
+      run: |
+        docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-server:${{ steps.version.outputs.version }}
 
   release-server:
     name: Create Server Release
-    needs: [build-server, build-docker]
+    needs: [build-server, merge-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
