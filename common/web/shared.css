@@ -1363,3 +1363,57 @@ body.light-mode .saved-device-card-inner-panel {
 body.light-mode .usage-graph-container {
   background: rgba(238, 232, 213, 0.6);
 }
+
+/* ============================================================================
+   MINI CONSUMABLES - Compact toner/supply display for device cards
+   ============================================================================ */
+
+.mini-consumables {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.mini-consumable {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mini-consumable-label {
+  width: 50px;
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mini-consumable-bar {
+  flex: 1;
+  min-width: 40px;
+  background: rgba(0, 31, 34, 0.8);
+  border-radius: 4px;
+  height: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+body.light-mode .mini-consumable-bar {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.mini-consumable-bar > div {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.mini-consumable-pct {
+  width: 32px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}

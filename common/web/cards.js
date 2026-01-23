@@ -390,25 +390,23 @@
                 else if (nl.includes('magenta') || nl === 'm') color = '#c2185b';
                 else if (nl.includes('yellow') || nl === 'y') color = '#fbc02d';
 
-                return '<div class="mini-consumable" style="display:flex;align-items:center;gap:8px;margin:4px 0;">'
-                    + '<div style="width:56px;font-size:12px;color:var(--muted);">' + nameShort + '</div>'
-                    + '<div style="flex:1;min-width:80px;background:#001f22;border-radius:6px;height:10px;position:relative;overflow:hidden">'
-                    + '<div style="width:' + pct + '%;background:' + color + ';height:100%"></div>'
-                    + '</div>'
-                    + '<div style="width:36px;text-align:right;font-size:12px;color:var(--muted);">' + pct + '%</div>'
+                return '<div class="mini-consumable">'
+                    + '<div class="mini-consumable-label">' + nameShort + '</div>'
+                    + '<div class="mini-consumable-bar"><div style="width:' + pct + '%;background:' + color + ';height:100%"></div></div>'
+                    + '<div class="mini-consumable-pct">' + pct + '%</div>'
                     + '</div>';
             }
             // fallback textual mini entry
-            return '<div class="mini-consumable" style="display:flex;align-items:center;gap:8px;margin:4px 0;">'
-                + '<div style="width:56px;font-size:12px;color:var(--muted);">' + nameShort + '</div>'
-                + '<div style="font-size:12px;color:var(--muted);">' + (value || '') + '</div>'
+            return '<div class="mini-consumable">'
+                + '<div class="mini-consumable-label">' + nameShort + '</div>'
+                + '<div class="mini-consumable-pct">' + (value || '') + '</div>'
                 + '</div>';
         }
 
         function renderMiniConsumablesSection(tonerLevels) {
             if (!tonerLevels || Object.keys(tonerLevels).length === 0) return '';
-            // Render mini consumables inline on one row so cards remain compact
-            let out = '<div class="mini-consumables" style="display:flex;flex-direction:row;gap:8px;align-items:center;">';
+            // Render mini consumables stacked vertically to prevent overflow
+            let out = '<div class="mini-consumables">';
             for (const [k, v] of Object.entries(tonerLevels)) {
                 const isNumeric = (v !== null && v !== undefined) && (typeof v === 'number' || (!isNaN(Number(v)) && String(v).trim() !== ''));
                 out += renderMiniConsumable(k, v, !!isNumeric);

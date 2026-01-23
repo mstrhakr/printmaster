@@ -91,56 +91,146 @@
         </div>
 
         <div style="margin-top:12px;" data-tab="devices">
-            <h3>Devices</h3>
-
-            <!-- Discover controls -->
-            <div style="display:flex;gap:12px;align-items:flex-start;margin-top:6px;margin-bottom:12px;flex-wrap:wrap">
-                <button class="primary" id="discover_now_btn" data-role="admin" style="display:none">Discover Now</button>
-            </div>
-
-            <!-- Discovered Printers Section -->
-            <div id="discovered_section" style="margin-bottom:20px;">
-                <div
-                    style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-                    <h4 style="margin:0;color:var(--highlight)">Discovered Printers</h4>
-                    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                        <input type="text" id="discovered_search" placeholder="Search devices..."
-                            style="padding:6px 12px;width:200px;" />
-
-                        <label
-                            style="cursor:pointer;color:var(--text);display:flex;align-items:center;gap:6px;font-size:13px;">
-                            <input type="checkbox" id="show_saved_in_discovered">
-                            <span>Show Known Devices</span>
-                        </label>
+            <div class="sidebar-layout devices-layout">
+                <!-- Sidebar for search and filters -->
+                <aside class="filter-sidebar devices-sidebar" id="devices_sidebar">
+                    <div class="filter-sidebar-header devices-sidebar-header">
+                        <h4>Filters</h4>
+                        <button class="ghost-btn filter-sidebar-toggle devices-sidebar-toggle" id="devices_sidebar_toggle" title="Toggle sidebar">
+                            <span>◀</span>
+                        </button>
                     </div>
-                </div>
+                    
+                    <div class="filter-sidebar-content devices-sidebar-content">
+                        <!-- Search box -->
+                        <div class="sidebar-search-section">
+                            <label class="field">
+                                <span>Search</span>
+                                <input type="text" id="devices_search" placeholder="Serial, IP, model…" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+                        </div>
 
-                <div id="discovered_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
-                <div class="device-cards-container" id="discovered_devices_cards"></div>
-                <div style="margin-top:16px;display:flex;gap:12px;align-items:center;">
-                    <button data-action="save-all-discovered" data-role="admin" style="display:none">Save All</button>
-                    <span style="color:var(--muted)">|</span>
-                    <button data-action="clear-discovered" data-role="admin" style="display:none">Clear</button>
-                </div>
-            </div>
+                        <!-- Dropdown filters -->
+                        <div class="sidebar-filter-section">
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Manufacturer</span>
+                                    <select id="devices_manufacturer_filter">
+                                        <option value="">All Manufacturers</option>
+                                    </select>
+                                </label>
+                            </div>
+                            <div class="sidebar-filter-group">
+                                <label class="field">
+                                    <span>Sort By</span>
+                                    <div class="sort-select">
+                                        <select id="devices_sort_select">
+                                            <option value="last_seen">Last Seen</option>
+                                            <option value="manufacturer">Manufacturer</option>
+                                            <option value="model">Model</option>
+                                            <option value="ip">IP Address</option>
+                                            <option value="location">Location</option>
+                                        </select>
+                                        <button id="devices_sort_dir_btn" class="ghost-btn" title="Toggle sort direction" aria-label="Toggle sort direction">
+                                            <span id="devices_sort_dir_icon">↓</span>
+                                        </button>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
 
-            <!-- Separator -->
-            <hr style="border:none;border-top:1px solid #004b56;margin:20px 0" />
+                        <!-- Status filters -->
+                        <div class="sidebar-filter-section">
+                            <div class="sidebar-filter-group">
+                                <div class="filter-label">Consumables</div>
+                                <div id="devices_consumable_filter" class="pill-toggle-group compact" role="group" aria-label="Consumable filters">
+                                    <button class="pill active" data-band="critical" data-label="Critical">Critical</button>
+                                    <button class="pill active" data-band="low" data-label="Low">Low</button>
+                                    <button class="pill active" data-band="medium" data-label="Medium">Medium</button>
+                                    <button class="pill active" data-band="high" data-label="High">High</button>
+                                    <button class="pill active" data-band="unknown" data-label="Unknown">Unknown</button>
+                                </div>
+                            </div>
+                        </div>
 
-            <!-- Saved Devices Section -->
-            <div style="margin-bottom:20px;">
-                <div
-                    style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-                    <h4 style="margin:0;color:var(--highlight)">Saved Devices</h4>
-                    <input type="text" id="saved_search" placeholder="Search devices..."
-                        style="padding:6px 12px;width:200px;" />
-                </div>
-                <div id="saved_stats" style="display:flex;gap:12px;margin-bottom:12px;font-size:13px;"></div>
-                <div class="saved-device-cards-container" id="saved_devices_cards"></div>
-                <div style="margin-top:16px;display:flex;gap:8px;">
-                    <button class="delete" style="margin-left:auto;" data-action="delete-all-saved" data-role="admin" style="display:none">Delete All Saved
-                        Devices</button>
-                </div>
+                        <!-- Active filters display -->
+                        <div id="devices_active_filters" class="filter-chip-row"></div>
+
+                        <div class="sidebar-filter-actions">
+                            <button id="devices_reset_filters" class="ghost-btn" style="width:100%;">Reset Filters</button>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Main devices content -->
+                <main class="devices-main">
+                    <!-- Discovered Printers Section -->
+                    <div id="discovered_section" class="devices-section">
+                        <div class="devices-section-header">
+                            <div>
+                                <h4 style="margin:0;color:var(--highlight)">Discovered Printers</h4>
+                                <div id="discovered_stats" class="devices-inline-stats"></div>
+                            </div>
+                            <div class="devices-section-actions">
+                                <label class="show-known-toggle">
+                                    <input type="checkbox" id="show_saved_in_discovered">
+                                    <span>Show Known</span>
+                                </label>
+                                <button class="primary" id="discover_now_btn" data-role="admin" style="display:none">Discover Now</button>
+                            </div>
+                        </div>
+                        <div class="device-cards-container compact-grid" id="discovered_devices_cards"></div>
+                        <div class="devices-section-footer">
+                            <button data-action="save-all-discovered" data-role="admin" style="display:none">Save All</button>
+                            <button data-action="clear-discovered" data-role="admin" style="display:none">Clear</button>
+                        </div>
+                    </div>
+
+                    <!-- Separator -->
+                    <hr class="devices-separator" />
+
+                    <!-- Saved Devices Section -->
+                    <div class="devices-section">
+                        <div class="devices-section-header">
+                            <div>
+                                <h4 style="margin:0;color:var(--highlight)">Saved Devices</h4>
+                                <div id="saved_stats" class="devices-inline-stats"></div>
+                            </div>
+                            <div class="devices-main-actions">
+                                <div class="view-toggle" id="devices_view_toggle" role="group" aria-label="Devices view">
+                                    <button class="ghost-btn active" data-view="cards">Cards</button>
+                                    <button class="ghost-btn" data-view="table">Table</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="saved-device-cards-container" id="saved_devices_cards"></div>
+                        <div id="saved_devices_table_wrapper" class="hidden">
+                            <div class="table-wrapper">
+                                <table class="simple-table" id="saved_devices_table">
+                                    <thead>
+                                        <tr>
+                                            <th data-sort-key="manufacturer">Device</th>
+                                            <th data-sort-key="consumables">Consumables</th>
+                                            <th data-sort-key="ip">Network</th>
+                                            <th data-sort-key="location">Location</th>
+                                            <th data-sort-key="pages">Pages</th>
+                                            <th class="actions-col">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td colspan="6" class="muted-text">Loading devices…</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="devices-section-footer">
+                            <button class="delete" data-action="delete-all-saved" data-role="admin" style="display:none">Delete All Saved Devices</button>
+                        </div>
+                    </div>
+                </main>
             </div>
         </div>
 

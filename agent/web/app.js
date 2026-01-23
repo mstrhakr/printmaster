@@ -970,11 +970,503 @@ function updatePrinters() {
                     });
                 }
             }
+            
+            // Also update table view if visible
+            updateSavedDevicesTable(saved);
+            
+            // Update manufacturer filter options
+            updateManufacturerFilter(saved);
         }).catch(e => { window.__pm_shared.error('updatePrinters saved error', e); });
 
     } catch (e) {
         window.__pm_shared.error('updatePrinters failed', e);
     }
+}
+
+// ============================================
+// DEVICES TAB - View Model and Filtering
+// ============================================
+
+const devicesVM = {
+    view: 'cards', // 'cards' or 'table'
+    filters: {
+        search: '',
+        manufacturer: '',
+        sortKey: 'last_seen',
+        sortDir: 'desc',
+        consumableBands: ['critical', 'low', 'medium', 'high', 'unknown']
+    },
+    allDevices: []
+};
+
+// Store devices for filtering
+function updateManufacturerFilter(devices) {
+    devicesVM.allDevices = devices || [];
+    const select = document.getElementById('devices_manufacturer_filter');
+    if (!select) return;
+    
+    const manufacturers = new Set();
+    devices.forEach(item => {
+        const p = item.printer_info || {};
+        if (p.manufacturer) manufacturers.add(p.manufacturer);
+    });
+    
+    const current = select.value;
+    select.innerHTML = '<option value="">All Manufacturers</option>';
+    Array.from(manufacturers).sort().forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        select.appendChild(opt);
+    });
+    select.value = current;
+}
+
+// Set devices view (cards or table)
+function setDevicesView(view) {
+    devicesVM.view = view;
+    
+    const cardsContainer = document.getElementById('saved_devices_cards');
+    const tableWrapper = document.getElementById('saved_devices_table_wrapper');
+    const toggle = document.getElementById('devices_view_toggle');
+    
+    if (view === 'table') {
+        if (cardsContainer) cardsContainer.classList.add('hidden');
+        if (tableWrapper) tableWrapper.classList.remove('hidden');
+    } else {
+        if (cardsContainer) cardsContainer.classList.remove('hidden');
+        if (tableWrapper) tableWrapper.classList.add('hidden');
+    }
+    
+    if (toggle) {
+        toggle.querySelectorAll('.ghost-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-view') === view);
+        });
+    }
+    
+    // Refresh the table if switching to table view
+    if (view === 'table') {
+        updateSavedDevicesTable(devicesVM.allDevices);
+    }
+    
+    localStorage.setItem('pm_agent_devices_view', view);
+}
+
+// Render saved devices table
+function updateSavedDevicesTable(devices) {
+    const tbody = document.querySelector('#saved_devices_table tbody');
+    if (!tbody) return;
+    
+    if (!Array.isArray(devices) || devices.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="muted-text">No saved devices</td></tr>';
+        return;
+    }
+    
+    // Apply filters
+    let filtered = filterDevices(devices);
+    
+    // Sort
+    filtered = sortDevices(filtered);
+    
+    let html = '';
+    filtered.forEach(item => {
+        const p = item.printer_info || {};
+        const serial = item.serial || '';
+        const toners = window.__pm_shared_cards.buildTonerLevels(p) || {};
+        const lifeCount = p.page_count || p.total_mono_impressions || 0;
+        const webUIUrl = item.web_ui_url || (item.is_usb && serial ? '/proxy/' + encodeURIComponent(serial) + '/' : '');
+        
+        // Build consumables dots
+        let consumablesHtml = '<div class="table-consumables">';
+        const tonerOrder = ['Black', 'Cyan', 'Magenta', 'Yellow'];
+        tonerOrder.forEach(color => {
+            if (toners[color] !== undefined) {
+                const level = Number(toners[color]);
+                let dotClass = 'table-toner-dot toner-' + color.toLowerCase();
+                if (!isNaN(level)) {
+                    if (level <= 10) dotClass += ' toner-critical';
+                    else if (level <= 25) dotClass += ' toner-low';
+                }
+                const displayLevel = isNaN(level) ? '?' : level;
+                consumablesHtml += '<span class="' + dotClass + '" title="' + color + ': ' + displayLevel + '%">' + displayLevel + '</span>';
+            }
+        });
+        consumablesHtml += '</div>';
+        
+        html += '<tr class="device-row-clickable" data-serial="' + serial + '" data-ip="' + (p.ip || '') + '">';
+        html += '<td><div class="table-device-info"><span class="table-device-name">' + escapeHtml(p.manufacturer || 'Unknown') + ' ' + escapeHtml(p.model || '') + '</span>';
+        html += '<span class="table-device-serial">' + escapeHtml(serial) + '</span></div></td>';
+        html += '<td>' + consumablesHtml + '</td>';
+        html += '<td><span style="font-family:monospace;font-size:12px">' + escapeHtml(p.ip || 'N/A') + '</span></td>';
+        html += '<td>' + escapeHtml(item.location || '—') + '</td>';
+        html += '<td style="text-align:right;font-family:monospace">' + (lifeCount || 0).toLocaleString() + '</td>';
+        html += '<td class="actions-col"><div class="table-actions">';
+        if (webUIUrl) {
+            html += '<button data-action="webui" data-webui-url="' + webUIUrl + '" data-serial="' + serial + '">WebUI</button>';
+        }
+        html += '<button data-action="details" data-serial="' + serial + '" data-source="saved">Details</button>';
+        html += '<button class="delete" data-action="delete" data-serial="' + serial + '">Delete</button>';
+        html += '</div></td>';
+        html += '</tr>';
+    });
+    
+    tbody.innerHTML = html;
+}
+
+// Filter devices based on current filter state
+function filterDevices(devices) {
+    return devices.filter(item => {
+        const p = item.printer_info || {};
+        
+        // Search filter
+        if (devicesVM.filters.search) {
+            const search = devicesVM.filters.search.toLowerCase();
+            const searchFields = [
+                item.serial,
+                p.ip,
+                p.manufacturer,
+                p.model,
+                item.location,
+                item.asset_number
+            ].filter(Boolean).map(s => s.toLowerCase());
+            if (!searchFields.some(f => f.includes(search))) return false;
+        }
+        
+        // Manufacturer filter
+        if (devicesVM.filters.manufacturer && p.manufacturer !== devicesVM.filters.manufacturer) {
+            return false;
+        }
+        
+        // Consumable band filter
+        const toners = window.__pm_shared_cards.buildTonerLevels(p) || {};
+        const levels = Object.values(toners).filter(v => typeof v === 'number');
+        let band = 'unknown';
+        if (levels.length > 0) {
+            const minLevel = Math.min(...levels);
+            if (minLevel <= 10) band = 'critical';
+            else if (minLevel <= 25) band = 'low';
+            else if (minLevel <= 50) band = 'medium';
+            else band = 'high';
+        }
+        if (!devicesVM.filters.consumableBands.includes(band)) {
+            return false;
+        }
+        
+        return true;
+    });
+}
+
+// Sort devices
+function sortDevices(devices) {
+    const key = devicesVM.filters.sortKey;
+    const dir = devicesVM.filters.sortDir === 'asc' ? 1 : -1;
+    
+    return [...devices].sort((a, b) => {
+        const pa = a.printer_info || {};
+        const pb = b.printer_info || {};
+        
+        let va, vb;
+        switch (key) {
+            case 'manufacturer':
+                va = (pa.manufacturer || '').toLowerCase();
+                vb = (pb.manufacturer || '').toLowerCase();
+                break;
+            case 'model':
+                va = (pa.model || '').toLowerCase();
+                vb = (pb.model || '').toLowerCase();
+                break;
+            case 'ip':
+                va = pa.ip || '';
+                vb = pb.ip || '';
+                break;
+            case 'location':
+                va = (a.location || '').toLowerCase();
+                vb = (b.location || '').toLowerCase();
+                break;
+            case 'pages':
+                va = pa.page_count || 0;
+                vb = pb.page_count || 0;
+                break;
+            case 'last_seen':
+            default:
+                va = a.last_seen || a.updated_at || '';
+                vb = b.last_seen || b.updated_at || '';
+                break;
+        }
+        
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+    });
+}
+
+// Set sort
+function setDeviceSort(key, dir) {
+    devicesVM.filters.sortKey = key;
+    devicesVM.filters.sortDir = dir;
+    
+    const select = document.getElementById('devices_sort_select');
+    const dirIcon = document.getElementById('devices_sort_dir_icon');
+    
+    if (select) select.value = key;
+    if (dirIcon) dirIcon.textContent = dir === 'asc' ? '↑' : '↓';
+    
+    // Refresh views
+    applyDevicesFilters();
+}
+
+// Toggle consumable band filter
+function toggleConsumableFilter(band) {
+    const idx = devicesVM.filters.consumableBands.indexOf(band);
+    if (idx >= 0) {
+        devicesVM.filters.consumableBands.splice(idx, 1);
+    } else {
+        devicesVM.filters.consumableBands.push(band);
+    }
+    
+    // Update pill UI
+    const container = document.getElementById('devices_consumable_filter');
+    if (container) {
+        container.querySelectorAll('.pill').forEach(pill => {
+            const pillBand = pill.getAttribute('data-band');
+            pill.classList.toggle('active', devicesVM.filters.consumableBands.includes(pillBand));
+        });
+    }
+    
+    updateActiveFiltersChips();
+    applyDevicesFilters();
+}
+
+// Reset all filters
+function resetDeviceFilters() {
+    devicesVM.filters.search = '';
+    devicesVM.filters.manufacturer = '';
+    devicesVM.filters.consumableBands = ['critical', 'low', 'medium', 'high', 'unknown'];
+    
+    const searchInput = document.getElementById('devices_search');
+    const mfgSelect = document.getElementById('devices_manufacturer_filter');
+    const consumableFilter = document.getElementById('devices_consumable_filter');
+    
+    if (searchInput) searchInput.value = '';
+    if (mfgSelect) mfgSelect.value = '';
+    if (consumableFilter) {
+        consumableFilter.querySelectorAll('.pill').forEach(p => p.classList.add('active'));
+    }
+    
+    updateActiveFiltersChips();
+    applyDevicesFilters();
+}
+
+// Update active filters chips display
+function updateActiveFiltersChips() {
+    const container = document.getElementById('devices_active_filters');
+    if (!container) return;
+    
+    let html = '';
+    
+    if (devicesVM.filters.search) {
+        html += '<button class="filter-chip" data-filter="search">Search: ' + escapeHtml(devicesVM.filters.search) + '</button>';
+    }
+    if (devicesVM.filters.manufacturer) {
+        html += '<button class="filter-chip" data-filter="manufacturer">' + escapeHtml(devicesVM.filters.manufacturer) + '</button>';
+    }
+    
+    const allBands = ['critical', 'low', 'medium', 'high', 'unknown'];
+    const excludedBands = allBands.filter(b => !devicesVM.filters.consumableBands.includes(b));
+    excludedBands.forEach(band => {
+        html += '<button class="filter-chip" data-filter="band-' + band + '">Not ' + band + '</button>';
+    });
+    
+    container.innerHTML = html;
+}
+
+// Handle filter chip removal
+function handleFilterChipRemove(filter) {
+    if (filter === 'search') {
+        devicesVM.filters.search = '';
+        const input = document.getElementById('devices_search');
+        if (input) input.value = '';
+    } else if (filter === 'manufacturer') {
+        devicesVM.filters.manufacturer = '';
+        const select = document.getElementById('devices_manufacturer_filter');
+        if (select) select.value = '';
+    } else if (filter.startsWith('band-')) {
+        const band = filter.replace('band-', '');
+        if (!devicesVM.filters.consumableBands.includes(band)) {
+            devicesVM.filters.consumableBands.push(band);
+            const container = document.getElementById('devices_consumable_filter');
+            if (container) {
+                const pill = container.querySelector('[data-band="' + band + '"]');
+                if (pill) pill.classList.add('active');
+            }
+        }
+    }
+    
+    updateActiveFiltersChips();
+    applyDevicesFilters();
+}
+
+// Apply filters to both card and table views
+function applyDevicesFilters() {
+    // Filter cards
+    const cardsContainer = document.getElementById('saved_devices_cards');
+    if (cardsContainer) {
+        const cards = cardsContainer.querySelectorAll('.saved-device-card');
+        cards.forEach(card => {
+            const item = {
+                serial: card.dataset.serial || '',
+                location: '', // Would need to store this in data attribute
+                printer_info: {
+                    manufacturer: card.dataset.make || '',
+                    model: card.dataset.model || '',
+                    ip: card.dataset.ip || ''
+                }
+            };
+            
+            // Check search filter
+            let visible = true;
+            if (devicesVM.filters.search) {
+                const search = devicesVM.filters.search.toLowerCase();
+                const searchFields = [item.serial, item.printer_info.ip, item.printer_info.manufacturer, item.printer_info.model].filter(Boolean).map(s => s.toLowerCase());
+                if (!searchFields.some(f => f.includes(search))) visible = false;
+            }
+            
+            // Check manufacturer filter
+            if (visible && devicesVM.filters.manufacturer && item.printer_info.manufacturer !== devicesVM.filters.manufacturer) {
+                visible = false;
+            }
+            
+            card.style.display = visible ? '' : 'none';
+        });
+    }
+    
+    // Update table
+    updateSavedDevicesTable(devicesVM.allDevices);
+}
+
+// Initialize devices tab controls
+function initDevicesTabControls() {
+    // Sidebar toggle
+    const sidebarToggle = document.getElementById('devices_sidebar_toggle');
+    const sidebar = document.getElementById('devices_sidebar');
+    if (sidebarToggle && sidebar) {
+        sidebarToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            localStorage.setItem('pm_agent_devices_sidebar_collapsed', sidebar.classList.contains('collapsed'));
+        });
+        // Restore collapsed state
+        if (localStorage.getItem('pm_agent_devices_sidebar_collapsed') === 'true') {
+            sidebar.classList.add('collapsed');
+        }
+    }
+    
+    // Search input
+    const searchInput = document.getElementById('devices_search');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            devicesVM.filters.search = e.target.value;
+            updateActiveFiltersChips();
+            applyDevicesFilters();
+        });
+    }
+    
+    // Manufacturer filter
+    const mfgFilter = document.getElementById('devices_manufacturer_filter');
+    if (mfgFilter) {
+        mfgFilter.addEventListener('change', (e) => {
+            devicesVM.filters.manufacturer = e.target.value;
+            updateActiveFiltersChips();
+            applyDevicesFilters();
+        });
+    }
+    
+    // Sort select
+    const sortSelect = document.getElementById('devices_sort_select');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', (e) => {
+            setDeviceSort(e.target.value, devicesVM.filters.sortDir);
+        });
+    }
+    
+    // Sort direction button
+    const sortDirBtn = document.getElementById('devices_sort_dir_btn');
+    if (sortDirBtn) {
+        sortDirBtn.addEventListener('click', () => {
+            const nextDir = devicesVM.filters.sortDir === 'asc' ? 'desc' : 'asc';
+            setDeviceSort(devicesVM.filters.sortKey, nextDir);
+        });
+    }
+    
+    // View toggle
+    const viewToggle = document.getElementById('devices_view_toggle');
+    if (viewToggle) {
+        viewToggle.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-view]');
+            if (btn) setDevicesView(btn.getAttribute('data-view'));
+        });
+    }
+    
+    // Consumable filter pills
+    const consumableFilter = document.getElementById('devices_consumable_filter');
+    if (consumableFilter) {
+        consumableFilter.addEventListener('click', (e) => {
+            const pill = e.target.closest('[data-band]');
+            if (pill) toggleConsumableFilter(pill.getAttribute('data-band'));
+        });
+    }
+    
+    // Reset filters button
+    const resetBtn = document.getElementById('devices_reset_filters');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', resetDeviceFilters);
+    }
+    
+    // Filter chips (click to remove)
+    const chipsContainer = document.getElementById('devices_active_filters');
+    if (chipsContainer) {
+        chipsContainer.addEventListener('click', (e) => {
+            const chip = e.target.closest('[data-filter]');
+            if (chip) handleFilterChipRemove(chip.getAttribute('data-filter'));
+        });
+    }
+    
+    // Table header sort
+    const tableHead = document.querySelector('#saved_devices_table thead');
+    if (tableHead) {
+        tableHead.addEventListener('click', (e) => {
+            const th = e.target.closest('[data-sort-key]');
+            if (!th) return;
+            const key = th.getAttribute('data-sort-key');
+            const newDir = devicesVM.filters.sortKey === key && devicesVM.filters.sortDir === 'desc' ? 'asc' : 'desc';
+            setDeviceSort(key, newDir);
+        });
+    }
+    
+    // Table row click for details
+    const tableBody = document.querySelector('#saved_devices_table tbody');
+    if (tableBody) {
+        tableBody.addEventListener('click', (e) => {
+            // Don't trigger on button clicks
+            if (e.target.closest('button') || e.target.closest('.table-actions')) return;
+            const row = e.target.closest('tr[data-serial]');
+            if (row) {
+                const serial = row.getAttribute('data-serial');
+                if (serial) window.__pm_shared.showPrinterDetails(serial, 'saved');
+            }
+        });
+    }
+    
+    // Restore view preference
+    const savedView = localStorage.getItem('pm_agent_devices_view');
+    if (savedView === 'table') {
+        setDevicesView('table');
+    }
+}
+
+// Simple HTML escape
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // Database backend field toggles are provided by the shared bundle
@@ -988,6 +1480,7 @@ async function clearDatabase() {
         'Clear Database',
         true
     );
+
     if (!confirmed) return;
     
     try {
@@ -3028,6 +3521,9 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     // Initialize mobile bottom tab bar
     initMobileBottomTabs();
+    
+    // Initialize devices tab controls (sidebar, filters, view toggle)
+    initDevicesTabControls();
 
     // Old hamburger menu (deprecated - kept for backwards compatibility)
     const hamburger = document.querySelector('.hamburger-menu');
@@ -3241,14 +3737,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     const clearDiscBtn = document.querySelector('#discovered_section button[data-action="clear-discovered"]');
     if (clearDiscBtn) {
         clearDiscBtn.addEventListener('click', clearDiscovered);
-    }
-
-    // Saved search filter
-    const savedSearch = document.getElementById('saved_search');
-    if (savedSearch) {
-        savedSearch.addEventListener('input', function () {
-            filterSavedCards(this.value);
-        });
     }
 
     // Delete all saved devices button (data-action="delete-all-saved")
