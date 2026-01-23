@@ -156,6 +156,7 @@ func TestMessageConstants(t *testing.T) {
 		MessageTypeCommand,
 		MessageTypeCommandResult,
 		MessageTypeUpdateProgress,
+		MessageTypeJobProgress,
 	}
 
 	seen := make(map[string]bool)

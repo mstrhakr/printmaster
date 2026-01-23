@@ -6535,6 +6535,30 @@ window.top.location.href = '/proxy/%s/';
 		})
 	})
 
+	// GET /api/jobs/:id - Get status of a background job
+	http.HandleFunc("/api/jobs/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "GET only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract job ID from path
+		jobID := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
+		if jobID == "" {
+			http.Error(w, "job_id required", http.StatusBadRequest)
+			return
+		}
+
+		job := getJob(jobID)
+		if job == nil {
+			http.Error(w, "job not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(job)
+	})
+
 	// Auto-update status and control endpoint
 	http.HandleFunc("/api/autoupdate/status", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -6914,6 +6938,7 @@ window.top.location.href = '/proxy/%s/';
 	})
 
 	// POST /devices/metrics/collect - Manually collect metrics for a device
+	// Supports async mode via ?async=true query param, returns job_id for progress tracking
 	http.HandleFunc("/devices/metrics/collect", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "POST only", http.StatusMethodNotAllowed)
@@ -6923,10 +6948,16 @@ window.top.location.href = '/proxy/%s/';
 		var req struct {
 			Serial string `json:"serial"`
 			IP     string `json:"ip"`
+			Async  bool   `json:"async"` // If true, run in background and return job_id
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
+		}
+
+		// Also check query param for async mode
+		if r.URL.Query().Get("async") == "true" {
+			req.Async = true
 		}
 
 		if req.Serial == "" {
@@ -6948,6 +6979,24 @@ window.top.location.href = '/proxy/%s/';
 			}
 		}
 
+		// For async mode, run collection in background
+		if req.Async {
+			jobID := registerJob("metrics_collect")
+
+			// Return job ID immediately
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"job_id":  jobID,
+				"status":  "pending",
+				"message": "Metrics collection started",
+			})
+
+			// Run collection in background
+			go collectMetricsAsync(jobID, req.Serial, req.IP, device)
+			return
+		}
+
+		// Synchronous mode (original behavior)
 		// Check for USB device type
 		if device != nil && (device.DeviceType == "usb" || device.IsUSB) {
 			// USB device - use USB proxy metrics collection

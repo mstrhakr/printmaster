@@ -35,4 +35,5 @@ const (
 	MessageTypeCommand        = "command"         // Server-to-agent command
 	MessageTypeCommandResult  = "command_result"  // Agent-to-server command response
 	MessageTypeUpdateProgress = "update_progress" // Agent-to-server update status
+	MessageTypeJobProgress    = "job_progress"    // Agent-to-server background job progress
 )

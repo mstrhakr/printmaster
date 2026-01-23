@@ -350,6 +350,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			handleWSProxyResponse(msg)
 		case wscommon.MessageTypeUpdateProgress:
 			handleWSUpdateProgress(agent, msg)
+		case wscommon.MessageTypeJobProgress:
+			handleWSJobProgress(agent, msg)
 		default:
 			logWarn("Unknown WebSocket message type", "agent_id", agent.AgentID, "message_type", msg.Type)
 			sendWSError(conn, "Unknown message type")
@@ -582,6 +584,42 @@ func handleWSUpdateProgress(agent *storage.Agent, msg wscommon.Message) {
 	if sseHub != nil {
 		sseHub.Broadcast(SSEEvent{
 			Type: "update_progress",
+			Data: msg.Data,
+		})
+	}
+}
+
+// handleWSJobProgress processes background job progress messages from agents
+// and broadcasts them to connected UI clients via SSE for real-time updates.
+// Jobs include metrics collection, device scanning, report generation, etc.
+func handleWSJobProgress(agent *storage.Agent, msg wscommon.Message) {
+	jobID, _ := msg.Data["job_id"].(string)
+	jobType, _ := msg.Data["job_type"].(string)
+	status, _ := msg.Data["status"].(string)
+
+	// Log appropriate level based on status
+	if status == "failed" {
+		errorMsg, _ := msg.Data["error"].(string)
+		logError("Agent job failed",
+			"agent_id", agent.AgentID,
+			"job_id", jobID,
+			"job_type", jobType,
+			"error", errorMsg)
+	} else {
+		logDebug("Job progress received",
+			"agent_id", agent.AgentID,
+			"job_id", jobID,
+			"job_type", jobType,
+			"status", status)
+	}
+
+	// Add agent_id to the data for UI routing
+	msg.Data["agent_id"] = agent.AgentID
+
+	// Broadcast to UI clients via the SSE event system
+	if sseHub != nil {
+		sseHub.Broadcast(SSEEvent{
+			Type: "job_progress",
 			Data: msg.Data,
 		})
 	}

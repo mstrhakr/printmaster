@@ -5610,16 +5610,22 @@ func handleDeviceMetricsCollectProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Proxy to agent's /devices/metrics/collect endpoint
-	agentURL := "http://localhost:8080/devices/metrics/collect"
+	// Proxy to agent's /devices/metrics/collect endpoint with async mode.
+	// The agent will return immediately with a job_id and send progress updates via WebSocket.
+	// These updates are broadcast to the UI via SSE for real-time progress display.
+	agentURL := "http://localhost:8080/devices/metrics/collect?async=true"
+
+	// Add async flag to the request body as well
+	var reqMap map[string]interface{}
+	_ = json.Unmarshal(bodyBytes, &reqMap)
+	reqMap["async"] = true
+	bodyBytes, _ = json.Marshal(reqMap)
 
 	// Restore the request body so proxyThroughWebSocket can read it
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-	// Use the WebSocket proxy infrastructure with extended timeout.
-	// Metrics collection involves SNMP queries that can take 30+ seconds for slow devices,
-	// so we use a 60-second timeout to allow enough time.
-	proxyThroughWebSocketWithTimeout(w, r, device.AgentID, agentURL, 60*time.Second)
+	// Use shorter timeout since agent returns immediately in async mode
+	proxyThroughWebSocketWithTimeout(w, r, device.AgentID, agentURL, 15*time.Second)
 }
 
 // handleDeviceReportProxy proxies /api/report requests to the device's agent
