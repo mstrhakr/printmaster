@@ -1972,6 +1972,12 @@ function Remove-ExistingInstallation {
 		Remove-Item -Path $oldMsiDir -Recurse -Force -ErrorAction SilentlyContinue
 		Show-Success "Old MSI directory removed"
 	}
+	
+	# Clean up our own uninstall registry entry if present
+	$uninstallKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PrintMasterAgent"
+	if (Test-Path $uninstallKey) {
+		Remove-Item -Path $uninstallKey -Force -ErrorAction SilentlyContinue
+	}
 }
 
 # ========== MAIN INSTALLATION ==========
@@ -2092,6 +2098,33 @@ if ($installProc.ExitCode -ne 0) {
 	exit $installProc.ExitCode
 }
 Show-Success "Service installed"
+
+# Register in Add/Remove Programs
+Show-Progress -Percent 78 -Message "Registering uninstaller..."
+$uninstallKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PrintMasterAgent"
+New-Item -Path $uninstallKey -Force | Out-Null
+
+# Get version from the executable
+$versionInfo = (Get-Item $exePath).VersionInfo
+$displayVersion = if ($versionInfo.ProductVersion) { $versionInfo.ProductVersion } else { "1.0.0" }
+$fileSize = [math]::Round((Get-Item $exePath).Length / 1KB)
+$installDate = Get-Date -Format "yyyyMMdd"
+$quotedExePath = '"' + $exePath + '"'
+
+Set-ItemProperty -Path $uninstallKey -Name "DisplayName" -Value "PrintMaster Agent"
+Set-ItemProperty -Path $uninstallKey -Name "DisplayVersion" -Value $displayVersion
+Set-ItemProperty -Path $uninstallKey -Name "Publisher" -Value "PrintMaster"
+Set-ItemProperty -Path $uninstallKey -Name "InstallLocation" -Value $installDir
+Set-ItemProperty -Path $uninstallKey -Name "InstallDate" -Value $installDate
+Set-ItemProperty -Path $uninstallKey -Name "UninstallString" -Value "$quotedExePath --service uninstall"
+Set-ItemProperty -Path $uninstallKey -Name "QuietUninstallString" -Value "$quotedExePath --service uninstall --silent"
+Set-ItemProperty -Path $uninstallKey -Name "EstimatedSize" -Value $fileSize -Type DWord
+Set-ItemProperty -Path $uninstallKey -Name "NoModify" -Value 1 -Type DWord
+Set-ItemProperty -Path $uninstallKey -Name "NoRepair" -Value 1 -Type DWord
+Set-ItemProperty -Path $uninstallKey -Name "DisplayIcon" -Value "$exePath,0"
+Set-ItemProperty -Path $uninstallKey -Name "URLInfoAbout" -Value "https://github.com/mstrhakr/printmaster"
+Set-ItemProperty -Path $uninstallKey -Name "HelpLink" -Value "https://github.com/mstrhakr/printmaster"
+Show-Success "Registered in Add/Remove Programs"
 
 Show-Progress -Percent 85 -Message "Starting service..."
 Show-Info "Starting PrintMaster Agent service..."
