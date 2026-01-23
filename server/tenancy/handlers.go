@@ -1467,7 +1467,8 @@ func handleGeneratePackage(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
 		if platform == "windows" {
-			oneLiner = fmt.Sprintf("irm %q | iex", downloadURL)
+			// Set TLS 1.2 first for older PowerShell versions that default to TLS 1.0/1.1
+			oneLiner = fmt.Sprintf("[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm %q | iex", downloadURL)
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"script":       script,
@@ -1593,7 +1594,8 @@ func handleSendDeploymentEmail(w http.ResponseWriter, r *http.Request) {
 	downloadURL := fmt.Sprintf("%s/install/%s/%s", serverURL, code, filename)
 	oneLiner := fmt.Sprintf("curl -fsSL %q | sudo sh", downloadURL)
 	if platform == "windows" {
-		oneLiner = fmt.Sprintf("irm %q | iex", downloadURL)
+		// Set TLS 1.2 first for older PowerShell versions that default to TLS 1.0/1.1
+		oneLiner = fmt.Sprintf("[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; irm %q | iex", downloadURL)
 	}
 
 	// Get the sender name from the request context (user who initiated)
