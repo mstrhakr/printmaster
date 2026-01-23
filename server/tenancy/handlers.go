@@ -1859,23 +1859,37 @@ function Show-Banner {
 	Write-Host ""
 }
 
+# Track if we have an active progress line that needs to be cleared
+$script:progressLineActive = $false
+
+function Clear-ProgressLine {
+	if ($script:progressLineActive) {
+		Write-Host ""
+		$script:progressLineActive = $false
+	}
+}
+
 function Show-Success {
 	param([string]$Message)
+	Clear-ProgressLine
 	Write-Host "  ${ColorGreen}[OK]${ColorReset} $Message"
 }
 
 function Show-Error {
 	param([string]$Message)
+	Clear-ProgressLine
 	Write-Host "  ${ColorRed}[X]${ColorReset} $Message"
 }
 
 function Show-Info {
 	param([string]$Message)
+	Clear-ProgressLine
 	Write-Host "  ${ColorCyan}[*]${ColorReset} $Message"
 }
 
 function Show-Warning {
 	param([string]$Message)
+	Clear-ProgressLine
 	Write-Host "  ${ColorYellow}[!]${ColorReset} $Message"
 }
 
@@ -1886,11 +1900,20 @@ function Show-Progress {
 	$empty = $barWidth - $filled
 	$bar = ("$ColorGreen" + ([string][char]9608 * $filled) + "$ColorDim" + ([string][char]9617 * $empty) + "$ColorReset")
 	$pct = $Percent.ToString().PadLeft(3)
-	Write-Host "  $ColorCyan[$bar$ColorCyan]$ColorReset $pct%% $ColorWhite$Message$ColorReset"
+	# Move cursor to beginning of line and clear it, then write progress
+	# Using ANSI escape: ESC[2K clears entire line, ESC[G moves to column 1
+	$clearAndReset = "$ESC[2K$ESC[G"
+	if ($script:progressLineActive) {
+		# Move up one line first since we wrote a newline
+		Write-Host -NoNewline "$ESC[A"
+	}
+	Write-Host "$clearAndReset  $ColorCyan[$bar$ColorCyan]$ColorReset $pct%% $ColorWhite$Message$ColorReset"
+	$script:progressLineActive = $true
 }
 
 function Show-CompletionBox {
 	param([bool]$Success, [string]$Message)
+	Clear-ProgressLine
 	Write-Host ""
 	Write-Host ""
 	if ($Success) {
@@ -1929,13 +1952,202 @@ function Assert-Administrator {
 	}
 }
 
-function Set-RelaxedCertificatePolicy {
-	try {
-		[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-		[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
-	} catch {
-		Show-Warning "Unable to relax certificate validation: $_"
+function Set-TlsPolicy {
+	param(
+		[string]$TlsVersion = "Modern",
+		[bool]$IgnoreCerts = $false
+	)
+	
+	# Set TLS version
+	switch ($TlsVersion) {
+		"Tls13" {
+			try {
+				[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls13
+			} catch {
+				throw "TLS 1.3 not supported on this system"
+			}
+		}
+		"Tls12" {
+			[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+		}
+		default {
+			# Modern: TLS 1.3 + 1.2 combined
+			[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+			try {
+				[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 12288
+			} catch { }
+		}
 	}
+	
+	if ($IgnoreCerts) {
+		# Skip certificate validation for self-signed certs
+		if (-not ([System.Management.Automation.PSTypeName]'TrustAllCertsPolicy').Type) {
+			Add-Type @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; }
+}
+"@
+		}
+		[System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+		[System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+	} else {
+		# Use default certificate validation
+		[System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+	}
+}
+
+function Confirm-InsecureDownload {
+	param([string]$Reason)
+	
+	Write-Host ""
+	Write-Host "  ${ColorYellow}╔════════════════════════════════════════════════════════════╗${ColorReset}"
+	Write-Host "  ${ColorYellow}║${ColorReset}  ${ColorRed}⚠  SECURITY WARNING${ColorReset}                                       ${ColorYellow}║${ColorReset}"
+	Write-Host "  ${ColorYellow}╠════════════════════════════════════════════════════════════╣${ColorReset}"
+	Write-Host "  ${ColorYellow}║${ColorReset}  $Reason"
+	Write-Host "  ${ColorYellow}║${ColorReset}                                                            ${ColorYellow}║${ColorReset}"
+	Write-Host "  ${ColorYellow}║${ColorReset}  Do you want to continue anyway?                          ${ColorYellow}║${ColorReset}"
+	Write-Host "  ${ColorYellow}╚════════════════════════════════════════════════════════════╝${ColorReset}"
+	Write-Host ""
+	
+	$response = Read-Host "  Type 'yes' to continue, or press Enter to cancel"
+	return ($response -eq 'yes')
+}
+
+function Download-WithFallback {
+	param([string]$Url, [string]$OutFile)
+	
+	$httpsUrl = $Url -replace '^http://', 'https://'
+	$httpUrl = $Url -replace '^https://', 'http://'
+	
+	# Detect PowerShell version for optimal method selection
+	$isPwsh7 = $PSVersionTable.PSVersion.Major -ge 6
+	$psVersion = "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor)"
+	
+	Show-Info "Detected PowerShell $psVersion"
+	
+	# Build fallback chain - most secure to least secure
+	# Phase 1: Secure connections with certificate validation
+	$secureAttempts = @()
+	
+	if ($isPwsh7) {
+		# PowerShell 7+ has native TLS 1.3 and better cert handling
+		$secureAttempts += @{ Name = "TLS 1.3 (PowerShell 7+)"; Method = "Pwsh7"; TlsVersion = "Tls13"; Url = $httpsUrl; IgnoreCerts = $false }
+		$secureAttempts += @{ Name = "TLS 1.2 (PowerShell 7+)"; Method = "Pwsh7"; TlsVersion = "Tls12"; Url = $httpsUrl; IgnoreCerts = $false }
+	}
+	
+	# WebClient methods (works on all PS versions)
+	$secureAttempts += @{ Name = "TLS 1.3 (WebClient)"; Method = "WebClient"; TlsVersion = "Tls13"; Url = $httpsUrl; IgnoreCerts = $false }
+	$secureAttempts += @{ Name = "TLS 1.2 (WebClient)"; Method = "WebClient"; TlsVersion = "Tls12"; Url = $httpsUrl; IgnoreCerts = $false }
+	
+	# Phase 2: Connections that ignore certificate validation (requires user consent)
+	$insecureAttempts = @()
+	
+	if ($isPwsh7) {
+		$insecureAttempts += @{ Name = "TLS 1.2 ignore certs (PowerShell 7+)"; Method = "Pwsh7SkipCert"; TlsVersion = "Tls12"; Url = $httpsUrl; IgnoreCerts = $true; Reason = "Certificate validation will be skipped." }
+	}
+	$insecureAttempts += @{ Name = "TLS 1.2 ignore certs (WebClient)"; Method = "WebClient"; TlsVersion = "Tls12"; Url = $httpsUrl; IgnoreCerts = $true; Reason = "Certificate validation will be skipped." }
+	
+	# Phase 3: HTTP fallback (last resort, requires user consent)
+	$httpAttempt = @{ Name = "HTTP (unencrypted)"; Method = "WebClient"; TlsVersion = "Modern"; Url = $httpUrl; IgnoreCerts = $false; Reason = "Connection is UNENCRYPTED - data may be intercepted!" }
+	
+	$lastError = $null
+	$totalSecure = $secureAttempts.Count
+	$attemptNum = 0
+	
+	# Try secure methods first (no user prompts needed)
+	foreach ($attempt in $secureAttempts) {
+		$attemptNum++
+		try {
+			Show-Info "Attempt $attemptNum of $totalSecure - $($attempt.Name)..."
+			
+			Set-TlsPolicy -TlsVersion $attempt.TlsVersion -IgnoreCerts $false
+			
+			switch ($attempt.Method) {
+				"Pwsh7" {
+					Invoke-WebRequest -Uri $attempt.Url -OutFile $OutFile -UseBasicParsing -ErrorAction Stop
+				}
+				"WebClient" {
+					$wc = New-Object System.Net.WebClient
+					$wc.DownloadFile($attempt.Url, $OutFile)
+				}
+			}
+			
+			Show-Success "Downloaded via $($attempt.Name)"
+			return $true
+		} catch {
+			$lastError = $_.Exception.Message
+			if (Test-Path $OutFile) {
+				Remove-Item -Path $OutFile -Force -ErrorAction SilentlyContinue
+			}
+		}
+	}
+	
+	# Secure methods failed - ask user before trying insecure methods
+	Show-Warning "All secure download methods failed."
+	Show-Warning "Last error: $lastError"
+	Write-Host ""
+	
+	# Try insecure HTTPS methods (with user consent)
+	foreach ($attempt in $insecureAttempts) {
+		if (-not (Confirm-InsecureDownload -Reason $attempt.Reason)) {
+			Show-Info "User declined insecure download method."
+			continue
+		}
+		
+		try {
+			Show-Info "Trying: $($attempt.Name)..."
+			
+			Set-TlsPolicy -TlsVersion $attempt.TlsVersion -IgnoreCerts $true
+			
+			switch ($attempt.Method) {
+				"Pwsh7SkipCert" {
+					Invoke-WebRequest -Uri $attempt.Url -OutFile $OutFile -SkipCertificateCheck -UseBasicParsing -ErrorAction Stop
+				}
+				"WebClient" {
+					$wc = New-Object System.Net.WebClient
+					$wc.DownloadFile($attempt.Url, $OutFile)
+				}
+			}
+			
+			Show-Warning "Downloaded with certificate validation disabled."
+			Show-Success "Downloaded via $($attempt.Name)"
+			return $true
+		} catch {
+			$lastError = $_.Exception.Message
+			Show-Warning "Failed: $lastError"
+			if (Test-Path $OutFile) {
+				Remove-Item -Path $OutFile -Force -ErrorAction SilentlyContinue
+			}
+		}
+	}
+	
+	# HTTP fallback (last resort, with strong warning)
+	if (Confirm-InsecureDownload -Reason $httpAttempt.Reason) {
+		try {
+			Show-Info "Trying: $($httpAttempt.Name)..."
+			
+			Set-TlsPolicy -TlsVersion "Modern" -IgnoreCerts $false
+			
+			$wc = New-Object System.Net.WebClient
+			$wc.DownloadFile($httpAttempt.Url, $OutFile)
+			
+			Show-Warning "Downloaded over unencrypted HTTP connection!"
+			Show-Success "Downloaded via $($httpAttempt.Name)"
+			return $true
+		} catch {
+			$lastError = $_.Exception.Message
+			Show-Error "HTTP download failed: $lastError"
+			if (Test-Path $OutFile) {
+				Remove-Item -Path $OutFile -Force -ErrorAction SilentlyContinue
+			}
+		}
+	}
+	
+	# All attempts failed or user cancelled
+	Show-Error "Download failed. All methods exhausted or cancelled by user."
+	return $false
 }
 
 function Remove-ExistingInstallation {
@@ -2042,7 +2254,6 @@ function Remove-ExistingInstallation {
 
 Show-Banner
 Assert-Administrator
-Set-RelaxedCertificatePolicy
 
 $programData = ${env:ProgramData}
 if ([string]::IsNullOrWhiteSpace($programData)) {
@@ -2092,36 +2303,11 @@ Show-Success "Configuration saved to $configPath"
 # Step 4: Download agent
 Show-Progress -Percent 35 -Message "Downloading agent..."
 
-# Try HTTPS first, fall back to HTTP for older systems
-$httpsServer = $server -replace '^http://', 'https://'
-$httpServer = $server -replace '^https://', 'http://'
-$downloadUri = "/api/v1/agents/download/latest?platform=windows&arch=amd64&format=exe&proxy=1"
-$downloaded = $false
+$downloadUrl = "$server/api/v1/agents/download/latest?platform=windows&arch=amd64&format=exe&proxy=1"
 
-# Attempt 1: HTTPS with modern TLS
-try {
-	Show-Info "Trying secure download (HTTPS)..."
-	[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
-	$wc = New-Object System.Net.WebClient
-	$wc.DownloadFile("$httpsServer$downloadUri", $tempExePath)
-	$downloaded = $true
-	Show-Success "Downloaded via HTTPS"
-} catch {
-	Show-Warning "HTTPS download failed, trying HTTP fallback..."
-}
-
-# Attempt 2: HTTP fallback for older systems
-if (-not $downloaded) {
-	try {
-		$wc = New-Object System.Net.WebClient
-		$wc.DownloadFile("$httpServer$downloadUri", $tempExePath)
-		$downloaded = $true
-		Show-Success "Downloaded via HTTP"
-	} catch {
-		Show-Error "Failed to download agent: $_"
-		Show-CompletionBox -Success $false -Message "Download Failed"
-		exit 1
-	}
+if (-not (Download-WithFallback -Url $downloadUrl -OutFile $tempExePath)) {
+	Show-CompletionBox -Success $false -Message "Download Failed"
+	exit 1
 }
 
 if (-not (Test-Path $tempExePath)) {
