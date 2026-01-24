@@ -2226,6 +2226,83 @@
         </div>
     </div>
 
+    <!-- Onboarding Wizard Modal -->
+    <div class="modal" id="onboarding_modal" style="display:none;">
+        <div class="modal-content onboarding-modal-content">
+            <div class="modal-header onboarding-header">
+                <span class="modal-title">Welcome to PrintMaster</span>
+            </div>
+            <div class="modal-body onboarding-body">
+                <!-- Step 1: Welcome -->
+                <div class="onboarding-step" data-step="welcome">
+                    <div class="onboarding-icon">
+                        <svg width="64" height="64" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M2.5 8a5.5 5.5 0 0 1 8.25-4.764.5.5 0 0 0 .5-.866A6.5 6.5 0 1 0 14.5 8a.5.5 0 0 0-1 0 5.5 5.5 0 1 1-11 0z"/>
+                            <path d="M15.354 3.354a.5.5 0 0 0-.708-.708L8 9.293 5.354 6.646a.5.5 0 1 0-.708.708l3 3a.5.5 0 0 0 .708 0l7-7z"/>
+                        </svg>
+                    </div>
+                    <h2 class="onboarding-title">Let's get you set up</h2>
+                    <p class="onboarding-desc">
+                        PrintMaster is ready to manage your printer fleet. We've detected that agents are waiting to connect.
+                    </p>
+                    <div class="onboarding-info-box" id="onboarding_agent_info">
+                        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+                        </svg>
+                        <span>Auto-join agents detected! Create a tenant to allow them to connect.</span>
+                    </div>
+                    <p class="onboarding-subdesc">
+                        Create your first tenant (organization/customer) to organize your devices and agents.
+                    </p>
+                </div>
+                
+                <!-- Step 2: Create Tenant (embedded form) -->
+                <div class="onboarding-step hidden" data-step="tenant">
+                    <h2 class="onboarding-title">Create Your First Tenant</h2>
+                    <p class="onboarding-desc">
+                        A tenant represents an organization or customer whose printers you'll manage.
+                    </p>
+                    <div class="onboarding-form">
+                        <label class="onboarding-form-label">
+                            <span>Tenant Name <span class="required">*</span></span>
+                            <input id="onboarding_tenant_name" type="text" class="onboarding-form-input" placeholder="My Organization" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                        <label class="onboarding-form-label">
+                            <span>Contact Email</span>
+                            <input id="onboarding_tenant_email" type="email" class="onboarding-form-input" placeholder="admin@example.com" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                        </label>
+                    </div>
+                    <div id="onboarding_error" class="onboarding-error"></div>
+                </div>
+                
+                <!-- Step 3: Success -->
+                <div class="onboarding-step hidden" data-step="success">
+                    <div class="onboarding-icon success">
+                        <svg width="64" height="64" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+                        </svg>
+                    </div>
+                    <h2 class="onboarding-title">You're all set!</h2>
+                    <p class="onboarding-desc">
+                        Your tenant has been created and agents can now connect automatically.
+                    </p>
+                    <div class="onboarding-info-box success">
+                        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+                            <path d="M10.97 4.97a.235.235 0 0 0-.02.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-1.071-1.05z"/>
+                        </svg>
+                        <span>Agents with matching INIT_SECRET will join automatically!</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer onboarding-footer">
+                <button class="btn-outline" id="onboarding_skip">Skip for now</button>
+                <button class="btn-primary" id="onboarding_next">Get Started</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Tenant Modal -->
     <div class="modal" id="tenant_modal" style="display:none;">
         <div class="modal-content tenant-modal-content">

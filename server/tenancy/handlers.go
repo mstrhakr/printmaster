@@ -148,6 +148,15 @@ func SetUserFromContextGetter(getter func(ctx context.Context) *storage.User) {
 	getUserFromContext = getter
 }
 
+// tenantCreatedCallback, when set, is invoked after a new tenant is created.
+// This allows the main package to perform setup like creating INIT_SECRET join tokens.
+var tenantCreatedCallback func(ctx context.Context, tenantID string)
+
+// SetTenantCreatedCallback registers a callback to be invoked when a new tenant is created.
+func SetTenantCreatedCallback(cb func(ctx context.Context, tenantID string)) {
+	tenantCreatedCallback = cb
+}
+
 // generateDeploymentEmail generates HTML and text versions of the deployment email.
 func generateDeploymentEmail(theme, recipientEmail, platform, oneLiner, script, downloadURL, expiresIn, tenantName, serverURL, senderName string) (string, string, error) {
 	data := email.AgentDeploymentEmailData{
@@ -396,6 +405,12 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			logInfo("handleTenants: tenant created successfully", "id", tn.ID, "name", tn.Name)
+			
+			// Invoke tenant created callback (e.g., to create INIT_SECRET join token)
+			if tenantCreatedCallback != nil {
+				tenantCreatedCallback(r.Context(), tn.ID)
+			}
+			
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(tn)
 			recordAudit(r, &storage.AuditEntry{

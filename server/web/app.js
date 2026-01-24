@@ -670,6 +670,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Load server status first (sets tenancy_enabled flag needed by other components)
         await loadServerStatus();
+        
+        // Check if onboarding wizard should be shown (first-run setup)
+        await checkOnboardingStatus();
 
         // Now restore preferred tab (which may trigger loadPendingRegistrations that needs tenancy flag)
         restorePreferredTab();
@@ -6201,6 +6204,206 @@ function syncSSOTenants(list) {
 }
 
 // Wrapper functions removed: call sites should use window.__pm_shared.showToast / showConfirm / showAlert directly.
+
+// ====== Onboarding Wizard ======
+const onboardingState = {
+    currentStep: 'welcome',
+    data: null,
+    initialized: false,
+};
+
+async function checkOnboardingStatus() {
+    // Only check for admin users
+    if (!currentUser || currentUser.role !== 'admin') return;
+    
+    try {
+        const response = await fetch('/api/v1/onboarding/status');
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        onboardingState.data = data;
+        
+        if (data.needs_onboarding) {
+            showOnboardingWizard();
+        }
+    } catch (error) {
+        window.__pm_shared.warn('Failed to check onboarding status:', error);
+    }
+}
+
+function showOnboardingWizard() {
+    const modal = document.getElementById('onboarding_modal');
+    if (!modal) return;
+    
+    if (!onboardingState.initialized) {
+        initOnboardingWizard();
+        onboardingState.initialized = true;
+    }
+    
+    // Reset to first step
+    onboardingState.currentStep = 'welcome';
+    updateOnboardingStep();
+    
+    modal.style.display = 'flex';
+}
+
+function initOnboardingWizard() {
+    const modal = document.getElementById('onboarding_modal');
+    if (!modal) return;
+    
+    const skipBtn = document.getElementById('onboarding_skip');
+    const nextBtn = document.getElementById('onboarding_next');
+    const nameInput = document.getElementById('onboarding_tenant_name');
+    
+    if (skipBtn) {
+        skipBtn.addEventListener('click', closeOnboardingWizard);
+    }
+    
+    if (nextBtn) {
+        nextBtn.addEventListener('click', handleOnboardingNext);
+    }
+    
+    if (nameInput) {
+        nameInput.addEventListener('input', () => {
+            // Clear error when typing
+            const errorEl = document.getElementById('onboarding_error');
+            if (errorEl) errorEl.textContent = '';
+        });
+        nameInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                handleOnboardingNext();
+            }
+        });
+    }
+    
+    // Listen for onboarding complete event via SSE/WebSocket
+    if (window.__pm_ws_eventHandlers) {
+        window.__pm_ws_eventHandlers['onboarding_complete'] = (data) => {
+            window.__pm_shared.log('Onboarding complete event received', data);
+            // Auto-advance to success step if still on tenant step
+            if (onboardingState.currentStep === 'tenant') {
+                onboardingState.currentStep = 'success';
+                updateOnboardingStep();
+            }
+        };
+    }
+}
+
+function updateOnboardingStep() {
+    const steps = document.querySelectorAll('#onboarding_modal .onboarding-step');
+    const nextBtn = document.getElementById('onboarding_next');
+    const skipBtn = document.getElementById('onboarding_skip');
+    
+    steps.forEach(step => {
+        const stepName = step.getAttribute('data-step');
+        step.classList.toggle('hidden', stepName !== onboardingState.currentStep);
+    });
+    
+    // Update button text based on step
+    if (nextBtn) {
+        switch (onboardingState.currentStep) {
+            case 'welcome':
+                nextBtn.textContent = 'Get Started';
+                break;
+            case 'tenant':
+                nextBtn.textContent = 'Create Tenant';
+                break;
+            case 'success':
+                nextBtn.textContent = 'Done';
+                break;
+        }
+    }
+    
+    // Hide skip on success step
+    if (skipBtn) {
+        skipBtn.style.display = onboardingState.currentStep === 'success' ? 'none' : '';
+    }
+    
+    // Focus input on tenant step
+    if (onboardingState.currentStep === 'tenant') {
+        const nameInput = document.getElementById('onboarding_tenant_name');
+        if (nameInput) setTimeout(() => nameInput.focus(), 100);
+    }
+}
+
+async function handleOnboardingNext() {
+    const nextBtn = document.getElementById('onboarding_next');
+    
+    switch (onboardingState.currentStep) {
+        case 'welcome':
+            onboardingState.currentStep = 'tenant';
+            updateOnboardingStep();
+            break;
+            
+        case 'tenant':
+            // Validate and create tenant
+            const nameInput = document.getElementById('onboarding_tenant_name');
+            const emailInput = document.getElementById('onboarding_tenant_email');
+            const errorEl = document.getElementById('onboarding_error');
+            
+            const name = nameInput?.value?.trim();
+            const email = emailInput?.value?.trim();
+            
+            if (!name) {
+                if (errorEl) errorEl.textContent = 'Please enter a tenant name';
+                if (nameInput) nameInput.focus();
+                return;
+            }
+            
+            // Disable button and show loading
+            if (nextBtn) {
+                nextBtn.disabled = true;
+                nextBtn.textContent = 'Creating...';
+            }
+            
+            try {
+                const payload = { name };
+                if (email) payload.contact_email = email;
+                
+                const response = await fetch('/api/v1/tenants', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.error || `Failed to create tenant (${response.status})`);
+                }
+                
+                const tenant = await response.json();
+                window.__pm_shared.log('Tenant created via onboarding', tenant);
+                
+                // Refresh tenant list
+                await ensureTenantDirectory(true);
+                
+                // Move to success step
+                onboardingState.currentStep = 'success';
+                updateOnboardingStep();
+                
+            } catch (error) {
+                window.__pm_shared.error('Failed to create tenant:', error);
+                if (errorEl) errorEl.textContent = error.message || 'Failed to create tenant';
+            } finally {
+                if (nextBtn) {
+                    nextBtn.disabled = false;
+                    nextBtn.textContent = 'Create Tenant';
+                }
+            }
+            break;
+            
+        case 'success':
+            closeOnboardingWizard();
+            // Refresh agents list to show newly connected agents
+            loadAgents();
+            break;
+    }
+}
+
+function closeOnboardingWizard() {
+    const modal = document.getElementById('onboarding_modal');
+    if (modal) modal.style.display = 'none';
+}
 
 // ====== Server Status ======
 async function loadServerStatus() {

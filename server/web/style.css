@@ -4620,6 +4620,175 @@ select:focus {
   line-height: 1.5;
 }
 
+/* ====== Onboarding Wizard Modal ====== */
+.onboarding-modal-content {
+  max-width: 520px;
+  width: calc(100% - 32px);
+  box-sizing: border-box;
+}
+
+.onboarding-header {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.onboarding-header .modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.onboarding-body {
+  padding: 24px 32px 32px;
+  text-align: center;
+}
+
+.onboarding-step {
+  animation: fadeIn 0.3s ease;
+}
+
+.onboarding-step.hidden {
+  display: none;
+}
+
+.onboarding-icon {
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(74, 144, 226, 0.15);
+  color: var(--accent);
+}
+
+.onboarding-icon.success {
+  background: rgba(40, 167, 69, 0.15);
+  color: var(--success);
+}
+
+.onboarding-title {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.onboarding-desc {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.onboarding-subdesc {
+  margin: 20px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.onboarding-info-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 8px;
+  background: rgba(74, 144, 226, 0.1);
+  border: 1px solid rgba(74, 144, 226, 0.3);
+  color: var(--accent);
+  font-size: 13px;
+  text-align: left;
+}
+
+.onboarding-info-box.success {
+  background: rgba(40, 167, 69, 0.1);
+  border-color: rgba(40, 167, 69, 0.3);
+  color: var(--success);
+}
+
+.onboarding-info-box svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.onboarding-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: left;
+  margin-top: 8px;
+}
+
+.onboarding-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.onboarding-form-label > span:first-child {
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.onboarding-form-label .required {
+  color: var(--danger);
+}
+
+.onboarding-form-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--fg);
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.onboarding-form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+}
+
+.onboarding-form-input::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+
+.onboarding-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  color: var(--danger);
+  font-size: 13px;
+  text-align: left;
+  display: none;
+}
+
+.onboarding-error:not(:empty) {
+  display: block;
+}
+
+.onboarding-footer {
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ====== Tenant Modal ====== */
 .tenant-modal-content {
   max-width: 780px;

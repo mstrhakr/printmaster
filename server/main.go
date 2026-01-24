@@ -805,26 +805,40 @@ func runServer(ctx context.Context, configFlag string) {
 			}
 
 			if defaultTenant != "" {
-				// Use the init secret directly as the join token
-				jt := &storage.JoinToken{
-					ID:        "init-secret",
-					TenantID:  defaultTenant,
-					ExpiresAt: time.Now().Add(365 * 24 * time.Hour), // Valid for 1 year
-					OneTime:   false,                                // Allow multiple agents to use it
-					CreatedAt: time.Now(),
-				}
-
-				// Store it with the init secret as the raw token
-				if _, err := serverStore.CreateJoinTokenWithSecret(bctx, jt, initSecret); err != nil {
-					logWarn("Failed to create init secret join token", "error", err)
-				} else {
-					logInfo("Auto-join token created from INIT_SECRET (allows agent auto-registration)")
-				}
+				createInitSecretJoinToken(bctx, defaultTenant, initSecret, dataDir)
+			} else {
+				logInfo("INIT_SECRET configured but no tenants exist yet; token will be created when first tenant is added")
 			}
 		} else {
 			logInfo("INIT_SECRET was previously used, skipping auto-join token creation")
 		}
 	}
+	
+	// Register callback to create INIT_SECRET join token when first tenant is created
+	tenancy.SetTenantCreatedCallback(func(ctx context.Context, tenantID string) {
+		initSecret := os.Getenv("INIT_SECRET")
+		if initSecret == "" {
+			return
+		}
+		secretUsedFile := filepath.Join(dataDir, ".init_secret_used")
+		if _, err := os.Stat(secretUsedFile); err == nil {
+			// Already used
+			return
+		}
+		createInitSecretJoinToken(ctx, tenantID, initSecret, dataDir)
+		
+		// Broadcast onboarding complete event to UI
+		if sseHub != nil {
+			sseHub.Broadcast(SSEEvent{
+				Type: "onboarding_complete",
+				Data: map[string]interface{}{
+					"tenant_id":     tenantID,
+					"init_secret":   true,
+					"agents_can_join": true,
+				},
+			})
+		}
+	})
 
 	// Initialize SSE hub for real-time UI updates if not already created (tests may have pre-initialized)
 	if sseHub == nil {
@@ -3571,6 +3585,9 @@ func setupRoutes(cfg *Config) {
 
 	// Server settings (read/write via sanitized API)
 	http.HandleFunc("/api/v1/server/settings", requireWebAuth(handleServerSettings))
+
+	// Onboarding status (for first-run setup wizard)
+	http.HandleFunc("/api/v1/onboarding/status", requireWebAuth(handleOnboardingStatus))
 
 	// Server settings sources (metadata about which keys are locked by env overrides)
 	http.HandleFunc("/api/v1/server/settings/sources", requireWebAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -7723,6 +7740,64 @@ type serverSettingsUpdateResult struct {
 	RestartRequired bool     `json:"restart_required"`
 }
 
+// handleOnboardingStatus returns the current onboarding state for the setup wizard.
+// This helps the UI determine if it should show the first-run wizard (e.g., when
+// no tenants exist and agents are waiting to auto-join via INIT_SECRET).
+func handleOnboardingStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Check if any tenants exist
+	tenants, err := serverStore.ListTenants(ctx)
+	if err != nil {
+		logWarn("Failed to list tenants for onboarding status", "error", err)
+		tenants = []*storage.Tenant{}
+	}
+	hasTenants := len(tenants) > 0
+
+	// Check if INIT_SECRET is configured (agents may be waiting to auto-join)
+	initSecretConfigured := os.Getenv("INIT_SECRET") != ""
+
+	// Check if init secret was already used (join token created)
+	initSecretUsed := false
+	if dataDir := os.Getenv("DATA_DIR"); dataDir != "" {
+		if _, err := os.Stat(filepath.Join(dataDir, ".init_secret_used")); err == nil {
+			initSecretUsed = true
+		}
+	} else if serverConfig != nil && serverConfig.Database.Path != "" {
+		// Fallback: use database path's directory
+		dbDir := filepath.Dir(serverConfig.Database.Path)
+		if _, err := os.Stat(filepath.Join(dbDir, ".init_secret_used")); err == nil {
+			initSecretUsed = true
+		}
+	}
+
+	// Count pending agent registrations
+	pendingCount := int64(0)
+	if pendingRegs, err := serverStore.ListPendingAgentRegistrations(ctx, storage.PendingStatusPending); err == nil {
+		pendingCount = int64(len(pendingRegs))
+	}
+
+	// Determine if onboarding is needed
+	needsOnboarding := !hasTenants && initSecretConfigured && !initSecretUsed
+
+	resp := map[string]interface{}{
+		"needs_onboarding":       needsOnboarding,
+		"has_tenants":            hasTenants,
+		"tenant_count":           len(tenants),
+		"init_secret_configured": initSecretConfigured,
+		"init_secret_used":       initSecretUsed,
+		"pending_agents":         pendingCount,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
 func handleServerSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -8749,4 +8824,28 @@ func handleLatestAgentVersion(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"error": "no agent version information available",
 	})
+}
+
+// createInitSecretJoinToken creates a join token using the INIT_SECRET environment variable.
+// This allows agents configured with the same secret to auto-register without manual token exchange.
+func createInitSecretJoinToken(ctx context.Context, tenantID, initSecret, dataDir string) {
+	jt := &storage.JoinToken{
+		ID:        "init-secret",
+		TenantID:  tenantID,
+		ExpiresAt: time.Now().Add(365 * 24 * time.Hour), // Valid for 1 year
+		OneTime:   false,                                // Allow multiple agents to use it
+		CreatedAt: time.Now(),
+	}
+
+	// Store it with the init secret as the raw token
+	if _, err := serverStore.CreateJoinTokenWithSecret(ctx, jt, initSecret); err != nil {
+		logWarn("Failed to create init secret join token", "error", err, "tenant_id", tenantID)
+	} else {
+		logInfo("Auto-join token created from INIT_SECRET (allows agent auto-registration)", "tenant_id", tenantID)
+		// Mark secret as used
+		secretUsedFile := filepath.Join(dataDir, ".init_secret_used")
+		if err := os.WriteFile(secretUsedFile, []byte(time.Now().UTC().Format(time.RFC3339)), 0600); err != nil {
+			logWarn("Failed to mark init secret as used", "error", err)
+		}
+	}
 }

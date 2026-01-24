@@ -131,10 +131,9 @@
       "request": "attach",
       "mode": "local",
       "processId": "${command:pickProcess}"
-    }
-  ],
+    },
   
-  // ========== Auto-Join Debug Configurations ==========
+    // ========== Auto-Join Debug Configurations ==========
     {
       "name": "Debug: Server (Auto-Join)",
       "type": "go",
