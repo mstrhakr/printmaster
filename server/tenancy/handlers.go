@@ -1864,6 +1864,7 @@ $script:progressLineActive = $false
 
 function Clear-ProgressLine {
 	if ($script:progressLineActive) {
+		# Clear current line and move to next line
 		Write-Host ""
 		$script:progressLineActive = $false
 	}
@@ -1900,14 +1901,14 @@ function Show-Progress {
 	$empty = $barWidth - $filled
 	$bar = ("$ColorGreen" + ([string][char]9608 * $filled) + "$ColorDim" + ([string][char]9617 * $empty) + "$ColorReset")
 	$pct = $Percent.ToString().PadLeft(3)
-	# Move cursor to beginning of line and clear it, then write progress
-	# Using ANSI escape: ESC[2K clears entire line, ESC[G moves to column 1
-	$clearAndReset = "$ESC[2K$ESC[G"
-	if ($script:progressLineActive) {
-		# Move up one line first since we wrote a newline
-		Write-Host -NoNewline "$ESC[A"
-	}
-	Write-Host "$clearAndReset  $ColorCyan[$bar$ColorCyan]$ColorReset $pct%% $ColorWhite$Message$ColorReset"
+	# Use carriage return to overwrite line in place (works in PS5 and PS7)
+	# Write without newline so we can overwrite on next call
+	$line = "  $ColorCyan[$bar$ColorCyan]$ColorReset $pct%% $ColorWhite$Message$ColorReset"
+	# Pad to clear any previous longer text
+	$padWidth = 90
+	$line = $line.PadRight($padWidth)
+	$CR = [char]13
+	Write-Host -NoNewline "$CR$line"
 	$script:progressLineActive = $true
 }
 

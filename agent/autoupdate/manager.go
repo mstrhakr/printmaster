@@ -924,7 +924,7 @@ func (m *Manager) applyUpdateViaApt() error {
 	installCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	output, err := installCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("apt-get install failed: %w (output: %s)", err, string(output))
+		return m.wrapSudoError("apt-get install", err, output)
 	}
 
 	m.logInfo("Package updated successfully via apt-get", "package", m.packageName, "output", strings.TrimSpace(string(output)))
@@ -951,7 +951,7 @@ func (m *Manager) applyUpdateViaDnf() error {
 	upgradeCmd := exec.Command("sudo", "dnf", "--setopt=logdir=/tmp", "upgrade", "-y", "-q", m.packageName)
 	output, err := upgradeCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("dnf upgrade failed: %w (output: %s)", err, string(output))
+		return m.wrapSudoError("dnf upgrade", err, output)
 	}
 
 	m.logInfo("Package updated successfully via dnf", "package", m.packageName, "output", strings.TrimSpace(string(output)))
@@ -975,7 +975,7 @@ func (m *Manager) applyUpdateViaYum() error {
 	upgradeCmd := exec.Command("sudo", "yum", "upgrade", "-y", "-q", m.packageName)
 	output, err := upgradeCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("yum upgrade failed: %w (output: %s)", err, string(output))
+		return m.wrapSudoError("yum upgrade", err, output)
 	}
 
 	m.logInfo("Package updated successfully via yum", "package", m.packageName, "output", strings.TrimSpace(string(output)))
@@ -983,6 +983,29 @@ func (m *Manager) applyUpdateViaYum() error {
 	// The service should be restarted by the package's postinst script (%post),
 	// but we trigger a restart anyway to ensure we're running the new version
 	return nil
+}
+
+// wrapSudoError provides a cleaner error message when sudo fails due to password prompts.
+// This typically happens when the agent is not running as a service with the proper sudoers
+// configuration, or when running manually without the expected user.
+func (m *Manager) wrapSudoError(operation string, err error, output []byte) error {
+	outStr := string(output)
+
+	// Check for common sudo password prompt indicators
+	if strings.Contains(outStr, "a password is required") ||
+		strings.Contains(outStr, "password for") ||
+		strings.Contains(outStr, "Password:") ||
+		strings.Contains(outStr, "Sorry, try again") ||
+		strings.Contains(outStr, "usual lecture from the local System Administrator") {
+		return fmt.Errorf("%s requires passwordless sudo. "+
+			"Ensure the agent is running as a systemd service (systemctl start printmaster-agent) "+
+			"and the sudoers file exists at /etc/sudoers.d/printmaster-agent. "+
+			"If running manually, you can update using: sudo %s -y %s",
+			operation, m.packageManager, m.packageName)
+	}
+
+	// Generic error with full output for debugging
+	return fmt.Errorf("%s failed: %w (output: %s)", operation, err, outStr)
 }
 
 func (m *Manager) applyUpdateWindows(stagingPath string) error {
