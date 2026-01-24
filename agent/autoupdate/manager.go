@@ -962,10 +962,10 @@ func (m *Manager) applyUpdateViaDnf(targetVersion string) error {
 	m.logInfo("Running sudo dnf install with refresh", "package", packageSpec)
 	installCmd := exec.Command("sudo", "dnf",
 		"--setopt=logdir=/tmp",
-		"--refresh",           // Force metadata refresh
+		"--refresh", // Force metadata refresh
 		"install",
 		"-y",
-		"--allowerasing",      // Allow replacing conflicting packages
+		"--allowerasing", // Allow replacing conflicting packages
 		packageSpec)
 	output, err := installCmd.CombinedOutput()
 	if err != nil {
