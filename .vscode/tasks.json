@@ -330,6 +330,117 @@
         "showReuseMessage": false,
         "clear": true
       }
+    },
+
+    // ========== Fresh Start (DB Cleanup) Tasks ==========
+    {
+      "label": "Clean: Server Database",
+      "type": "shell",
+      "command": "Remove-Item -Path '.\\server\\server.db' -Force -ErrorAction SilentlyContinue; Write-Host 'Server database cleaned'",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Clean: Agent Data",
+      "type": "shell",
+      "command": "$dataDir = Join-Path $env:LOCALAPPDATA 'PrintMaster'; if (Test-Path $dataDir) { Remove-Item -Path $dataDir -Recurse -Force }; Write-Host 'Agent data directory cleaned:' $dataDir",
+      "group": "none",
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Clean: All Databases",
+      "type": "shell",
+      "command": "echo Cleaning all databases...",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Clean: Server Database",
+        "Clean: Agent Data"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Prep: Server (Fresh Start)",
+      "type": "shell",
+      "command": "echo Server ready for fresh start",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Kill: PrintMaster processes",
+        "Clean: Server Database",
+        "Build: Server (Dev)"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Prep: Agent (Fresh Start)",
+      "type": "shell",
+      "command": "echo Agent ready for fresh start",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Kill: PrintMaster processes",
+        "Clean: Agent Data",
+        "Build: Agent (Dev)"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
+    },
+    {
+      "label": "Prep: Both (Fresh Start)",
+      "type": "shell",
+      "command": "echo Both ready for fresh start",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "Kill: PrintMaster processes",
+        "Clean: All Databases",
+        "Build: Both (Dev)"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "echo": false,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": false,
+        "clear": false
+      }
     }
   ]
 }

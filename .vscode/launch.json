@@ -146,7 +146,7 @@
       },
       "args": [],
       "showLog": true,
-      "preLaunchTask": "Prep: Server (Kill + Build Dev)"
+      "preLaunchTask": "Prep: Server (Fresh Start)"
     },
     {
       "name": "Debug: Agent (Auto-Join)",
@@ -161,7 +161,7 @@
       },
       "args": [],
       "showLog": true,
-      "preLaunchTask": "Prep: Agent (Kill + Build Dev)"
+      "preLaunchTask": "Prep: Agent (Fresh Start)"
     }
   ],
   
