@@ -156,6 +156,27 @@ func startAutoUpdateManager(
 		return nil, err
 	}
 
+	// Check for post-update validation (runs if we just restarted after an update)
+	wasUpdated, fromVersion, validationErr := manager.ValidatePostUpdate()
+	if wasUpdated {
+		if validationErr != nil {
+			// Update validation failed - log error and notify
+			log.Error("Post-update validation FAILED",
+				"error", validationErr,
+				"current_version", currentVersion,
+				"from_version", fromVersion)
+			sendUpdateProgress(autoupdate.StatusFailed, currentVersion, -1,
+				"Update validation failed: "+validationErr.Error(), validationErr)
+		} else {
+			// Update successful!
+			log.Info("Post-update validation PASSED",
+				"new_version", currentVersion,
+				"previous_version", fromVersion)
+			sendUpdateProgress(autoupdate.StatusSucceeded, currentVersion, 100,
+				"Update completed successfully from "+fromVersion+" to "+currentVersion, nil)
+		}
+	}
+
 	manager.Start(ctx)
 
 	log.Info("Auto-update manager started",

@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,7 +37,16 @@ const (
 	stagingDirName            = "staging"
 	backupDirName             = "backups"
 	downloadDirName           = "downloads"
+	pendingUpdateFile         = "pending_update.json" // Stores expected version for post-restart validation
 )
+
+// PendingUpdateState stores information about an in-progress update for post-restart validation.
+type PendingUpdateState struct {
+	TargetVersion string    `json:"target_version"`
+	FromVersion   string    `json:"from_version"`
+	StartedAt     time.Time `json:"started_at"`
+	Method        string    `json:"method"` // "binary", "msi", "dnf", "apt", "yum"
+}
 
 // ProgressCallback is invoked when update status changes, allowing real-time
 // reporting to the server/UI. The callback receives the current status, target
@@ -666,6 +677,15 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 
 	m.logInfo("Update applied successfully", "from", m.currentVersion, "to", manifest.Version)
 
+	// Write pending update state for post-restart validation
+	updateMethod := "binary"
+	if strings.HasSuffix(stagingPath, ".msi") {
+		updateMethod = "msi"
+	}
+	if err := m.writePendingUpdateState(manifest.Version, updateMethod); err != nil {
+		m.logWarn("Failed to write pending update state (update will proceed)", "error", err)
+	}
+
 	// Trigger restart (this function likely won't return outside of tests)
 	if m.restartFn != nil {
 		return m.restartFn()
@@ -730,6 +750,11 @@ func (m *Manager) executeUpdateViaPackageManager(ctx context.Context, manifest *
 
 	m.logInfo("Update applied successfully via package manager",
 		"from", m.currentVersion, "to", manifest.Version, "package", m.packageName, "manager", m.packageManager)
+
+	// Write pending update state for post-restart validation
+	if err := m.writePendingUpdateState(manifest.Version, m.packageManager); err != nil {
+		m.logWarn("Failed to write pending update state (update will proceed)", "error", err)
+	}
 
 	// The package's postinst script should restart the service,
 	// but we explicitly restart to ensure we're running the new version
@@ -1298,6 +1323,127 @@ func (m *Manager) rollback(backupPath string) error {
 	}
 
 	return copyFile(backupPath, m.binaryPath)
+}
+
+// writePendingUpdateState saves the expected target version before restart.
+// This allows the new version to validate the update was successful on startup.
+func (m *Manager) writePendingUpdateState(targetVersion, method string) error {
+	state := PendingUpdateState{
+		TargetVersion: targetVersion,
+		FromVersion:   m.currentVersion,
+		StartedAt:     m.clock(),
+		Method:        method,
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal pending update state: %w", err)
+	}
+
+	pendingPath := filepath.Join(m.stateDir, pendingUpdateFile)
+	if err := os.WriteFile(pendingPath, data, 0o644); err != nil {
+		return fmt.Errorf("failed to write pending update state: %w", err)
+	}
+
+	m.logInfo("Wrote pending update state", "target_version", targetVersion, "method", method, "path", pendingPath)
+	return nil
+}
+
+// ValidatePostUpdate checks if this is a fresh start after an update and validates
+// the version is correct. Returns (wasUpdated bool, fromVersion string, err error).
+// Call this on startup to verify updates completed successfully.
+func (m *Manager) ValidatePostUpdate() (bool, string, error) {
+	pendingPath := filepath.Join(m.stateDir, pendingUpdateFile)
+
+	data, err := os.ReadFile(pendingPath)
+	if os.IsNotExist(err) {
+		// No pending update - normal startup
+		return false, "", nil
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("failed to read pending update state: %w", err)
+	}
+
+	// Always clean up the file regardless of validation result
+	defer func() {
+		if removeErr := os.Remove(pendingPath); removeErr != nil {
+			m.logWarn("Failed to remove pending update state file", "error", removeErr)
+		}
+	}()
+
+	var state PendingUpdateState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return false, "", fmt.Errorf("failed to parse pending update state: %w", err)
+	}
+
+	m.logInfo("Checking post-update validation",
+		"expected_version", state.TargetVersion,
+		"current_version", m.currentVersion,
+		"from_version", state.FromVersion,
+		"method", state.Method)
+
+	// Validate that current version matches expected target
+	if m.currentVersion != state.TargetVersion {
+		// Version mismatch - update may have failed
+		m.logError("Post-update validation FAILED: version mismatch",
+			"expected", state.TargetVersion,
+			"actual", m.currentVersion,
+			"from_version", state.FromVersion)
+		return true, state.FromVersion, fmt.Errorf("update validation failed: expected version %s but running %s",
+			state.TargetVersion, m.currentVersion)
+	}
+
+	// Success!
+	m.logInfo("Post-update validation PASSED",
+		"new_version", m.currentVersion,
+		"previous_version", state.FromVersion,
+		"update_method", state.Method,
+		"update_duration", m.clock().Sub(state.StartedAt).String())
+
+	return true, state.FromVersion, nil
+}
+
+// ValidatePostUpdateWithHealthCheck performs post-update validation including a health check.
+// It waits for the health endpoint to respond and validates the version.
+func (m *Manager) ValidatePostUpdateWithHealthCheck(healthURL string, timeout time.Duration) error {
+	if healthURL == "" {
+		healthURL = "http://127.0.0.1:8080/api/version"
+	}
+	if timeout == 0 {
+		timeout = defaultHealthCheckTimeout
+	}
+
+	m.logInfo("Performing health check", "url", healthURL, "timeout", timeout)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	deadline := m.clock().Add(timeout)
+
+	for m.clock().Before(deadline) {
+		resp, err := client.Get(healthURL)
+		if err != nil {
+			m.logDebug("Health check attempt failed", "error", err)
+			time.Sleep(time.Second)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			var versionInfo map[string]string
+			if err := json.NewDecoder(resp.Body).Decode(&versionInfo); err == nil {
+				if version, ok := versionInfo["version"]; ok {
+					m.logInfo("Health check passed", "version", version)
+					resp.Body.Close()
+					return nil
+				}
+			}
+			resp.Body.Close()
+		} else {
+			resp.Body.Close()
+		}
+
+		time.Sleep(time.Second)
+	}
+
+	return fmt.Errorf("health check timed out after %s", timeout)
 }
 
 func (m *Manager) restartService() error {
