@@ -10376,7 +10376,22 @@ function _attachAgentDetailsNameEditor(agent) {
             const displayEl = document.getElementById('agent_details_name_display');
             if (!displayEl) return;
             const current = displayEl.textContent || '';
-            displayEl.innerHTML = ` <input id="agent_details_name_input" value="${(agent.name||'').replace(/"/g,'&quot;')}" style="width:70%" autocomplete="off" data-1p-ignore data-lpignore="true" /> <button id="agent_details_save_name">Save</button> <button id="agent_details_cancel_name">Cancel</button>`;
+            // Create edit UI with proper mobile-friendly input styling
+            // Use flex-start to prevent mobile cursor position bugs with flex-end
+            displayEl.innerHTML = `<span style="display:flex;align-items:center;gap:6px;justify-content:flex-start;width:100%;">
+                <input id="agent_details_name_input" value="${(agent.name||'').replace(/"/g,'&quot;')}" 
+                    style="flex:1;min-width:120px;max-width:200px;text-align:left;direction:ltr;font-size:14px;padding:4px 8px;" 
+                    autocomplete="off" data-1p-ignore data-lpignore="true" />
+                <button id="agent_details_save_name">Save</button>
+                <button id="agent_details_cancel_name">Cancel</button>
+            </span>`;
+
+            // Focus the input and select all text so user can immediately type to replace
+            const inputEl = document.getElementById('agent_details_name_input');
+            if (inputEl) {
+                inputEl.focus();
+                inputEl.select();
+            }
 
             const saveBtn = document.getElementById('agent_details_save_name');
             const cancelBtn = document.getElementById('agent_details_cancel_name');

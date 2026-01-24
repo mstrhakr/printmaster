@@ -1763,6 +1763,12 @@ input[type="checkbox"]:indeterminate::before {
   gap: 6px;
 }
 
+/* When editing inline (contains an input), reset flex to prevent mobile cursor bugs */
+.device-card-value:has(input) {
+  justify-content: flex-start;
+  flex: 1;
+}
+
 .device-card-value.copyable {
   cursor: pointer;
   transition: color 0.2s ease;
