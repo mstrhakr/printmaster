@@ -134,6 +134,38 @@
     }
   ],
   
+  // ========== Auto-Join Debug Configurations ==========
+    {
+      "name": "Debug: Server (Auto-Join)",
+      "type": "go",
+      "request": "launch",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\server\\printmaster-server.exe",
+      "cwd": "${workspaceFolder}\\server",
+      "env": {
+        "INIT_SECRET": "debug-auto-join-secret"
+      },
+      "args": [],
+      "showLog": true,
+      "preLaunchTask": "Prep: Server (Kill + Build Dev)"
+    },
+    {
+      "name": "Debug: Agent (Auto-Join)",
+      "type": "go",
+      "request": "launch",
+      "mode": "exec",
+      "program": "${workspaceFolder}\\agent\\printmaster-agent.exe",
+      "cwd": "${workspaceFolder}\\agent",
+      "env": {
+        "SERVER_URL": "http://localhost:9090",
+        "INIT_SECRET": "debug-auto-join-secret"
+      },
+      "args": [],
+      "showLog": true,
+      "preLaunchTask": "Prep: Agent (Kill + Build Dev)"
+    }
+  ],
+  
   // ========== Compound Configurations ==========
   "compounds": [
     {
@@ -143,6 +175,18 @@
         "Debug: Agent (Default Port)"
       ],
       "stopAll": true
+    },
+    {
+      "name": "Debug: Agent + Server (Auto-Join)",
+      "configurations": [
+        "Debug: Server (Auto-Join)",
+        "Debug: Agent (Auto-Join)"
+      ],
+      "stopAll": true,
+      "presentation": {
+        "order": 1,
+        "group": "auto-join"
+      }
     }
   ]
 }
