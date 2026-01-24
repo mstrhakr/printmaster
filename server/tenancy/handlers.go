@@ -405,12 +405,12 @@ func handleTenants(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			logInfo("handleTenants: tenant created successfully", "id", tn.ID, "name", tn.Name)
-			
+
 			// Invoke tenant created callback (e.g., to create INIT_SECRET join token)
 			if tenantCreatedCallback != nil {
 				tenantCreatedCallback(r.Context(), tn.ID)
 			}
-			
+
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(tn)
 			recordAudit(r, &storage.AuditEntry{

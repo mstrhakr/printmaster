@@ -813,7 +813,7 @@ func runServer(ctx context.Context, configFlag string) {
 			logInfo("INIT_SECRET was previously used, skipping auto-join token creation")
 		}
 	}
-	
+
 	// Register callback to create INIT_SECRET join token when first tenant is created
 	tenancy.SetTenantCreatedCallback(func(ctx context.Context, tenantID string) {
 		initSecret := os.Getenv("INIT_SECRET")
@@ -826,14 +826,14 @@ func runServer(ctx context.Context, configFlag string) {
 			return
 		}
 		createInitSecretJoinToken(ctx, tenantID, initSecret, dataDir)
-		
+
 		// Broadcast onboarding complete event to UI
 		if sseHub != nil {
 			sseHub.Broadcast(SSEEvent{
 				Type: "onboarding_complete",
 				Data: map[string]interface{}{
-					"tenant_id":     tenantID,
-					"init_secret":   true,
+					"tenant_id":       tenantID,
+					"init_secret":     true,
 					"agents_can_join": true,
 				},
 			})
