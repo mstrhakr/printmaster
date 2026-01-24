@@ -703,11 +703,11 @@ func (m *Manager) executeUpdateViaPackageManager(ctx context.Context, manifest *
 	}
 
 	// Apply phase via package manager (apt/dnf/yum)
-	m.setStatusWithProgress(StatusApplying, -1, fmt.Sprintf("Updating via %s (%s)...", m.packageManager, m.packageName))
+	m.setStatusWithProgress(StatusApplying, -1, fmt.Sprintf("Updating via %s (%s) to %s...", m.packageManager, m.packageName, manifest.Version))
 	run.Status = StatusApplying
 	m.reportTelemetry(ctx, StatusApplying, "", "")
 
-	if err := m.applyUpdateViaPackageManager(); err != nil {
+	if err := m.applyUpdateViaPackageManager(manifest.Version); err != nil {
 		run.Status = StatusFailed
 		run.ErrorCode = ErrCodeApplyFailed
 		run.ErrorMessage = err.Error()
@@ -823,8 +823,9 @@ func (m *Manager) applyUpdate(stagingPath string) error {
 	}
 
 	// If using package manager (apt/dnf/yum), delegate to package manager
+	// Note: This is a defensive check - normally executeUpdateViaPackageManager handles this
 	if m.usePackageManager && m.packageName != "" {
-		return m.applyUpdateViaPackageManager()
+		return m.applyUpdateViaPackageManager("") // Empty version = generic upgrade
 	}
 
 	// On Windows, we can't replace a running binary directly.
@@ -890,16 +891,17 @@ func (m *Manager) applyUpdateUnix(stagingPath string) error {
 
 // applyUpdateViaPackageManager uses the appropriate package manager (apt/dnf/yum)
 // to update the package when the binary was installed via a package manager.
-func (m *Manager) applyUpdateViaPackageManager() error {
-	m.logInfo("Updating via package manager", "package", m.packageName, "manager", m.packageManager)
+// targetVersion is the specific version to install (e.g., "0.27.4").
+func (m *Manager) applyUpdateViaPackageManager(targetVersion string) error {
+	m.logInfo("Updating via package manager", "package", m.packageName, "manager", m.packageManager, "target_version", targetVersion)
 
 	switch m.packageManager {
 	case "apt":
-		return m.applyUpdateViaApt()
+		return m.applyUpdateViaApt(targetVersion)
 	case "dnf":
-		return m.applyUpdateViaDnf()
+		return m.applyUpdateViaDnf(targetVersion)
 	case "yum":
-		return m.applyUpdateViaYum()
+		return m.applyUpdateViaYum(targetVersion)
 	default:
 		return fmt.Errorf("unknown package manager: %s", m.packageManager)
 	}
@@ -908,7 +910,7 @@ func (m *Manager) applyUpdateViaPackageManager() error {
 // applyUpdateViaApt uses apt-get to update the package when the binary was installed via dpkg.
 // This is the proper way to update on Debian/Ubuntu systems with package-managed binaries.
 // Note: Requires sudoers configuration installed by the .deb package in /etc/sudoers.d/printmaster-agent
-func (m *Manager) applyUpdateViaApt() error {
+func (m *Manager) applyUpdateViaApt(targetVersion string) error {
 	// First, update the package lists to get the latest version info
 	m.logDebug("Running sudo apt-get update")
 	updateCmd := exec.Command("sudo", "apt-get", "update", "-qq")
@@ -918,16 +920,22 @@ func (m *Manager) applyUpdateViaApt() error {
 		// Don't fail here - the package might already be in cache
 	}
 
-	// Now upgrade the specific package
-	m.logInfo("Running sudo apt-get install", "package", m.packageName)
-	installCmd := exec.Command("sudo", "apt-get", "install", "-y", "-qq", "--only-upgrade", m.packageName)
+	// Install the specific version to ensure we get exactly what we want
+	// Format: packagename=version (e.g., printmaster-agent=0.27.4)
+	packageSpec := m.packageName
+	if targetVersion != "" {
+		packageSpec = fmt.Sprintf("%s=%s*", m.packageName, targetVersion)
+	}
+
+	m.logInfo("Running sudo apt-get install", "package", packageSpec)
+	installCmd := exec.Command("sudo", "apt-get", "install", "-y", "-qq", "--allow-downgrades", packageSpec)
 	installCmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	output, err := installCmd.CombinedOutput()
 	if err != nil {
 		return m.wrapSudoError("apt-get install", err, output)
 	}
 
-	m.logInfo("Package updated successfully via apt-get", "package", m.packageName, "output", strings.TrimSpace(string(output)))
+	m.logInfo("Package updated successfully via apt-get", "package", packageSpec, "output", strings.TrimSpace(string(output)))
 
 	// The service should be restarted by the package's postinst script,
 	// but we trigger a restart anyway to ensure we're running the new version
@@ -937,24 +945,45 @@ func (m *Manager) applyUpdateViaApt() error {
 // applyUpdateViaDnf uses dnf to update the package when the binary was installed via rpm.
 // This is the proper way to update on Fedora/RHEL 8+ systems with package-managed binaries.
 // Note: Requires sudoers configuration installed by the .rpm package in /etc/sudoers.d/printmaster-agent
-func (m *Manager) applyUpdateViaDnf() error {
-	// Refresh package metadata
-	m.logDebug("Running sudo dnf check-update")
-	// dnf check-update returns exit code 100 if updates are available, 0 if none, 1 on error
+func (m *Manager) applyUpdateViaDnf(targetVersion string) error {
+	// Use --refresh to force metadata refresh from repos, bypassing any stale cache.
+	// This is critical for reliable updates - without it, dnf may not see new versions.
 	// Use --setopt=logdir=/tmp to avoid dnf5 "Read-only file system" errors on /var/log/dnf5.log
-	// when running as a service with restricted write access
-	checkCmd := exec.Command("sudo", "dnf", "--setopt=logdir=/tmp", "check-update", "-q", m.packageName)
-	checkCmd.Run() // Ignore exit code, just refreshes cache
+	// when running as a service with restricted write access.
 
-	// Now upgrade the specific package
-	m.logInfo("Running sudo dnf upgrade", "package", m.packageName)
-	upgradeCmd := exec.Command("sudo", "dnf", "--setopt=logdir=/tmp", "upgrade", "-y", "-q", m.packageName)
-	output, err := upgradeCmd.CombinedOutput()
-	if err != nil {
-		return m.wrapSudoError("dnf upgrade", err, output)
+	// Install the specific version to ensure we get exactly what we want.
+	// Format: packagename-version (e.g., printmaster-agent-0.27.4)
+	// Using 'install' with a specific version works whether upgrading or downgrading.
+	packageSpec := m.packageName
+	if targetVersion != "" {
+		packageSpec = fmt.Sprintf("%s-%s", m.packageName, targetVersion)
 	}
 
-	m.logInfo("Package updated successfully via dnf", "package", m.packageName, "output", strings.TrimSpace(string(output)))
+	m.logInfo("Running sudo dnf install with refresh", "package", packageSpec)
+	installCmd := exec.Command("sudo", "dnf",
+		"--setopt=logdir=/tmp",
+		"--refresh",           // Force metadata refresh
+		"install",
+		"-y",
+		"--allowerasing",      // Allow replacing conflicting packages
+		packageSpec)
+	output, err := installCmd.CombinedOutput()
+	if err != nil {
+		// If specific version install failed, try without version (fallback to upgrade)
+		m.logWarn("Specific version install failed, trying generic upgrade", "error", err, "output", string(output))
+		upgradeCmd := exec.Command("sudo", "dnf",
+			"--setopt=logdir=/tmp",
+			"--refresh",
+			"upgrade",
+			"-y",
+			m.packageName)
+		output, err = upgradeCmd.CombinedOutput()
+		if err != nil {
+			return m.wrapSudoError("dnf install/upgrade", err, output)
+		}
+	}
+
+	m.logInfo("Package updated successfully via dnf", "package", packageSpec, "output", strings.TrimSpace(string(output)))
 
 	// The service should be restarted by the package's postinst script (%post),
 	// but we trigger a restart anyway to ensure we're running the new version
@@ -964,21 +993,33 @@ func (m *Manager) applyUpdateViaDnf() error {
 // applyUpdateViaYum uses yum to update the package when the binary was installed via rpm.
 // This is for older RHEL/CentOS systems that don't have dnf.
 // Note: Requires sudoers configuration installed by the .rpm package in /etc/sudoers.d/printmaster-agent
-func (m *Manager) applyUpdateViaYum() error {
-	// Refresh package metadata
-	m.logDebug("Running sudo yum check-update")
-	checkCmd := exec.Command("sudo", "yum", "check-update", "-q", m.packageName)
-	checkCmd.Run() // Ignore exit code, just refreshes cache
+func (m *Manager) applyUpdateViaYum(targetVersion string) error {
+	// Clean the yum cache to force fresh metadata
+	m.logDebug("Running sudo yum clean metadata")
+	cleanCmd := exec.Command("sudo", "yum", "clean", "metadata", "-q")
+	cleanCmd.Run() // Ignore errors
 
-	// Now upgrade the specific package
-	m.logInfo("Running sudo yum upgrade", "package", m.packageName)
-	upgradeCmd := exec.Command("sudo", "yum", "upgrade", "-y", "-q", m.packageName)
-	output, err := upgradeCmd.CombinedOutput()
-	if err != nil {
-		return m.wrapSudoError("yum upgrade", err, output)
+	// Install the specific version to ensure we get exactly what we want.
+	// Format: packagename-version (e.g., printmaster-agent-0.27.4)
+	packageSpec := m.packageName
+	if targetVersion != "" {
+		packageSpec = fmt.Sprintf("%s-%s", m.packageName, targetVersion)
 	}
 
-	m.logInfo("Package updated successfully via yum", "package", m.packageName, "output", strings.TrimSpace(string(output)))
+	m.logInfo("Running sudo yum install", "package", packageSpec)
+	installCmd := exec.Command("sudo", "yum", "install", "-y", "-q", packageSpec)
+	output, err := installCmd.CombinedOutput()
+	if err != nil {
+		// If specific version install failed, try generic upgrade
+		m.logWarn("Specific version install failed, trying generic upgrade", "error", err, "output", string(output))
+		upgradeCmd := exec.Command("sudo", "yum", "upgrade", "-y", "-q", m.packageName)
+		output, err = upgradeCmd.CombinedOutput()
+		if err != nil {
+			return m.wrapSudoError("yum install/upgrade", err, output)
+		}
+	}
+
+	m.logInfo("Package updated successfully via yum", "package", packageSpec, "output", strings.TrimSpace(string(output)))
 
 	// The service should be restarted by the package's postinst script (%post),
 	// but we trigger a restart anyway to ensure we're running the new version
