@@ -54,11 +54,15 @@ cat > %{buildroot}%{_sysconfdir}/sudoers.d/printmaster-agent << 'EOF'
 
 # Fedora/RHEL dnf commands
 # Note: --setopt=logdir=/tmp prevents dnf5 from writing to /var/log/dnf5.log which may be read-only for the service
-printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp check-update -q printmaster-agent
-printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp upgrade -y -q printmaster-agent
+# The wildcard allows installing specific versions (e.g., printmaster-agent-0.27.4)
+printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp --refresh install -y --allowerasing printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp --refresh install -y --allowerasing printmaster-agent-*
+printmaster ALL=(root) NOPASSWD: /usr/bin/dnf --setopt=logdir=/tmp --refresh upgrade -y printmaster-agent
 
 # RHEL/CentOS yum commands (fallback for older systems)
-printmaster ALL=(root) NOPASSWD: /usr/bin/yum check-update -q printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/yum clean metadata -q
+printmaster ALL=(root) NOPASSWD: /usr/bin/yum install -y -q printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/yum install -y -q printmaster-agent-*
 printmaster ALL=(root) NOPASSWD: /usr/bin/yum upgrade -y -q printmaster-agent
 
 # Allow agent to restart itself after update

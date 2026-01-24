@@ -75,8 +75,10 @@ cat > "$PKG_DIR/etc/sudoers.d/printmaster-agent" << 'SUDOERS'
 # Remove this file to disable automatic package updates
 
 # Debian/Ubuntu apt-get commands
+# The wildcard allows installing specific versions (e.g., printmaster-agent=0.27.4*)
 printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get update -qq
-printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get install -y -qq --only-upgrade printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get install -y -qq --allow-downgrades printmaster-agent
+printmaster ALL=(root) NOPASSWD: /usr/bin/apt-get install -y -qq --allow-downgrades printmaster-agent=*
 
 # Allow agent to restart itself after update
 printmaster ALL=(root) NOPASSWD: /usr/bin/systemctl restart --no-block printmaster-agent.service
