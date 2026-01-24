@@ -3136,6 +3136,19 @@ select:focus {
     padding: 5px 8px;
     font-size: 12px;
   }
+
+  /* Hide metrics overview cards entirely on mobile to show content immediately */
+  .agents-main .metrics-overview-grid,
+  .devices-main .metrics-overview-grid,
+  .logs-main .metrics-overview-grid {
+    display: none;
+  }
+
+  /* Make agents/devices inline stats more compact on mobile */
+  .agents-inline-stats,
+  .devices-inline-stats {
+    display: none;
+  }
 }
 
 /* Consumables donut chart section */
@@ -3626,7 +3639,7 @@ select:focus {
 @media (max-width: 900px) {
   .sidebar-layout {
     flex-direction: column;
-    gap: 8px;
+    gap: 0;
   }
   
   .filter-sidebar {
@@ -3635,19 +3648,20 @@ select:focus {
     max-height: none;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    background: var(--bg); /* Ensure solid background on mobile */
+    background: var(--bg);
     position: relative;
-    z-index: 10; /* Stay above content when expanded */
+    z-index: 10;
   }
   
   .filter-sidebar.collapsed {
     width: 100%;
+    border-bottom: none;
   }
-  
+
   .filter-sidebar .filter-sidebar-content {
-    background: var(--bg); /* Solid background for content area */
+    background: var(--bg);
     padding: 8px;
-    max-height: 300px; /* Limit height on mobile */
+    max-height: 280px;
     overflow-y: auto;
   }
   
@@ -3655,7 +3669,7 @@ select:focus {
     display: none;
   }
   
-  .filter-sidebar.collapsed .filter-sidebar-header h4 {
+  .filter-sidebar .filter-sidebar-header h4 {
     opacity: 1;
     visibility: visible;
     width: auto;
@@ -3672,6 +3686,61 @@ select:focus {
   .sidebar-main {
     height: auto;
     min-height: 0;
+  }
+
+  /* Make main headers more compact on mobile */
+  .agents-main-header,
+  .devices-main-header,
+  .logs-main-header {
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 8px;
+  }
+
+  .agents-main-header h3,
+  .devices-main-header h3,
+  .logs-main-header h3 {
+    font-size: 16px;
+    margin-bottom: 0;
+  }
+
+  .agents-main-header .muted-text,
+  .devices-main-header .muted-text,
+  .logs-main-header .muted-text {
+    display: none;
+  }
+
+  .agents-main-actions,
+  .devices-main-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .view-toggle {
+    order: -1; /* Move view toggle to start on mobile */
+  }
+
+  .view-toggle .ghost-btn {
+    min-width: 60px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  /* Compact pending registrations on mobile */
+  .pending-registrations-section {
+    margin-bottom: 8px;
+  }
+
+  .pending-registrations-header {
+    padding: 8px 12px;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+
+  .pending-registrations-title {
+    font-size: 13px;
   }
 }
 
