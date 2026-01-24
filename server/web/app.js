@@ -16273,15 +16273,15 @@ function renderConsumables(fleet) {
 
     // Build donut chart container with legend
     card.innerHTML += `
-        <div class="consumables-chart-container" style="display:flex;gap:20px;align-items:center;padding:10px 0;">
-            <canvas id="consumables_donut_chart" width="160" height="160" style="flex-shrink:0;"></canvas>
-            <div class="consumables-legend" style="display:flex;flex-direction:column;gap:6px;font-size:12px;">
+        <div class="consumables-chart-container">
+            <canvas id="consumables_donut_chart" width="160" height="160"></canvas>
+            <div class="consumables-legend">
                 ${tiers.map(tier => `
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span style="width:12px;height:12px;border-radius:2px;background:${tier.color};flex-shrink:0;"></span>
-                        <span style="color:rgba(255,255,255,0.7);">${tier.label}:</span>
+                    <div class="consumables-legend-item">
+                        <span class="consumables-legend-swatch" style="background:${tier.color};"></span>
+                        <span class="consumables-legend-label">${tier.label}:</span>
                         <strong>${formatNumber(tier.value)}</strong>
-                        <span style="color:rgba(255,255,255,0.5);">(${Math.round((tier.value / totalDevices) * 100)}%)</span>
+                        <span class="consumables-legend-pct">(${Math.round((tier.value / totalDevices) * 100)}%)</span>
                     </div>
                 `).join('')}
             </div>
