@@ -351,6 +351,77 @@ func TestJoinTokenOperations(t *testing.T) {
 	}
 }
 
+// TestInitSecretJoinToken tests that arbitrary INIT_SECRET strings work for auto-join.
+// This covers the Docker Compose scenario where agent and server share a human-readable secret.
+func TestInitSecretJoinToken(t *testing.T) {
+	t.Parallel()
+	s, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+
+	// Create tenant
+	tenant := &Tenant{
+		ID:   "tenant-init",
+		Name: "Init Secret Test Tenant",
+	}
+	err = s.CreateTenant(ctx, tenant)
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+
+	// Use human-readable INIT_SECRET (not 48-char hex)
+	initSecret := "changeme-for-production"
+
+	jt := &JoinToken{
+		ID:       "init-secret",
+		TenantID: "tenant-init",
+		OneTime:  false,
+	}
+
+	// Create join token with custom secret
+	created, err := s.CreateJoinTokenWithSecret(ctx, jt, initSecret)
+	if err != nil {
+		t.Fatalf("CreateJoinTokenWithSecret: %v", err)
+	}
+	if created == nil {
+		t.Fatal("expected join token record, got nil")
+	}
+
+	// Validate with the same secret
+	validated, err := s.ValidateJoinToken(ctx, initSecret)
+	if err != nil {
+		t.Fatalf("ValidateJoinToken with init secret failed: %v", err)
+	}
+	if validated == nil {
+		t.Fatal("expected token, got nil")
+	}
+	if validated.TenantID != "tenant-init" {
+		t.Errorf("tenant_id mismatch: got=%q want=%q", validated.TenantID, "tenant-init")
+	}
+	if validated.ID != "init-secret" {
+		t.Errorf("token ID mismatch: got=%q want=%q", validated.ID, "init-secret")
+	}
+
+	// Multiple validations should succeed (not one-time)
+	validated2, err := s.ValidateJoinToken(ctx, initSecret)
+	if err != nil {
+		t.Fatalf("Second ValidateJoinToken failed: %v", err)
+	}
+	if validated2 == nil {
+		t.Fatal("expected token on second validation, got nil")
+	}
+
+	// Wrong secret should fail
+	_, err = s.ValidateJoinToken(ctx, "wrong-secret")
+	if err == nil {
+		t.Error("expected validation to fail with wrong secret")
+	}
+}
+
 func TestPasswordResetTokenOperations(t *testing.T) {
 	t.Parallel()
 	s, err := NewSQLiteStore(":memory:")
