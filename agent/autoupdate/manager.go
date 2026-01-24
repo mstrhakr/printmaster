@@ -965,7 +965,7 @@ func (m *Manager) applyUpdateViaApt(targetVersion string, progressFn ProgressFun
 func (m *Manager) applyUpdateViaDnf(targetVersion string, progressFn ProgressFunc) error {
 	// Phase 1: Prepare (0-10%)
 	progressFn(5, "Preparing dnf update...")
-	
+
 	// Install the specific version to ensure we get exactly what we want.
 	// Format: packagename-version (e.g., printmaster-agent-0.27.4)
 	packageSpec := m.packageName
@@ -976,13 +976,13 @@ func (m *Manager) applyUpdateViaDnf(targetVersion string, progressFn ProgressFun
 	// Phase 2: Refresh metadata and resolve dependencies (10-30%)
 	progressFn(10, "Refreshing repository metadata...")
 	m.logInfo("Running sudo dnf install with refresh", "package", packageSpec)
-	
+
 	// Use --refresh to force metadata refresh from repos, bypassing any stale cache.
 	progressFn(25, fmt.Sprintf("Resolving dependencies for %s...", packageSpec))
-	
+
 	// Phase 3: Download package (30-60%)
 	progressFn(35, fmt.Sprintf("Downloading %s...", packageSpec))
-	
+
 	installCmd := exec.Command("sudo", "dnf",
 		"--setopt=logdir=/tmp",
 		"--refresh", // Force metadata refresh
@@ -991,7 +991,7 @@ func (m *Manager) applyUpdateViaDnf(targetVersion string, progressFn ProgressFun
 		"--allowerasing", // Allow replacing conflicting packages
 		packageSpec)
 	output, err := installCmd.CombinedOutput()
-	
+
 	if err != nil {
 		// If specific version install failed, try without version (fallback to upgrade)
 		progressFn(40, "Specific version not found, trying upgrade...")
@@ -1007,7 +1007,7 @@ func (m *Manager) applyUpdateViaDnf(targetVersion string, progressFn ProgressFun
 			return m.wrapSudoError("dnf install/upgrade", err, output)
 		}
 	}
-	
+
 	// Phase 4: Install/Verify (60-90%)
 	progressFn(75, "Installing package...")
 	progressFn(90, "Package installed successfully")
@@ -1038,7 +1038,7 @@ func (m *Manager) applyUpdateViaYum(targetVersion string, progressFn ProgressFun
 
 	progressFn(25, fmt.Sprintf("Resolving dependencies for %s...", packageSpec))
 	progressFn(35, fmt.Sprintf("Downloading %s...", packageSpec))
-	
+
 	m.logInfo("Running sudo yum install", "package", packageSpec)
 	installCmd := exec.Command("sudo", "yum", "install", "-y", "-q", packageSpec)
 	output, err := installCmd.CombinedOutput()
