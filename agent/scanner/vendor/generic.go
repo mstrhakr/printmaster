@@ -215,9 +215,19 @@ func parseSuppliesTable(pdus []gosnmp.SnmpPDU) map[string]interface{} {
 
 		// Class 3 = supplyThatIsConsumed (toner, ink, etc.)
 		// Class 4 = receptacleThatIsFilled (waste toner containers)
-		// Skip other classes
-		if entry.Class != 3 && entry.Class != 4 {
+		// Class 0 = not reported (some devices don't report class, allow if description normalizes)
+		// Skip other classes (1=other, 2=unknown)
+		if entry.Class != 0 && entry.Class != 3 && entry.Class != 4 {
 			continue
+		}
+
+		// If Class is 0 (not reported), only include if description normalizes to known supply type
+		// This prevents random OIDs from being treated as supplies
+		if entry.Class == 0 {
+			normalized := supplies.NormalizeDescription(entry.Description)
+			if normalized == "" {
+				continue // Unknown description and no class - skip
+			}
 		}
 
 		// Normalize description for matching

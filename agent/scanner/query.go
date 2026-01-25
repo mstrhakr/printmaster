@@ -242,19 +242,26 @@ func queryDeviceWithCapabilitiesAndClient(ctx context.Context, ip string, profil
 			return nil, fmt.Errorf("no OIDs to query for profile %s", profile)
 		}
 
-		// For QueryMetrics, separate supply table walks from scalar GETs
+		// For QueryMetrics and QueryEssential, separate supply table walks from scalar GETs
+		// Supply OIDs are table roots (e.g., prtMarkerSuppliesLevel) that must be walked,
+		// not queried with GET which would fail to return any data.
 		var scalarOIDs []string
 		var tableRoots []string
 
-		if profile == QueryMetrics && detectedVendor != nil {
+		if (profile == QueryMetrics || profile == QueryEssential) && detectedVendor != nil {
 			supplyOIDs := detectedVendor.SupplyOIDs()
-			supplyMap := make(map[string]bool)
+			// Also include paper tray OIDs as tables to walk
+			paperTrayOIDs := detectedVendor.PaperTrayOIDs()
+			tableOIDMap := make(map[string]bool)
 			for _, s := range supplyOIDs {
-				supplyMap[s] = true
+				tableOIDMap[s] = true
+			}
+			for _, s := range paperTrayOIDs {
+				tableOIDMap[s] = true
 			}
 
 			for _, oid := range queryOIDs {
-				if supplyMap[oid] {
+				if tableOIDMap[oid] {
 					tableRoots = append(tableRoots, oid)
 				} else {
 					scalarOIDs = append(scalarOIDs, oid)
