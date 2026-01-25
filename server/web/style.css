@@ -3117,6 +3117,38 @@ select:focus {
 
 .metrics-overview-grid.compact {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+/* Compact KPI cards - smaller values and tighter spacing */
+.metrics-overview-grid.compact .metric-card {
+  padding: 10px 12px;
+}
+
+.metrics-overview-grid.compact .card-title {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.metrics-overview-grid.compact .metric-kpi-value {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.metrics-overview-grid.compact .metric-kpi-label {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.metrics-overview-grid.compact .metric-status-chips {
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.metrics-overview-grid.compact .metric-chip {
+  padding: 2px 8px;
+  font-size: 11px;
+  gap: 4px;
 }
 
 .metrics-layout {
