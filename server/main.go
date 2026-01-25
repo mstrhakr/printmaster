@@ -3642,6 +3642,7 @@ func setupRoutes(cfg *Config) {
 
 	// Device management endpoints that proxy to agent (for server UI Details modal)
 	http.HandleFunc("/devices/preview", requireWebAuth(handleDevicePreviewProxy))
+	http.HandleFunc("/devices/update", requireWebAuth(handleDeviceUpdateProxy))
 	http.HandleFunc("/devices/metrics/collect", requireWebAuth(handleDeviceMetricsCollectProxy))
 	http.HandleFunc("/api/report", requireWebAuth(handleDeviceReportProxy)) // Proxy device reports to agent
 
@@ -5592,6 +5593,61 @@ func handleDevicePreviewProxy(w http.ResponseWriter, r *http.Request) {
 	// Preview involves SNMP deep scan that can take 30+ seconds for slow devices,
 	// so we use a 60-second timeout to allow enough time.
 	proxyThroughWebSocketWithTimeout(w, r, device.AgentID, agentURL, 60*time.Second)
+}
+
+// handleDeviceUpdateProxy proxies /devices/update requests to the device's agent
+// This allows the server UI to apply proposed updates (subnet mask, web UI URL, etc.)
+func handleDeviceUpdateProxy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body to get device serial
+	var req struct {
+		Serial string `json:"serial"`
+	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Serial == "" {
+		http.Error(w, "Serial number required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up device to find the agent
+	ctx := context.Background()
+	device, err := serverStore.GetDevice(ctx, req.Serial)
+	if err != nil || device == nil {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	if device.AgentID == "" {
+		http.Error(w, "Device has no associated agent", http.StatusBadRequest)
+		return
+	}
+
+	if !isAgentConnectedWS(device.AgentID) {
+		http.Error(w, "Device's agent not connected", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Proxy to agent's /devices/update endpoint
+	agentURL := "http://localhost:8080/devices/update"
+
+	// Restore the request body so proxyThroughWebSocket can read it
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	// Use standard WebSocket proxy timeout
+	proxyThroughWebSocketWithTimeout(w, r, device.AgentID, agentURL, 30*time.Second)
 }
 
 // handleDeviceMetricsCollectProxy proxies /devices/metrics/collect requests to the device's agent
