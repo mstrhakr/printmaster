@@ -451,6 +451,7 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 	markerCounts := map[int]int{}
 	supplyDesc := map[string]string{}
 	supplyLevels := map[string]int{}
+	supplyMaxCap := map[string]int{} // max capacity for percentage calculation
 	var statusMsgs []string
 	ifMacs := map[string]string{}
 
@@ -649,6 +650,21 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 			}
 			continue
 		}
+		// supplies max capacity
+		if strings.HasPrefix(name, "1.3.6.1.2.1.43.11.1.1.8.1.") {
+			suf := strings.TrimPrefix(name, "1.3.6.1.2.1.43.11.1.1.8.1.")
+			parts := strings.Split(suf, ".")
+			key := suf
+			if len(parts) >= 2 {
+				if hrIdx, err := strconv.Atoi(parts[0]); err == nil {
+					key = fmt.Sprintf("%d.%s", hrIdx, strings.Join(parts[1:], "."))
+				}
+			}
+			if iv, ok := toInt(v.Value); ok {
+				supplyMaxCap[key] = iv
+			}
+			continue
+		}
 		// ifPhysAddress
 		if strings.HasPrefix(name, "1.3.6.1.2.1.2.2.1.6.") {
 			if b, ok := v.Value.([]byte); ok && len(b) > 0 {
@@ -677,7 +693,7 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 		}
 	}
 
-	debug.Steps = append(debug.Steps, fmt.Sprintf("collected_counts: marker_counts=%d supply_desc=%d supply_levels=%d", len(markerCounts), len(supplyDesc), len(supplyLevels)))
+	debug.Steps = append(debug.Steps, fmt.Sprintf("collected_counts: marker_counts=%d supply_desc=%d supply_levels=%d supply_max_cap=%d", len(markerCounts), len(supplyDesc), len(supplyLevels), len(supplyMaxCap)))
 
 	tonerLevels := map[string]int{}
 	consumables := []string{}
@@ -710,12 +726,48 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 					}
 				}
 			}
-			tonerLevels[key] = lvl
+
+			// Calculate percentage from level and max capacity per RFC 3805 (Printer-MIB)
+			// Level/MaxCapacity special values:
+			//   -1: other/unknown
+			//   -2: unknown (manufacturer-defined)
+			//   -3: someRemaining (level is not quantifiable, but supply is usable)
+			maxCap := supplyMaxCap[idx]
+			var percentage int
+			if maxCap > 0 && lvl >= 0 {
+				// Normal case: calculate percentage from level/capacity
+				percentage = int((float64(lvl) / float64(maxCap)) * 100.0)
+			} else if lvl >= 0 && lvl <= 100 && maxCap <= 0 {
+				// MaxCapacity is unknown/special but Level is valid 0-100 range
+				// Treat level as percentage directly (common for many printers)
+				percentage = lvl
+			} else if lvl == -3 {
+				// someRemaining: report as low (10%) as a reasonable estimate
+				percentage = 10
+			} else {
+				// Unknown or invalid level - skip this supply
+				consumables = append(consumables, desc)
+				continue
+			}
+			tonerLevels[key] = percentage
 			consumables = append(consumables, desc)
 		} else {
 			// fallback to numeric index as string (idx is already a string)
 			key := idx
-			tonerLevels[key] = lvl
+			// Same percentage calculation for unknown supplies
+			maxCap := supplyMaxCap[idx]
+			var percentage int
+			if maxCap > 0 && lvl >= 0 {
+				percentage = int((float64(lvl) / float64(maxCap)) * 100.0)
+			} else if lvl >= 0 && lvl <= 100 && maxCap <= 0 {
+				percentage = lvl
+			} else if lvl == -3 {
+				percentage = 10
+			} else {
+				consumables = append(consumables, key)
+				continue
+			}
+			tonerLevels[key] = percentage
 			consumables = append(consumables, key)
 		}
 	}
