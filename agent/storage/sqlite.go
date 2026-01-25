@@ -843,6 +843,79 @@ func (s *SQLiteStore) runMigrations() error {
 		}
 	}
 
+	// Schema repair: ensure critical columns exist regardless of recorded version
+	// This handles cases where migration tracking got out of sync with actual schema
+	if err := s.repairSchema(); err != nil {
+		return fmt.Errorf("schema repair failed: %w", err)
+	}
+
+	return nil
+}
+
+// repairSchema ensures critical columns exist in the devices table
+// This is a safety net for cases where migrations were partially applied
+// or the schema_version got out of sync with the actual schema
+func (s *SQLiteStore) repairSchema() error {
+	// Check if devices table exists first
+	var tableExists int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+	if err != nil || tableExists == 0 {
+		return nil // No devices table, nothing to repair
+	}
+
+	// Get existing columns
+	existingCols := make(map[string]bool)
+	rows, err := s.db.Query("PRAGMA table_info(devices)")
+	if err != nil {
+		return fmt.Errorf("failed to get table info: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt interface{}
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			continue
+		}
+		existingCols[name] = true
+	}
+
+	// Critical columns that must exist (added in migration 9)
+	criticalColumns := []struct {
+		name string
+		def  string
+	}{
+		{"device_type", "TEXT DEFAULT 'network'"},
+		{"source_type", "TEXT DEFAULT 'snmp'"},
+		{"is_usb", "BOOLEAN DEFAULT 0"},
+		{"initial_page_count", "INTEGER DEFAULT 0"},
+		{"port_name", "TEXT"},
+		{"driver_name", "TEXT"},
+		{"is_default", "BOOLEAN DEFAULT 0"},
+		{"is_shared", "BOOLEAN DEFAULT 0"},
+		{"spooler_status", "TEXT"},
+	}
+
+	repaired := false
+	for _, col := range criticalColumns {
+		if !existingCols[col.name] {
+			_, err := s.db.Exec(fmt.Sprintf(`ALTER TABLE devices ADD COLUMN %s %s`, col.name, col.def))
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to repair column %s: %w", col.name, err)
+			}
+			repaired = true
+			if storageLogger != nil {
+				storageLogger.Warn("Repaired missing column in devices table", "column", col.name)
+			}
+		}
+	}
+
+	if repaired {
+		// Set defaults for newly added columns
+		_, _ = s.db.Exec(`UPDATE devices SET device_type = 'network', source_type = 'snmp' WHERE device_type IS NULL OR device_type = ''`)
+	}
+
 	return nil
 }
 

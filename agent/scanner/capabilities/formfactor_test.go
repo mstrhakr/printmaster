@@ -222,9 +222,9 @@ func TestClassifyFormFactor(t *testing.T) {
 
 		// Unknown / Edge cases
 		{
-			name: "nil evidence",
+			name:     "nil evidence",
 			evidence: nil,
-			want: FormFactorUnknown,
+			want:     FormFactorUnknown,
 		},
 		{
 			name: "empty model",
@@ -304,9 +304,9 @@ func TestClassifyDeviceTypeWithFormFactor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		caps       DeviceCapabilities
-		wantType   string
+		name     string
+		caps     DeviceCapabilities
+		wantType string
 	}{
 		{
 			name: "Color Wide Format",
