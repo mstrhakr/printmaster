@@ -144,6 +144,16 @@ func validateAndSanitizeEmail(email string) (string, error) {
 	return sanitizeEmailHeader(email), nil
 }
 
+// SMTPConfig holds SMTP server settings for email notifications.
+type SMTPConfig struct {
+	Enabled bool
+	Host    string
+	Port    int
+	User    string
+	Pass    string
+	From    string
+}
+
 // NotifierConfig configures the notification dispatcher.
 type NotifierConfig struct {
 	// Logger for notification events
@@ -157,6 +167,9 @@ type NotifierConfig struct {
 
 	// Retry delay between attempts
 	RetryDelay time.Duration
+
+	// SMTP configuration for email notifications (used as fallback when channel doesn't specify)
+	SMTP SMTPConfig
 }
 
 // NotifierStore defines the storage operations needed by the notifier.
@@ -351,19 +364,48 @@ func (n *Notifier) dispatchToChannel(ctx context.Context, channel *storage.Notif
 // Email notification
 func (n *Notifier) sendEmail(ctx context.Context, config map[string]interface{}, alert *storage.Alert) error {
 	if config == nil {
-		return fmt.Errorf("email channel has no configuration")
+		config = make(map[string]interface{})
 	}
 
+	// Try channel-specific SMTP settings first, then fall back to global config
 	host, _ := config["smtp_host"].(string)
 	portFloat, _ := config["smtp_port"].(float64)
 	port := int(portFloat)
 	username, _ := config["smtp_username"].(string)
 	password, _ := config["smtp_password"].(string)
 	from, _ := config["from_address"].(string)
-	toList, _ := config["to_addresses"].([]interface{})
+
+	// Fall back to global SMTP config if channel doesn't have SMTP settings
+	if host == "" && n.config.SMTP.Host != "" {
+		host = n.config.SMTP.Host
+		port = n.config.SMTP.Port
+		username = n.config.SMTP.User
+		password = n.config.SMTP.Pass
+		if from == "" {
+			from = n.config.SMTP.From
+		}
+	}
+
+	// Get recipient list - try both "to_addresses" (legacy) and "to" (new UI format)
+	var toList []interface{}
+	if tl, ok := config["to_addresses"].([]interface{}); ok && len(tl) > 0 {
+		toList = tl
+	} else if tl, ok := config["to"].([]interface{}); ok && len(tl) > 0 {
+		toList = tl
+	}
 
 	if host == "" || from == "" || len(toList) == 0 {
-		return fmt.Errorf("incomplete email configuration")
+		var missing []string
+		if host == "" {
+			missing = append(missing, "SMTP host not configured in server settings")
+		}
+		if from == "" {
+			missing = append(missing, "from address not configured")
+		}
+		if len(toList) == 0 {
+			missing = append(missing, "no recipient addresses specified")
+		}
+		return fmt.Errorf("incomplete email configuration: %s", strings.Join(missing, ", "))
 	}
 
 	// Validate and sanitize from address to prevent header injection

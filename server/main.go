@@ -3525,6 +3525,14 @@ func setupRoutes(cfg *Config) {
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		MaxRetries: 3,
 		RetryDelay: 5 * time.Second,
+		SMTP: alertsapi.SMTPConfig{
+			Enabled: cfg.SMTP.Enabled,
+			Host:    cfg.SMTP.Host,
+			Port:    cfg.SMTP.Port,
+			User:    cfg.SMTP.User,
+			Pass:    cfg.SMTP.Pass,
+			From:    cfg.SMTP.From,
+		},
 	})
 	alertsAPI, err := alertsapi.NewAPI(serverStore, alertsapi.APIOptions{
 		AuthMiddleware: requireWebAuth,
