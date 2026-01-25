@@ -919,7 +919,7 @@
             return visibleColumns.map(col => {
                 const pinClass = col.pinned ? `pinned-${col.pinned}` : '';
                 const actionsClass = col.isActions ? 'actions-col' : '';
-                const width = col.width ? `style="width:${col.width}px;"` : '';
+                // Don't set width on td - let the th control column width via table-layout
                 
                 let content = '';
                 try {
@@ -929,7 +929,7 @@
                     content = '<span class="muted-text">—</span>';
                 }
                 
-                return `<td class="${pinClass} ${actionsClass}" ${width}>${content}</td>`;
+                return `<td class="${pinClass} ${actionsClass}" data-column-id="${col.id}">${content}</td>`;
             }).join('');
         }
 
@@ -1086,10 +1086,14 @@
                 cb.addEventListener('change', (e) => {
                     const colId = e.target.dataset.columnId;
                     this.toggleColumn(colId, e.target.checked);
-                    // Refresh picker
-                    dropdown.querySelector('.column-picker-body').innerHTML = 
-                        this.renderColumnPicker().match(/<div class="column-picker-body">[\s\S]*?<\/div>\s*<div class="column-picker-footer">/)?.[0]
-                            ?.replace('<div class="column-picker-footer">', '') || '';
+                    // Refresh picker body content
+                    const newPicker = document.createElement('div');
+                    newPicker.innerHTML = this.renderColumnPicker();
+                    const newBody = newPicker.querySelector('.column-picker-body');
+                    const existingBody = dropdown.querySelector('.column-picker-body');
+                    if (newBody && existingBody) {
+                        existingBody.innerHTML = newBody.innerHTML;
+                    }
                     this._bindColumnPickerEvents(dropdown);
                 });
             });

@@ -468,6 +468,7 @@ h1 {
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .simple-table {
@@ -483,6 +484,15 @@ h1 {
   border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
+  white-space: nowrap;
+}
+
+/* Allow text to wrap in device name and network cells */
+.simple-table td .table-primary,
+.simple-table td .muted-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
 }
 
 .simple-table thead th {
