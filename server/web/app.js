@@ -319,6 +319,8 @@ const agentsVM = {
         filteredConnections: buildAgentConnectionCounts(),
     },
     uiInitialized: false,
+    // Table customizer instance
+    tableCustomizer: null,
 };
 
 const tenantsVM = {
@@ -9271,6 +9273,67 @@ function initAgentsUI() {
     syncAgentSortControls();
     syncAgentQuickFilters();
     syncTenantFilterOptions('agents');
+    initAgentsTableCustomizer();
+}
+
+function initAgentsTableCustomizer() {
+    if (agentsVM.tableCustomizer) return;
+    
+    // Only initialize if TableCustomizer is available
+    if (typeof window.TableCustomizer === 'undefined') {
+        console.warn('TableCustomizer not available');
+        return;
+    }
+
+    // Create customizer instance
+    agentsVM.tableCustomizer = new window.TableCustomizer('agents', {
+        columnDefs: window.AGENTS_COLUMN_DEFINITIONS || [],
+        persistConfig: true,
+        enableResize: true,
+        enableReorder: true,
+        enableColumnMenu: true,
+        enableExport: true,
+        onSort: (sortState) => {
+            // Sync with agentsVM filters
+            if (sortState.key) {
+                agentsVM.filters.sortKey = sortState.key;
+                agentsVM.filters.sortDir = sortState.dir;
+                syncAgentSortControls();
+                applyAgentFilters();
+            }
+        },
+        onColumnChange: () => {
+            // Re-render table when columns change
+            renderAgentsTableHeader();
+            if (agentsVM.view === 'table') {
+                renderAgentTable(agentsVM.filtered);
+            }
+        },
+        onExport: () => {
+            // Export current filtered data
+            if (agentsVM.tableCustomizer) {
+                const timestamp = new Date().toISOString().split('T')[0];
+                agentsVM.tableCustomizer.exportToCSV(agentsVM.filtered, `printmaster-agents-${timestamp}.csv`);
+                window.__pm_shared?.showToast?.('Agents exported to CSV', 'success');
+            }
+        }
+    });
+
+    // Render toolbar
+    const toolbarContainer = document.getElementById('agents_table_customizer_toolbar');
+    if (toolbarContainer) {
+        toolbarContainer.innerHTML = agentsVM.tableCustomizer.renderToolbar();
+        agentsVM.tableCustomizer.bindToolbarEvents(toolbarContainer);
+    }
+
+    // Render initial header
+    renderAgentsTableHeader();
+
+    // Expose helper functions on window for use by column renderers
+    window.renderAgentStatusBadge = renderAgentStatusBadge;
+    window.renderAgentConnectionBadge = renderAgentConnectionBadge;
+    window.renderAgentVersionCell = renderAgentVersionCell;
+    window.getAgentDisplayName = getAgentDisplayName;
 }
 
 function renderAgentsLoading() {
@@ -9283,7 +9346,10 @@ function renderAgentsLoading() {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="8" class="muted-text">Loading agents…</td></tr>';
+            const visibleColumns = agentsVM.tableCustomizer 
+                ? agentsVM.tableCustomizer.getVisibleColumns().length 
+                : 8;
+            tbody.innerHTML = `<tr><td colspan="${visibleColumns}" class="muted-text">Loading agents…</td></tr>`;
         }
     }
     const metrics = document.getElementById('agents_overview_metrics');
@@ -9303,7 +9369,10 @@ function renderAgentsError(error) {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="8" class="error-text">Failed to load agents: ${escapeHtml(message)}</td></tr>`;
+            const visibleColumns = agentsVM.tableCustomizer 
+                ? agentsVM.tableCustomizer.getVisibleColumns().length 
+                : 8;
+            tbody.innerHTML = `<tr><td colspan="${visibleColumns}" class="error-text">Failed to load agents: ${escapeHtml(message)}</td></tr>`;
         }
     }
     const stats = document.getElementById('agents_stats');
@@ -9905,6 +9974,38 @@ function renderAgentVersionCell(agent, forTable = false) {
     return displayVersion;
 }
 
+function renderAgentsTableHeader() {
+    const thead = document.getElementById('agents_table_header');
+    if (!thead) return;
+    
+    if (!agentsVM.tableCustomizer) {
+        // Fallback to static headers if customizer not available
+        thead.innerHTML = `
+            <th data-sort-key="name">Agent</th>
+            <th data-sort-key="tenant">Tenant</th>
+            <th data-sort-key="status">Status</th>
+            <th data-sort-key="connection">Connection</th>
+            <th data-sort-key="platform">Platform</th>
+            <th data-sort-key="version">Version</th>
+            <th data-sort-key="last_seen">Last Seen</th>
+            <th class="actions-col">Actions</th>
+        `;
+        return;
+    }
+
+    // Use table customizer to render dynamic headers
+    thead.innerHTML = agentsVM.tableCustomizer.renderHeader();
+    
+    // Bind header events (sorting, resize handles)
+    const table = document.getElementById('agents_table');
+    if (table) {
+        const theadElement = table.querySelector('thead');
+        if (theadElement) {
+            agentsVM.tableCustomizer.bindHeaderEvents(theadElement);
+        }
+    }
+}
+
 function renderAgentTable(agents) {
     const cards = document.getElementById('agents_cards');
     const wrapper = document.getElementById('agents_table_wrapper');
@@ -9915,10 +10016,32 @@ function renderAgentTable(agents) {
     wrapper.classList.remove('hidden');
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
+    
+    // Calculate visible column count for colspan
+    const visibleColumns = agentsVM.tableCustomizer 
+        ? agentsVM.tableCustomizer.getVisibleColumns().length 
+        : 8;
+    
     if (!agents || agents.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="muted-text">No agents match the current filters.</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${visibleColumns}" class="muted-text">No agents match the current filters.</td></tr>`;
         return;
     }
+    
+    // Use table customizer if available
+    if (agentsVM.tableCustomizer) {
+        const rows = agents.map(agent => {
+            const meta = agent.__meta || {};
+            return `
+                <tr data-agent-id="${escapeHtml(agent.agent_id || '')}" class="agent-row-clickable" title="Click to view details">
+                    ${agentsVM.tableCustomizer.renderRow(agent, meta)}
+                </tr>
+            `;
+        }).join('');
+        tbody.innerHTML = rows;
+        return;
+    }
+    
+    // Fallback to original rendering if no customizer
     const rows = agents.map(agent => {
         const meta = agent.__meta || {};
         const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');

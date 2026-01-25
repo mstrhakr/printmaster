@@ -338,6 +338,213 @@
     ];
 
     /**
+     * Default column definitions for the agents table
+     */
+    const AGENTS_COLUMN_DEFINITIONS = [
+        {
+            id: 'agent',
+            label: 'Agent',
+            sortKey: 'name',
+            width: 200,
+            minWidth: 150,
+            pinnable: true,
+            hideable: false, // Always show
+            resizable: true,
+            filterable: true,
+            filterType: 'text',
+            render: (agent, meta) => {
+                const displayName = escapeHtml(window.getAgentDisplayName?.(agent) || agent.name || agent.hostname || 'Unknown');
+                const hostname = escapeHtml(agent.hostname || '');
+                return `
+                    <div class="table-primary">${displayName}</div>
+                    <div class="muted-text">${hostname}</div>
+                `;
+            }
+        },
+        {
+            id: 'tenant',
+            label: 'Tenant',
+            sortKey: 'tenant',
+            width: 130,
+            minWidth: 100,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: true,
+            filterType: 'text',
+            render: (agent, meta) => {
+                const tenantLabel = window.formatTenantDisplay?.(agent.tenant_id || meta.tenantId || '') || 
+                    (agent.tenant_id || meta.tenantId || '—');
+                return escapeHtml(tenantLabel);
+            }
+        },
+        {
+            id: 'status',
+            label: 'Status',
+            sortKey: 'status',
+            width: 100,
+            minWidth: 80,
+            pinnable: true,
+            hideable: true,
+            resizable: true,
+            filterable: true,
+            filterType: 'select',
+            filterOptions: ['active', 'inactive', 'offline'],
+            render: (agent, meta) => {
+                return window.renderAgentStatusBadge?.(meta) || 
+                    `<span class="status-pill ${meta.statusKey || 'inactive'}">${escapeHtml(meta.statusLabel || 'Unknown')}</span>`;
+            }
+        },
+        {
+            id: 'connection',
+            label: 'Connection',
+            sortKey: 'connection',
+            width: 120,
+            minWidth: 90,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: true,
+            filterType: 'select',
+            filterOptions: ['ws', 'http', 'none'],
+            render: (agent, meta) => {
+                return window.renderAgentConnectionBadge?.(meta) || 
+                    `<span class="conn-badge ${meta.connectionKey || 'none'}">${meta.connectionKey || 'Offline'}</span>`;
+            }
+        },
+        {
+            id: 'platform',
+            label: 'Platform',
+            sortKey: 'platform',
+            width: 100,
+            minWidth: 80,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: true,
+            filterType: 'text',
+            render: (agent, meta) => escapeHtml(agent.platform || 'Unknown')
+        },
+        {
+            id: 'version',
+            label: 'Version',
+            sortKey: 'version',
+            width: 130,
+            minWidth: 100,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: true,
+            filterType: 'text',
+            render: (agent, meta) => {
+                return window.renderAgentVersionCell?.(agent, true) || escapeHtml(agent.version || 'Unknown');
+            }
+        },
+        {
+            id: 'ip',
+            label: 'IP Address',
+            sortKey: 'ip',
+            width: 130,
+            minWidth: 100,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: true,
+            filterType: 'text',
+            defaultHidden: true,
+            render: (agent, meta) => escapeHtml(agent.ip || 'N/A')
+        },
+        {
+            id: 'agent_id',
+            label: 'Agent ID',
+            sortKey: 'agent_id',
+            width: 280,
+            minWidth: 200,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: true,
+            filterType: 'text',
+            defaultHidden: true,
+            render: (agent, meta) => `<span class="muted-text copyable" data-copy="${escapeHtml(agent.agent_id || '')}" title="Click to copy">${escapeHtml(agent.agent_id || '—')}</span>`
+        },
+        {
+            id: 'devices_count',
+            label: 'Devices',
+            sortKey: 'devices_count',
+            width: 80,
+            minWidth: 60,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: false,
+            defaultHidden: true,
+            render: (agent, meta) => {
+                const count = agent.devices?.length || 0;
+                return count.toLocaleString();
+            }
+        },
+        {
+            id: 'registered_at',
+            label: 'Registered',
+            sortKey: 'registered_at',
+            width: 120,
+            minWidth: 90,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: false,
+            defaultHidden: true,
+            render: (agent, meta) => {
+                const date = agent.registered_at ? new Date(agent.registered_at) : null;
+                if (!date) return '<span class="muted-text">—</span>';
+                return `<span title="${date.toLocaleString()}">${date.toLocaleDateString()}</span>`;
+            }
+        },
+        {
+            id: 'last_seen',
+            label: 'Last Seen',
+            sortKey: 'last_seen',
+            width: 100,
+            minWidth: 80,
+            pinnable: false,
+            hideable: true,
+            resizable: true,
+            filterable: false,
+            render: (agent, meta) => {
+                const title = escapeHtml(meta.lastSeenTooltip || 'Never');
+                const text = escapeHtml(meta.lastSeenRelative || 'Never');
+                return `<span title="${title}">${text}</span>`;
+            }
+        },
+        {
+            id: 'actions',
+            label: 'Actions',
+            sortKey: null,
+            width: 200,
+            minWidth: 180,
+            pinnable: true,
+            pinnedRight: true,
+            hideable: false,
+            resizable: false,
+            filterable: false,
+            isActions: true,
+            render: (agent, meta) => {
+                const agentId = escapeHtml(agent.agent_id || '');
+                const displayName = escapeHtml(window.getAgentDisplayName?.(agent) || agent.name || agent.hostname || 'Agent');
+                const canOpenUI = meta.connectionKey === 'ws';
+                return `
+                    <div class="table-actions">
+                        <button data-action="agent-settings" data-agent-id="${agentId}">Settings</button>
+                        <button data-action="open-agent" data-agent-id="${agentId}" ${canOpenUI ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
+                        <button data-action="delete-agent" data-agent-id="${agentId}" data-agent-name="${displayName}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
+                    </div>
+                `;
+            }
+        }
+    ];
+
+    /**
      * TableCustomizer class
      */
     class TableCustomizer {
@@ -1063,5 +1270,6 @@
     // Export to global scope
     window.TableCustomizer = TableCustomizer;
     window.DEVICES_COLUMN_DEFINITIONS = DEVICES_COLUMN_DEFINITIONS;
+    window.AGENTS_COLUMN_DEFINITIONS = AGENTS_COLUMN_DEFINITIONS;
 
 })();

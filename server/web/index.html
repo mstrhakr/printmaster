@@ -397,10 +397,12 @@
 
                     <div class="device-cards-container" id="agents_cards"></div>
                     <div id="agents_table_wrapper" class="hidden">
+                        <div id="agents_table_customizer_toolbar" class="table-customizer-toolbar"></div>
                         <div class="table-wrapper">
                             <table class="simple-table" id="agents_table">
                                 <thead>
-                                    <tr>
+                                    <tr id="agents_table_header">
+                                        <!-- Dynamic headers rendered by table customizer -->
                                         <th data-sort-key="name">Agent</th>
                                         <th data-sort-key="tenant">Tenant</th>
                                         <th data-sort-key="status">Status</th>
