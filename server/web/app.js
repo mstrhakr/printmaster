@@ -7799,10 +7799,12 @@ function showSessionsModal(sessions, username, userId){
     modal.appendChild(box);
     document.body.appendChild(modal);
     
-    // Close handlers
-    modal.querySelector('[data-action="close"]').addEventListener('click', () => {
-        document.body.removeChild(modal);
-        activeSessionsModal = null;
+    // Close handlers - use querySelectorAll for both close button and X button
+    modal.querySelectorAll('[data-action="close"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.body.removeChild(modal);
+            activeSessionsModal = null;
+        });
     });
     modal.querySelectorAll('.sessions-modal-close').forEach(btn => {
         btn.addEventListener('click', () => {
