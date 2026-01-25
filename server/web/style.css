@@ -2952,8 +2952,15 @@ select:focus {
 .audit-filter-grid {
   width: 100%;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: 140px repeat(4, 1fr) auto;
   gap: 12px;
+  align-items: start;
+}
+
+.audit-filter-grid .log-control.column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .audit-severity-group {
@@ -2964,6 +2971,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 140px;
 }
 
 .audit-severity-options {
@@ -6109,9 +6117,23 @@ select:focus {
   color: var(--fg);
 }
 
+@media (max-width: 1200px) {
+  .audit-filter-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .audit-severity-group {
+    grid-column: span 3;
+  }
+}
+
 @media (max-width: 720px) {
   .audit-filter-grid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 1fr;
+  }
+  
+  .audit-severity-group {
+    grid-column: span 1;
   }
 
   .table-actions {
