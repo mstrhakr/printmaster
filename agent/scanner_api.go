@@ -221,6 +221,7 @@ func quickDiscovery(
 				pi.IsLaser = qr.Capabilities.IsLaser
 				pi.IsInkjet = qr.Capabilities.IsInkjet
 				pi.HasDuplex = qr.Capabilities.HasDuplex
+				pi.FormFactor = qr.Capabilities.FormFactor
 				pi.DeviceType = qr.Capabilities.DeviceType
 			}
 
@@ -371,6 +372,7 @@ func fullDiscovery(
 					pi.IsLaser = qr.Capabilities.IsLaser
 					pi.IsInkjet = qr.Capabilities.IsInkjet
 					pi.HasDuplex = qr.Capabilities.HasDuplex
+					pi.FormFactor = qr.Capabilities.FormFactor
 					pi.DeviceType = qr.Capabilities.DeviceType
 				}
 

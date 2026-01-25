@@ -80,6 +80,7 @@ func PrinterInfoToDevice(pi agent.PrinterInfo, isSaved bool) *Device {
 		"is_laser":    pi.IsLaser,
 		"is_inkjet":   pi.IsInkjet,
 		"has_duplex":  pi.HasDuplex,
+		"form_factor": pi.FormFactor,
 		"device_type": pi.DeviceType,
 	}
 
@@ -251,6 +252,9 @@ func DeviceToPrinterInfo(device *Device) agent.PrinterInfo {
 		}
 		if v, ok := device.RawData["has_duplex"].(bool); ok {
 			pi.HasDuplex = v
+		}
+		if v, ok := device.RawData["form_factor"].(string); ok {
+			pi.FormFactor = v
 		}
 		if v, ok := device.RawData["device_type"].(string); ok {
 			pi.DeviceType = v

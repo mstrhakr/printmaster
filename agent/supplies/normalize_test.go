@@ -108,6 +108,23 @@ func TestNormalizeDescription(t *testing.T) {
 		// Kyocera ECOSYS P2040dw monochrome
 		{"TK-1162 mono", "TK-1162", "toner_black"},
 
+		// Epson ColorWorks CW-C6500Au label printer (SJIC ink cartridges)
+		{"epson SJIC35P-BK", "SJIC35P-BK", "toner_black"},
+		{"epson SJIC35P-C", "SJIC35P-C", "toner_cyan"},
+		{"epson SJIC35P-M", "SJIC35P-M", "toner_magenta"},
+		{"epson SJIC35P-Y", "SJIC35P-Y", "toner_yellow"},
+		{"epson black ink cartridge SJIC", "Black Ink Cartridge SJIC35P-BK", "toner_black"},
+		{"epson cyan ink cartridge SJIC", "Cyan Ink Cartridge SJIC35P-C", "toner_cyan"},
+		{"epson magenta ink cartridge SJIC", "Magenta Ink Cartridge SJIC35P-M", "toner_magenta"},
+		{"epson yellow ink cartridge SJIC", "Yellow Ink Cartridge SJIC35P-Y", "toner_yellow"},
+		{"epson maintenance box", "Maintenance Box SJMB6000/6500", "waste_toner"},
+
+		// Generic color suffix patterns (BK, CY, MG, YL)
+		{"generic part-BK", "INK-12345-BK", "toner_black"},
+		{"generic part-CY", "INK-12345-CY", "toner_cyan"},
+		{"generic part-MG", "INK-12345-MG", "toner_magenta"},
+		{"generic part-YL", "INK-12345-YL", "toner_yellow"},
+
 		// Unknown/unmapped
 		{"unknown supply", "Paper Tray", ""},
 		{"random text", "Something Else", ""},

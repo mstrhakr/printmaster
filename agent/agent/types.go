@@ -127,6 +127,7 @@ type PrinterInfo struct {
 	IsLaser    bool   `json:"is_laser,omitempty"`    // Laser print technology
 	IsInkjet   bool   `json:"is_inkjet,omitempty"`   // Inkjet print technology
 	HasDuplex  bool   `json:"has_duplex,omitempty"`  // Duplex (two-sided) printing supported
+	FormFactor string `json:"form_factor,omitempty"` // Physical form: "Desktop", "Wide Format", "Label Printer", etc.
 	DeviceType string `json:"device_type,omitempty"` // Classified type: "Color MFP", "Mono Printer", etc.
 }
 

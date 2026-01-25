@@ -57,6 +57,9 @@ type DeviceCapabilities struct {
 	IsLaser   bool `json:"is_laser"`
 	IsInkjet  bool `json:"is_inkjet"`
 
+	// Form factor classification
+	FormFactor string `json:"form_factor,omitempty"` // "Desktop", "Wide Format", "Label Printer", etc.
+
 	// Classification
 	DeviceType string `json:"device_type"` // "Color MFP", "Mono Printer", etc.
 }
@@ -133,7 +136,10 @@ func (r *CapabilityRegistry) DetectAll(evidence *DetectionEvidence) DeviceCapabi
 		}
 	}
 
-	// Classify device type
+	// Classify form factor (Desktop, Wide Format, Label Printer, etc.)
+	caps.FormFactor = ClassifyFormFactor(evidence)
+
+	// Classify device type (includes form factor in classification)
 	caps.DeviceType = classifyDeviceType(caps)
 
 	return caps
@@ -158,8 +164,36 @@ func ensurePDUIndex(evidence *DetectionEvidence) {
 	evidence.PDUByOID = idx
 }
 
-// classifyDeviceType determines device type based on capabilities
+// classifyDeviceType determines device type based on capabilities and form factor
 func classifyDeviceType(caps DeviceCapabilities) string {
+	// Form factor takes precedence for specialized device types
+	switch caps.FormFactor {
+	case FormFactorWideFormat:
+		if caps.IsColor {
+			return "Color Wide Format"
+		}
+		return "Wide Format"
+
+	case FormFactorLabelPrint:
+		if caps.IsColor {
+			return "Color Label Printer"
+		}
+		return "Label Printer"
+
+	case FormFactorProduction:
+		if caps.IsColor {
+			return "Color Production"
+		}
+		return "Production"
+
+	case FormFactorFloorCopier:
+		// Floor copiers are typically MFPs
+		if caps.IsColor {
+			return "Color MFP"
+		}
+		return "Mono MFP"
+	}
+
 	// Standalone scanner (rare)
 	if caps.IsScanner && !caps.IsPrinter {
 		return "Scanner"

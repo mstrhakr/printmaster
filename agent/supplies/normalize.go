@@ -17,6 +17,17 @@ var partNumberPattern = regexp.MustCompile(`(?i)^(tk|tn|ce|cf|w\d|cb|cc|q\d|c\d)
 // These are always black toner for monochrome printers
 var monoTonerPattern = regexp.MustCompile(`(?i)^(tk|tn)[- ]?\d{3,5}$`)
 
+// epsonInkCartridgePattern matches Epson ink cartridge part numbers with color suffixes:
+// - ColorWorks: SJIC35P-BK, SJIC35P-C, SJIC35P-M, SJIC35P-Y
+// - Other Epson: T6641 (Black), T6642 (Cyan), T6643 (Magenta), T6644 (Yellow)
+// Patterns: SJIC##P-{BK,C,M,Y} or embedded in description
+var epsonInkCartridgePattern = regexp.MustCompile(`(?i)SJIC\d+P?[- ]?(BK|C|M|Y)\b`)
+
+// genericColorSuffixPattern matches color suffixes at end of part numbers:
+// - Epson: SJIC35P-BK, SJIC35P-C
+// - Generic: XXX-BK, XXX-C, XXX-M, XXX-Y
+var genericColorSuffixPattern = regexp.MustCompile(`(?i)[- ](BK|CY|MG|YL|C|M|Y)$`)
+
 // NormalizeDescription maps a raw supply description to a canonical metric key
 // understood by storage and server layers (e.g., "Black Toner" -> "toner_black").
 // Returns an empty string if the description cannot be classified.
@@ -86,15 +97,48 @@ func NormalizeDescription(desc string) string {
 	if containsAny(lower, []string{"transfer", "belt"}) {
 		return "transfer_belt"
 	}
+	if containsAny(lower, []string{"maintenance", "maint box", "sjmb"}) {
+		return "waste_toner" // Maintenance boxes are typically waste containers
+	}
 
 	return ""
 }
 
-// extractColorFromPartNumber checks if the description is a vendor part number
-// with color encoded in the suffix (K=black, C=cyan, M=magenta, Y=yellow)
+// extractColorFromPartNumber checks if the description contains a vendor part number
+// with color encoded in the suffix (K/BK=black, C/CY=cyan, M/MG=magenta, Y/YL=yellow)
 // or a monochrome toner part number (no suffix = black)
 func extractColorFromPartNumber(desc string) string {
-	// Try the color suffix regex pattern first (e.g., TK-8517K)
+	// Try Epson ink cartridge pattern (e.g., SJIC35P-BK, SJIC35P-C in "Black Ink Cartridge SJIC35P-BK")
+	if matches := epsonInkCartridgePattern.FindStringSubmatch(desc); len(matches) >= 2 {
+		colorCode := strings.ToUpper(matches[1])
+		switch colorCode {
+		case "BK":
+			return "toner_black"
+		case "C":
+			return "toner_cyan"
+		case "M":
+			return "toner_magenta"
+		case "Y":
+			return "toner_yellow"
+		}
+	}
+
+	// Try generic color suffix pattern (e.g., "-BK", "-C", "-CY" at end)
+	if matches := genericColorSuffixPattern.FindStringSubmatch(desc); len(matches) >= 2 {
+		colorCode := strings.ToUpper(matches[1])
+		switch colorCode {
+		case "BK":
+			return "toner_black"
+		case "C", "CY":
+			return "toner_cyan"
+		case "M", "MG":
+			return "toner_magenta"
+		case "Y", "YL":
+			return "toner_yellow"
+		}
+	}
+
+	// Try the legacy color suffix regex pattern (e.g., TK-8517K - whole string match)
 	if matches := partNumberPattern.FindStringSubmatch(desc); len(matches) >= 3 {
 		colorCode := strings.ToLower(matches[2])
 		switch colorCode {
