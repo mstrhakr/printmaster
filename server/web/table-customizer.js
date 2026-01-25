@@ -310,31 +310,8 @@
                 const text = escapeHtml(meta.lastSeenRelative || 'Never');
                 return `<span title="${title}">${text}</span>`;
             }
-        },
-        {
-            id: 'actions',
-            label: 'Actions',
-            sortKey: null,
-            width: 160,
-            minWidth: 140,
-            pinnable: true,
-            pinnedRight: true,
-            hideable: false,
-            resizable: false,
-            filterable: false,
-            isActions: true,
-            render: (device, meta) => {
-                const serial = escapeHtml(device.serial || '');
-                const agentId = escapeHtml(device.agent_id || '');
-                const hasAccess = device.ip && device.agent_id;
-                return `
-                    <div class="table-actions">
-                        <button data-action="open-device" data-serial="${serial}" data-agent-id="${agentId}" ${!hasAccess ? 'disabled' : ''}>Web UI</button>
-                        <button data-action="view-metrics" data-serial="${serial}" ${device.serial ? '' : 'disabled'}>Metrics</button>
-                    </div>
-                `;
-            }
         }
+        // Actions column removed - using context menu instead
     ];
 
     /**
@@ -516,32 +493,8 @@
                 const text = escapeHtml(meta.lastSeenRelative || 'Never');
                 return `<span title="${title}">${text}</span>`;
             }
-        },
-        {
-            id: 'actions',
-            label: 'Actions',
-            sortKey: null,
-            width: 200,
-            minWidth: 180,
-            pinnable: true,
-            pinnedRight: true,
-            hideable: false,
-            resizable: false,
-            filterable: false,
-            isActions: true,
-            render: (agent, meta) => {
-                const agentId = escapeHtml(agent.agent_id || '');
-                const displayName = escapeHtml(window.getAgentDisplayName?.(agent) || agent.name || agent.hostname || 'Agent');
-                const canOpenUI = meta.connectionKey === 'ws';
-                return `
-                    <div class="table-actions">
-                        <button data-action="agent-settings" data-agent-id="${agentId}">Settings</button>
-                        <button data-action="open-agent" data-agent-id="${agentId}" ${canOpenUI ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
-                        <button data-action="delete-agent" data-agent-id="${agentId}" data-agent-name="${displayName}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
-                    </div>
-                `;
-            }
         }
+        // Actions column removed - using context menu instead
     ];
 
     /**

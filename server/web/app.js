@@ -9274,6 +9274,18 @@ function initAgentsUI() {
     syncAgentQuickFilters();
     syncTenantFilterOptions('agents');
     initAgentsTableCustomizer();
+    
+    // Initialize context menu for agents table and cards
+    if (window.PMContextMenu) {
+        const agentsTable = document.getElementById('agents_table');
+        if (agentsTable) {
+            window.PMContextMenu.initAgentContextMenu(agentsTable);
+        }
+        const agentsCards = document.getElementById('agents_cards');
+        if (agentsCards) {
+            window.PMContextMenu.initAgentContextMenu(agentsCards);
+        }
+    }
 }
 
 function initAgentsTableCustomizer() {
@@ -9980,6 +9992,7 @@ function renderAgentsTableHeader() {
     
     if (!agentsVM.tableCustomizer) {
         // Fallback to static headers if customizer not available
+        // Actions column removed - using context menu instead (right-click)
         thead.innerHTML = `
             <th data-sort-key="name">Agent</th>
             <th data-sort-key="tenant">Tenant</th>
@@ -9988,7 +10001,6 @@ function renderAgentsTableHeader() {
             <th data-sort-key="platform">Platform</th>
             <th data-sort-key="version">Version</th>
             <th data-sort-key="last_seen">Last Seen</th>
-            <th class="actions-col">Actions</th>
         `;
         return;
     }
@@ -10032,7 +10044,7 @@ function renderAgentTable(agents) {
         const rows = agents.map(agent => {
             const meta = agent.__meta || {};
             return `
-                <tr data-agent-id="${escapeHtml(agent.agent_id || '')}" class="agent-row-clickable" title="Click to view details">
+                <tr data-agent-id="${escapeHtml(agent.agent_id || '')}" class="agent-row-clickable" title="Click to view details, right-click for actions">
                     ${agentsVM.tableCustomizer.renderRow(agent, meta)}
                 </tr>
             `;
@@ -10042,11 +10054,12 @@ function renderAgentTable(agents) {
     }
     
     // Fallback to original rendering if no customizer
+    // Actions column removed - using context menu instead (right-click)
     const rows = agents.map(agent => {
         const meta = agent.__meta || {};
         const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');
         return `
-            <tr data-agent-id="${escapeHtml(agent.agent_id || '')}" class="agent-row-clickable" title="Click to view details">
+            <tr data-agent-id="${escapeHtml(agent.agent_id || '')}" class="agent-row-clickable" title="Click to view details, right-click for actions">
                 <td>
                     <div class="table-primary">${escapeHtml(getAgentDisplayName(agent))}</div>
                     <div class="muted-text">${escapeHtml(agent.hostname || '')}</div>
@@ -10057,13 +10070,6 @@ function renderAgentTable(agents) {
                 <td>${escapeHtml(agent.platform || 'Unknown')}</td>
                 <td>${renderAgentVersionCell(agent, true)}</td>
                 <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
-                <td class="actions-col">
-                    <div class="table-actions">
-                        <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
-                        <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
-                        <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(getAgentDisplayName(agent))}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
-                    </div>
-                </td>
             </tr>
         `;
     }).join('');
@@ -10078,7 +10084,7 @@ function renderAgentCard(agent) {
     const statusColor = AGENT_STATUS_COLORS[meta.statusKey || 'inactive'] || 'var(--muted)';
     const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');
     return `
-        <div class="device-card agent-card-clickable" data-agent-id="${escapeHtml(agent.agent_id || '')}" title="Click to view details">
+        <div class="device-card agent-card-clickable" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(getAgentDisplayName(agent))}" title="Click to view details, right-click for actions">
             <div class="device-card-header">
                 <div>
                     <div style="display:flex;align-items:center;gap:8px">
@@ -10126,10 +10132,8 @@ function renderAgentCard(agent) {
                     <span class="device-card-value" title="${registeredDate.toLocaleString()}">${registeredDate.toLocaleDateString()}</span>
                 </div>` : ''}
             </div>
-            <div class="device-card-actions">
-                <button data-action="agent-settings" data-agent-id="${escapeHtml(agent.agent_id || '')}">Settings</button>
-                <button data-action="open-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" ${meta.connectionKey === 'ws' ? '' : 'disabled title="Agent not connected via WebSocket"'}>Open UI</button>
-                <button data-action="delete-agent" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(getAgentDisplayName(agent))}" style="background: var(--btn-delete-bg); color: var(--btn-delete-text); border: 1px solid var(--btn-delete-border);">Delete</button>
+            <div class="device-card-hint muted-text" style="font-size:11px;padding:8px 12px;text-align:center;border-top:1px solid var(--border);">
+                Right-click for actions
             </div>
         </div>
     `;
@@ -11370,6 +11374,18 @@ function initDevicesUI() {
     syncDeviceQuickFilters();
     renderDevicesOverview();
     syncTenantFilterOptions('devices');
+    
+    // Initialize context menu for devices table and cards
+    if (window.PMContextMenu) {
+        const devicesTable = document.getElementById('devices_table');
+        if (devicesTable) {
+            window.PMContextMenu.initDeviceContextMenu(devicesTable);
+        }
+        const devicesCards = document.getElementById('devices_cards');
+        if (devicesCards) {
+            window.PMContextMenu.initDeviceContextMenu(devicesCards);
+        }
+    }
 }
 
 /**
@@ -11808,6 +11824,7 @@ function renderDevicesTableHeader() {
         }
     } else {
         // Fallback to static header
+        // Actions column removed - using context menu instead (right-click)
         headerRow.innerHTML = `
             <th data-sort-key="manufacturer">Device</th>
             <th data-sort-key="status">Status</th>
@@ -11817,7 +11834,6 @@ function renderDevicesTableHeader() {
             <th data-sort-key="ip">Network</th>
             <th data-sort-key="location">Location</th>
             <th data-sort-key="last_seen">Last Seen</th>
-            <th class="actions-col">Actions</th>
         `;
     }
 }
@@ -11887,16 +11903,10 @@ function renderDeviceTable(devices, append = false) {
                 </td>
                 <td>${escapeHtml(meta.location || '—')}</td>
                 <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
-                <td class="actions-col">
-                    <div class="table-actions">
-                        <button data-action="open-device" data-serial="${serial}" data-agent-id="${escapeHtml(device.agent_id || '')}" ${(!device.ip || !device.agent_id) ? 'disabled' : ''}>Web UI</button>
-                        <button data-action="view-metrics" data-serial="${serial}" ${device.serial ? '' : 'disabled'}>Metrics</button>
-                    </div>
-                </td>
             `;
         }
         
-        return `<tr data-serial="${serial}" data-ip="${ip}" class="device-row-clickable" title="Click to view details">${rowContent}</tr>`;
+        return `<tr data-serial="${serial}" data-ip="${ip}" data-agent-id="${escapeHtml(device.agent_id || '')}" class="device-row-clickable" title="Click to view details, right-click for actions">${rowContent}</tr>`;
     }).join('');
     
     tbody.insertAdjacentHTML('beforeend', rows);
@@ -11968,7 +11978,7 @@ function renderServerDeviceCard(device) {
     const agentName = escapeHtml(meta.agentName || 'Unassigned');
     const capabilityBadges = renderDeviceCapabilityBadges(device);
     return `
-        <div class="device-card device-card-clickable" data-serial="${serial}" data-ip="${escapeHtml(device.ip || '')}" data-agent-id="${agentId}" data-source="saved" title="Click to view details">
+        <div class="device-card device-card-clickable" data-serial="${serial}" data-ip="${escapeHtml(device.ip || '')}" data-agent-id="${agentId}" data-mac="${escapeHtml(device.mac || '')}" data-source="saved" title="Click to view details, right-click for actions">
             <div class="device-card-header">
                 <div>
                     <div class="device-card-title">${escapeHtml(device.manufacturer || 'Unknown')} ${escapeHtml(device.model || '')}</div>
@@ -11999,9 +12009,8 @@ function renderServerDeviceCard(device) {
                     <span class="device-card-value" title="${lastSeenTitle}">${lastSeenText}</span>
                 </div>
             </div>
-            <div class="device-card-actions">
-                <button data-action="open-device" data-serial="${serial}" data-agent-id="${agentId}" ${(!device.ip || !device.agent_id) ? 'disabled title="Device has no IP or agent"' : ''}>Open Web UI</button>
-                <button data-action="view-metrics" data-serial="${serial}" ${device.serial ? '' : 'disabled title="No serial"'}>View Metrics</button>
+            <div class="device-card-hint muted-text" style="font-size:11px;padding:8px 12px;text-align:center;border-top:1px solid var(--border);">
+                Right-click for actions
             </div>
         </div>
     `;
