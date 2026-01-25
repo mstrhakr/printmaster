@@ -201,6 +201,12 @@ const metricsVM = {
     loading: false,
     lastFetched: null,
     error: null,
+    // Filter state for scoped metrics
+    filters: {
+        tenantId: '',
+        agentId: '',
+        deviceSerial: '',
+    },
 };
 
 const DEVICE_STATUS_KEYS = ['healthy', 'warning', 'error', 'jam'];
@@ -685,6 +691,7 @@ document.addEventListener('DOMContentLoaded', function () {
             loadPendingRegistrations();
         }
         initMetricsRangeControls();
+        initMetricsFilterControls();
         loadMetrics();
         window._metricsInterval = setInterval(() => {
             if (isMetricsTabActive()) {
@@ -15521,6 +15528,17 @@ async function loadMetrics(force) {
     const since = new Date(Date.now() - getMetricsRangeWindow(metricsVM.range));
     const params = new URLSearchParams({ since: since.toISOString() });
 
+    // Add filter params if set
+    if (metricsVM.filters.tenantId) {
+        params.set('tenant_id', metricsVM.filters.tenantId);
+    }
+    if (metricsVM.filters.agentId) {
+        params.set('agent_id', metricsVM.filters.agentId);
+    }
+    if (metricsVM.filters.deviceSerial) {
+        params.set('device_serial', metricsVM.filters.deviceSerial);
+    }
+
     // Server time-series params - request all series for comprehensive dashboards
     const tsParams = new URLSearchParams({
         start: since.toISOString(),
@@ -15533,12 +15551,22 @@ async function loadMetrics(force) {
     serverMetricsVM.loading = true;
     renderMetricsLoading();
 
+    // Determine if we should load server metrics (only for global admins)
+    const loadServerMetrics = isGlobalAdmin();
+
     try {
-        const [summaryResp, aggregatedResp, timeseriesResp] = await Promise.all([
+        const fetchPromises = [
             fetch('/api/metrics'),
             fetch(`/api/metrics/aggregated?${params.toString()}`),
-            fetch(`/api/metrics/timeseries?${tsParams.toString()}`),
-        ]);
+        ];
+        // Only fetch server time-series for global admins
+        if (loadServerMetrics) {
+            fetchPromises.push(fetch(`/api/metrics/timeseries?${tsParams.toString()}`));
+        }
+
+        const responses = await Promise.all(fetchPromises);
+        const [summaryResp, aggregatedResp] = responses;
+        const timeseriesResp = loadServerMetrics ? responses[2] : null;
 
         if (!summaryResp.ok) {
             throw new Error('Summary request failed: HTTP ' + summaryResp.status);
@@ -15552,8 +15580,8 @@ async function loadMetrics(force) {
         metricsVM.lastFetched = new Date();
         metricsVM.error = null;
 
-        // Load server time-series data (non-blocking on error)
-        if (timeseriesResp.ok) {
+        // Load server time-series data (non-blocking on error, only for admins)
+        if (timeseriesResp && timeseriesResp.ok) {
             serverMetricsVM.timeseries = await timeseriesResp.json();
             serverMetricsVM.error = null;
         } else {
@@ -15608,15 +15636,40 @@ function renderMetricsLoading() {
 }
 
 function renderMetricsDashboard() {
+    // Hide/show server-only sections based on role
+    updateMetricsServerVisibility();
+    
     renderMetricsOverview(metricsVM.summary, metricsVM.aggregated);
     renderFleetCharts(metricsVM.aggregated);
     renderConsumablesTimeSeriesCharts(serverMetricsVM.timeseries);
     renderAgentFleetCharts(serverMetricsVM.timeseries);
-    renderServerTimeSeriesCharts(serverMetricsVM.timeseries);
-    renderServerPanel(metricsVM.aggregated?.server);
+    
+    // Only render server metrics for global admins
+    if (isGlobalAdmin()) {
+        renderServerTimeSeriesCharts(serverMetricsVM.timeseries);
+        renderServerPanel(metricsVM.aggregated?.server);
+    }
+    
     renderConsumables(metricsVM.aggregated?.fleet);
     renderMetricsActivity(metricsVM.aggregated);
     updateMetricsRangeButtons();
+}
+
+/**
+ * Show/hide server metrics sections based on user role.
+ * Server runtime stats are only visible to global admins.
+ */
+function updateMetricsServerVisibility() {
+    const serverSection = document.getElementById('metrics_server_section');
+    const serverPanel = document.getElementById('metrics_server_panel');
+    const showServer = isGlobalAdmin();
+    
+    if (serverSection) {
+        serverSection.style.display = showServer ? '' : 'none';
+    }
+    if (serverPanel) {
+        serverPanel.style.display = showServer ? '' : 'none';
+    }
 }
 
 function renderMetricsOverview(summary, aggregated) {
@@ -16408,6 +16461,224 @@ function initMetricsRangeControls() {
         setMetricsRange(btn.getAttribute('data-range'));
     });
     updateMetricsRangeButtons();
+}
+
+/**
+ * Initialize metrics filter controls (tenant, agent, device dropdowns).
+ * - Global admins see tenant filter
+ * - All users see agent filter (scoped to their tenants)
+ * - When agent is selected, device filter is populated
+ */
+function initMetricsFilterControls() {
+    const filtersContainer = document.getElementById('metrics_filters');
+    const tenantSelect = document.getElementById('metrics_tenant_filter');
+    const agentSelect = document.getElementById('metrics_agent_filter');
+    const deviceSelect = document.getElementById('metrics_device_filter');
+    
+    if (!filtersContainer) return;
+    if (filtersContainer._filtersBound) return;
+    filtersContainer._filtersBound = true;
+    
+    // Hide tenant filter for non-global users (they only see their tenant's data)
+    if (tenantSelect) {
+        if (!isGlobalAdmin()) {
+            tenantSelect.style.display = 'none';
+        } else {
+            tenantSelect.addEventListener('change', onMetricsTenantChange);
+        }
+    }
+    
+    if (agentSelect) {
+        agentSelect.addEventListener('change', onMetricsAgentChange);
+    }
+    
+    if (deviceSelect) {
+        deviceSelect.addEventListener('change', onMetricsDeviceChange);
+    }
+    
+    // Initial population of filters
+    populateMetricsFilters();
+}
+
+/**
+ * Populate metrics filter dropdowns with available options.
+ */
+async function populateMetricsFilters() {
+    const tenantSelect = document.getElementById('metrics_tenant_filter');
+    const agentSelect = document.getElementById('metrics_agent_filter');
+    const deviceSelect = document.getElementById('metrics_device_filter');
+    
+    // Populate tenant filter (global admins only)
+    if (tenantSelect && isGlobalAdmin()) {
+        try {
+            const tenantsResp = await fetch('/api/v1/tenants');
+            if (tenantsResp.ok) {
+                const tenants = await tenantsResp.json();
+                tenantSelect.innerHTML = '<option value="">All Tenants</option>';
+                (tenants || []).forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = t.name || t.id;
+                    tenantSelect.appendChild(opt);
+                });
+            }
+        } catch (err) {
+            window.__pm_shared.warn('Failed to load tenants for metrics filter', err);
+        }
+    }
+    
+    // Populate agent filter
+    if (agentSelect) {
+        try {
+            const agentsResp = await fetch('/api/v1/agents/list');
+            if (agentsResp.ok) {
+                const agents = await agentsResp.json();
+                agentSelect.innerHTML = '<option value="">All Agents</option>';
+                (agents || []).forEach(a => {
+                    const opt = document.createElement('option');
+                    opt.value = a.agent_id;
+                    opt.textContent = a.name || a.hostname || a.agent_id;
+                    agentSelect.appendChild(opt);
+                });
+            }
+        } catch (err) {
+            window.__pm_shared.warn('Failed to load agents for metrics filter', err);
+        }
+    }
+    
+    // Device filter starts empty - populated when agent is selected
+    if (deviceSelect) {
+        deviceSelect.innerHTML = '<option value="">All Devices</option>';
+        deviceSelect.disabled = true;
+    }
+}
+
+function onMetricsTenantChange(evt) {
+    const tenantId = evt.target.value;
+    metricsVM.filters.tenantId = tenantId;
+    metricsVM.filters.agentId = '';
+    metricsVM.filters.deviceSerial = '';
+    
+    // Update visual state
+    evt.target.classList.toggle('has-value', !!tenantId);
+    
+    // Reset agent/device filters
+    const agentSelect = document.getElementById('metrics_agent_filter');
+    const deviceSelect = document.getElementById('metrics_device_filter');
+    if (agentSelect) {
+        agentSelect.value = '';
+        agentSelect.classList.remove('has-value');
+    }
+    if (deviceSelect) {
+        deviceSelect.value = '';
+        deviceSelect.innerHTML = '<option value="">All Devices</option>';
+        deviceSelect.disabled = true;
+        deviceSelect.classList.remove('has-value');
+    }
+    
+    // Reload metrics with new filter
+    loadMetrics(true);
+    
+    // Re-populate agent filter for selected tenant
+    populateAgentFilterForTenant(tenantId);
+}
+
+async function populateAgentFilterForTenant(tenantId) {
+    const agentSelect = document.getElementById('metrics_agent_filter');
+    if (!agentSelect) return;
+    
+    try {
+        let url = '/api/v1/agents/list';
+        if (tenantId) {
+            url += `?tenant_id=${encodeURIComponent(tenantId)}`;
+        }
+        const resp = await fetch(url);
+        if (resp.ok) {
+            const agents = await resp.json();
+            agentSelect.innerHTML = '<option value="">All Agents</option>';
+            (agents || []).forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a.agent_id;
+                opt.textContent = a.name || a.hostname || a.agent_id;
+                agentSelect.appendChild(opt);
+            });
+        }
+    } catch (err) {
+        window.__pm_shared.warn('Failed to reload agents for tenant', err);
+    }
+}
+
+function onMetricsAgentChange(evt) {
+    const agentId = evt.target.value;
+    metricsVM.filters.agentId = agentId;
+    metricsVM.filters.deviceSerial = '';
+    
+    // Update visual state
+    evt.target.classList.toggle('has-value', !!agentId);
+    
+    const deviceSelect = document.getElementById('metrics_device_filter');
+    if (deviceSelect) {
+        deviceSelect.value = '';
+        deviceSelect.classList.remove('has-value');
+        
+        if (agentId) {
+            // Populate device filter for selected agent
+            populateDeviceFilterForAgent(agentId);
+        } else {
+            deviceSelect.innerHTML = '<option value="">All Devices</option>';
+            deviceSelect.disabled = true;
+        }
+    }
+    
+    // Reload metrics with new filter
+    loadMetrics(true);
+}
+
+async function populateDeviceFilterForAgent(agentId) {
+    const deviceSelect = document.getElementById('metrics_device_filter');
+    if (!deviceSelect) return;
+    
+    deviceSelect.disabled = false;
+    deviceSelect.innerHTML = '<option value="">All Devices</option>';
+    
+    try {
+        // Fetch all devices and filter by agent_id client-side
+        const resp = await fetch('/api/v1/devices/list');
+        if (resp.ok) {
+            const data = await resp.json();
+            const devices = Array.isArray(data) ? data : (data.devices || []);
+            // Filter to only devices belonging to the selected agent
+            const agentDevices = devices.filter(d => d.agent_id === agentId);
+            agentDevices.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.serial;
+                opt.textContent = d.model || d.serial;
+                if (d.ip) {
+                    opt.textContent += ` (${d.ip})`;
+                }
+                deviceSelect.appendChild(opt);
+            });
+            
+            if (agentDevices.length === 0) {
+                deviceSelect.innerHTML = '<option value="">No devices</option>';
+                deviceSelect.disabled = true;
+            }
+        }
+    } catch (err) {
+        window.__pm_shared.warn('Failed to load devices for agent', err);
+        deviceSelect.disabled = true;
+    }
+}
+
+function onMetricsDeviceChange(evt) {
+    const serial = evt.target.value;
+    metricsVM.filters.deviceSerial = serial;
+    
+    // Update visual state
+    evt.target.classList.toggle('has-value', !!serial);
+    
+    // Reload metrics with new filter
+    loadMetrics(true);
 }
 
 function setMetricsRange(range) {

@@ -579,17 +579,31 @@
                     <h3 style="margin-bottom:4px;">Fleet Metrics <span id="metrics_live_indicator" class="live-indicator" title="Live updates active">● LIVE</span></h3>
                     <div class="muted-text">Netdata-style view of fleet throughput, health, and server stats.</div>
                 </div>
-                <div class="metrics-range-controls" id="metrics_range_controls">
-                    <button class="ghost-btn" data-range="5m">5m</button>
-                    <button class="ghost-btn" data-range="15m">15m</button>
-                    <button class="ghost-btn" data-range="30m">30m</button>
-                    <button class="ghost-btn" data-range="1h">1h</button>
-                    <button class="ghost-btn" data-range="6h">6h</button>
-                    <button class="ghost-btn" data-range="12h">12h</button>
-                    <button class="ghost-btn" data-range="24h">24h</button>
-                    <button class="ghost-btn" data-range="7d">7d</button>
-                    <button class="ghost-btn" data-range="30d">30d</button>
-                    <button class="ghost-btn" data-range="90d">90d</button>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <!-- Scope filter controls -->
+                    <div id="metrics_filters" class="metrics-filter-controls">
+                        <select id="metrics_tenant_filter" class="filter-select" title="Filter by tenant">
+                            <option value="">All Tenants</option>
+                        </select>
+                        <select id="metrics_agent_filter" class="filter-select" title="Filter by agent">
+                            <option value="">All Agents</option>
+                        </select>
+                        <select id="metrics_device_filter" class="filter-select" title="Filter by device">
+                            <option value="">All Devices</option>
+                        </select>
+                    </div>
+                    <div class="metrics-range-controls" id="metrics_range_controls">
+                        <button class="ghost-btn" data-range="5m">5m</button>
+                        <button class="ghost-btn" data-range="15m">15m</button>
+                        <button class="ghost-btn" data-range="30m">30m</button>
+                        <button class="ghost-btn" data-range="1h">1h</button>
+                        <button class="ghost-btn" data-range="6h">6h</button>
+                        <button class="ghost-btn" data-range="12h">12h</button>
+                        <button class="ghost-btn" data-range="24h">24h</button>
+                        <button class="ghost-btn" data-range="7d">7d</button>
+                        <button class="ghost-btn" data-range="30d">30d</button>
+                        <button class="ghost-btn" data-range="90d">90d</button>
+                    </div>
                 </div>
             </div>
 
@@ -625,8 +639,8 @@
                 </div>
             </div>
 
-            <!-- Server Runtime Charts (full-width, Netdata-style) -->
-            <div class="metrics-section" style="margin-top:16px;">
+            <!-- Server Runtime Charts (full-width, Netdata-style) - Admin only -->
+            <div id="metrics_server_section" class="metrics-section" style="margin-top:16px;">
                 <h4 style="margin:0 0 8px;color:var(--highlight);">Server Runtime</h4>
                 <div id="metrics_server_charts" class="metrics-charts-fullwidth">
                     <div class="metric-chart-card loading"><div class="chart-skeleton"><div class="chart-spinner"></div><span class="chart-loading-text">Loading server metrics…</span></div></div>

@@ -3059,6 +3059,41 @@ select:focus {
   padding: 8px 0 16px;
 }
 
+/* Metrics filter controls - dropdown filters for tenant/agent/device scope */
+.metrics-filter-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.metrics-filter-controls .filter-select {
+  min-width: 140px;
+  max-width: 200px;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.metrics-filter-controls .filter-select:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.metrics-filter-controls .filter-select:focus {
+  border-color: var(--highlight);
+  outline: none;
+}
+
+/* Active filter state */
+.metrics-filter-controls .filter-select.has-value {
+  border-color: var(--highlight);
+  background: rgba(38, 139, 210, 0.1);
+}
+
 .live-indicator {
   display: inline-flex;
   align-items: center;
@@ -3195,6 +3230,17 @@ select:focus {
   .metrics-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  /* Stack filter controls on mobile */
+  .metrics-filter-controls {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .metrics-filter-controls .filter-select {
+    width: 100%;
+    max-width: none;
   }
 
   .metrics-range-controls {
