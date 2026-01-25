@@ -7835,7 +7835,7 @@ function showSessionsModal(sessions, username, userId){
     modal.querySelectorAll('button[data-action="revoke-session"]').forEach(b => {
         b.addEventListener('click', async () => {
             const key = b.getAttribute('data-key');
-            if (!await window.__pm_shared.confirm('Revoke this session?', 'Confirm')) return;
+            if (!await window.__pm_shared.showConfirm('Revoke this session?', 'Confirm')) return;
             try {
                 const r = await fetch('/api/v1/sessions/' + encodeURIComponent(key), { method: 'DELETE' });
                 if (!r.ok) throw new Error(await r.text());
@@ -7855,7 +7855,7 @@ function showSessionsModal(sessions, username, userId){
                 window.__pm_shared.showToast('No other sessions to revoke', 'info');
                 return;
             }
-            if (!await window.__pm_shared.confirm(`End ${otherSessions.length} other session${otherSessions.length !== 1 ? 's' : ''}?`, 'Confirm')) return;
+            if (!await window.__pm_shared.showConfirm(`End ${otherSessions.length} other session${otherSessions.length !== 1 ? 's' : ''}?`, 'Confirm')) return;
             try {
                 for (const s of otherSessions) {
                     await fetch('/api/v1/sessions/' + encodeURIComponent(s.token), { method: 'DELETE' });
@@ -7875,7 +7875,7 @@ function showSessionsModal(sessions, username, userId){
             const msg = willLogOut 
                 ? `End all ${sortedSessions.length} session${sortedSessions.length !== 1 ? 's' : ''}? You will be logged out.`
                 : `End all ${sortedSessions.length} session${sortedSessions.length !== 1 ? 's' : ''}?`;
-            if (!await window.__pm_shared.confirm(msg, 'Confirm')) return;
+            if (!await window.__pm_shared.showConfirm(msg, 'Confirm')) return;
             try {
                 for (const s of sortedSessions) {
                     await fetch('/api/v1/sessions/' + encodeURIComponent(s.token), { method: 'DELETE' });
