@@ -278,6 +278,8 @@ const devicesVM = {
         pageSize: 50,
         observer: null,
     },
+    // Table customizer instance
+    tableCustomizer: null,
 };
 
 const agentsVM = {
@@ -11076,6 +11078,9 @@ function initDevicesUI() {
     }
     devicesVM.uiInitialized = true;
 
+    // Initialize Table Customizer
+    initDevicesTableCustomizer();
+
     // Sidebar toggle
     const sidebarToggle = document.getElementById('devices_sidebar_toggle');
     const sidebar = document.querySelector('.devices-sidebar');
@@ -11189,7 +11194,10 @@ function initDevicesUI() {
         const head = table.querySelector('thead');
         if (head && !head.dataset.bound) {
             head.dataset.bound = 'true';
-            head.addEventListener('click', handleDeviceTableSortClick);
+            // Bind customizer header events (includes sorting and resizing)
+            if (devicesVM.tableCustomizer) {
+                devicesVM.tableCustomizer.bindHeaderEvents(head);
+            }
         }
         // Add click handler for clickable rows (opens device details modal)
         const tbody = table.querySelector('tbody');
@@ -11239,6 +11247,69 @@ function initDevicesUI() {
     syncDeviceQuickFilters();
     renderDevicesOverview();
     syncTenantFilterOptions('devices');
+}
+
+/**
+ * Initialize the devices table customizer
+ */
+function initDevicesTableCustomizer() {
+    if (devicesVM.tableCustomizer) return;
+    
+    // Only initialize if TableCustomizer is available
+    if (typeof window.TableCustomizer === 'undefined') {
+        console.warn('TableCustomizer not available');
+        return;
+    }
+
+    // Create customizer instance
+    devicesVM.tableCustomizer = new window.TableCustomizer('devices', {
+        columnDefs: window.DEVICES_COLUMN_DEFINITIONS || [],
+        persistConfig: true,
+        enableResize: true,
+        enableReorder: true,
+        enableColumnMenu: true,
+        enableExport: true,
+        onSort: (sortState) => {
+            // Sync with devicesVM filters
+            if (sortState.key) {
+                devicesVM.filters.sortKey = sortState.key;
+                devicesVM.filters.sortDir = sortState.dir;
+                persistUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_KEY, sortState.key);
+                persistUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_DIR, sortState.dir);
+                syncDeviceSortControls();
+                applyDeviceFilters();
+            }
+        },
+        onColumnChange: () => {
+            // Re-render table when columns change
+            renderDevicesTableHeader();
+            if (devicesVM.view === 'table') {
+                renderDeviceTable(devicesVM.filtered);
+            }
+        },
+        onExport: () => {
+            // Export current filtered data
+            if (devicesVM.tableCustomizer) {
+                const timestamp = new Date().toISOString().split('T')[0];
+                devicesVM.tableCustomizer.exportToCSV(devicesVM.filtered, `printmaster-devices-${timestamp}.csv`);
+                window.__pm_shared?.showToast?.('Devices exported to CSV', 'success');
+            }
+        }
+    });
+
+    // Render toolbar
+    const toolbarContainer = document.getElementById('devices_table_customizer_toolbar');
+    if (toolbarContainer) {
+        toolbarContainer.innerHTML = devicesVM.tableCustomizer.renderToolbar();
+        devicesVM.tableCustomizer.bindToolbarEvents(toolbarContainer);
+    }
+
+    // Render initial header
+    renderDevicesTableHeader();
+
+    // Expose helper functions on shared for use by column renderers
+    window.__pm_shared.renderDeviceStatusBadge = renderDeviceStatusBadge;
+    window.__pm_shared.renderTonerBars = renderTonerBars;
 }
 
 async function loadDevices(force = false) {
@@ -11295,7 +11366,8 @@ function renderDevicesLoading() {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="8" class="muted-text">Loading devices…</td></tr>';
+            const visibleColCount = devicesVM.tableCustomizer?.getVisibleColumns()?.length || 12;
+            tbody.innerHTML = `<tr><td colspan="${visibleColCount}" class="muted-text">Loading devices…</td></tr>`;
         }
     }
 }
@@ -11311,7 +11383,8 @@ function renderDevicesError(error) {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="8" class="error-text">Failed to load devices: ${escapeHtml(message)}</td></tr>`;
+            const visibleColCount = devicesVM.tableCustomizer?.getVisibleColumns()?.length || 12;
+            tbody.innerHTML = `<tr><td colspan="${visibleColCount}" class="error-text">Failed to load devices: ${escapeHtml(message)}</td></tr>`;
         }
     }
 }
@@ -11596,6 +11669,36 @@ function renderDeviceCards(devices, append = false) {
     }
 }
 
+/**
+ * Render the devices table header using the customizer
+ */
+function renderDevicesTableHeader() {
+    const headerRow = document.getElementById('devices_table_header');
+    if (!headerRow) return;
+    
+    if (devicesVM.tableCustomizer) {
+        headerRow.innerHTML = devicesVM.tableCustomizer.renderHeader();
+        // Re-bind header events for sorting/resizing
+        const thead = headerRow.closest('thead');
+        if (thead) {
+            devicesVM.tableCustomizer.bindHeaderEvents(thead);
+        }
+    } else {
+        // Fallback to static header
+        headerRow.innerHTML = `
+            <th data-sort-key="manufacturer">Device</th>
+            <th data-sort-key="status">Status</th>
+            <th data-sort-key="consumables">Consumables</th>
+            <th data-sort-key="agent">Agent</th>
+            <th data-sort-key="tenant">Tenant</th>
+            <th data-sort-key="ip">Network</th>
+            <th data-sort-key="location">Location</th>
+            <th data-sort-key="last_seen">Last Seen</th>
+            <th class="actions-col">Actions</th>
+        `;
+    }
+}
+
 function renderDeviceTable(devices, append = false) {
     const cards = document.getElementById('devices_cards');
     const wrapper = document.getElementById('devices_table_wrapper');
@@ -11607,8 +11710,11 @@ function renderDeviceTable(devices, append = false) {
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
     
+    // Get visible columns count for colspan
+    const visibleColCount = devicesVM.tableCustomizer?.getVisibleColumns()?.length || 9;
+    
     if (!devices || devices.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="muted-text">No devices match the current filters.</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="${visibleColCount}" class="muted-text">No devices match the current filters.</td></tr>`;
         cleanupDevicesInfiniteScroll();
         return;
     }
@@ -11627,11 +11733,19 @@ function renderDeviceTable(devices, append = false) {
     const existingSentinel = document.getElementById('devices_load_more_sentinel');
     if (existingSentinel) existingSentinel.remove();
     
+    // Use customizer to render rows if available
     const rows = pageDevices.map(device => {
         const meta = device.__meta || {};
-        const tenantLabel = formatTenantDisplay(meta.tenantId || device.tenant_id || '');
-        return `
-            <tr data-serial="${escapeHtml(device.serial || '')}" data-ip="${escapeHtml(device.ip || '')}" class="device-row-clickable" title="Click to view details">
+        const serial = escapeHtml(device.serial || '');
+        const ip = escapeHtml(device.ip || '');
+        
+        let rowContent;
+        if (devicesVM.tableCustomizer) {
+            rowContent = devicesVM.tableCustomizer.renderRow(device, meta);
+        } else {
+            // Fallback to legacy rendering
+            const tenantLabel = formatTenantDisplay(meta.tenantId || device.tenant_id || '');
+            rowContent = `
                 <td>
                     <div class="table-primary">${escapeHtml((device.manufacturer || 'Unknown') + ' ' + (device.model || ''))}</div>
                     <div class="muted-text">Serial ${escapeHtml(device.serial || '—')}</div>
@@ -11652,13 +11766,16 @@ function renderDeviceTable(devices, append = false) {
                 <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
                 <td class="actions-col">
                     <div class="table-actions">
-                        <button data-action="open-device" data-serial="${escapeHtml(device.serial || '')}" data-agent-id="${escapeHtml(device.agent_id || '')}" ${(!device.ip || !device.agent_id) ? 'disabled' : ''}>Web UI</button>
-                        <button data-action="view-metrics" data-serial="${escapeHtml(device.serial || '')}" ${device.serial ? '' : 'disabled'}>Metrics</button>
+                        <button data-action="open-device" data-serial="${serial}" data-agent-id="${escapeHtml(device.agent_id || '')}" ${(!device.ip || !device.agent_id) ? 'disabled' : ''}>Web UI</button>
+                        <button data-action="view-metrics" data-serial="${serial}" ${device.serial ? '' : 'disabled'}>Metrics</button>
                     </div>
                 </td>
-            </tr>
-        `;
+            `;
+        }
+        
+        return `<tr data-serial="${serial}" data-ip="${ip}" class="device-row-clickable" title="Click to view details">${rowContent}</tr>`;
     }).join('');
+    
     tbody.insertAdjacentHTML('beforeend', rows);
     devicesVM.render.displayed = endIdx;
     
@@ -11667,7 +11784,7 @@ function renderDeviceTable(devices, append = false) {
         const sentinelRow = document.createElement('tr');
         sentinelRow.id = 'devices_load_more_sentinel';
         sentinelRow.className = 'devices-load-sentinel';
-        sentinelRow.innerHTML = '<td colspan="9" style="text-align:center;padding:16px;"><div class="loading-spinner" style="display:inline-block;margin-right:8px;"></div><span class="muted-text">Loading more devices...</span></td>';
+        sentinelRow.innerHTML = `<td colspan="${visibleColCount}" style="text-align:center;padding:16px;"><div class="loading-spinner" style="display:inline-block;margin-right:8px;"></div><span class="muted-text">Loading more devices...</span></td>`;
         tbody.appendChild(sentinelRow);
         setupDevicesInfiniteScroll();
     } else {
@@ -12120,6 +12237,13 @@ function syncDeviceSortControls() {
 function syncDeviceTableSortIndicators() {
     const head = document.querySelector('#devices_table thead');
     if (!head) return;
+    
+    // Update customizer sort state if available
+    if (devicesVM.tableCustomizer) {
+        devicesVM.tableCustomizer.sortState.key = devicesVM.filters.sortKey;
+        devicesVM.tableCustomizer.sortState.dir = devicesVM.filters.sortDir;
+    }
+    
     head.querySelectorAll('th[data-sort-key]').forEach(th => {
         const key = th.getAttribute('data-sort-key');
         if (key === devicesVM.filters.sortKey) {

@@ -21,6 +21,7 @@
     <script src="/static/cards.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
     <script src="/static/report.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
     <script src="/static/metrics.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
+    <script src="/static/table-customizer.js{{if .AssetVersion}}?v={{.AssetVersion}}{{end}}"></script>
 </head>
 
 <body>
@@ -545,24 +546,18 @@
 
                     <div class="device-cards-container" id="devices_cards"></div>
                     <div id="devices_table_wrapper" class="hidden">
+                        <!-- Table Customizer Toolbar -->
+                        <div id="devices_table_customizer_toolbar"></div>
                         <div class="table-wrapper">
                             <table class="simple-table" id="devices_table">
                                 <thead>
-                                    <tr>
-                                        <th data-sort-key="manufacturer">Device</th>
-                                        <th data-sort-key="status">Status</th>
-                                        <th data-sort-key="consumables">Consumables</th>
-                                        <th data-sort-key="agent">Agent</th>
-                                        <th data-sort-key="tenant">Tenant</th>
-                                        <th data-sort-key="ip">Network</th>
-                                        <th data-sort-key="location">Location</th>
-                                        <th data-sort-key="last_seen">Last Seen</th>
-                                        <th class="actions-col">Actions</th>
+                                    <tr id="devices_table_header">
+                                        <!-- Header rendered dynamically by TableCustomizer -->
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td colspan="9" class="muted-text">Loading devices…</td>
+                                        <td colspan="12" class="muted-text">Loading devices…</td>
                                     </tr>
                                 </tbody>
                             </table>
