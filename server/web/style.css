@@ -1275,9 +1275,40 @@ select:focus {
 
 .alerts-overview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin-bottom: 16px;
+}
+
+/* Alert metric cards - compact KPI style, not chart style */
+.alerts-overview-grid .metric-card {
+  min-height: auto;
+  padding: 16px 12px;
+  text-align: center;
+}
+
+.alerts-overview-grid .metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.alerts-overview-grid .metric-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .alerts-overview-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .alerts-overview-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .alert-metric-card.critical .metric-value {
