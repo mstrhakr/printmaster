@@ -734,18 +734,27 @@ func CollectMetricsWithOIDs(ctx context.Context, ip string, serial string, vendo
 		}
 	}
 
-	// Extract toner levels
-	if pi.TonerLevelBlack > 0 {
+	// Extract toner levels - only record expected levels based on device type
+	// Use >= 0 since 0 is a valid level (empty toner)
+	// For mono printers, only record black toner (ignore color OIDs)
+	isMono := pi.IsMono || (!pi.IsColor && pi.TonerLevelBlack > 0 &&
+		pi.TonerLevelCyan == 0 && pi.TonerLevelMagenta == 0 && pi.TonerLevelYellow == 0)
+
+	if pi.TonerLevelBlack >= 0 && (pi.TonerDescBlack != "" || pi.TonerLevelBlack > 0) {
 		snapshot.TonerLevels["black"] = pi.TonerLevelBlack
 	}
-	if pi.TonerLevelCyan > 0 {
-		snapshot.TonerLevels["cyan"] = pi.TonerLevelCyan
-	}
-	if pi.TonerLevelMagenta > 0 {
-		snapshot.TonerLevels["magenta"] = pi.TonerLevelMagenta
-	}
-	if pi.TonerLevelYellow > 0 {
-		snapshot.TonerLevels["yellow"] = pi.TonerLevelYellow
+
+	// Only record color toner for color devices
+	if !isMono {
+		if pi.TonerLevelCyan >= 0 && (pi.TonerDescCyan != "" || pi.TonerLevelCyan > 0) {
+			snapshot.TonerLevels["cyan"] = pi.TonerLevelCyan
+		}
+		if pi.TonerLevelMagenta >= 0 && (pi.TonerDescMagenta != "" || pi.TonerLevelMagenta > 0) {
+			snapshot.TonerLevels["magenta"] = pi.TonerLevelMagenta
+		}
+		if pi.TonerLevelYellow >= 0 && (pi.TonerDescYellow != "" || pi.TonerLevelYellow > 0) {
+			snapshot.TonerLevels["yellow"] = pi.TonerLevelYellow
+		}
 	}
 
 	return snapshot, nil
