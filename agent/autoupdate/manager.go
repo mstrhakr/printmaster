@@ -595,8 +595,8 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		return fmt.Errorf("update cancelled by user")
 	}
 
-	// Verify hash (60-70% of overall progress)
-	m.setStatusWithProgress(StatusDownloading, 60, "Verifying download...")
+	// Verify hash (50-55% of overall progress)
+	m.setStatusWithProgress(StatusDownloading, 52, "Verifying download...")
 	if err := m.verifyHash(downloadPath, manifest.SHA256); err != nil {
 		run.Status = StatusFailed
 		run.ErrorCode = ErrCodeHashMismatch
@@ -617,8 +617,8 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		return fmt.Errorf("update cancelled by user")
 	}
 
-	// Staging phase (70-80% of overall progress)
-	m.setStatusWithProgress(StatusStaging, 70, "Staging update...")
+	// Staging phase (55-65% of overall progress)
+	m.setStatusWithProgress(StatusStaging, 58, "Staging update...")
 	run.Status = StatusStaging
 	m.reportTelemetry(ctx, StatusStaging, "", "")
 
@@ -650,8 +650,8 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		// Continue anyway - new install may still work
 	}
 
-	// Apply phase - NO CANCELLATION AFTER THIS POINT (80-95% of overall progress)
-	m.setStatusWithProgress(StatusApplying, 80, "Applying update (cannot cancel)...")
+	// Apply phase - NO CANCELLATION AFTER THIS POINT (65-80% of overall progress)
+	m.setStatusWithProgress(StatusApplying, 68, "Applying update (cannot cancel)...")
 	run.Status = StatusApplying
 	m.reportTelemetry(ctx, StatusApplying, "", "")
 
@@ -669,10 +669,10 @@ func (m *Manager) executeUpdate(ctx context.Context, manifest *UpdateManifest) e
 		return err
 	}
 
-	// Success - about to restart (95-100% of overall progress)
+	// Success - about to restart (80% of overall progress, new agent will continue from 85%)
 	run.Status = StatusSucceeded
 	run.CompletedAt = m.clock()
-	m.setStatusWithProgress(StatusRestarting, 95, "Restarting agent...")
+	m.setStatusWithProgress(StatusRestarting, 80, "Restarting agent...")
 	m.reportTelemetry(ctx, StatusSucceeded, "", "")
 
 	m.logInfo("Update applied successfully", "from", m.currentVersion, "to", manifest.Version)
@@ -742,10 +742,10 @@ func (m *Manager) executeUpdateViaPackageManager(ctx context.Context, manifest *
 		return err
 	}
 
-	// Success - about to restart (95-100% of overall progress)
+	// Success - about to restart (80% of overall progress, new agent will continue from 85%)
 	run.Status = StatusSucceeded
 	run.CompletedAt = m.clock()
-	m.setStatusWithProgress(StatusRestarting, 95, "Restarting agent...")
+	m.setStatusWithProgress(StatusRestarting, 80, "Restarting agent...")
 	m.reportTelemetry(ctx, StatusSucceeded, "", "")
 
 	m.logInfo("Update applied successfully via package manager",
@@ -769,9 +769,9 @@ func (m *Manager) downloadWithRetry(ctx context.Context, manifest *UpdateManifes
 	delay := defaultRetryBaseDelay
 
 	// Create progress callback that reports download progress
-	// Download is 0-60% of overall update progress
+	// Download is 0-50% of overall update progress (leaves room for verify/stage/apply/restart phases)
 	progressCb := func(percent int, bytesRead int64) {
-		overallPercent := percent * 60 / 100 // Scale 0-100% download to 0-60% overall
+		overallPercent := percent * 50 / 100 // Scale 0-100% download to 0-50% overall
 		m.setStatusWithProgress(StatusDownloading, overallPercent, fmt.Sprintf("Downloading... %d%%", percent))
 	}
 

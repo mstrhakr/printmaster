@@ -168,10 +168,25 @@ func startAutoUpdateManager(
 			sendUpdateProgress(autoupdate.StatusFailed, currentVersion, -1,
 				"Update validation failed: "+validationErr.Error(), validationErr)
 		} else {
-			// Update successful!
+			// Update successful! Simulate smooth progress from restart to completion
+			// This provides continuity from where the old agent left off (at ~80% applying)
 			log.Info("Post-update validation PASSED",
 				"new_version", currentVersion,
 				"previous_version", fromVersion)
+
+			// Simulate progress: restarting (85%) -> verifying (90-95%) -> complete (100%)
+			sendUpdateProgress(autoupdate.StatusRestarting, currentVersion, 85,
+				"Agent restarted with new version...", nil)
+			time.Sleep(300 * time.Millisecond)
+
+			sendUpdateProgress(autoupdate.StatusRestarting, currentVersion, 90,
+				"Verifying update...", nil)
+			time.Sleep(300 * time.Millisecond)
+
+			sendUpdateProgress(autoupdate.StatusRestarting, currentVersion, 95,
+				"Update verified successfully", nil)
+			time.Sleep(200 * time.Millisecond)
+
 			sendUpdateProgress(autoupdate.StatusSucceeded, currentVersion, 100,
 				"Update completed successfully from "+fromVersion+" to "+currentVersion, nil)
 		}
