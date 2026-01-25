@@ -2002,97 +2002,139 @@
         </div>
     </div>
 
-    <!-- SSO Provider Modal -->
+            <!-- SSO Provider Modal -->
     <div class="modal" id="sso_modal" style="display:none;">
-        <div class="modal-content" style="max-width:640px;">
+        <div class="modal-content sso-modal-content">
             <div class="modal-header">
                 <span class="modal-title" id="sso_modal_title">Add OIDC Provider</span>
                 <span class="modal-close" id="sso_modal_close">&times;</span>
             </div>
             <form id="sso_modal_form">
-                <div class="modal-body" style="max-height:70vh;overflow:auto;display:flex;flex-direction:column;gap:16px;">
-                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                        <span>Provider Template</span>
-                        <select id="sso_template_select" style="padding:8px;border-radius:4px;border:1px solid var(--border);">
-                            <option value="generic">Generic OIDC</option>
-                            <option value="entra">Microsoft Entra ID</option>
-                        </select>
-                    </label>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
-                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                            <span>Display Name</span>
-                            <input id="sso_display_name" type="text" required style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Acme SSO" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                            <span>Slug</span>
-                            <input id="sso_slug" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="acme" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                            <small style="color:var(--muted);">Lowercase letters, numbers, and hyphen.</small>
-                        </label>
-                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                            <span>Tenant Scope</span>
-                            <select id="sso_tenant" style="padding:8px;border-radius:4px;border:1px solid var(--border);"></select>
-                            <small style="color:var(--muted);">Leave blank to make the provider global.</small>
-                        </label>
-                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                            <span>Default Role</span>
-                            <select id="sso_default_role" style="padding:8px;border-radius:4px;border:1px solid var(--border);">
-                                <option value="user">User</option>
-                                <option value="admin">Admin</option>
-                            </select>
-                        </label>
+                <div class="modal-body sso-modal-body">
+                    <!-- Entra Setup Guide - shows at top when Entra selected -->
+                    <div id="sso_entra_instructions" class="sso-setup-guide preset-entra" data-display="block" style="display:none;">
+                        <div class="sso-setup-guide-header">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                            <span>Microsoft Entra Setup</span>
+                        </div>
+                        <ol class="sso-setup-steps">
+                            <li><a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" rel="noopener">Create an app registration</a> in Microsoft Entra admin center</li>
+                            <li>Select "Accounts in this organization only"</li>
+                            <li>Add the redirect URI below as a Web redirect</li>
+                            <li>Copy the Application (client) ID and create a client secret</li>
+                        </ol>
+                        <div class="sso-redirect-uri-box">
+                            <span class="sso-redirect-uri-label">Redirect URI</span>
+                            <code id="sso_modal_redirect_uri_text">https://example.com/auth/oidc/callback</code>
+                            <button type="button" class="sso-copy-btn" id="sso_modal_copy_redirect" title="Copy to clipboard">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            </button>
+                        </div>
                     </div>
-                    <label class="preset-section preset-generic" data-display="flex" style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                        <span>Issuer URL</span>
-                        <input id="sso_issuer" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://login.microsoftonline.com/..." autocomplete="off" data-1p-ignore data-lpignore="true" />
-                    </label>
-                    <label class="preset-section preset-entra" data-display="flex" style="display:none;flex-direction:column;font-size:13px;gap:6px;">
-                        <span>Microsoft Entra Tenant (Directory) ID</span>
-                        <input id="sso_entra_tenant" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="11111111-2222-3333-4444-555555555555" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                        <small style="color:var(--muted);">We derive the issuer URL from this tenant ID.</small>
-                    </label>
-                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                        <span>Client ID</span>
-                        <input id="sso_client_id" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                    </label>
-                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                        <span>Client Secret</span>
-                        <input id="sso_client_secret" type="password" style="padding:8px;border-radius:4px;border:1px solid var(--border);" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                        <small style="color:var(--muted);">Leave blank to keep the existing secret when editing.</small>
-                    </label>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
-                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                            <span>Button Text</span>
-                            <input id="sso_button_text" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="Sign in with Contoso" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                        </label>
-                        <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                            <span>Icon URL</span>
-                            <input id="sso_icon" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="https://.../logo.svg" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                        </label>
+
+                    <div class="sso-form-grid">
+                        <!-- Left Column: Provider Configuration -->
+                        <div class="sso-form-section">
+                            <h4 class="sso-form-section-title">Provider Configuration</h4>
+                            
+                            <label class="sso-form-label">
+                                <span>Provider Template</span>
+                                <select id="sso_template_select" class="sso-form-input">
+                                    <option value="generic">Generic OIDC</option>
+                                    <option value="entra">Microsoft Entra ID</option>
+                                </select>
+                            </label>
+
+                            <label class="sso-form-label preset-section preset-entra" data-display="flex" style="display:none;">
+                                <span>Tenant (Directory) ID <span class="required">*</span></span>
+                                <input id="sso_entra_tenant" type="text" class="sso-form-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                <span class="sso-form-helper">Found in Azure Portal > Microsoft Entra ID > Overview</span>
+                            </label>
+
+                            <label class="sso-form-label preset-section preset-generic" data-display="flex">
+                                <span>Issuer URL <span class="required">*</span></span>
+                                <input id="sso_issuer" type="text" class="sso-form-input" placeholder="https://login.example.com/..." autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+
+                            <label class="sso-form-label">
+                                <span>Client ID <span class="required">*</span></span>
+                                <input id="sso_client_id" type="text" class="sso-form-input" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+
+                            <label class="sso-form-label">
+                                <span>Client Secret <span class="required" id="sso_secret_required">*</span></span>
+                                <input id="sso_client_secret" type="password" class="sso-form-input" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                <span class="sso-form-helper" id="sso_secret_helper" style="display:none;">Leave blank to keep existing secret</span>
+                            </label>
+                        </div>
+
+                        <!-- Right Column: Display & Access -->
+                        <div class="sso-form-section">
+                            <h4 class="sso-form-section-title">Display & Access</h4>
+                            
+                            <label class="sso-form-label">
+                                <span>Display Name <span class="required">*</span></span>
+                                <input id="sso_display_name" type="text" required class="sso-form-input" placeholder="Company SSO" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                            </label>
+
+                            <label class="sso-form-label">
+                                <span>URL Slug</span>
+                                <input id="sso_slug" type="text" class="sso-form-input" placeholder="company-sso" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                <span class="sso-form-helper">Lowercase letters, numbers, and hyphens only</span>
+                            </label>
+
+                            <div class="sso-form-row">
+                                <label class="sso-form-label">
+                                    <span>Tenant Scope</span>
+                                    <select id="sso_tenant" class="sso-form-input"></select>
+                                </label>
+                                <label class="sso-form-label">
+                                    <span>Default Role</span>
+                                    <select id="sso_default_role" class="sso-form-input">
+                                        <option value="user">User</option>
+                                        <option value="admin">Admin</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <label class="sso-form-checkbox">
+                                <input id="sso_auto_login" type="checkbox" />
+                                <span>Auto-redirect when only provider</span>
+                            </label>
+                        </div>
                     </div>
-                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                        <span>Button Style (optional CSS classes)</span>
-                        <input id="sso_button_style" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" placeholder="btn btn-accent" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                    </label>
-                    <label style="display:flex;flex-direction:column;font-size:13px;gap:6px;">
-                        <span>Scopes</span>
-                        <input id="sso_scopes" type="text" style="padding:8px;border-radius:4px;border:1px solid var(--border);" autocomplete="off" data-1p-ignore data-lpignore="true" />
-                        <small style="color:var(--muted);">Separate scopes with spaces or commas. "openid" is always included.</small>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
-                        <input id="sso_auto_login" type="checkbox" />
-                        <span>Automatically redirect users to this provider when it is the only option.</span>
-                    </label>
-                    <div id="sso_modal_error" style="display:none;color:var(--danger);font-size:13px;"></div>
-                    <div id="sso_entra_instructions" class="sso-modal-helper preset-entra" data-display="block" style="display:none;">
-                        <div style="font-weight:600;margin-bottom:6px;">Microsoft Entra setup checklist</div>
-                        <ul>
-                            <li>Create an app registration in <a href="https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/CreateApplicationBlade/quickStartType~/null/isMSAApp~/false" target="_blank" rel="noopener" class="sso-entra-portal-link">Microsoft Entra admin center</a>.</li>
-                            <li>Select “Accounts in this organization only” and add <code id="sso_modal_redirect_uri_text">https://example.com/auth/oidc/callback</code> as a Web redirect URI.</li>
-                            <li>Copy the Application (client) ID, create a client secret, and keep the Directory (tenant) ID.</li>
-                            <li>Paste the client ID/secret here; the issuer URL is generated from your tenant ID automatically.</li>
-                        </ul>
-                        <button type="button" class="link-button" id="sso_modal_copy_redirect">Copy redirect URI</button>
-                    </div>
+
+                    <!-- Collapsible Advanced Section -->
+                    <details class="sso-advanced-section">
+                        <summary class="sso-advanced-toggle">
+                            <svg class="sso-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                            <span>Appearance & Advanced</span>
+                        </summary>
+                        <div class="sso-advanced-content">
+                            <div class="sso-form-row">
+                                <label class="sso-form-label">
+                                    <span>Button Text</span>
+                                    <input id="sso_button_text" type="text" class="sso-form-input" placeholder="Sign in with..." autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                </label>
+                                <label class="sso-form-label">
+                                    <span>Icon URL</span>
+                                    <input id="sso_icon" type="text" class="sso-form-input" placeholder="https://..." autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                </label>
+                            </div>
+                            <div class="sso-form-row">
+                                <label class="sso-form-label">
+                                    <span>Button CSS Classes</span>
+                                    <input id="sso_button_style" type="text" class="sso-form-input" placeholder="btn btn-accent" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                </label>
+                                <label class="sso-form-label">
+                                    <span>OAuth Scopes</span>
+                                    <input id="sso_scopes" type="text" class="sso-form-input" placeholder="openid profile email" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                                </label>
+                            </div>
+                        </div>
+                    </details>
+
+                    <div id="sso_modal_error" class="sso-form-error"></div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="modal-button modal-button-secondary" id="sso_modal_cancel">Cancel</button>

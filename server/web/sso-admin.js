@@ -513,7 +513,7 @@
         const tenantSelect = qs('sso_tenant');
         const modalError = qs('sso_modal_error');
         if (modalError) {
-            modalError.style.display = 'none';
+            modalError.textContent = '';
         }
 
         resetPresetState();
@@ -534,6 +534,11 @@
             roleSelect.value = provider.default_role || 'user';
             modal.setAttribute('data-edit-slug', provider.slug || '');
             populateTenantSelect(provider.tenant_id || '');
+            // Show secret helper and hide required indicator when editing
+            const secretHelper = qs('sso_secret_helper');
+            const secretRequired = qs('sso_secret_required');
+            if (secretHelper) secretHelper.style.display = '';
+            if (secretRequired) secretRequired.style.display = 'none';
         } else {
             if (title) title.textContent = 'Add OIDC Provider';
             slugInput.disabled = false;
@@ -550,6 +555,11 @@
             roleSelect.value = 'user';
             modal.removeAttribute('data-edit-slug');
             populateTenantSelect('');
+            // Hide secret helper and show required indicator when adding
+            const secretHelper = qs('sso_secret_helper');
+            const secretRequired = qs('sso_secret_required');
+            if (secretHelper) secretHelper.style.display = 'none';
+            if (secretRequired) secretRequired.style.display = '';
         }
 
         const inferredPreset = detectPresetFromProvider(provider);
@@ -595,8 +605,8 @@
         if (!errorEl) {
             return;
         }
-        errorEl.textContent = message;
-        errorEl.style.display = 'block';
+        errorEl.textContent = message || '';
+        // CSS handles display via :not(:empty) selector
     }
 
     function setModalSaving(isSaving) {

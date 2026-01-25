@@ -2906,6 +2906,295 @@ select:focus {
   color: var(--danger);
 }
 
+/* ============================================
+   SSO Modal Styles
+   ============================================ */
+
+.sso-modal-content {
+  max-width: 860px;
+  width: calc(100% - 32px);
+}
+
+.sso-modal-body {
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+/* Setup Guide (Entra instructions) */
+.sso-setup-guide {
+  background: rgba(0, 120, 212, 0.08);
+  border: 1px solid rgba(0, 120, 212, 0.25);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.sso-setup-guide-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #5ba3d9;
+  margin-bottom: 12px;
+}
+
+.sso-setup-guide-header svg {
+  flex-shrink: 0;
+}
+
+.sso-setup-steps {
+  margin: 0;
+  padding-left: 24px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.sso-setup-steps li {
+  margin-bottom: 4px;
+}
+
+.sso-setup-steps a {
+  color: var(--highlight);
+}
+
+.sso-redirect-uri-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.sso-redirect-uri-label {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sso-redirect-uri-box code {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.sso-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sso-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--text);
+}
+
+/* Form Grid Layout */
+.sso-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+}
+
+@media (max-width: 700px) {
+  .sso-form-grid {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+}
+
+.sso-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sso-form-section-title {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sso-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 500px) {
+  .sso-form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sso-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.sso-form-label > span:first-child {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.sso-form-label .required {
+  color: var(--danger);
+}
+
+.sso-form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font-size: 14px;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sso-form-input:focus {
+  outline: none;
+  border-color: var(--highlight);
+  box-shadow: 0 0 0 3px rgba(38, 139, 210, 0.15);
+}
+
+.sso-form-input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.sso-form-helper {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.sso-form-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.sso-form-checkbox input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  width: 40px;
+  height: 22px;
+  min-width: 40px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 11px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.sso-form-checkbox input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 2px;
+  top: 2px;
+  background: var(--text);
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.sso-form-checkbox input[type="checkbox"]:checked {
+  background: var(--highlight);
+  border-color: var(--highlight);
+}
+
+.sso-form-checkbox input[type="checkbox"]:checked::after {
+  transform: translateX(18px);
+}
+
+/* Advanced Section (collapsible) */
+.sso-advanced-section {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.sso-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.sso-advanced-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.sso-advanced-toggle:hover {
+  color: var(--text);
+}
+
+.sso-chevron {
+  transition: transform 0.2s ease;
+}
+
+.sso-advanced-section[open] .sso-chevron {
+  transform: rotate(180deg);
+}
+
+.sso-advanced-content {
+  padding: 0 16px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Error display */
+.sso-form-error {
+  display: none;
+  padding: 12px;
+  background: rgba(220, 50, 47, 0.1);
+  border: 1px solid rgba(220, 50, 47, 0.3);
+  border-radius: 6px;
+  color: #ff8a87;
+  font-size: 13px;
+}
+
+.sso-form-error:not(:empty) {
+  display: block;
+}
+
+/* Legacy helper styles (keep for compatibility) */
 .sso-modal-helper {
   border: 1px dashed var(--border);
   border-radius: 6px;
