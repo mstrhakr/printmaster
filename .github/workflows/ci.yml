@@ -226,7 +226,7 @@ jobs:
         run: |
           echo "Waiting for server..."
           for i in {1..30}; do
-            if curl -sf http://localhost:8443/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:9090/health > /dev/null 2>&1; then
               echo "Server is ready!"
               break
             fi
@@ -256,7 +256,7 @@ jobs:
       - name: Run E2E Docker tests
         working-directory: ./tests
         env:
-          E2E_SERVER_URL: http://localhost:8443
+          E2E_SERVER_URL: http://localhost:9090
           E2E_AGENT_URL: http://localhost:8080
           E2E_ADMIN_PASSWORD: e2e-test-password
         run: go test -tags=e2e -v -count=1 ./...

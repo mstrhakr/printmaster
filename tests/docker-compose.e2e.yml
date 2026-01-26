@@ -28,7 +28,7 @@ services:
     environment:
       # Server listens on all interfaces
       SERVER_HOST: "0.0.0.0"
-      SERVER_PORT: "8443"
+      # Server uses default HTTP port 9090
       # Use SQLite for E2E tests (simpler, no external DB needed)
       SERVER_DB_TYPE: "sqlite"
       # Mount point for test database
@@ -44,7 +44,7 @@ services:
       # Container detection
       CONTAINER: "docker"
     ports:
-      - "8443:8443"
+      - "9090:9090"
     volumes:
       # Mount test data directory (contains seed DB)
       - ./testdata/server:/data
@@ -77,7 +77,7 @@ services:
       # Agent configuration via environment
       AGENT_DATA_DIR: "/data"
       # Connect to server
-      AGENT_SERVER_URL: "http://server:8443"
+      AGENT_SERVER_URL: "http://server:9090"
       AGENT_SERVER_ENABLED: "true"
       # Agent identity
       AGENT_NAME: "e2e-test-agent"
