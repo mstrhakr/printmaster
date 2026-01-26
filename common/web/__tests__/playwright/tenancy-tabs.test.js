@@ -112,11 +112,13 @@ async function loadApp(page, user) {
   // Wait for auth API to be called and RBAC to be applied
   await page.waitForLoadState('networkidle');
   // Wait for auth to complete and dynamic tabs to be rendered
-  // Base tabs (agents, devices, etc) are always present, check for those first
-  await page.waitForSelector('#desktop_tabs .tab[data-target="agents"]', { timeout: 10000 });
+  // Use responsive selector based on viewport
+  const agentsSelector = getTabSelector(page, 'agents');
+  await page.waitForSelector(agentsSelector, { timeout: 10000 });
   // For admin and operator users, wait specifically for the admin tab to appear
   if (user && (user.role === 'admin' || user.role === 'operator')) {
-    await page.waitForSelector('#desktop_tabs .tab[data-target="admin"]', { timeout: 10000 });
+    const adminSelector = getTabSelector(page, 'admin');
+    await page.waitForSelector(adminSelector, { timeout: 10000 });
   }
 }
 
@@ -182,12 +184,26 @@ const adminUser = { username: 'alice', role: 'admin', tenant_ids: [] };
 const operatorUser = { username: 'oliver', role: 'operator', tenant_ids: ['t1'] };
 const viewerUser = { username: 'victor', role: 'viewer', tenant_ids: ['t1'] };
 
+// Helper to check if running on mobile viewport
+function isMobileViewport(page) {
+  const size = page.viewportSize();
+  return size && size.width < 768;
+}
+
+// Get the correct tab selector based on viewport
+function getTabSelector(page, tabId) {
+  if (isMobileViewport(page)) {
+    return `#mobile_bottom_tabs .mobile-tab-item[data-target="${tabId}"]`;
+  }
+  return `#desktop_tabs .tab[data-target="${tabId}"]`;
+}
+
 test('admin sees tenants in admin tab', async ({ page }) => {
   await loadApp(page, adminUser);
   // Wait for dynamic tabs to be created after auth
   await page.waitForLoadState('networkidle');
-  // Navigate to Admin tab
-  const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
+  // Navigate to Admin tab (use responsive selector)
+  const adminTab = page.locator(getTabSelector(page, 'admin')).first();
   await expect(adminTab).toBeVisible({ timeout: 10000 });
   await adminTab.click();
   // Switch to Tenants sub-view
@@ -203,7 +219,7 @@ test('operator can see admin tab but only fleet and alerts subtabs', async ({ pa
   await page.waitForLoadState('networkidle');
   
   // Operators CAN see the admin tab (with granular settings permissions)
-  const adminTab = page.locator('#desktop_tabs [data-target="admin"]').first();
+  const adminTab = page.locator(getTabSelector(page, 'admin')).first();
   await expect(adminTab).toBeVisible({ timeout: 10000 });
   await adminTab.click();
   
@@ -228,13 +244,13 @@ test('admin can view audit subtab in admin tab', async ({ page }) => {
   await loadApp(page, adminUser);
   // Wait for dynamic tabs to be created after auth
   await page.waitForLoadState('networkidle');
-  await page.locator('#desktop_tabs [data-target="admin"]').click();
+  await page.locator(getTabSelector(page, 'admin')).click();
   const auditSubtab = page.locator('.admin-subtab[data-adminview="audit"]');
   await expect(auditSubtab).toBeVisible();
 });
 
 test('viewer does not see admin tab', async ({ page }) => {
   await loadApp(page, viewerUser);
-  const adminTab = page.locator('#desktop_tabs [data-target="admin"]');
+  const adminTab = page.locator(getTabSelector(page, 'admin'));
   await expect(adminTab).toBeHidden();
 });

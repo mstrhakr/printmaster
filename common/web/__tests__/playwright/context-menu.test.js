@@ -193,9 +193,16 @@ function createApiHandler(apiCalls = []) {
   };
 }
 
+// Helper to check if running on mobile viewport
+function isMobileViewport(page) {
+  const size = page.viewportSize();
+  return size && size.width < 768;
+}
+
 // ========== Device Context Menu - Single Page Load ==========
 
 test('device context menu: appearance, actions, delete flow', async ({ page }) => {
+  test.skip(isMobileViewport(page), 'Context menus are desktop-only (mobile uses different navigation)');
   // Grant clipboard permissions upfront
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   
@@ -324,6 +331,8 @@ test('device context menu: appearance, actions, delete flow', async ({ page }) =
 // ========== Agent Context Menu - Single Page Load ==========
 
 test('agent context menu: appearance and actions', async ({ page }) => {
+  test.skip(isMobileViewport(page), 'Context menus are desktop-only (mobile uses different navigation)');
+  
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   
   await page.addInitScript(() => {
@@ -347,10 +356,17 @@ test('agent context menu: appearance and actions', async ({ page }) => {
   await page.locator('#desktop_tabs [data-target="agents"]').first().click();
   await page.waitForSelector('[data-agent-id="agent-001"]', { timeout: 10000 });
   
+  // Wait for context menu handlers to be registered
+  await page.waitForFunction(() => typeof window.PMContextMenu !== 'undefined', { timeout: 5000 });
+  
+  // Brief pause to ensure DOM is stable and event handlers are attached
+  await page.waitForTimeout(200);
+  
   const agentElement = page.locator('[data-agent-id="agent-001"]').first();
+  await expect(agentElement).toBeVisible();
   
   // --- Test 1: Context menu appears ---
-  await agentElement.click({ button: 'right' });
+  await agentElement.click({ button: 'right', force: true });
   
   const contextMenu = page.locator('.pm-context-menu');
   await expect(contextMenu).toBeVisible({ timeout: 5000 });

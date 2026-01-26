@@ -998,18 +998,63 @@
         }
 
         _showColumnPicker(anchorElement) {
-            // Remove any existing picker
-            document.querySelectorAll('.column-picker-dropdown').forEach(el => el.remove());
+            // Toggle behavior - if picker already exists for this anchor, close it
+            const existingPicker = document.querySelector('.column-picker-dropdown');
+            if (existingPicker) {
+                existingPicker.remove();
+                return; // Don't open a new one
+            }
             
             const picker = document.createElement('div');
             picker.innerHTML = this.renderColumnPicker();
             const dropdown = picker.firstElementChild;
             
-            // Position dropdown
+            // Position dropdown with viewport bounds checking
             const rect = anchorElement.getBoundingClientRect();
+            const viewportHeight = window.innerHeight;
+            const viewportWidth = window.innerWidth;
+            const preferredHeight = 480; // preferred max-height from CSS
+            const dropdownWidth = 320; // approximate width
+            const margin = 8; // minimum margin from viewport edge
+            const buttonClearance = 4; // gap between button and dropdown
+            
+            // Calculate available space above and below the button
+            const spaceBelow = viewportHeight - rect.bottom - margin - buttonClearance;
+            const spaceAbove = rect.top - margin - buttonClearance;
+            
+            let top, maxHeight;
+            
+            if (spaceBelow >= preferredHeight) {
+                // Plenty of space below - position there
+                top = rect.bottom + buttonClearance;
+                maxHeight = Math.min(preferredHeight, spaceBelow);
+            } else if (spaceAbove >= preferredHeight) {
+                // Plenty of space above - position there
+                maxHeight = Math.min(preferredHeight, spaceAbove);
+                top = rect.top - maxHeight - buttonClearance;
+            } else if (spaceBelow >= spaceAbove) {
+                // More space below, use what's available
+                top = rect.bottom + buttonClearance;
+                maxHeight = spaceBelow;
+            } else {
+                // More space above, use what's available
+                maxHeight = spaceAbove;
+                top = rect.top - maxHeight - buttonClearance;
+            }
+            
+            // Ensure minimum usable height (at least show header + some items)
+            maxHeight = Math.max(maxHeight, 200);
+            
+            // Calculate left position - keep within viewport
+            let left = rect.left;
+            if (left + dropdownWidth > viewportWidth - margin) {
+                left = Math.max(margin, viewportWidth - dropdownWidth - margin);
+            }
+            
             dropdown.style.position = 'fixed';
-            dropdown.style.top = `${rect.bottom + 4}px`;
-            dropdown.style.left = `${rect.left}px`;
+            dropdown.style.top = `${top}px`;
+            dropdown.style.left = `${left}px`;
+            dropdown.style.maxHeight = `${maxHeight}px`;
             dropdown.style.zIndex = '10000';
             
             document.body.appendChild(dropdown);
