@@ -1015,6 +1015,8 @@ button.delete:hover {
 
 .update-btn:hover:not(:disabled) {
   filter: brightness(1.1);
+  transform: none; /* Prevent row height shift from global button:hover transform */
+  box-shadow: none; /* Override global button:hover shadow */
 }
 
 .update-btn.disabled,
