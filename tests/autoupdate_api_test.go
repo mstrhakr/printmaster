@@ -783,14 +783,14 @@ func TestTelemetryPayloadFormat(t *testing.T) {
 
 	// Test telemetry payload for successful update
 	successPayload := map[string]interface{}{
-		"agent_id":        "test-agent-001",
-		"run_id":          "run-123",
-		"status":          "succeeded",
-		"current_version": "1.0.0",
-		"target_version":  "1.1.0",
+		"agent_id":         "test-agent-001",
+		"run_id":           "run-123",
+		"status":           "succeeded",
+		"current_version":  "1.0.0",
+		"target_version":   "1.1.0",
 		"download_time_ms": 5432,
-		"size_bytes":      15728640,
-		"timestamp":       time.Now().Format(time.RFC3339),
+		"size_bytes":       15728640,
+		"timestamp":        time.Now().Format(time.RFC3339),
 	}
 
 	// Verify required fields
