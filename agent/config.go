@@ -124,6 +124,18 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 		return nil, err
 	}
 
+	ApplyEnvironmentOverrides(cfg)
+	return cfg, nil
+}
+
+// ApplyEnvironmentOverrides applies environment variable overrides to the config.
+// This is called automatically by LoadAgentConfig, but can also be called separately
+// when using DefaultAgentConfig() without a config file.
+func ApplyEnvironmentOverrides(cfg *AgentConfig) {
+	if cfg == nil {
+		return
+	}
+
 	// Override with environment variables
 	if val := os.Getenv("ASSET_ID_REGEX"); val != "" {
 		cfg.AssetIDRegex = val
@@ -200,7 +212,6 @@ func LoadAgentConfig(configPath string) (*AgentConfig, error) {
 	config.ApplyLoggingEnvOverrides(&cfg.Logging)
 
 	cfg.AutoUpdate.Mode = normalizeAutoUpdateMode(string(cfg.AutoUpdate.Mode))
-	return cfg, nil
 }
 
 // WriteDefaultAgentConfig writes a default agent configuration file

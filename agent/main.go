@@ -2853,6 +2853,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 	if !configLoaded {
 		appLogger.Warn("No config.toml found, using defaults")
 		agentConfig = DefaultAgentConfig()
+		ApplyEnvironmentOverrides(agentConfig) // Apply env overrides even when no config file
 	}
 	configEpsonRemoteModeEnabled = agentConfig != nil && agentConfig.EpsonRemoteModeEnabled
 	featureflags.SetEpsonRemoteMode(configEpsonRemoteModeEnabled)
