@@ -768,7 +768,7 @@
                         <div class="column-picker-group-title">${title}</div>
                         <div class="column-picker-list" data-group="${title.toLowerCase()}">
                             ${cols.map(col => `
-                                <div class="column-picker-item ${col.visible ? 'visible' : 'hidden'} ${col.pinned ? 'pinned-' + col.pinned : ''}" 
+                                <div class="column-picker-item ${col.visible ? 'column-visible' : 'column-hidden'} ${col.pinned ? 'pinned-' + col.pinned : ''}" 
                                      data-column-id="${col.id}"
                                      draggable="${showDrag && this.options.enableReorder && col.visible ? 'true' : 'false'}">
                                     ${showDrag && this.options.enableReorder && col.visible ? `
@@ -824,6 +824,7 @@
          */
         renderHeader() {
             const visibleColumns = this.getVisibleColumns();
+            const totalColumns = visibleColumns.length;
             
             return visibleColumns.map(col => {
                 const isSorted = this.sortState.key === col.sortKey;
@@ -841,7 +842,11 @@
                     }
                 }
 
-                const width = col.width ? `style="width:${col.width}px;min-width:${col.minWidth || 50}px;"` : '';
+                // Always set a width to prevent layout recalculation with table-layout:fixed
+                // Use explicit width if defined, otherwise distribute evenly
+                const widthStyle = col.width 
+                    ? `style="width:${col.width}px;min-width:${col.minWidth || 50}px;"`
+                    : `style="width:${Math.floor(100 / totalColumns)}%;"`;
                 const sortable = col.sortKey ? 'sortable' : '';
                 const pinClass = col.pinned ? `pinned-${col.pinned}` : '';
                 const actionsClass = col.isActions ? 'actions-col' : '';
@@ -850,7 +855,7 @@
                     <th data-column-id="${col.id}" 
                         data-sort-key="${col.sortKey || ''}"
                         class="${sortable} ${pinClass} ${actionsClass} ${isSorted ? 'sorted' : ''}"
-                        ${width}>
+                        ${widthStyle}>
                         <div class="th-content">
                             <span class="th-label">${escapeHtml(col.label)}</span>
                             ${sortIndicator}

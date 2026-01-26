@@ -504,6 +504,7 @@ h1 {
   border-collapse: collapse;
   font-size: 13px;
   min-width: 520px;
+  table-layout: fixed; /* Prevent column width recalculation on hover */
 }
 
 .simple-table th,
@@ -513,6 +514,8 @@ h1 {
   text-align: left;
   vertical-align: top;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Allow text to wrap in device name and network cells */
@@ -11607,7 +11610,7 @@ select:hover {
   background: rgba(38, 139, 210, 0.2);
 }
 
-.column-picker-item.hidden {
+.column-picker-item.column-hidden {
   opacity: 0.6;
 }
 
@@ -11975,9 +11978,15 @@ body.light-theme .simple-table th.sorted {
   cursor: context-menu;
 }
 
-/* Subtle right-click indicator on hover */
-.simple-table tbody tr[data-agent-id]:hover::after,
-.simple-table tbody tr[data-serial]:hover::after,
+/* Note: Removed ::after hover indicator - it caused table layout recalculation
+   when position:relative was applied to tr elements on hover */
+
+.device-card[data-serial],
+.agent-card-clickable {
+  position: relative;
+}
+
+/* Subtle right-click indicator on hover for cards only */
 .device-card[data-serial]:hover::after,
 .agent-card-clickable:hover::after {
   content: '';
@@ -11992,17 +12001,6 @@ body.light-theme .simple-table th.sorted {
   opacity: 0;
   transition: opacity 0.2s ease;
   pointer-events: none;
-}
-
-/* Make rows and cards position relative for the indicator */
-.simple-table tbody tr[data-agent-id],
-.simple-table tbody tr[data-serial] {
-  position: relative;
-}
-
-.device-card[data-serial],
-.agent-card-clickable {
-  position: relative;
 }
 
 /* Light theme adjustments for context menu */
