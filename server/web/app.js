@@ -17028,9 +17028,9 @@ function initMetricsRangeControls() {
 
 /**
  * Initialize metrics filter controls (tenant, agent, device dropdowns).
- * - Global admins see tenant filter
- * - All users see agent filter (scoped to their tenants)
- * - When agent is selected, device filter is populated
+ * Cascading filter pattern:
+ * - Global admins: Show tenant filter first → agent filter appears when tenant selected → device filter appears when agent selected
+ * - Non-admin users: Show agent filter first (scoped to their tenant) → device filter appears when agent selected
  */
 function initMetricsFilterControls() {
     const filtersContainer = document.getElementById('metrics_filters');
@@ -17042,20 +17042,29 @@ function initMetricsFilterControls() {
     if (filtersContainer._filtersBound) return;
     filtersContainer._filtersBound = true;
     
-    // Hide tenant filter for non-global users (they only see their tenant's data)
-    if (tenantSelect) {
-        if (!isGlobalAdmin()) {
-            tenantSelect.style.display = 'none';
-        } else {
+    // Cascading filter setup: hide downstream filters initially
+    if (isGlobalAdmin()) {
+        // Global admins start with tenant filter only
+        if (tenantSelect) {
             tenantSelect.addEventListener('change', onMetricsTenantChange);
+        }
+        if (agentSelect) {
+            agentSelect.style.display = 'none'; // Hidden until tenant selected
+            agentSelect.addEventListener('change', onMetricsAgentChange);
+        }
+    } else {
+        // Non-global users: hide tenant filter, show agent filter
+        if (tenantSelect) {
+            tenantSelect.style.display = 'none';
+        }
+        if (agentSelect) {
+            agentSelect.addEventListener('change', onMetricsAgentChange);
         }
     }
     
-    if (agentSelect) {
-        agentSelect.addEventListener('change', onMetricsAgentChange);
-    }
-    
+    // Device filter always hidden until agent selected
     if (deviceSelect) {
+        deviceSelect.style.display = 'none';
         deviceSelect.addEventListener('change', onMetricsDeviceChange);
     }
     
@@ -17065,6 +17074,9 @@ function initMetricsFilterControls() {
 
 /**
  * Populate metrics filter dropdowns with available options.
+ * Cascading pattern:
+ * - Global admins: Populate tenant only; agent filter populated when tenant selected
+ * - Non-admin users: Populate agent filter immediately (scoped to their tenant)
  */
 async function populateMetricsFilters() {
     const tenantSelect = document.getElementById('metrics_tenant_filter');
@@ -17088,9 +17100,11 @@ async function populateMetricsFilters() {
         } catch (err) {
             window.__pm_shared.warn('Failed to load tenants for metrics filter', err);
         }
+        // Agent filter stays hidden until tenant is selected (for global admins)
+        return;
     }
     
-    // Populate agent filter
+    // For non-global users: populate agent filter immediately (scoped to their tenant)
     if (agentSelect) {
         try {
             const agentsResp = await fetch('/api/v1/agents/list');
@@ -17131,19 +17145,25 @@ function onMetricsTenantChange(evt) {
     if (agentSelect) {
         agentSelect.value = '';
         agentSelect.classList.remove('has-value');
+        // Show agent filter when tenant selected, hide when "All Tenants"
+        agentSelect.style.display = tenantId ? '' : 'none';
     }
     if (deviceSelect) {
         deviceSelect.value = '';
         deviceSelect.innerHTML = '<option value="">All Devices</option>';
         deviceSelect.disabled = true;
         deviceSelect.classList.remove('has-value');
+        // Hide device filter when tenant changes
+        deviceSelect.style.display = 'none';
     }
     
     // Reload metrics with new filter
     loadMetrics(true);
     
     // Re-populate agent filter for selected tenant
-    populateAgentFilterForTenant(tenantId);
+    if (tenantId) {
+        populateAgentFilterForTenant(tenantId);
+    }
 }
 
 async function populateAgentFilterForTenant(tenantId) {
@@ -17185,9 +17205,12 @@ function onMetricsAgentChange(evt) {
         deviceSelect.classList.remove('has-value');
         
         if (agentId) {
-            // Populate device filter for selected agent
+            // Show and populate device filter for selected agent
+            deviceSelect.style.display = '';
             populateDeviceFilterForAgent(agentId);
         } else {
+            // Hide device filter when "All Agents" is selected
+            deviceSelect.style.display = 'none';
             deviceSelect.innerHTML = '<option value="">All Devices</option>';
             deviceSelect.disabled = true;
         }
