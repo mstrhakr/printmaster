@@ -11515,7 +11515,7 @@ select:hover {
 
 /* Column Picker Dropdown */
 .column-picker-dropdown {
-  background: var(--bg-secondary);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow-lg);
@@ -11764,7 +11764,7 @@ select:hover {
 .simple-table td.pinned-left {
   position: sticky;
   left: 0;
-  background: var(--bg-secondary);
+  background: var(--panel);
   z-index: 2;
   box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
 }
@@ -11773,7 +11773,7 @@ select:hover {
 .simple-table td.pinned-right {
   position: sticky;
   right: 0;
-  background: var(--bg-secondary);
+  background: var(--panel);
   z-index: 2;
   box-shadow: -2px 0 4px rgba(0, 0, 0, 0.1);
 }
