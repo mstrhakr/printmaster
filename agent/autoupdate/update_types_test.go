@@ -310,7 +310,7 @@ func TestManagerContextCancellation(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	err = manager.CheckNow(ctx)
+	_ = manager.CheckNow(ctx) // Error expected due to context cancellation
 	elapsed := time.Since(start)
 
 	// Should complete quickly due to cancellation
