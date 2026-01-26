@@ -3560,7 +3560,8 @@ async function loadChannelsForAlertRule(selectedIds = []) {
         const resp = await fetch('/api/v1/notification-channels');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         
-        const channels = await resp.json();
+        const data = await resp.json();
+        const channels = data.channels || [];
         
         if (!channels || channels.length === 0) {
             container.innerHTML = '<div class="muted-text" style="padding:12px;text-align:center;">No notification channels configured. <a href="#" onclick="window.__alerting_showNotificationChannelModal();return false;">Create one</a></div>';
