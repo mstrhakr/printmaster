@@ -5874,13 +5874,19 @@ async function loadSelfUpdateRuns() {
         const isContainer = statusResp.is_container === true;
         releaseArtifactsIsContainer = isContainer;
 
-        // Render status card
-        if (statusCard) {
+        // Hide entire Server Updates section when running in container
+        const serverUpdatesPanel = document.getElementById('server_updates_panel');
+        if (serverUpdatesPanel) {
+            serverUpdatesPanel.style.display = isContainer ? 'none' : '';
+        }
+
+        // Render status card (only if not in container)
+        if (statusCard && !isContainer) {
             renderSelfUpdateStatus(statusCard, statusResp);
         }
 
-        // Render runs table
-        if (runsContainer) {
+        // Render runs table (only if not in container)
+        if (runsContainer && !isContainer) {
             if (runsResp.error) {
                 runsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load history: ${runsResp.error}</div>`;
             } else {
