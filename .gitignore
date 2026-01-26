@@ -150,7 +150,6 @@ server/test_db/*
 # Node / JS
 node_modules/
 npm-debug.log*
-package-lock.json
 .pnpm-debug.log
 
 # Playwright browsers (if downloaded locally)
