@@ -79,6 +79,8 @@ services:
       AGENT_NAME: "e2e-test-agent"
       # HTTP port for agent web UI
       WEB_HTTP_PORT: "8080"
+      # Disable auth for E2E tests (simplifies testing)
+      WEB_AUTH_MODE: "disabled"
       # Disable auto-update in tests
       AUTOUPDATE_ENABLED: "false"
       # Container detection

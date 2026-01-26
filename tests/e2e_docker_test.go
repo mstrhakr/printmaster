@@ -51,7 +51,7 @@ var httpClient = &http.Client{
 // ===========================================================================
 
 func TestE2E_ServerHealth(t *testing.T) {
-	resp, err := httpClient.Get(serverURL + "/api/health")
+	resp, err := httpClient.Get(serverURL + "/health")
 	if err != nil {
 		t.Fatalf("Failed to reach server health endpoint: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestE2E_ServerHealth(t *testing.T) {
 }
 
 func TestE2E_AgentHealth(t *testing.T) {
-	resp, err := httpClient.Get(agentURL + "/api/health")
+	resp, err := httpClient.Get(agentURL + "/health")
 	if err != nil {
 		t.Fatalf("Failed to reach agent health endpoint: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestE2E_NotFoundHandling(t *testing.T) {
 }
 
 func TestE2E_InvalidMethodHandling(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodDelete, serverURL+"/api/health", nil)
+	req, _ := http.NewRequest(http.MethodDelete, serverURL+"/health", nil)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		t.Fatalf("Request failed: %v", err)
@@ -387,7 +387,7 @@ func TestE2E_FullIntegrationFlow(t *testing.T) {
 	t.Log("Running full integration flow test...")
 
 	// 1. Verify server is up
-	resp, err := httpClient.Get(serverURL + "/api/health")
+	resp, err := httpClient.Get(serverURL + "/health")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatal("Server not healthy")
 	}
@@ -395,7 +395,7 @@ func TestE2E_FullIntegrationFlow(t *testing.T) {
 	t.Log("  ✓ Server healthy")
 
 	// 2. Verify agent is up
-	resp, err = httpClient.Get(agentURL + "/api/health")
+	resp, err = httpClient.Get(agentURL + "/health")
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatal("Agent not healthy")
 	}
