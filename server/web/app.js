@@ -11200,10 +11200,11 @@ function handleAgentUpdateProgress(data) {
     const targetVersion = data.target_version || '';
     const errorMsg = data.error || '';
     
-    // Update state tracking - preserve previousVersion if already set
+    // Update state tracking - preserve previousVersion and _shownToasts if already set
     const existingState = agentsVM.updateState[agentId] || {};
     const agent = agentsVM.items.find(a => a.agent_id === agentId);
     const previousVersion = existingState.previousVersion || agent?.version || '';
+    const shownToasts = existingState._shownToasts || {};
     
     agentsVM.updateState[agentId] = {
         status,
@@ -11212,7 +11213,8 @@ function handleAgentUpdateProgress(data) {
         targetVersion,
         previousVersion,
         error: errorMsg,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        _shownToasts: shownToasts  // Preserve toast tracking across updates
     };
     
     // Start animation loop if an update is active
@@ -11222,9 +11224,7 @@ function handleAgentUpdateProgress(data) {
     }
     
     // Show toast notifications for key events
-    // Track shown toasts per agent to avoid duplicates (e.g., multiple progress=0 events)
     const agentName = agent?.name || agent?.hostname || agentId;
-    const shownToasts = agentsVM.updateState[agentId]._shownToasts || {};
     
     switch (status) {
         case 'checking':
@@ -11235,21 +11235,18 @@ function handleAgentUpdateProgress(data) {
             if (!shownToasts.downloading) {
                 window.__pm_shared.showToast(`${agentName}: Downloading update...`, 'info');
                 shownToasts.downloading = true;
-                agentsVM.updateState[agentId]._shownToasts = shownToasts;
             }
             break;
         case 'ready':
             if (!shownToasts.ready) {
                 window.__pm_shared.showToast(`${agentName}: Update downloaded, preparing to install...`, 'info');
                 shownToasts.ready = true;
-                agentsVM.updateState[agentId]._shownToasts = shownToasts;
             }
             break;
         case 'restarting':
             if (!shownToasts.restarting) {
                 window.__pm_shared.showToast(`${agentName}: Restarting to apply update...`, 'info');
                 shownToasts.restarting = true;
-                agentsVM.updateState[agentId]._shownToasts = shownToasts;
             }
             // Store previous version for comparison when agent reconnects
             if (agent?.version && !agentsVM.updateState[agentId].previousVersion) {
@@ -11258,7 +11255,6 @@ function handleAgentUpdateProgress(data) {
             // Fallback: if we never hear back after restart, clear the state and refresh
             if (!shownToasts.restartTimeout) {
                 shownToasts.restartTimeout = true;
-                agentsVM.updateState[agentId]._shownToasts = shownToasts;
                 setTimeout(() => {
                     const st = agentsVM.updateState[agentId];
                     if (st && st.status === 'restarting') {
