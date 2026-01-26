@@ -3644,7 +3644,7 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/devices/preview", requireWebAuth(handleDevicePreviewProxy))
 	http.HandleFunc("/devices/update", requireWebAuth(handleDeviceUpdateProxy))
 	http.HandleFunc("/devices/metrics/collect", requireWebAuth(handleDeviceMetricsCollectProxy))
-	http.HandleFunc("/api/report", requireWebAuth(handleDeviceReportProxy)) // Proxy device reports to agent
+	http.HandleFunc("/api/report", requireWebAuth(handleDeviceReportProxy))       // Proxy device reports to agent
 	http.HandleFunc("/api/v1/devices/delete", requireWebAuth(handleDeviceDelete)) // Delete device from server and optionally agent
 
 	// Web UI endpoints - keep landing/static public so login assets load
@@ -5897,9 +5897,9 @@ func handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Serial           string `json:"serial"`
-		DeleteMetrics    bool   `json:"delete_metrics"`    // Also delete metrics history
-		DeleteFromAgent  bool   `json:"delete_from_agent"` // Also delete from agent's database
+		Serial          string `json:"serial"`
+		DeleteMetrics   bool   `json:"delete_metrics"`    // Also delete metrics history
+		DeleteFromAgent bool   `json:"delete_from_agent"` // Also delete from agent's database
 	}
 
 	bodyBytes, err := io.ReadAll(r.Body)
