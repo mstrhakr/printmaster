@@ -5945,6 +5945,8 @@ func handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 			// Create a new request for the agent
 			agentR, _ := http.NewRequest(http.MethodPost, "/devices/delete", bytes.NewReader(agentReqBytes))
 			agentR.Header.Set("Content-Type", "application/json")
+			// Mark as server-initiated so agent doesn't send redundant device_deleted notification
+			agentR.Header.Set("X-PrintMaster-Server-Request", "true")
 
 			// Use a buffer to capture the agent response
 			agentW := &responseCapture{headers: make(http.Header)}

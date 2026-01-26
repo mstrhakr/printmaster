@@ -6611,7 +6611,12 @@ window.top.location.href = '/proxy/%s/';
 		}
 
 		// Notify the server about device deletion via WebSocket (if connected)
-		go notifyServerDeviceDeleted(safeSerial)
+		// Skip notification if this delete was initiated by the server (via proxy)
+		// to avoid a race condition where both the HTTP handler and WebSocket handler
+		// try to delete from server storage simultaneously.
+		if r.Header.Get("X-PrintMaster-Server-Request") == "" {
+			go notifyServerDeviceDeleted(safeSerial)
+		}
 
 		// Note: Device will naturally be re-discovered during next scan if still on network
 		// No need to immediately re-scan as this defeats the purpose of deletion
