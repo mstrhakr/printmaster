@@ -51,7 +51,7 @@ services:
     networks:
       - e2e-net
     healthcheck:
-      test: ["/printmaster-server", "--health"]
+      test: ["CMD", "/printmaster-server", "--health"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -98,7 +98,7 @@ services:
     networks:
       - e2e-net
     healthcheck:
-      test: ["/printmaster-agent", "--health"]
+      test: ["CMD", "/printmaster-agent", "--health"]
       interval: 5s
       timeout: 3s
       retries: 10
