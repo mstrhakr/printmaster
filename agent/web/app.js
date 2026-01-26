@@ -1076,22 +1076,8 @@ function updateSavedDevicesTable(devices) {
         const lifeCount = p.page_count || p.total_mono_impressions || 0;
         const webUIUrl = item.web_ui_url || (item.is_usb && serial ? '/proxy/' + encodeURIComponent(serial) + '/' : '');
         
-        // Build consumables dots
-        let consumablesHtml = '<div class="table-consumables">';
-        const tonerOrder = ['Black', 'Cyan', 'Magenta', 'Yellow'];
-        tonerOrder.forEach(color => {
-            if (toners[color] !== undefined) {
-                const level = Number(toners[color]);
-                let dotClass = 'table-toner-dot toner-' + color.toLowerCase();
-                if (!isNaN(level)) {
-                    if (level <= 10) dotClass += ' toner-critical';
-                    else if (level <= 25) dotClass += ' toner-low';
-                }
-                const displayLevel = isNaN(level) ? '?' : level;
-                consumablesHtml += '<span class="' + dotClass + '" title="' + color + ': ' + displayLevel + '%">' + displayLevel + '</span>';
-            }
-        });
-        consumablesHtml += '</div>';
+        // Build consumables bars (vertical progress indicators)
+        const consumablesHtml = renderTonerBarsFromLevels(toners);
         
         html += '<tr class="device-row-clickable" data-serial="' + serial + '" data-ip="' + (p.ip || '') + '">';
         html += '<td><div class="table-device-info"><span class="table-device-name">' + escapeHtml(p.manufacturer || 'Unknown') + ' ' + escapeHtml(p.model || '') + '</span>';
@@ -1467,6 +1453,65 @@ function initDevicesTabControls() {
 function escapeHtml(str) {
     if (!str) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Map toner names to CSS colors (matches server UI)
+const TONER_COLORS = {
+    'black': '#1a1a1a',
+    'cyan': '#00bcd4',
+    'magenta': '#e91e63',
+    'yellow': '#ffc107',
+    'photo_black': '#333',
+    'matte_black': '#444',
+    'light_cyan': '#4dd0e1',
+    'light_magenta': '#f48fb1',
+    'gray': '#9e9e9e',
+    'light_gray': '#bdbdbd',
+    'orange': '#ff9800',
+    'green': '#4caf50',
+    'red': '#f44336',
+    'blue': '#2196f3',
+};
+
+function getTonerColor(name) {
+    const key = (name || '').toLowerCase().replace(/[^a-z_]/g, '_');
+    if (TONER_COLORS[key]) return TONER_COLORS[key];
+    // Try partial match
+    for (const [k, v] of Object.entries(TONER_COLORS)) {
+        if (key.includes(k) || k.includes(key)) return v;
+    }
+    // Default gray for unknown
+    return '#757575';
+}
+
+// Render vertical toner bars from a toner levels object (matches server UI)
+function renderTonerBarsFromLevels(toners) {
+    if (!toners || Object.keys(toners).length === 0) return '<span class="muted-text">—</span>';
+    const order = ['black', 'cyan', 'magenta', 'yellow'];
+    const entries = Object.entries(toners)
+        .filter(([_, v]) => typeof v === 'number' || !isNaN(Number(v)))
+        .map(([name, value]) => ({
+            name,
+            level: typeof value === 'number' ? value : Number(value),
+            color: getTonerColor(name)
+        }));
+    // Sort by color order
+    entries.sort((a, b) => {
+        const aKey = a.name.toLowerCase();
+        const bKey = b.name.toLowerCase();
+        const aIdx = order.findIndex(c => aKey.includes(c));
+        const bIdx = order.findIndex(c => bKey.includes(c));
+        if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+        if (aIdx !== -1) return -1;
+        if (bIdx !== -1) return 1;
+        return aKey.localeCompare(bKey);
+    });
+    if (entries.length === 0) return '<span class="muted-text">—</span>';
+    const bars = entries.map(t => {
+        const levelClass = t.level <= 10 ? 'critical' : t.level <= 25 ? 'low' : '';
+        return '<div class="toner-bar ' + levelClass + '" title="' + escapeHtml(t.name) + ': ' + t.level + '%" style="--toner-color: ' + t.color + '; --toner-level: ' + t.level + '%"></div>';
+    }).join('');
+    return '<div class="toner-bars">' + bars + '</div>';
 }
 
 // Database backend field toggles are provided by the shared bundle

@@ -4264,34 +4264,50 @@ select:hover {
   font-family: monospace;
 }
 
-/* Table consumables cell */
-.table-consumables {
-  display: flex;
-  gap: 4px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.table-toner-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
+/* Toner level bars - compact vertical progress indicators (matches server UI) */
+.toner-bars {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 8px;
-  font-weight: bold;
-  color: white;
-  text-shadow: 0 1px 1px rgba(0,0,0,0.3);
-  border: 1px solid rgba(0,0,0,0.2);
+  gap: 3px;
+  align-items: flex-end;
+  height: 20px;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
 }
 
-.table-toner-dot.toner-black { background: #333; }
-.table-toner-dot.toner-cyan { background: #0097a7; }
-.table-toner-dot.toner-magenta { background: #c2185b; }
-.table-toner-dot.toner-yellow { background: #fbc02d; color: #333; text-shadow: none; }
-.table-toner-dot.toner-low { box-shadow: 0 0 0 2px var(--accent); }
-.table-toner-dot.toner-critical { box-shadow: 0 0 0 2px #dc322f; }
+.toner-bar {
+  width: 6px;
+  height: 100%;
+  border-radius: 2px;
+  position: relative;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.toner-bar::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--toner-level, 0%);
+  background: var(--toner-color, #757575);
+  border-radius: 2px;
+  transition: height 0.3s ease;
+}
+
+.toner-bar.critical::after {
+  animation: toner-pulse 1.5s ease-in-out infinite;
+}
+
+.toner-bar.low::after {
+  opacity: 0.85;
+}
+
+@keyframes toner-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
 
 /* ============================================
    COMPACT CARD GRID - For Discovered Devices
