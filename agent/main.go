@@ -42,6 +42,7 @@ import (
 	pmsettings "printmaster/common/settings"
 	commonutil "printmaster/common/util"
 	sharedweb "printmaster/common/web"
+	wscommon "printmaster/common/ws"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1104,6 +1105,39 @@ func getLocalProxyHandler() http.Handler {
 	localProxyHandlerMu.RLock()
 	defer localProxyHandlerMu.RUnlock()
 	return localProxyHandler
+}
+
+// notifyServerDeviceDeleted sends a device_deleted notification to the server via WebSocket.
+// This is called after a device is deleted locally so the server can also remove it.
+// Runs as best-effort - does not block or fail if the server is unreachable.
+func notifyServerDeviceDeleted(serial string) {
+	uploadWorkerMu.RLock()
+	worker := uploadWorker
+	uploadWorkerMu.RUnlock()
+
+	if worker == nil {
+		return
+	}
+
+	wsClient := worker.WSClient()
+	if wsClient == nil || !wsClient.IsConnected() {
+		return
+	}
+
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeDeviceDeleted,
+		Data: map[string]interface{}{
+			"serial": serial,
+		},
+		Timestamp: time.Now(),
+	}
+
+	if err := wsClient.SendMessage(msg); err != nil {
+		// Log but don't fail - notification is best-effort
+		appLogger.Debug("Failed to notify server about device deletion", "serial", serial, "error", err)
+	} else {
+		appLogger.Info("Notified server about device deletion", "serial", serial)
+	}
 }
 
 func runGarbageCollection(ctx context.Context, store storage.DeviceStore, config *agent.RetentionConfig) {
@@ -6552,32 +6586,36 @@ window.top.location.href = '/proxy/%s/';
 
 		// Try database first
 		ctx := context.Background()
+		deletedFromDB := false
 
 		err := deviceStore.Delete(ctx, safeSerial)
 		if err == nil {
+			deletedFromDB = true
 			appLogger.Info("Deleted device from database", "serial", safeSerial)
-
-			// Note: Device will naturally be re-discovered during next scan if still on network
-			// No need to immediately re-scan as this defeats the purpose of deletion
-
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		if err != storage.ErrNotFound {
+		} else if err != storage.ErrNotFound {
 			appLogger.Error("Database delete error", "error", err.Error())
 			// Continue to file delete as fallback
 		}
 
-		// Fallback: delete JSON file (using sanitized serial)
-		p := filepath.Join(".", "logs", "devices", safeSerial+".json")
-		if err := os.Remove(p); err != nil {
-			if os.IsNotExist(err) {
-				http.Error(w, "not found", http.StatusNotFound)
+		// Fallback: delete JSON file (using sanitized serial) if DB delete failed
+		if !deletedFromDB {
+			p := filepath.Join(".", "logs", "devices", safeSerial+".json")
+			if err := os.Remove(p); err != nil {
+				if os.IsNotExist(err) {
+					http.Error(w, "not found", http.StatusNotFound)
+					return
+				}
+				http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
-			return
 		}
+
+		// Notify the server about device deletion via WebSocket (if connected)
+		go notifyServerDeviceDeleted(safeSerial)
+
+		// Note: Device will naturally be re-discovered during next scan if still on network
+		// No need to immediately re-scan as this defeats the purpose of deletion
+
 		w.WriteHeader(http.StatusOK)
 	})
 

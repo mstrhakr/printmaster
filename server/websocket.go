@@ -352,6 +352,8 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			handleWSUpdateProgress(agent, msg)
 		case wscommon.MessageTypeJobProgress:
 			handleWSJobProgress(agent, msg)
+		case wscommon.MessageTypeDeviceDeleted:
+			handleWSDeviceDeleted(agent, msg, serverStore)
 		default:
 			logWarn("Unknown WebSocket message type", "agent_id", agent.AgentID, "message_type", msg.Type)
 			sendWSError(conn, "Unknown message type")
@@ -621,6 +623,47 @@ func handleWSJobProgress(agent *storage.Agent, msg wscommon.Message) {
 		sseHub.Broadcast(SSEEvent{
 			Type: "job_progress",
 			Data: msg.Data,
+		})
+	}
+}
+
+// handleWSDeviceDeleted processes device deletion messages from agents.
+// When an agent deletes a device locally, it notifies the server to sync the deletion.
+func handleWSDeviceDeleted(agent *storage.Agent, msg wscommon.Message, store storage.Store) {
+	serial, _ := msg.Data["serial"].(string)
+	if serial == "" {
+		logError("Device deleted message missing serial", "agent_id", agent.AgentID)
+		return
+	}
+
+	logInfo("Agent deleted device, syncing to server",
+		"agent_id", agent.AgentID,
+		"serial", serial)
+
+	// Delete from server storage (without metrics - agent already deleted locally)
+	ctx := context.Background()
+	err := store.DeleteDevice(ctx, serial, false)
+	if err != nil {
+		// Log but don't fail - device may not exist on server yet
+		logWarn("Failed to delete device from server during agent sync",
+			"serial", serial,
+			"agent_id", agent.AgentID,
+			"error", err.Error())
+	} else {
+		logInfo("Device deleted from server (synced from agent)",
+			"serial", serial,
+			"agent_id", agent.AgentID)
+	}
+
+	// Broadcast to UI clients so they can update their view
+	if sseHub != nil {
+		sseHub.Broadcast(SSEEvent{
+			Type: "device_deleted",
+			Data: map[string]any{
+				"serial":   serial,
+				"agent_id": agent.AgentID,
+				"source":   "agent",
+			},
 		})
 	}
 }
