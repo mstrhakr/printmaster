@@ -388,6 +388,53 @@ function Invoke-Tests {
     }
 }
 
+# Track E2E test state
+$script:E2ETestsPassed = $false
+
+function Invoke-E2ETests {
+    # Skip if already passed this session
+    if ($script:E2ETestsPassed) {
+        Write-BuildLog "E2E tests already passed this session, skipping" "INFO"
+        return $true
+    }
+
+    Write-BuildLog "Running E2E tests..." "INFO"
+
+    # Support skipping tests via environment variable
+    if ($env:PRINTMASTER_SKIP_E2E_TESTS -eq '1') {
+        Write-BuildLog "Skipping E2E tests because PRINTMASTER_SKIP_E2E_TESTS=1" "WARN"
+        return $true
+    }
+
+    $testsDir = Join-Path $ProjectRoot "tests"
+    Push-Location $testsDir
+
+    try {
+        # Run E2E tests (mock-based, no Docker required)
+        $testOutput = & go test -v -count=1 ./... 2>&1
+        $testExitCode = $LASTEXITCODE
+
+        if ($testExitCode -ne 0) {
+            Write-Host ""
+            $testOutput | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            Write-Host ""
+            $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+            Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorRed}[ERROR]${ColorReset} ${ColorRed}FAIL:${ColorReset} E2E tests failed"
+            Add-Content -Path $script:LogFile -Value "[$timestamp] [ERROR] FAIL: E2E tests failed"
+            return $false
+        }
+
+        $timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz"
+        Write-Host "${ColorDim}${timestamp}${ColorReset} ${ColorBlue}[INFO]${ColorReset} ${ColorGreen}PASS:${ColorReset} E2E tests passed"
+        Add-Content -Path $script:LogFile -Value "[$timestamp] [INFO] PASS: E2E tests passed"
+        $script:E2ETestsPassed = $true
+        return $true
+    }
+    finally {
+        Pop-Location
+    }
+}
+
 function Build-Component {
     param(
         [Parameter(Mandatory=$true)]
@@ -775,6 +822,11 @@ switch ($Target) {
         }
         if (-not (Invoke-Tests -Component 'server')) {
             Write-BuildLog "Tests failed for server" "ERROR"
+            exit 1
+        }
+        # Run E2E tests
+        if (-not (Invoke-E2ETests)) {
+            Write-BuildLog "E2E tests failed" "ERROR"
             exit 1
         }
         # Build both agent and server
