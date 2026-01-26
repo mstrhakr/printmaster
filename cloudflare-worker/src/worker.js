@@ -109,6 +109,8 @@ function buildGistFiles(report) {
   delete coreReport.snmp_responses;
   delete coreReport.raw_data;
   delete coreReport.recent_logs;
+  delete coreReport.agent_logs;
+  delete coreReport.server_logs;
   files['2_core_report.json'] = {
     content: JSON.stringify(coreReport, null, 2),
   };
@@ -141,15 +143,29 @@ function buildGistFiles(report) {
     };
   }
 
-  // 7. Recent logs (for troubleshooting)
+  // 7. Agent logs (from agent - available when reported from agent or proxied from server)
+  if (report.agent_logs && report.agent_logs.length > 0) {
+    files['7_agent_logs.txt'] = {
+      content: report.agent_logs.join('\n'),
+    };
+  }
+
+  // 8. Server logs (from server - available when reported via server UI)
+  if (report.server_logs && report.server_logs.length > 0) {
+    files['8_server_logs.txt'] = {
+      content: report.server_logs.join('\n'),
+    };
+  }
+
+  // 9. Recent logs (legacy field - for backward compatibility)
   if (report.recent_logs && report.recent_logs.length > 0) {
-    files['7_recent_logs.txt'] = {
+    files['9_recent_logs.txt'] = {
       content: report.recent_logs.join('\n'),
     };
   }
 
-  // 8. Full report (everything in one file for complete reference)
-  files['8_full_report.json'] = {
+  // 10. Full report (everything in one file for complete reference)
+  files['99_full_report.json'] = {
     content: JSON.stringify(report, null, 2),
   };
 
@@ -187,6 +203,8 @@ function generateSummary(report) {
 | IP | ${report.device_ip || 'N/A'} |
 | Agent Version | ${report.agent_version || 'Unknown'} |
 | Metrics History | ${report.metrics_history ? report.metrics_history.length + ' snapshots' : 'None'} |
+| Agent Logs | ${report.agent_logs ? report.agent_logs.length + ' lines' : 'None'} |
+| Server Logs | ${report.server_logs ? report.server_logs.length + ' lines' : 'None'} |
 
 ---
 
@@ -199,8 +217,9 @@ function generateSummary(report) {
 | \`4_metrics_history.json\` | Last 100 metrics snapshots (page counts, toner levels) |
 | \`5_snmp_responses.json\` | Raw SNMP OID/value pairs |
 | \`6_raw_data.json\` | Additional raw device data |
-| \`7_recent_logs.txt\` | Recent agent log entries |
-| \`8_full_report.json\` | Complete report (all data) |
+| \`7_agent_logs.txt\` | Agent log entries (200 lines) |
+| \`8_server_logs.txt\` | Server log entries (200 lines, if reported via server) |
+| \`99_full_report.json\` | Complete report (all data) |
 
 *Report ID: ${report.report_id}*
 `;

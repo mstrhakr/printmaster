@@ -127,6 +127,12 @@ type DiagnosticReport struct {
 
 	// MetricsHistory contains the last N metrics snapshots for trend analysis
 	MetricsHistory []map[string]interface{} `json:"metrics_history,omitempty"`
+
+	// AgentLogs contains recent agent log entries (separate from RecentLogs for clarity)
+	AgentLogs []string `json:"agent_logs,omitempty"`
+
+	// ServerLogs contains recent server log entries (when report submitted via server)
+	ServerLogs []string `json:"server_logs,omitempty"`
 }
 
 // SNMPResponse represents a single SNMP OID/value pair from device query.

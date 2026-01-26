@@ -4829,13 +4829,14 @@ func runInteractive(ctx context.Context, configFlag string) {
 		// Get recent logs for context (last 50 lines, sanitized)
 		var recentLogs []string
 		logPath := filepath.Join(".", "logs", "agent.log")
+		var allLogLines []string
 		if logData, err := os.ReadFile(logPath); err == nil {
-			lines := strings.Split(string(logData), "\n")
-			start := len(lines) - 50
+			allLogLines = strings.Split(string(logData), "\n")
+			start := len(allLogLines) - 50
 			if start < 0 {
 				start = 0
 			}
-			recentLogs = lines[start:]
+			recentLogs = allLogLines[start:]
 		}
 
 		// Build the report
@@ -4979,6 +4980,15 @@ func runInteractive(ctx context.Context, configFlag string) {
 					appLogger.Info("Included metrics history in report", "serial", req.DeviceSerial, "count", len(metricsSlice))
 				}
 			}
+		}
+
+		// Include extended agent logs (last 200 lines) for detailed debugging
+		if len(allLogLines) > 0 {
+			start := len(allLogLines) - 200
+			if start < 0 {
+				start = 0
+			}
+			rpt.AgentLogs = allLogLines[start:]
 		}
 
 		// Try to submit to proxy

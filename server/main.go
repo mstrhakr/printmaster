@@ -5774,14 +5774,117 @@ func handleDeviceReportProxy(w http.ResponseWriter, r *http.Request) {
 
 	logInfo("Proxying device report to agent", "agent_id", device.AgentID, "serial", device.Serial)
 
-	// Proxy to agent's /api/report endpoint
+	// Proxy to agent's /api/report endpoint with server log injection
 	agentURL := "http://localhost:8080/api/report"
 
-	// Restore the request body so proxyThroughWebSocket can read it
+	// Restore the request body so we can send it to agent
 	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
-	// Use the WebSocket proxy infrastructure
-	proxyThroughWebSocket(w, r, device.AgentID, agentURL)
+	// Use custom proxy that injects server logs into the response
+	proxyReportWithServerLogs(w, r, device.AgentID, agentURL)
+}
+
+// proxyReportWithServerLogs proxies a report request to the agent and injects server logs
+func proxyReportWithServerLogs(w http.ResponseWriter, r *http.Request, agentID string, targetURL string) {
+	timeout := 60 * time.Second // Reports can take a while with full SNMP walks
+	requestID := fmt.Sprintf("%s-%d", agentID, time.Now().UnixNano())
+
+	// Create response channel
+	respChan := make(chan wscommon.Message, 1)
+
+	// Register the channel for this request
+	proxyRequestsLock.Lock()
+	proxyRequests[requestID] = respChan
+	proxyRequestsLock.Unlock()
+
+	defer func() {
+		proxyRequestsLock.Lock()
+		delete(proxyRequests, requestID)
+		proxyRequestsLock.Unlock()
+		close(respChan)
+	}()
+
+	// Read request body
+	var bodyStr string
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err == nil {
+			bodyStr = base64.StdEncoding.EncodeToString(bodyBytes)
+		}
+	}
+
+	// Extract headers
+	headers := make(map[string]string)
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	// Send proxy request to agent
+	if err := sendProxyRequest(agentID, requestID, targetURL, r.Method, headers, bodyStr); err != nil {
+		logError("Failed to send report proxy request", "agent_id", agentID, "error", err)
+		http.Error(w, "Failed to send proxy request", http.StatusInternalServerError)
+		return
+	}
+
+	// Wait for response
+	select {
+	case resp := <-respChan:
+		// Extract response data from the WebSocket message
+		statusCode := 200
+		if code, ok := resp.Data["status_code"].(float64); ok {
+			statusCode = int(code)
+		}
+
+		// Decode the body from base64
+		var bodyBytes []byte
+		if bodyB64, ok := resp.Data["body"].(string); ok {
+			var err error
+			bodyBytes, err = base64.StdEncoding.DecodeString(bodyB64)
+			if err != nil {
+				logError("Failed to decode agent report body", "error", err)
+				http.Error(w, "Invalid agent response body", http.StatusBadGateway)
+				return
+			}
+		}
+
+		// If it's a JSON response, inject server logs
+		var responseData map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &responseData); err == nil {
+			// Get server logs (last 200 lines)
+			serverLogs := tailServerLogFile(200)
+
+			// Check if this is a fallback response with embedded report
+			if reportData, ok := responseData["report"].(map[string]interface{}); ok {
+				reportData["server_logs"] = serverLogs
+				responseData["report"] = reportData
+				logInfo("Injected server logs into fallback report", "log_count", len(serverLogs))
+			}
+
+			// Re-encode the modified response
+			modifiedBody, err := json.Marshal(responseData)
+			if err == nil {
+				bodyBytes = modifiedBody
+			}
+		}
+
+		// Set response headers from agent
+		if respHeaders, ok := resp.Data["headers"].(map[string]interface{}); ok {
+			for k, v := range respHeaders {
+				if vStr, ok := v.(string); ok {
+					w.Header().Set(k, vStr)
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusCode)
+		w.Write(bodyBytes)
+
+	case <-time.After(timeout):
+		logError("Report proxy timeout", "agent_id", agentID)
+		http.Error(w, "Agent request timeout", http.StatusGatewayTimeout)
+	}
 }
 
 // Devices batch upload - agent sends discovered devices
