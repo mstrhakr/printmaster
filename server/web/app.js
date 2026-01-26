@@ -11318,6 +11318,193 @@ try {
     window.__pm_shared.restartAgent = restartAgent;
 } catch (e) { console.warn('Failed to expose restartAgent to shared namespace', e); }
 
+// ====== Delete Device ======
+/**
+ * Delete a device from the server (and optionally from the agent).
+ * Shows a confirmation modal with options to delete metrics history
+ * and to also delete from the agent's database.
+ */
+async function deleteDevice(serial, agentId) {
+    window.__pm_shared.log('deleteDevice called:', serial, agentId);
+    
+    // Create custom confirmation modal with checkboxes
+    const result = await showDeleteDeviceConfirm(serial, agentId);
+    
+    if (!result.confirmed) {
+        window.__pm_shared.log('Delete device cancelled');
+        return;
+    }
+    
+    try {
+        window.__pm_shared.log('Sending delete request:', {
+            serial,
+            delete_metrics: result.deleteMetrics,
+            delete_from_agent: result.deleteFromAgent
+        });
+        
+        const response = await fetch('/api/v1/devices/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                serial: serial,
+                delete_metrics: result.deleteMetrics,
+                delete_from_agent: result.deleteFromAgent
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            window.__pm_shared.error('Delete failed:', errorText);
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        const responseData = await response.json();
+        window.__pm_shared.log('Delete successful:', responseData);
+        
+        let message = `Device "${serial}" deleted successfully`;
+        if (responseData.deleted_from_agent) {
+            message += ' (also removed from agent)';
+        }
+        if (responseData.deleted_metrics) {
+            message += ' with metrics history';
+        }
+        window.__pm_shared.showToast(message, 'success');
+        
+        // Remove device from UI with animation
+        const card = document.querySelector(`[data-serial="${serial}"]`);
+        const row = document.querySelector(`tr[data-serial="${serial}"]`);
+        const target = card || row;
+        
+        if (target) {
+            target.classList.add('removing');
+            setTimeout(() => {
+                // Reload devices list
+                loadDevices();
+            }, 400);
+        } else {
+            // Element not found, just reload
+            loadDevices();
+        }
+        
+        // Close any open device modal
+        const modal = document.getElementById('printer_details_modal');
+        if (modal && modal.style.display !== 'none') {
+            modal.style.display = 'none';
+        }
+        
+    } catch (error) {
+        window.__pm_shared.error('Failed to delete device:', error);
+        window.__pm_shared.showToast(`Failed to delete device: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Show custom delete device confirmation modal with checkboxes
+ * @param {string} serial - Device serial number
+ * @param {string} agentId - ID of the agent that owns the device
+ * @returns {Promise<{confirmed: boolean, deleteMetrics: boolean, deleteFromAgent: boolean}>}
+ */
+function showDeleteDeviceConfirm(serial, agentId) {
+    return new Promise((resolve) => {
+        // Helper to escape HTML
+        const safeEscape = (s) => (typeof escapeHtml === 'function' ? escapeHtml(s) : String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"));
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'modal-overlay';
+        wrapper.style.display = 'flex';
+        const uid = 'delete_device_confirm_' + Date.now();
+        wrapper.id = uid;
+        
+        const hasAgent = agentId && agentId !== '';
+        
+        wrapper.innerHTML = `
+            <div class="modal-content" style="max-width:520px;">
+                <div class="modal-header">
+                    <h3 class="modal-title">Delete Device</h3>
+                    <button class="modal-close-x" title="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <p style="margin-bottom:16px;">Are you sure you want to delete device <strong>${safeEscape(serial)}</strong>?</p>
+                    <p style="margin-bottom:16px;color:var(--text-muted);font-size:13px;">This will permanently remove the device from the server database.</p>
+                    
+                    <div style="background:var(--bg-tertiary);border-radius:8px;padding:12px;margin-bottom:12px;">
+                        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;">
+                            <input type="checkbox" id="${uid}_delete_metrics" style="margin-top:3px;cursor:pointer;">
+                            <div>
+                                <span style="font-weight:500;">Also delete metrics history</span>
+                                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                                    Remove all historical page counts, toner levels, and other metrics data for this device
+                                </div>
+                            </div>
+                        </label>
+                        
+                        ${hasAgent ? `
+                        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
+                            <input type="checkbox" id="${uid}_delete_from_agent" style="margin-top:3px;cursor:pointer;">
+                            <div>
+                                <span style="font-weight:500;">Also delete from agent</span>
+                                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                                    Remove the device from the agent's local database as well. The device may be re-discovered on the next scan.
+                                </div>
+                            </div>
+                        </label>
+                        ` : `
+                        <div style="font-size:12px;color:var(--text-muted);font-style:italic;">
+                            This device has no associated agent, so it will only be deleted from the server.
+                        </div>
+                        `}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="modal-button modal-button-secondary" data-action="cancel">Cancel</button>
+                    <button class="modal-button modal-button-danger" data-action="confirm">Delete Device</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(wrapper);
+
+        const btnConfirm = wrapper.querySelector('[data-action="confirm"]');
+        const btnCancel = wrapper.querySelector('[data-action="cancel"]');
+        const closeX = wrapper.querySelector('.modal-close-x');
+        const chkMetrics = wrapper.querySelector(`#${uid}_delete_metrics`);
+        const chkAgent = wrapper.querySelector(`#${uid}_delete_from_agent`);
+
+        function cleanup() {
+            try { btnConfirm && btnConfirm.removeEventListener('click', onConfirm); } catch (e) {}
+            try { btnCancel && btnCancel.removeEventListener('click', onCancel); } catch (e) {}
+            try { closeX && closeX.removeEventListener('click', onCancel); } catch (e) {}
+            try { wrapper.removeEventListener('click', onBackdrop); } catch (e) {}
+            try { wrapper.parentNode && wrapper.parentNode.removeChild(wrapper); } catch (e) {}
+        }
+
+        function onConfirm() {
+            const deleteMetrics = chkMetrics ? chkMetrics.checked : false;
+            const deleteFromAgent = chkAgent ? chkAgent.checked : false;
+            cleanup();
+            resolve({ confirmed: true, deleteMetrics, deleteFromAgent });
+        }
+
+        function onCancel() {
+            cleanup();
+            resolve({ confirmed: false, deleteMetrics: false, deleteFromAgent: false });
+        }
+
+        function onBackdrop(e) {
+            if (e.target === wrapper) onCancel();
+        }
+
+        btnConfirm && btnConfirm.addEventListener('click', onConfirm);
+        btnCancel && btnCancel.addEventListener('click', onCancel);
+        closeX && closeX.addEventListener('click', onCancel);
+        wrapper.addEventListener('click', onBackdrop);
+    });
+}
+
+// Expose deleteDevice to shared namespace
+try {
+    window.__pm_shared.deleteDevice = deleteDevice;
+} catch (e) { console.warn('Failed to expose deleteDevice to shared namespace', e); }
+
 // ====== Devices Management ======
 function initDevicesUI() {
     if (devicesVM.uiInitialized) {

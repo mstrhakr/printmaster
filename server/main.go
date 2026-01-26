@@ -3645,6 +3645,7 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/devices/update", requireWebAuth(handleDeviceUpdateProxy))
 	http.HandleFunc("/devices/metrics/collect", requireWebAuth(handleDeviceMetricsCollectProxy))
 	http.HandleFunc("/api/report", requireWebAuth(handleDeviceReportProxy)) // Proxy device reports to agent
+	http.HandleFunc("/api/v1/devices/delete", requireWebAuth(handleDeviceDelete)) // Delete device from server and optionally agent
 
 	// Web UI endpoints - keep landing/static public so login assets load
 	http.HandleFunc("/", handleWebUI)
@@ -5885,6 +5886,124 @@ func proxyReportWithServerLogs(w http.ResponseWriter, r *http.Request, agentID s
 		logError("Report proxy timeout", "agent_id", agentID)
 		http.Error(w, "Agent request timeout", http.StatusGatewayTimeout)
 	}
+}
+
+// handleDeviceDelete handles DELETE requests to remove a device from the server database
+// and optionally also from the agent's database via WebSocket proxy
+func handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		http.Error(w, "POST or DELETE only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Serial           string `json:"serial"`
+		DeleteMetrics    bool   `json:"delete_metrics"`    // Also delete metrics history
+		DeleteFromAgent  bool   `json:"delete_from_agent"` // Also delete from agent's database
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Serial == "" {
+		http.Error(w, "Serial number required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := context.Background()
+
+	// Look up device to get agent info before deleting
+	device, err := serverStore.GetDevice(ctx, req.Serial)
+	if err != nil {
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	agentID := device.AgentID
+	deletedFromAgent := false
+
+	// If requested, try to delete from agent first
+	if req.DeleteFromAgent && agentID != "" {
+		if isAgentConnectedWS(agentID) {
+			// Proxy delete request to agent
+			agentReq := map[string]string{"serial": req.Serial}
+			agentReqBytes, _ := json.Marshal(agentReq)
+
+			// Create a new request for the agent
+			agentR, _ := http.NewRequest(http.MethodPost, "/devices/delete", bytes.NewReader(agentReqBytes))
+			agentR.Header.Set("Content-Type", "application/json")
+
+			// Use a buffer to capture the agent response
+			agentW := &responseCapture{headers: make(http.Header)}
+
+			// Proxy to agent
+			agentURL := "http://localhost:8080/devices/delete"
+			proxyThroughWebSocketWithTimeout(agentW, agentR, agentID, agentURL, 15*time.Second)
+
+			if agentW.statusCode == http.StatusOK || agentW.statusCode == 0 {
+				deletedFromAgent = true
+				logInfo("Deleted device from agent", "serial", req.Serial, "agent_id", agentID)
+			} else {
+				logWarn("Failed to delete device from agent", "serial", req.Serial, "agent_id", agentID, "status", agentW.statusCode)
+			}
+		} else {
+			logWarn("Agent not connected for device deletion", "serial", req.Serial, "agent_id", agentID)
+		}
+	}
+
+	// Delete from server database
+	if err := serverStore.DeleteDevice(ctx, req.Serial, req.DeleteMetrics); err != nil {
+		logError("Failed to delete device from server", "serial", req.Serial, "error", err)
+		http.Error(w, "Failed to delete device: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	logInfo("Deleted device from server", "serial", req.Serial, "delete_metrics", req.DeleteMetrics, "deleted_from_agent", deletedFromAgent)
+
+	// Broadcast device_deleted event to UI via SSE
+	sseHub.Broadcast(SSEEvent{
+		Type: "device_deleted",
+		Data: map[string]interface{}{
+			"serial":             req.Serial,
+			"agent_id":           agentID,
+			"deleted_from_agent": deletedFromAgent,
+			"deleted_metrics":    req.DeleteMetrics,
+		},
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message":            "Device deleted successfully",
+		"serial":             req.Serial,
+		"deleted_from_agent": deletedFromAgent,
+		"deleted_metrics":    req.DeleteMetrics,
+	})
+}
+
+// responseCapture is a simple http.ResponseWriter that captures the response
+type responseCapture struct {
+	headers    http.Header
+	body       bytes.Buffer
+	statusCode int
+}
+
+func (rc *responseCapture) Header() http.Header {
+	return rc.headers
+}
+
+func (rc *responseCapture) Write(b []byte) (int, error) {
+	return rc.body.Write(b)
+}
+
+func (rc *responseCapture) WriteHeader(statusCode int) {
+	rc.statusCode = statusCode
 }
 
 // Devices batch upload - agent sends discovered devices

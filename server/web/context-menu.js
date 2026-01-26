@@ -118,6 +118,15 @@
             label: 'Copy MAC Address',
             icon: '📋',
             action: 'copy-device-mac'
+        },
+        { divider: true },
+        {
+            id: 'delete-device',
+            label: 'Delete Device',
+            icon: '🗑️',
+            action: 'delete-device',
+            requiresSerial: true,
+            danger: true
         }
     ];
 
@@ -322,6 +331,12 @@
 
             case 'copy-device-mac':
                 copyToClipboard(context.mac, 'MAC Address');
+                break;
+
+            case 'delete-device':
+                if (shared.deleteDevice) {
+                    shared.deleteDevice(context.serial, context.agentId);
+                }
                 break;
 
             default:

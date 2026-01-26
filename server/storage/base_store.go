@@ -845,6 +845,41 @@ func (s *BaseStore) scanDevices(rows *sql.Rows) ([]*Device, error) {
 	return devices, rows.Err()
 }
 
+// DeleteDevice removes a device by serial number. If deleteMetrics is true, also deletes metrics history.
+// Note: Due to ON DELETE CASCADE, deleting the device will automatically delete:
+// - metrics_history entries (FOREIGN KEY on serial)
+// - device_credentials entries (FOREIGN KEY on serial)
+func (s *BaseStore) DeleteDevice(ctx context.Context, serial string, deleteMetrics bool) error {
+	if deleteMetrics {
+		// Explicitly delete metrics first (even though CASCADE would do it)
+		// This gives us better control and explicit logging opportunity
+		if _, err := s.execContext(ctx, `DELETE FROM metrics_history WHERE serial = ?`, serial); err != nil {
+			return fmt.Errorf("failed to delete metrics: %w", err)
+		}
+	}
+
+	// Delete device credentials (in case they exist)
+	if _, err := s.execContext(ctx, `DELETE FROM device_credentials WHERE serial = ?`, serial); err != nil {
+		return fmt.Errorf("failed to delete credentials: %w", err)
+	}
+
+	// Delete the device itself
+	result, err := s.execContext(ctx, `DELETE FROM devices WHERE serial = ?`, serial)
+	if err != nil {
+		return fmt.Errorf("failed to delete device: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("device not found: %s", serial)
+	}
+
+	return nil
+}
+
 // ============================================================================
 // Metrics Methods
 // ============================================================================

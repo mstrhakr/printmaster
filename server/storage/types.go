@@ -653,6 +653,8 @@ type Store interface {
 	ListAllDevices(ctx context.Context) ([]*Device, error)
 	ListAllDevicesPaginated(ctx context.Context, limit, offset int, agentIDs []string) ([]*Device, error)
 	CountDevices(ctx context.Context, agentIDs []string) (int64, error)
+	// DeleteDevice removes a device by serial. If deleteMetrics is true, also deletes metrics history.
+	DeleteDevice(ctx context.Context, serial string, deleteMetrics bool) error
 
 	// Metrics
 	SaveMetrics(ctx context.Context, metrics *MetricsSnapshot) error
