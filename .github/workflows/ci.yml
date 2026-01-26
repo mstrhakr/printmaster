@@ -226,7 +226,7 @@ jobs:
         run: |
           echo "Waiting for server..."
           for i in {1..30}; do
-            if curl -sf http://localhost:8443/api/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8443/health > /dev/null 2>&1; then
               echo "Server is ready!"
               break
             fi
@@ -236,7 +236,7 @@ jobs:
           
           echo "Waiting for agent..."
           for i in {1..30}; do
-            if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then
+            if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
               echo "Agent is ready!"
               break
             fi
