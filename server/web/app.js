@@ -10325,7 +10325,7 @@ function renderAgentCard(agent) {
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">Version</span>
-                    <span class="device-card-value">${renderAgentVersionCell(agent, false)}</span>
+                    <span class="device-card-value agent-version-cell">${renderAgentVersionCell(agent, false)}</span>
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">Last Seen</span>
@@ -11149,37 +11149,54 @@ function handleAgentUpdateProgress(data) {
     };
     
     // Show toast notifications for key events
+    // Track shown toasts per agent to avoid duplicates (e.g., multiple progress=0 events)
     const agentName = agent?.name || agent?.hostname || agentId;
+    const shownToasts = agentsVM.updateState[agentId]._shownToasts || {};
     
     switch (status) {
         case 'checking':
             // No toast for checking, just UI update
             break;
         case 'downloading':
-            if (progress === 0) {
+            // Only show "Downloading..." toast once per update cycle
+            if (!shownToasts.downloading) {
                 window.__pm_shared.showToast(`${agentName}: Downloading update...`, 'info');
+                shownToasts.downloading = true;
+                agentsVM.updateState[agentId]._shownToasts = shownToasts;
             }
             break;
         case 'ready':
-            window.__pm_shared.showToast(`${agentName}: Update downloaded, preparing to install...`, 'info');
+            if (!shownToasts.ready) {
+                window.__pm_shared.showToast(`${agentName}: Update downloaded, preparing to install...`, 'info');
+                shownToasts.ready = true;
+                agentsVM.updateState[agentId]._shownToasts = shownToasts;
+            }
             break;
         case 'restarting':
-            window.__pm_shared.showToast(`${agentName}: Restarting to apply update...`, 'info');
+            if (!shownToasts.restarting) {
+                window.__pm_shared.showToast(`${agentName}: Restarting to apply update...`, 'info');
+                shownToasts.restarting = true;
+                agentsVM.updateState[agentId]._shownToasts = shownToasts;
+            }
             // Store previous version for comparison when agent reconnects
             if (agent?.version && !agentsVM.updateState[agentId].previousVersion) {
                 agentsVM.updateState[agentId].previousVersion = agent.version;
             }
             // Fallback: if we never hear back after restart, clear the state and refresh
-            setTimeout(() => {
-                const st = agentsVM.updateState[agentId];
-                if (st && st.status === 'restarting') {
-                    window.__pm_shared.showToast(`${agentName}: Update timed out waiting for reconnect`, 'warning');
-                    delete agentsVM.updateState[agentId];
-                    refreshAgentVersionCell(agentId);
-                    // Fetch just this agent's data instead of all agents
-                    fetchSingleAgent(agentId);
-                }
-            }, 30000); // Increased to 30s to allow for slower restarts
+            if (!shownToasts.restartTimeout) {
+                shownToasts.restartTimeout = true;
+                agentsVM.updateState[agentId]._shownToasts = shownToasts;
+                setTimeout(() => {
+                    const st = agentsVM.updateState[agentId];
+                    if (st && st.status === 'restarting') {
+                        window.__pm_shared.showToast(`${agentName}: Update timed out waiting for reconnect`, 'warning');
+                        delete agentsVM.updateState[agentId];
+                        refreshAgentVersionCell(agentId);
+                        // Fetch just this agent's data instead of all agents
+                        fetchSingleAgent(agentId);
+                    }
+                }, 30000); // Increased to 30s to allow for slower restarts
+            }
             break;
         case 'complete':
             window.__pm_shared.showToast(`${agentName}: Update complete!`, 'success');
@@ -11211,15 +11228,24 @@ function handleAgentUpdateProgress(data) {
 
 // Refresh the version cell display for a specific agent
 function refreshAgentVersionCell(agentId) {
+    const agent = agentsVM.items.find(a => a.agent_id === agentId);
+    if (!agent) return;
+    
     // Update in table view
     const tableRow = document.querySelector(`tr[data-agent-id="${agentId}"]`);
     if (tableRow) {
-        const versionCell = tableRow.querySelectorAll('td')[5]; // Version is 6th column (0-indexed)
-        if (versionCell) {
-            const agent = agentsVM.items.find(a => a.agent_id === agentId);
-            if (agent) {
-                versionCell.innerHTML = renderAgentVersionCell(agent, true);
+        // First try to find by data-column-id (table customizer)
+        let versionCell = tableRow.querySelector('td[data-column-id="version"]');
+        if (!versionCell) {
+            // Fallback: try to find by position (legacy non-customizer render)
+            // In the fallback renderer, version is the 6th column (index 5)
+            const cells = tableRow.querySelectorAll('td');
+            if (cells.length >= 6) {
+                versionCell = cells[5];
             }
+        }
+        if (versionCell) {
+            versionCell.innerHTML = renderAgentVersionCell(agent, true);
         }
     }
     // Update in card view
@@ -11227,10 +11253,7 @@ function refreshAgentVersionCell(agentId) {
     if (card) {
         const versionSpan = card.querySelector('.agent-version-cell');
         if (versionSpan) {
-            const agent = agentsVM.items.find(a => a.agent_id === agentId);
-            if (agent) {
-                versionSpan.innerHTML = renderAgentVersionCell(agent, false);
-            }
+            versionSpan.innerHTML = renderAgentVersionCell(agent, false);
         }
     }
 }
