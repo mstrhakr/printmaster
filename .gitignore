@@ -119,7 +119,9 @@ ENV/
 .venv
 
 # Testing
-testdata/
+testdata/*
+!testdata/seed/
+!testdata/README.md
 *_test_output/
 
 # Coverage

@@ -154,8 +154,8 @@ jobs:
 
       - name: Build binaries for Playwright
         run: |
-          cd agent && go build -o printmaster-agent .
-          cd server && go build -o printmaster-server .
+          (cd agent && go build -o printmaster-agent .)
+          (cd server && go build -o printmaster-server .)
 
       - name: Playwright tests
         run: npm run test:playwright

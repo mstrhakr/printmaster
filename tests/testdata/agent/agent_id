@@ -1,0 +1,3 @@
+# Fixed agent UUID for E2E test stability
+# This file is mounted into the agent container at /data/agent_id
+e2e00000-0000-0000-0000-000000000001
