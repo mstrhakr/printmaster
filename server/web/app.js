@@ -5859,6 +5859,10 @@ async function loadSelfUpdateRuns() {
             fetchJSON('/api/v1/releases/artifacts').catch(err => ({ error: err.message || err }))
         ]);
 
+        // Track container status for artifact rendering
+        const isContainer = statusResp.is_container === true;
+        releaseArtifactsIsContainer = isContainer;
+
         // Render status card
         if (statusCard) {
             renderSelfUpdateStatus(statusCard, statusResp);
@@ -5874,6 +5878,9 @@ async function loadSelfUpdateRuns() {
             }
         }
 
+        // Initialize artifacts UI (for toggle handler)
+        initReleaseArtifactsUI();
+
         // Render artifacts
         const artifactsContainer = document.getElementById('releases_artifacts_container');
         if (artifactsContainer) {
@@ -5881,7 +5888,7 @@ async function loadSelfUpdateRuns() {
                 artifactsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load artifacts: ${artifactsResp.error}</div>`;
             } else {
                 const artifacts = Array.isArray(artifactsResp.artifacts) ? artifactsResp.artifacts : [];
-                renderReleaseArtifacts(artifactsContainer, artifacts);
+                renderReleaseArtifacts(artifactsContainer, artifacts, isContainer);
             }
         }
     } catch (err) {
@@ -6074,27 +6081,56 @@ async function triggerReleasesSync() {
 // Release Artifacts Loading (shared between Fleet and Server tabs)
 // ---------------------------------------------------------------------------
 let releaseArtifactsInitialized = false;
+let releaseArtifactsIsContainer = false;
+
+function initReleaseArtifactsUI() {
+    if (releaseArtifactsInitialized) return;
+    releaseArtifactsInitialized = true;
+
+    const syncBtn = document.getElementById('releases_sync_btn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', () => triggerReleasesSync());
+    }
+
+    // Initialize collapsible header
+    const header = document.getElementById('releases_artifacts_header');
+    const container = document.getElementById('releases_artifacts_container');
+    const chevron = document.getElementById('releases_artifacts_chevron');
+    const card = document.getElementById('releases_artifacts_card');
+
+    if (header && container && chevron) {
+        header.addEventListener('click', () => {
+            const isCollapsed = container.style.display === 'none';
+            container.style.display = isCollapsed ? 'block' : 'none';
+            chevron.style.transform = isCollapsed ? 'rotate(0deg)' : 'rotate(-90deg)';
+            if (card) {
+                if (isCollapsed) {
+                    card.classList.remove('collapsed');
+                } else {
+                    card.classList.add('collapsed');
+                }
+            }
+        });
+    }
+}
 
 async function loadReleaseArtifacts() {
     const artifactsContainer = document.getElementById('releases_artifacts_container');
     if (!artifactsContainer) return;
 
-    // Initialize sync button handler once
-    if (!releaseArtifactsInitialized) {
-        releaseArtifactsInitialized = true;
-        const syncBtn = document.getElementById('releases_sync_btn');
-        if (syncBtn) {
-            syncBtn.addEventListener('click', () => triggerReleasesSync());
-        }
-    }
+    initReleaseArtifactsUI();
 
     try {
+        // Fetch status to check if running in container
+        const statusResp = await fetchJSON('/api/v1/selfupdate/status').catch(() => ({}));
+        releaseArtifactsIsContainer = statusResp.is_container === true;
+
         const artifactsResp = await fetchJSON('/api/v1/releases/artifacts');
         if (artifactsResp.error) {
             artifactsContainer.innerHTML = `<div style="color:var(--danger);">Failed to load artifacts: ${artifactsResp.error}</div>`;
         } else {
             const artifacts = Array.isArray(artifactsResp.artifacts) ? artifactsResp.artifacts : [];
-            renderReleaseArtifacts(artifactsContainer, artifacts);
+            renderReleaseArtifacts(artifactsContainer, artifacts, releaseArtifactsIsContainer);
         }
     } catch (err) {
         const message = err && err.message ? err.message : err;
@@ -6102,23 +6138,23 @@ async function loadReleaseArtifacts() {
     }
 }
 
-function renderReleaseArtifacts(container, artifacts) {
-    if (!artifacts || artifacts.length === 0) {
-        container.innerHTML = '<div class="muted-text">No cached artifacts. Click "Sync from GitHub" to fetch releases.</div>';
-        return;
+function renderReleaseArtifacts(container, artifacts, isContainer = false) {
+    const countEl = document.getElementById('releases_artifacts_count');
+
+    // Filter out server artifacts in container environments
+    let filteredArtifacts = artifacts;
+    if (isContainer) {
+        filteredArtifacts = artifacts.filter(a => a.component !== 'server');
     }
 
-    const formatSize = (bytes) => {
-        if (!bytes || bytes <= 0) return '—';
-        const units = ['B', 'KB', 'MB', 'GB'];
-        let size = bytes;
-        let unitIndex = 0;
-        while (size >= 1024 && unitIndex < units.length - 1) {
-            size /= 1024;
-            unitIndex++;
-        }
-        return `${size.toFixed(1)} ${units[unitIndex]}`;
-    };
+    if (!filteredArtifacts || filteredArtifacts.length === 0) {
+        const msg = isContainer
+            ? '<div class="muted-text">No agent artifacts cached. Server binaries are not cached in container environments. Click "Sync from GitHub" to fetch releases.</div>'
+            : '<div class="muted-text">No cached artifacts. Click "Sync from GitHub" to fetch releases.</div>';
+        container.innerHTML = msg;
+        if (countEl) countEl.textContent = '';
+        return;
+    }
 
     const formatTime = (ts) => {
         if (!ts || ts === '0001-01-01T00:00:00Z') return '—';
@@ -6135,39 +6171,95 @@ function renderReleaseArtifacts(container, artifacts) {
         return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${color}20;color:${color};">${component}</span>`;
     };
 
-    const cachedBadge = (cached) => {
-        if (cached) {
-            return '<span style="color:var(--success);" title="Binary cached on disk">✓</span>';
-        }
-        return '<span style="color:var(--muted);" title="Not cached">—</span>';
+    const platformArchBadge = (platform, arch, cached) => {
+        const platformAbbr = {
+            'windows': 'Win',
+            'linux': 'Linux',
+            'darwin': 'macOS'
+        };
+        const label = platformAbbr[platform] || platform;
+        const cachedStyle = cached ? 'color:var(--text);' : 'color:var(--muted);opacity:0.6;';
+        const title = cached ? `${platform}/${arch} - Cached` : `${platform}/${arch} - Not cached`;
+        return `<span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:11px;margin-right:4px;background:var(--bg-secondary);${cachedStyle}" title="${title}">${label}/${arch}</span>`;
     };
 
-    // Group artifacts by component and version for a cleaner display
-    const rows = artifacts.map(a => `
-        <tr>
-            <td style="padding:8px;border-bottom:1px solid var(--border);">${componentBadge(a.component)}</td>
-            <td style="padding:8px;border-bottom:1px solid var(--border);font-family:monospace;">${a.version}</td>
-            <td style="padding:8px;border-bottom:1px solid var(--border);">${a.platform}</td>
-            <td style="padding:8px;border-bottom:1px solid var(--border);">${a.arch}</td>
-            <td style="padding:8px;border-bottom:1px solid var(--border);">${a.channel || 'stable'}</td>
-            <td style="padding:8px;border-bottom:1px solid var(--border);text-align:right;">${formatSize(a.size_bytes)}</td>
-            <td style="padding:8px;border-bottom:1px solid var(--border);text-align:center;">${cachedBadge(a.cached)}</td>
-            <td style="padding:8px;border-bottom:1px solid var(--border);">${formatTime(a.published_at)}</td>
-        </tr>
-    `).join('');
+    // Group artifacts by component, version, and channel
+    const grouped = {};
+    for (const a of filteredArtifacts) {
+        const key = `${a.component}|${a.version}|${a.channel || 'stable'}`;
+        if (!grouped[key]) {
+            grouped[key] = {
+                component: a.component,
+                version: a.version,
+                channel: a.channel || 'stable',
+                published_at: a.published_at,
+                platforms: []
+            };
+        }
+        grouped[key].platforms.push({
+            platform: a.platform,
+            arch: a.arch,
+            cached: a.cached,
+            size_bytes: a.size_bytes
+        });
+        // Use latest publish date
+        if (a.published_at && a.published_at > grouped[key].published_at) {
+            grouped[key].published_at = a.published_at;
+        }
+    }
+
+    // Convert to array and sort by component (agent first), then version descending
+    const groups = Object.values(grouped).sort((a, b) => {
+        if (a.component !== b.component) {
+            return a.component === 'agent' ? -1 : 1;
+        }
+        // Sort versions descending (semver-ish comparison)
+        return b.version.localeCompare(a.version, undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    // Update count badge
+    const uniqueVersions = new Set(groups.map(g => `${g.component}-${g.version}`)).size;
+    if (countEl) {
+        countEl.textContent = `(${uniqueVersions} version${uniqueVersions !== 1 ? 's' : ''})`;
+    }
+
+    // Sort platforms consistently
+    const platformOrder = ['windows', 'linux', 'darwin'];
+    const archOrder = ['amd64', 'arm64'];
+
+    const rows = groups.map(g => {
+        const sortedPlatforms = g.platforms.sort((a, b) => {
+            const pA = platformOrder.indexOf(a.platform);
+            const pB = platformOrder.indexOf(b.platform);
+            if (pA !== pB) return pA - pB;
+            const aA = archOrder.indexOf(a.arch);
+            const aB = archOrder.indexOf(b.arch);
+            return aA - aB;
+        });
+
+        const platformBadges = sortedPlatforms.map(p => platformArchBadge(p.platform, p.arch, p.cached)).join('');
+
+        return `
+            <tr>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);">${componentBadge(g.component)}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-family:monospace;font-weight:600;">${g.version}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);">${platformBadges}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);">${g.channel}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid var(--border);">${formatTime(g.published_at)}</td>
+            </tr>
+        `;
+    }).join('');
 
     container.innerHTML = `
+        ${isContainer ? '<div style="color:var(--warning);font-size:12px;margin-bottom:8px;padding:6px 10px;background:var(--warning)15;border-radius:4px;">Server binaries are not cached in container environments (updates via container image).</div>' : ''}
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
             <thead>
                 <tr style="text-align:left;color:var(--muted);border-bottom:2px solid var(--border);">
-                    <th style="padding:8px;">Component</th>
-                    <th style="padding:8px;">Version</th>
-                    <th style="padding:8px;">Platform</th>
-                    <th style="padding:8px;">Arch</th>
-                    <th style="padding:8px;">Channel</th>
-                    <th style="padding:8px;text-align:right;">Size</th>
-                    <th style="padding:8px;text-align:center;">Cached</th>
-                    <th style="padding:8px;">Published</th>
+                    <th style="padding:8px 12px;">Component</th>
+                    <th style="padding:8px 12px;">Version</th>
+                    <th style="padding:8px 12px;">Platforms</th>
+                    <th style="padding:8px 12px;">Channel</th>
+                    <th style="padding:8px 12px;">Published</th>
                 </tr>
             </thead>
             <tbody>

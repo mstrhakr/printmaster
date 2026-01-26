@@ -189,12 +189,13 @@ type Status struct {
 	Platform       string `json:"platform"`
 	Arch           string `json:"arch"`
 	CheckInterval  string `json:"check_interval"`
+	IsContainer    bool   `json:"is_container"`
 }
 
 // Status returns the current manager status.
 func (m *Manager) Status() Status {
 	if m == nil {
-		return Status{Enabled: false, DisabledReason: "manager not initialized"}
+		return Status{Enabled: false, DisabledReason: "manager not initialized", IsContainer: runningInsideContainer()}
 	}
 	return Status{
 		Enabled:        m.disabledReason == "",
@@ -205,6 +206,7 @@ func (m *Manager) Status() Status {
 		Platform:       m.platform,
 		Arch:           m.arch,
 		CheckInterval:  m.interval.String(),
+		IsContainer:    runningInsideContainer(),
 	}
 }
 
