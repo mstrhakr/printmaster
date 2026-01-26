@@ -1,0 +1,144 @@
+# PrintMaster E2E Test Environment
+#
+# This Docker Compose file creates a fully isolated test environment with:
+# - Server container with test configuration
+# - Agent container pre-configured to connect to server
+# - Pre-seeded SQLite databases for predictable test data
+#
+# Usage:
+#   Local:  docker compose -f tests/docker-compose.e2e.yml up --build -d
+#   CI:     See .github/workflows/ci.yml
+#
+# Test data is seeded via the testdata/ directory mounted into containers.
+
+services:
+  # ==========================================================================
+  # PrintMaster Server (E2E Test Instance)
+  # ==========================================================================
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+      args:
+        VERSION: e2e-test
+        BUILD_TIME: ${BUILD_TIME:-2026-01-01T00:00:00Z}
+        GIT_COMMIT: ${GIT_COMMIT:-e2e-test}
+    container_name: pm-e2e-server
+    hostname: server
+    environment:
+      # Server listens on all interfaces
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8443"
+      # Use SQLite for E2E tests (simpler, no external DB needed)
+      SERVER_DB_TYPE: "sqlite"
+      # Mount point for test database
+      SERVER_DATA_DIR: "/data"
+      # Disable HTTPS for testing (simpler)
+      SERVER_TLS_ENABLED: "false"
+      # Enable WebSocket for agent connections
+      SERVER_WEBSOCKET_ENABLED: "true"
+      # Admin credentials for tests
+      ADMIN_PASSWORD: "e2e-test-password"
+      # Disable auto-update checks in tests
+      AUTOUPDATE_ENABLED: "false"
+      # Container detection
+      CONTAINER: "docker"
+    ports:
+      - "8443:8443"
+    volumes:
+      # Mount test data directory (contains seed DB)
+      - ./testdata/server:/data
+    networks:
+      - e2e-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8443/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ==========================================================================
+  # PrintMaster Agent (E2E Test Instance)
+  # ==========================================================================
+  agent:
+    build:
+      context: ..
+      dockerfile: agent/Dockerfile
+      args:
+        VERSION: e2e-test
+        BUILD_TIME: ${BUILD_TIME:-2026-01-01T00:00:00Z}
+        GIT_COMMIT: ${GIT_COMMIT:-e2e-test}
+    container_name: pm-e2e-agent
+    hostname: agent
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      # Agent configuration via environment
+      AGENT_DATA_DIR: "/data"
+      # Connect to server
+      AGENT_SERVER_URL: "http://server:8443"
+      AGENT_SERVER_ENABLED: "true"
+      # Agent identity
+      AGENT_NAME: "e2e-test-agent"
+      # Disable HTTPS for testing
+      AGENT_TLS_ENABLED: "false"
+      AGENT_PORT: "8080"
+      # Disable discovery in tests (no real printers)
+      AGENT_DISCOVERY_ENABLED: "false"
+      # Disable auto-update in tests
+      AUTOUPDATE_ENABLED: "false"
+      # Container detection
+      CONTAINER: "docker"
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount test data directory (contains seed DB)
+      - ./testdata/agent:/data
+    networks:
+      - e2e-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ==========================================================================
+  # Test Runner - Runs E2E tests against the environment
+  # ==========================================================================
+  test-runner:
+    image: golang:1.24-alpine
+    container_name: pm-e2e-runner
+    depends_on:
+      server:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+    working_dir: /app/tests
+    environment:
+      # Test configuration
+      E2E_SERVER_URL: "http://server:8443"
+      E2E_AGENT_URL: "http://agent:8080"
+      E2E_ADMIN_PASSWORD: "e2e-test-password"
+      # Run all tests, not short mode
+      GO_TEST_FLAGS: "-v -count=1"
+    volumes:
+      # Mount entire project (read-only except tests output)
+      - ..:/app:ro
+      - ./results:/app/tests/results
+    networks:
+      - e2e-net
+    command: >
+      sh -c "
+        cd /app/tests &&
+        go test ${GO_TEST_FLAGS:-'-v'} -tags=e2e ./... 2>&1 | tee results/e2e-output.log;
+        exit_code=\$?;
+        echo 'Test exit code:' \$exit_code > results/exit-code.txt;
+        exit \$exit_code
+      "
+
+networks:
+  e2e-net:
+    driver: bridge
+    name: pm-e2e-network

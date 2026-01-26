@@ -4,100 +4,180 @@
 
 End-to-end tests verify that the agent and server work together correctly. These tests are more expensive than unit tests but provide confidence that the full system functions as expected.
 
-## Current Status
+## Quick Start
 
-🚧 **Work in Progress** - E2E test infrastructure is set up but tests are not yet fully implemented.
+### Run E2E Tests Locally
 
-### What Exists
+```bash
+# Linux/macOS
+cd tests
+./run-e2e.sh
 
-- Test structure in `tests/` directory
-- Helper functions for starting server/agent
-- Skeleton tests for WebSocket proxy, registration, heartbeat
-
-### What's Needed
-
-1. **Process Management**
-   - Start server binary on random port
-   - Start agent binary configured to connect to test server
-   - Clean shutdown of processes after tests
-
-2. **Configuration Generation**
-   - Generate minimal TOML configs for server and agent
-   - Use temp directories for databases
-   - Configure WebSocket enabled/disabled
-
-3. **Synchronization**
-   - Wait for server to be ready (health check)
-   - Wait for agent to register and connect
-   - Poll for WebSocket connection establishment
-
-## Implementation Options
-
-### Option 1: Start Binaries (More Realistic)
-
-**Pros:**
-- Tests actual binaries that users run
-- Catches build/packaging issues
-- True end-to-end test
-
-**Cons:**
-- Requires building binaries first
-- Slower test execution
-- More complex process management
-
-**Example:**
-```go
-func startServerBinary(t *testing.T, port int, dbPath string) *exec.Cmd {
-    cmd := exec.Command("../server/printmaster-server",
-        "--port", strconv.Itoa(port),
-        "--db", dbPath)
-    cmd.Start()
-    return cmd
-}
+# Windows
+cd tests
+.\run-e2e.ps1
 ```
 
-### Option 2: Import Packages (Faster)
+### Options
 
-**Pros:**
-- Faster test execution
-- Easier debugging
-- No binary build requirement
+| Option | Description |
+|--------|-------------|
+| `--build` / `-Build` | Force rebuild Docker containers |
+| `--keep-up` / `-KeepUp` | Leave containers running after tests |
+| `--verbose` / `-Verbose` | Show detailed output |
 
-**Cons:**
-- Doesn't test actual binary
-- May miss packaging issues
-- Need to expose main() logic
+## Architecture
 
-**Example:**
-```go
-import (
-    serverPkg "printmaster/server"
-    agentPkg "printmaster/agent"
-)
+### Docker Compose Environment
 
-func startServerInProcess(t *testing.T, config Config) {
-    go serverPkg.RunServer(config)
-}
+The E2E tests use Docker Compose to create an isolated test environment:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                 E2E Test Network                        │
+│                                                         │
+│  ┌─────────────┐         ┌─────────────┐              │
+│  │   Server    │◀───────▶│    Agent    │              │
+│  │  :8443      │   WS    │   :8080     │              │
+│  │             │         │             │              │
+│  │ SQLite DB   │         │ SQLite DB   │              │
+│  └─────────────┘         └─────────────┘              │
+│         ▲                       ▲                      │
+│         │                       │                      │
+│  ┌──────┴──────┐         ┌──────┴──────┐              │
+│  │ Seed Data   │         │ Seed Data   │              │
+│  │ server.db   │         │ agent.db    │              │
+│  └─────────────┘         └─────────────┘              │
+└─────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+               ┌─────────────────────┐
+               │   Test Runner       │
+               │   (go test -tags=e2e)│
+               └─────────────────────┘
 ```
 
-### Recommendation: Hybrid Approach
+### Test Data
 
-- **Fast tests**: Use in-process (Option 2) for rapid development
-- **Release tests**: Use binaries (Option 1) in CI/CD before release
-- Tag tests appropriately: `-tags=e2e` for binary tests
+Pre-seeded SQLite databases provide predictable test data:
+
+**Server Database:**
+- 1 tenant: "E2E Test Tenant"
+- 1 registered agent: "e2e-test-agent"
+- 5 test devices (HP, Kyocera, Brother, Lexmark, Xerox)
+- Sample metrics for each device
+- Admin user (password: `e2e-test-password`)
+
+**Agent Database:**
+- Fixed agent UUID: `e2e00000-0000-0000-0000-000000000001`
+- 5 test devices (matching server)
+- Scanner configuration (discovery disabled)
+- Server connection settings
+
+### Regenerating Test Data
+
+```bash
+# Linux/macOS
+./seed-testdata.sh
+
+# Windows
+.\seed-testdata.ps1
+```
 
 ## Test Categories
 
-### 1. Basic Communication
-- Agent registration
-- HTTP heartbeat
-- WebSocket heartbeat
-- Fallback from WebSocket to HTTP
+### 1. Health Checks
+- Server `/api/health` endpoint
+- Agent `/api/health` endpoint
 
-### 2. Data Upload
-- Device batch upload
-- Metrics batch upload
-- Large payloads
+### 2. Agent Registration
+- Agent registers with server on startup
+- Agent UUID matches pre-seeded data
+- WebSocket connection establishment
+
+### 3. Device APIs
+- Server device list includes seeded devices
+- Agent device list includes seeded devices
+- Device metrics queries
+
+### 4. Integration Flows
+- Full agent-server communication
+- Device data synchronization
+- Error handling
+
+## CI Integration
+
+E2E Docker tests run automatically in GitHub Actions:
+
+```yaml
+# .github/workflows/ci.yml
+e2e-docker:
+  name: E2E (Docker)
+  runs-on: ubuntu-latest
+  needs: [agent, server]
+  steps:
+    - uses: actions/checkout@v4
+    - name: Seed test databases
+      run: ./tests/seed-testdata.sh
+    - name: Start E2E environment
+      run: docker compose -f tests/docker-compose.e2e.yml up -d --build
+    - name: Run E2E tests
+      run: go test -tags=e2e -v ./tests/...
+```
+
+## File Structure
+
+```
+tests/
+├── docker-compose.e2e.yml    # Docker Compose for E2E environment
+├── e2e_docker_test.go        # E2E tests (build tag: e2e)
+├── run-e2e.sh                # Linux/macOS helper script
+├── run-e2e.ps1               # Windows helper script
+├── seed-testdata.sh          # Database seed script (Linux/macOS)
+├── seed-testdata.ps1         # Database seed script (Windows)
+└── testdata/
+    ├── server/
+    │   └── server.db         # Generated server database
+    ├── agent/
+    │   ├── agent.db          # Generated agent database
+    │   └── agent_id          # Fixed agent UUID
+    └── seed/
+        ├── server_seed.sql   # Server seed SQL
+        └── agent_seed.sql    # Agent seed SQL
+```
+
+## Troubleshooting
+
+### Containers won't start
+```bash
+# Check container logs
+docker compose -f tests/docker-compose.e2e.yml logs server
+docker compose -f tests/docker-compose.e2e.yml logs agent
+
+# Clean up and retry
+docker compose -f tests/docker-compose.e2e.yml down -v
+./run-e2e.sh --build
+```
+
+### Tests fail with connection errors
+```bash
+# Verify containers are healthy
+docker compose -f tests/docker-compose.e2e.yml ps
+
+# Check health endpoints manually
+curl http://localhost:8443/api/health
+curl http://localhost:8080/api/health
+```
+
+### Database schema mismatch
+```bash
+# Regenerate seed databases
+./seed-testdata.sh
+
+# Or rebuild containers to trigger migrations
+./run-e2e.sh --build
+```
+
 - Error handling
 
 ### 3. WebSocket Proxy (New Feature)
