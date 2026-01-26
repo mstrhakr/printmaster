@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"runtime"
 	"sync"
 	"time"
@@ -331,6 +332,18 @@ func handleServerCommand(ctx context.Context, command string, data map[string]in
 			} else {
 				log.Info("Forced reinstall completed")
 			}
+		}()
+
+	case "restart":
+		log.Info("Received restart command from server")
+		go func() {
+			// Brief delay to allow WebSocket response to be sent
+			time.Sleep(500 * time.Millisecond)
+			log.Info("Initiating agent restart per server request")
+			// Signal the service to restart
+			// On Windows service, this will trigger a graceful restart
+			// On systemd, this will exit and systemd will restart us
+			os.Exit(0)
 		}()
 
 	default:

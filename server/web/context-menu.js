@@ -44,6 +44,13 @@
             requiresWs: true,
             requiresUpdate: true
         },
+        {
+            id: 'restart',
+            label: 'Restart Agent',
+            icon: '🔄',
+            action: 'restart-agent',
+            requiresWs: true
+        },
         { divider: true },
         {
             id: 'copy-id',
@@ -263,6 +270,12 @@
             case 'update-agent':
                 if (shared.updateAgent) {
                     shared.updateAgent(context.agentId);
+                }
+                break;
+
+            case 'restart-agent':
+                if (shared.restartAgent) {
+                    shared.restartAgent(context.agentId, context.agentName);
                 }
                 break;
 

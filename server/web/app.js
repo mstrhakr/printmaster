@@ -11275,6 +11275,49 @@ async function deleteAgent(agentId, displayName) {
     }
 }
 
+// ====== Restart Agent ======
+async function restartAgent(agentId, displayName) {
+    window.__pm_shared.log('restartAgent called:', agentId, displayName);
+    
+    const confirmed = await window.__pm_shared.showConfirm(
+        `Are you sure you want to restart agent "${displayName || agentId}"?\n\nThe agent will temporarily disconnect and should reconnect within a few seconds.`,
+        'Restart Agent',
+        { confirmText: 'Restart', confirmClass: 'btn-warning' }
+    );
+    
+    if (!confirmed) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/agents/command/${agentId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command: 'restart' })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+        
+        const result = await response.json();
+        if (result.success) {
+            window.__pm_shared.showToast('Restart command sent. Agent will reconnect shortly.', 'success');
+        } else {
+            window.__pm_shared.showToast('Failed to send restart command: ' + (result.message || 'unknown'), 'warning');
+        }
+    } catch (error) {
+        window.__pm_shared.error('Failed to restart agent:', error);
+        window.__pm_shared.showToast(`Failed to restart agent: ${error.message}`, 'error');
+    }
+}
+
+// Expose restartAgent to shared namespace
+try {
+    window.__pm_shared.restartAgent = restartAgent;
+} catch (e) { console.warn('Failed to expose restartAgent to shared namespace', e); }
+
 // ====== Devices Management ======
 function initDevicesUI() {
     if (devicesVM.uiInitialized) {
