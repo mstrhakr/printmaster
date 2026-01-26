@@ -1016,6 +1016,38 @@ button.delete:hover {
   white-space: nowrap;
 }
 
+/* Progress button with fill effect */
+.update-btn.progress-btn {
+  position: relative;
+  min-width: 48px;
+  background: linear-gradient(to right, 
+    var(--accent) 0%, 
+    var(--accent) var(--progress, 0%), 
+    rgba(255,255,255,0.15) var(--progress, 0%), 
+    rgba(255,255,255,0.15) 100%);
+  background-color: var(--panel-alt, #2a3a4a);
+  cursor: default;
+  transition: background 0.15s ease-out;
+  overflow: hidden;
+}
+
+.update-btn.progress-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.1) 50%, transparent 100%);
+  animation: shimmer 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
 .update-btn:hover:not(:disabled) {
   filter: brightness(1.1);
   transform: none; /* Prevent row height shift from global button:hover transform */

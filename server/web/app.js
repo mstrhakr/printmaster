@@ -10110,37 +10110,19 @@ function renderAgentVersionCell(agent, forTable = false) {
                     return rawStatus;
             }
         })();
-        const progress = updateState.progress || 0;
-        const targetVersion = updateState.targetVersion || latestVersion || '';
         
-        // Show updating state
-        if (status === 'checking' || status === 'downloading' || status === 'ready') {
-            const progressText = status === 'downloading' && progress > 0 
-                ? `${progress}%` 
-                : (status === 'ready' ? 'Installing...' : 'Checking...');
-            const canCancel = status !== 'ready';
+        // Calculate smooth progress percentage based on phase
+        const smoothProgress = getSmoothedUpdateProgress(agentId, status, updateState);
+        
+        // Show progress button for active states
+        if (status === 'checking' || status === 'downloading' || status === 'ready' || status === 'restarting' || status === 'verifying') {
+            const canCancel = status !== 'ready' && status !== 'restarting' && status !== 'verifying';
             const cancelBtn = canCancel 
                 ? `<button class="update-btn cancel" data-action="cancel-update" data-agent-id="${escapeHtml(agentId)}" title="Cancel update">✕</button>` 
                 : '';
-            const content = `<span class="update-progress">${escapeHtml(progressText)}</span>${cancelBtn}`;
-            if (forTable) {
-                return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
-            }
-            return `${displayVersion} ${content}`;
-        }
-        
-        // Show restarting state (no cancel possible)
-        if (status === 'restarting') {
-            const content = `<span class="update-progress restarting">Restarting...</span>`;
-            if (forTable) {
-                return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
-            }
-            return `${displayVersion} ${content}`;
-        }
-        
-        // Show verifying state (agent reconnected, checking version)
-        if (status === 'verifying') {
-            const content = `<span class="update-progress verifying">Verifying...</span>`;
+            // Progress button with fill effect
+            const progressBtn = `<button class="update-btn progress-btn" data-agent-id="${escapeHtml(agentId)}" disabled style="--progress: ${smoothProgress}%">${Math.round(smoothProgress)}%</button>`;
+            const content = `${progressBtn}${cancelBtn}`;
             if (forTable) {
                 return `<div style="display:flex;align-items:center;gap:6px;">${displayVersion} ${content}</div>`;
             }
@@ -10189,6 +10171,91 @@ function renderAgentVersionCell(agent, forTable = false) {
         return `${displayVersion} ${updateBtn}`;
     }
     return displayVersion;
+}
+
+// Calculate smoothed progress for update animations
+// Phases: checking (0-5%), downloading (5-55%), ready/installing (55-85%), restarting (85-95%), verifying (95-99%)
+function getSmoothedUpdateProgress(agentId, status, updateState) {
+    const now = Date.now();
+    const startTime = updateState.timestamp || now;
+    const elapsed = now - startTime;
+    
+    // Initialize or get animation state
+    if (!agentsVM.updateAnimations) {
+        agentsVM.updateAnimations = {};
+    }
+    let anim = agentsVM.updateAnimations[agentId];
+    if (!anim || anim.status !== status) {
+        // Status changed, start new animation from current display progress or phase start
+        const phaseStart = getPhaseStartPercent(status);
+        const previousProgress = anim ? anim.displayProgress : phaseStart;
+        anim = {
+            status,
+            startTime: now,
+            startProgress: Math.max(previousProgress, phaseStart),
+            displayProgress: Math.max(previousProgress, phaseStart)
+        };
+        agentsVM.updateAnimations[agentId] = anim;
+    }
+    
+    const phaseEnd = getPhaseEndPercent(status);
+    const phaseDuration = getPhaseDuration(status);
+    
+    // For downloading, use actual progress from agent (scaled to 5-55% range)
+    if (status === 'downloading') {
+        const rawProgress = updateState.progress || 0;
+        const targetProgress = 5 + (rawProgress * 0.5); // Scale 0-100% to 5-55%
+        // Smooth towards target
+        const progressDiff = targetProgress - anim.displayProgress;
+        anim.displayProgress += progressDiff * 0.3; // Ease towards target
+        return Math.min(anim.displayProgress, phaseEnd);
+    }
+    
+    // For other phases, animate time-based towards phase end
+    const phaseElapsed = now - anim.startTime;
+    const phaseProgress = Math.min(phaseElapsed / phaseDuration, 1);
+    // Ease out cubic for smooth deceleration at phase end
+    const easedProgress = 1 - Math.pow(1 - phaseProgress, 3);
+    const targetProgress = anim.startProgress + (phaseEnd - anim.startProgress) * easedProgress * 0.95; // Don't quite reach end
+    
+    // Smooth update
+    const diff = targetProgress - anim.displayProgress;
+    anim.displayProgress += diff * 0.2;
+    
+    return Math.min(Math.max(anim.displayProgress, 0), 99);
+}
+
+function getPhaseStartPercent(status) {
+    switch (status) {
+        case 'checking': return 0;
+        case 'downloading': return 5;
+        case 'ready': return 55;
+        case 'restarting': return 85;
+        case 'verifying': return 95;
+        default: return 0;
+    }
+}
+
+function getPhaseEndPercent(status) {
+    switch (status) {
+        case 'checking': return 5;
+        case 'downloading': return 55;
+        case 'ready': return 85;
+        case 'restarting': return 95;
+        case 'verifying': return 99;
+        default: return 100;
+    }
+}
+
+function getPhaseDuration(status) {
+    switch (status) {
+        case 'checking': return 3000; // 3s for checking
+        case 'downloading': return 30000; // 30s typical download
+        case 'ready': return 10000; // 10s for install/staging
+        case 'restarting': return 15000; // 15s for restart
+        case 'verifying': return 5000; // 5s for verification
+        default: return 10000;
+    }
 }
 
 function renderAgentsTableHeader() {
@@ -11148,6 +11215,12 @@ function handleAgentUpdateProgress(data) {
         timestamp: Date.now()
     };
     
+    // Start animation loop if an update is active
+    if (status === 'checking' || status === 'downloading' || status === 'ready' || 
+        status === 'restarting' || status === 'verifying') {
+        startUpdateProgressAnimation();
+    }
+    
     // Show toast notifications for key events
     // Track shown toasts per agent to avoid duplicates (e.g., multiple progress=0 events)
     const agentName = agent?.name || agent?.hostname || agentId;
@@ -11203,6 +11276,7 @@ function handleAgentUpdateProgress(data) {
             // Clear state after a delay to let UI update
             setTimeout(() => {
                 delete agentsVM.updateState[agentId];
+                if (agentsVM.updateAnimations) delete agentsVM.updateAnimations[agentId];
                 refreshAgentVersionCell(agentId);
             }, 3000);
             // Reload agents to get new version
@@ -11213,12 +11287,14 @@ function handleAgentUpdateProgress(data) {
             // Clear state after showing error
             setTimeout(() => {
                 delete agentsVM.updateState[agentId];
+                if (agentsVM.updateAnimations) delete agentsVM.updateAnimations[agentId];
                 refreshAgentVersionCell(agentId);
             }, 5000);
             break;
         case 'idle':
             // Agent returned to idle, clear any pending state
             delete agentsVM.updateState[agentId];
+            if (agentsVM.updateAnimations) delete agentsVM.updateAnimations[agentId];
             break;
     }
     
@@ -11255,6 +11331,67 @@ function refreshAgentVersionCell(agentId) {
         if (versionSpan) {
             versionSpan.innerHTML = renderAgentVersionCell(agent, false);
         }
+    }
+}
+
+// Animation loop for smooth progress updates
+let updateProgressAnimationFrame = null;
+function startUpdateProgressAnimation() {
+    if (updateProgressAnimationFrame) return; // Already running
+    
+    function animate() {
+        // Check if any updates are in progress
+        const activeUpdates = Object.keys(agentsVM.updateState || {}).filter(id => {
+            const state = agentsVM.updateState[id];
+            const status = state?.status;
+            return status === 'checking' || status === 'downloading' || status === 'ready' || 
+                   status === 'restarting' || status === 'verifying' ||
+                   status === 'pending' || status === 'staging' || status === 'applying';
+        });
+        
+        if (activeUpdates.length === 0) {
+            // No active updates, stop animation
+            updateProgressAnimationFrame = null;
+            // Clean up animation state
+            if (agentsVM.updateAnimations) {
+                agentsVM.updateAnimations = {};
+            }
+            return;
+        }
+        
+        // Update progress for each active update
+        activeUpdates.forEach(agentId => {
+            // Update the progress button directly without full re-render
+            const progressBtn = document.querySelector(`.update-btn.progress-btn[data-agent-id="${agentId}"]`);
+            if (progressBtn) {
+                const updateState = agentsVM.updateState[agentId];
+                const rawStatus = updateState?.status || '';
+                const status = (() => {
+                    switch (rawStatus) {
+                        case 'pending': return 'checking';
+                        case 'staging':
+                        case 'applying': return 'ready';
+                        default: return rawStatus;
+                    }
+                })();
+                const smoothProgress = getSmoothedUpdateProgress(agentId, status, updateState);
+                progressBtn.style.setProperty('--progress', `${smoothProgress}%`);
+                progressBtn.textContent = `${Math.round(smoothProgress)}%`;
+            }
+        });
+        
+        // Continue animation
+        updateProgressAnimationFrame = requestAnimationFrame(animate);
+    }
+    
+    updateProgressAnimationFrame = requestAnimationFrame(animate);
+}
+
+// Stop animation when no updates are active
+function stopUpdateProgressAnimation() {
+    if (updateProgressAnimationFrame) {
+        cancelAnimationFrame(updateProgressAnimationFrame);
+        updateProgressAnimationFrame = null;
     }
 }
 
@@ -11303,6 +11440,8 @@ async function updateAgent(agentId) {
         timestamp: Date.now()
     };
     refreshAgentVersionCell(agentId);
+    // Start smooth animation loop
+    startUpdateProgressAnimation();
     
     try {
         const response = await fetch(`/api/v1/agents/command/${agentId}`, {
