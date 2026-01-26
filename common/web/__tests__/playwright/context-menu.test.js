@@ -231,6 +231,15 @@ test('device context menu: appearance, actions, delete flow', async ({ page }) =
   await page.locator('#desktop_tabs [data-target="devices"]').first().click();
   await page.waitForSelector('[data-serial="ABC123"]', { timeout: 10000 });
   
+  // Wait for context menu handlers to be bound (race condition fix)
+  // The DOM element appears before initDeviceContextMenu() runs
+  await page.waitForFunction(() => {
+    const table = document.getElementById('devices_table');
+    const cards = document.getElementById('devices_cards');
+    return (table && table.dataset.contextMenuBound === 'true') ||
+           (cards && cards.dataset.contextMenuBound === 'true');
+  }, { timeout: 5000 });
+  
   // --- Test 1: Context menu appears on right-click ---
   const deviceElement = page.locator('[data-serial="ABC123"]').first();
   await deviceElement.click({ button: 'right' });
@@ -356,11 +365,14 @@ test('agent context menu: appearance and actions', async ({ page }) => {
   await page.locator('#desktop_tabs [data-target="agents"]').first().click();
   await page.waitForSelector('[data-agent-id="agent-001"]', { timeout: 10000 });
   
-  // Wait for context menu handlers to be registered
-  await page.waitForFunction(() => typeof window.PMContextMenu !== 'undefined', { timeout: 5000 });
-  
-  // Brief pause to ensure DOM is stable and event handlers are attached
-  await page.waitForTimeout(200);
+  // Wait for context menu handlers to be bound (race condition fix)
+  // The DOM element appears before initAgentContextMenu() runs
+  await page.waitForFunction(() => {
+    const table = document.getElementById('agents_table');
+    const cards = document.getElementById('agents_cards');
+    return (table && table.dataset.contextMenuBound === 'true') ||
+           (cards && cards.dataset.contextMenuBound === 'true');
+  }, { timeout: 5000 });
   
   const agentElement = page.locator('[data-agent-id="agent-001"]').first();
   await expect(agentElement).toBeVisible();
