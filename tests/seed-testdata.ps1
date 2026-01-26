@@ -3,7 +3,7 @@
 #
 # Usage: .\seed-testdata.ps1
 #
-# Requirements: sqlite3 must be in PATH
+# Requirements: sqlite3 must be in PATH (or will download automatically)
 
 $ErrorActionPreference = "Stop"
 
@@ -16,10 +16,25 @@ Write-Host ""
 # Check for sqlite3
 $sqlite3 = Get-Command sqlite3 -ErrorAction SilentlyContinue
 if (-not $sqlite3) {
-    Write-Host "ERROR: sqlite3 is required but not installed." -ForegroundColor Red
-    Write-Host "Download from: https://sqlite.org/download.html"
-    Write-Host "Add sqlite3.exe to your PATH"
-    exit 1
+    Write-Host "WARNING: sqlite3 not found. Attempting to download..." -ForegroundColor Yellow
+    
+    # Download sqlite3 for Windows
+    $sqliteUrl = "https://www.sqlite.org/2024/sqlite-tools-win-x64-3470200.zip"
+    $sqliteZip = Join-Path $env:TEMP "sqlite-tools.zip"
+    $sqliteDir = Join-Path $ScriptDir "sqlite-tools"
+    
+    try {
+        Invoke-WebRequest -Uri $sqliteUrl -OutFile $sqliteZip
+        Expand-Archive -Path $sqliteZip -DestinationPath $sqliteDir -Force
+        $sqlite3Path = Get-ChildItem -Path $sqliteDir -Filter "sqlite3.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        $env:PATH = "$($sqlite3Path | Split-Path -Parent);$env:PATH"
+        Write-Host "Downloaded sqlite3 successfully" -ForegroundColor Green
+    } catch {
+        Write-Host "ERROR: Failed to download sqlite3. Please install manually." -ForegroundColor Red
+        Write-Host "Download from: https://sqlite.org/download.html"
+        Write-Host "Add sqlite3.exe to your PATH"
+        exit 1
+    }
 }
 
 # Create directories if needed

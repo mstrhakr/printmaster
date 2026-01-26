@@ -157,17 +157,13 @@ func TestE2E_AgentDevicesList(t *testing.T) {
 		t.Fatalf("Unexpected status %d: %s", resp.StatusCode, body)
 	}
 
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	// Agent /devices/list returns an array directly, not {"devices": [...]}
+	var devices []map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&devices); err != nil {
 		t.Fatalf("Failed to decode agent devices response: %v", err)
 	}
 
-	devices, ok := result["devices"].([]interface{})
-	if !ok {
-		t.Fatal("Response missing 'devices' array")
-	}
-
-	// In E2E tests, agent might not have seeded devices
+	// Log device count (seeded data should have 8 devices)
 	t.Logf("✓ Agent has %d devices", len(devices))
 }
 
@@ -365,11 +361,11 @@ func TestE2E_FullIntegrationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to query agent devices: %v", err)
 	}
-	var agentResult map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&agentResult)
+	// Agent /devices/list returns an array directly
+	var agentDevices []map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&agentDevices)
 	resp.Body.Close()
 	if resp.StatusCode == http.StatusOK {
-		agentDevices, _ := agentResult["devices"].([]interface{})
 		t.Logf("  ✓ Agent has %d devices", len(agentDevices))
 	} else {
 		t.Logf("  ⚠ Agent devices check returned %d (auth may be enabled)", resp.StatusCode)
