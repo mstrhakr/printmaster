@@ -9042,7 +9042,12 @@ func handleAgentUpdateTelemetry(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// releaseSyncMu protects against concurrent sync operations
+var releaseSyncMu sync.Mutex
+var releaseSyncInProgress bool
+
 // handleReleasesSync triggers an immediate sync of release artifacts from GitHub.
+// The sync runs in the background and progress is reported via SSE events.
 func handleReleasesSync(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -9052,21 +9057,74 @@ func handleReleasesSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "release intake worker not initialized", http.StatusServiceUnavailable)
 		return
 	}
-	if err := intakeWorker.RunOnce(r.Context()); err != nil {
-		logWarn("Release sync failed", "error", err)
+
+	// Check if sync is already in progress
+	releaseSyncMu.Lock()
+	if releaseSyncInProgress {
+		releaseSyncMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": false,
-			"error":   err.Error(),
+			"error":   "sync already in progress",
 		})
 		return
 	}
-	logInfo("Release sync completed successfully")
+	releaseSyncInProgress = true
+	releaseSyncMu.Unlock()
+
+	// Start sync in background
+	go func() {
+		defer func() {
+			releaseSyncMu.Lock()
+			releaseSyncInProgress = false
+			releaseSyncMu.Unlock()
+		}()
+
+		ctx := context.Background()
+		err := intakeWorker.RunOnceWithProgress(ctx, func(progress releases.SyncProgress) {
+			// Broadcast progress via SSE
+			if sseHub != nil {
+				sseHub.Broadcast(SSEEvent{
+					Type: "release_sync_progress",
+					Data: map[string]interface{}{
+						"phase":             progress.Phase,
+						"message":           progress.Message,
+						"total_files":       progress.TotalFiles,
+						"completed_files":   progress.CompletedFiles,
+						"total_bytes":       progress.TotalBytes,
+						"completed_bytes":   progress.CompletedBytes,
+						"current_file":      progress.CurrentFile,
+						"current_file_size": progress.CurrentFileSize,
+						"percent_complete":  progress.PercentComplete,
+						"error":             progress.Error,
+					},
+				})
+			}
+		})
+
+		if err != nil {
+			logWarn("Release sync failed", "error", err)
+			if sseHub != nil {
+				sseHub.Broadcast(SSEEvent{
+					Type: "release_sync_progress",
+					Data: map[string]interface{}{
+						"phase":   "error",
+						"message": "Sync failed",
+						"error":   err.Error(),
+					},
+				})
+			}
+		} else {
+			logInfo("Release sync completed successfully")
+		}
+	}()
+
+	// Return immediately - progress will come via SSE
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"message": "release sync completed",
+		"message": "sync started - progress will be reported via SSE",
 	})
 }
 

@@ -957,6 +957,17 @@ function connectSSE() {
         }
     });
 
+    // Release sync progress events
+    eventSource.addEventListener('release_sync_progress', (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            window.__pm_shared.log('Release sync progress (SSE):', data);
+            handleReleaseSyncProgress(data);
+        } catch (err) {
+            window.__pm_shared.warn('Failed to parse release_sync_progress event:', err);
+        }
+    });
+
     // Live metrics refresh - update dashboard charts in real-time
     eventSource.addEventListener('metrics_snapshot', (e) => {
         try {
@@ -6038,6 +6049,114 @@ function renderSelfUpdateRuns(container, runs) {
 // Release Artifacts Display
 // ---------------------------------------------------------------------------
 
+// Release sync progress state
+let releaseSyncProgress = null;
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function handleReleaseSyncProgress(data) {
+    releaseSyncProgress = data;
+    
+    const btn = document.getElementById('releases_sync_btn');
+    const progressContainer = document.getElementById('releases_sync_progress');
+    
+    if (data.phase === 'complete') {
+        // Sync finished
+        releasesSyncPending = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Sync from GitHub';
+        }
+        if (progressContainer) {
+            progressContainer.style.display = 'none';
+        }
+        showToast(data.message || 'Release sync completed', 'success');
+        // Reload artifacts list
+        setTimeout(() => {
+            loadReleaseArtifacts();
+            loadSelfUpdateRuns();
+        }, 500);
+        return;
+    }
+    
+    if (data.phase === 'error') {
+        // Sync failed
+        releasesSyncPending = false;
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Sync from GitHub';
+        }
+        if (progressContainer) {
+            progressContainer.style.display = 'none';
+        }
+        showToast(data.error || data.message || 'Release sync failed', 'error');
+        return;
+    }
+    
+    // Ongoing sync - update progress display
+    if (btn) {
+        btn.disabled = true;
+    }
+    
+    // Create progress container if it doesn't exist
+    if (!progressContainer) {
+        const card = document.getElementById('releases_artifacts_card');
+        if (card) {
+            const container = document.createElement('div');
+            container.id = 'releases_sync_progress';
+            container.style.cssText = 'margin-bottom:12px;padding:12px;background:var(--bg-secondary);border-radius:6px;';
+            card.insertBefore(container, card.firstChild.nextSibling);
+        }
+    }
+    
+    const container = document.getElementById('releases_sync_progress');
+    if (container) {
+        container.style.display = 'block';
+        
+        let progressHtml = `<div style="font-size:13px;color:var(--text);margin-bottom:8px;">${escapeHtml(data.message || 'Syncing...')}</div>`;
+        
+        if (data.phase === 'downloading' && data.total_files > 0) {
+            const pct = data.percent_complete || 0;
+            const completedBytes = formatBytes(data.completed_bytes || 0);
+            const totalBytes = formatBytes(data.total_bytes || 0);
+            
+            progressHtml += `
+                <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;">
+                    <span>File ${data.completed_files + 1} of ${data.total_files}${data.current_file ? ': ' + escapeHtml(data.current_file) : ''}</span>
+                    <span>${completedBytes} / ${totalBytes}</span>
+                </div>
+                <div style="background:var(--bg);border-radius:4px;height:8px;overflow:hidden;">
+                    <div style="background:var(--highlight);height:100%;width:${pct}%;transition:width 0.2s ease;"></div>
+                </div>
+                <div style="text-align:right;font-size:11px;color:var(--muted);margin-top:2px;">${pct}%</div>
+            `;
+        } else if (data.phase === 'fetching' || data.phase === 'processing') {
+            progressHtml += `
+                <div style="background:var(--bg);border-radius:4px;height:8px;overflow:hidden;">
+                    <div style="background:var(--highlight);height:100%;width:100%;animation:pulse 1.5s ease-in-out infinite;"></div>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = progressHtml;
+    }
+    
+    // Update button text
+    if (btn) {
+        if (data.phase === 'downloading' && data.percent_complete !== undefined) {
+            btn.textContent = `Syncing... ${data.percent_complete}%`;
+        } else {
+            btn.textContent = 'Syncing...';
+        }
+    }
+}
+
 async function triggerReleasesSync() {
     if (releasesSyncPending) return;
     releasesSyncPending = true;
@@ -6045,8 +6164,14 @@ async function triggerReleasesSync() {
     const btn = document.getElementById('releases_sync_btn');
     if (btn) {
         btn.disabled = true;
-        btn.textContent = 'Syncing…';
+        btn.textContent = 'Syncing...';
     }
+    
+    // Show initial progress state
+    handleReleaseSyncProgress({
+        phase: 'fetching',
+        message: 'Starting sync...'
+    });
 
     try {
         const resp = await fetch('/api/v1/releases/sync', {
@@ -6056,24 +6181,21 @@ async function triggerReleasesSync() {
         });
         const data = await resp.json().catch(() => ({}));
 
-        if (resp.ok) {
-            showToast('Release sync completed', 'success');
-            // Reload to show updated artifacts
-            setTimeout(() => {
-                loadReleaseArtifacts();
-                loadSelfUpdateRuns();
-            }, 500);
-        } else {
-            showToast(data.error || 'Failed to sync releases', 'error');
+        if (!resp.ok) {
+            // Sync failed to start
+            handleReleaseSyncProgress({
+                phase: 'error',
+                message: 'Failed to start sync',
+                error: data.error || 'Unknown error'
+            });
         }
+        // If ok, progress updates will come via SSE
     } catch (err) {
-        showToast('Failed to sync releases', 'error');
-    } finally {
-        releasesSyncPending = false;
-        if (btn) {
-            btn.disabled = false;
-            btn.textContent = 'Sync from GitHub';
-        }
+        handleReleaseSyncProgress({
+            phase: 'error',
+            message: 'Failed to start sync',
+            error: err.message || 'Network error'
+        });
     }
 }
 

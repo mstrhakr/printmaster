@@ -29,6 +29,23 @@ const (
 
 var safeSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
+// SyncProgress represents the current state of a release sync operation.
+type SyncProgress struct {
+	Phase           string `json:"phase"`             // "fetching", "processing", "downloading", "complete", "error"
+	Message         string `json:"message"`           // Human-readable status
+	TotalFiles      int    `json:"total_files"`       // Total number of files to download
+	CompletedFiles  int    `json:"completed_files"`   // Number of files downloaded
+	TotalBytes      int64  `json:"total_bytes"`       // Total bytes to download
+	CompletedBytes  int64  `json:"completed_bytes"`   // Bytes downloaded so far
+	CurrentFile     string `json:"current_file"`      // Name of file currently being downloaded
+	CurrentFileSize int64  `json:"current_file_size"` // Size of current file
+	PercentComplete int    `json:"percent_complete"`  // 0-100 overall progress
+	Error           string `json:"error,omitempty"`   // Error message if phase is "error"
+}
+
+// ProgressCallback is called during sync to report progress.
+type ProgressCallback func(progress SyncProgress)
+
 // Options control IntakeWorker behavior.
 type Options struct {
 	CacheDir          string
@@ -175,6 +192,331 @@ func (w *IntakeWorker) Run(ctx context.Context) {
 // RunOnce executes a single fetch cycle (exported for tests).
 func (w *IntakeWorker) RunOnce(ctx context.Context) error {
 	return w.runOnce(ctx)
+}
+
+// RunOnceWithProgress executes a single fetch cycle with progress reporting.
+func (w *IntakeWorker) RunOnceWithProgress(ctx context.Context, onProgress ProgressCallback) error {
+	return w.runOnceWithProgress(ctx, onProgress)
+}
+
+// artifactPlan represents a single artifact to be downloaded.
+type artifactPlan struct {
+	desc      artifactDescriptor
+	rel       ghRelease
+	asset     ghAsset
+	needsWork bool // false if already cached
+}
+
+func (w *IntakeWorker) runOnceWithProgress(ctx context.Context, onProgress ProgressCallback) error {
+	report := func(p SyncProgress) {
+		if onProgress != nil {
+			onProgress(p)
+		}
+	}
+
+	// Phase 1: Fetch release metadata
+	report(SyncProgress{
+		Phase:   "fetching",
+		Message: "Fetching release list from GitHub...",
+	})
+
+	releases, err := w.fetchReleases(ctx)
+	if err != nil {
+		report(SyncProgress{
+			Phase:   "error",
+			Message: "Failed to fetch releases",
+			Error:   err.Error(),
+		})
+		return err
+	}
+
+	// Phase 2: Plan work - determine which artifacts need downloading
+	report(SyncProgress{
+		Phase:   "processing",
+		Message: fmt.Sprintf("Analyzing %d releases...", len(releases)),
+	})
+
+	var plans []artifactPlan
+	processed := map[string]int{}
+
+	for _, rel := range releases {
+		component, version := parseTag(rel.TagName)
+		if component == "" || version == "" {
+			continue
+		}
+		if rel.Draft || rel.Prerelease {
+			continue
+		}
+		if processed[component] >= w.maxReleases {
+			continue
+		}
+
+		for _, asset := range rel.Assets {
+			if asset.BrowserDownloadURL == "" {
+				continue
+			}
+			desc, ok := buildDescriptor(component, version, asset.Name)
+			if !ok {
+				continue
+			}
+
+			// Check if already cached
+			existing, err := w.store.GetReleaseArtifact(ctx, desc.component, desc.version, desc.platform, desc.arch)
+			needsWork := true
+			if err == nil && existing != nil && fileExists(existing.CachePath) && existing.SHA256 != "" {
+				needsWork = false
+			}
+
+			plans = append(plans, artifactPlan{
+				desc:      desc,
+				rel:       rel,
+				asset:     asset,
+				needsWork: needsWork,
+			})
+		}
+		processed[component]++
+	}
+
+	// Calculate totals
+	var totalFiles, filesToDownload int
+	var totalBytes, bytesToDownload int64
+	for _, p := range plans {
+		totalFiles++
+		totalBytes += p.asset.Size
+		if p.needsWork {
+			filesToDownload++
+			bytesToDownload += p.asset.Size
+		}
+	}
+
+	report(SyncProgress{
+		Phase:          "processing",
+		Message:        fmt.Sprintf("Found %d artifacts (%d need downloading)", totalFiles, filesToDownload),
+		TotalFiles:     filesToDownload,
+		TotalBytes:     bytesToDownload,
+		CompletedFiles: 0,
+		CompletedBytes: 0,
+	})
+
+	if filesToDownload == 0 {
+		report(SyncProgress{
+			Phase:           "complete",
+			Message:         "All artifacts up to date",
+			TotalFiles:      0,
+			CompletedFiles:  0,
+			TotalBytes:      0,
+			CompletedBytes:  0,
+			PercentComplete: 100,
+		})
+		// Still need to ensure manifests and prune
+		for _, p := range plans {
+			if !p.needsWork {
+				existing, _ := w.store.GetReleaseArtifact(ctx, p.desc.component, p.desc.version, p.desc.platform, p.desc.arch)
+				if existing != nil {
+					w.ensureManifest(ctx, existing)
+				}
+			}
+		}
+		w.pruneIfConfigured(ctx)
+		return nil
+	}
+
+	// Phase 3: Download artifacts
+	var completedFiles int
+	var completedBytes int64
+
+	for _, p := range plans {
+		if !p.needsWork {
+			// Already cached, just ensure manifest
+			existing, _ := w.store.GetReleaseArtifact(ctx, p.desc.component, p.desc.version, p.desc.platform, p.desc.arch)
+			if existing != nil {
+				w.ensureManifest(ctx, existing)
+			}
+			continue
+		}
+
+		// Report starting this file
+		pct := 0
+		if bytesToDownload > 0 {
+			pct = int((completedBytes * 100) / bytesToDownload)
+		}
+		report(SyncProgress{
+			Phase:           "downloading",
+			Message:         fmt.Sprintf("Downloading %s...", p.asset.Name),
+			TotalFiles:      filesToDownload,
+			CompletedFiles:  completedFiles,
+			TotalBytes:      bytesToDownload,
+			CompletedBytes:  completedBytes,
+			CurrentFile:     p.asset.Name,
+			CurrentFileSize: p.asset.Size,
+			PercentComplete: pct,
+		})
+
+		// Download with progress
+		cachePath, sha, size, err := w.downloadArtifactWithProgress(ctx, p.desc, p.asset.BrowserDownloadURL, p.asset.Size, func(downloaded int64) {
+			pct := 0
+			if bytesToDownload > 0 {
+				pct = int(((completedBytes + downloaded) * 100) / bytesToDownload)
+			}
+			report(SyncProgress{
+				Phase:           "downloading",
+				Message:         fmt.Sprintf("Downloading %s... (%d%%)", p.asset.Name, pct),
+				TotalFiles:      filesToDownload,
+				CompletedFiles:  completedFiles,
+				TotalBytes:      bytesToDownload,
+				CompletedBytes:  completedBytes + downloaded,
+				CurrentFile:     p.asset.Name,
+				CurrentFileSize: p.asset.Size,
+				PercentComplete: pct,
+			})
+		})
+
+		if err != nil {
+			w.logWarn("artifact download failed", "asset", p.asset.Name, "error", err)
+			continue
+		}
+
+		// Save to database
+		record := &storage.ReleaseArtifact{
+			Component:    p.desc.component,
+			Version:      p.desc.version,
+			Platform:     p.desc.platform,
+			Arch:         p.desc.arch,
+			Channel:      "stable",
+			SourceURL:    p.asset.BrowserDownloadURL,
+			CachePath:    cachePath,
+			SHA256:       sha,
+			SizeBytes:    size,
+			ReleaseNotes: p.rel.Body,
+			PublishedAt:  p.rel.PublishedAt,
+			DownloadedAt: time.Now().UTC(),
+		}
+		if err := w.store.UpsertReleaseArtifact(ctx, record); err != nil {
+			w.logWarn("failed to save artifact", "asset", p.asset.Name, "error", err)
+			continue
+		}
+
+		w.ensureManifest(ctx, record)
+		completedFiles++
+		completedBytes += p.asset.Size
+
+		w.logInfo("cached release artifact", "component", p.desc.component, "version", p.desc.version, "platform", p.desc.platform, "arch", p.desc.arch)
+	}
+
+	// Prune old artifacts
+	w.pruneIfConfigured(ctx)
+
+	report(SyncProgress{
+		Phase:           "complete",
+		Message:         fmt.Sprintf("Sync complete: %d files downloaded", completedFiles),
+		TotalFiles:      filesToDownload,
+		CompletedFiles:  completedFiles,
+		TotalBytes:      bytesToDownload,
+		CompletedBytes:  completedBytes,
+		PercentComplete: 100,
+	})
+
+	return nil
+}
+
+func (w *IntakeWorker) pruneIfConfigured(ctx context.Context) {
+	if w.retentionVersions > 0 {
+		for _, comp := range []string{"agent", "server"} {
+			if err := w.pruneOldArtifacts(ctx, comp); err != nil {
+				w.logWarn("artifact pruning failed", "component", comp, "error", err)
+			}
+		}
+	}
+}
+
+// downloadArtifactWithProgress downloads an artifact and reports progress.
+func (w *IntakeWorker) downloadArtifactWithProgress(ctx context.Context, desc artifactDescriptor, downloadURL string, expectedSize int64, onProgress func(downloaded int64)) (string, string, int64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return "", "", 0, err
+	}
+	req.Header.Set("User-Agent", w.userAgent)
+	if w.token != "" {
+		req.Header.Set("Authorization", "Bearer "+w.token)
+	}
+
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", 0, fmt.Errorf("download failed: %s", resp.Status)
+	}
+
+	componentDir, err := buildCacheDir(w.cacheDir, desc)
+	if err != nil {
+		return "", "", 0, err
+	}
+	if err := os.MkdirAll(componentDir, 0o755); err != nil {
+		return "", "", 0, err
+	}
+
+	tempFile, err := os.CreateTemp(componentDir, "download-*.tmp")
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFile.Name())
+	}()
+
+	hasher := sha256.New()
+	writer := io.MultiWriter(tempFile, hasher)
+
+	// Use a progress-tracking reader
+	var written int64
+	buf := make([]byte, 32*1024) // 32KB buffer
+	lastReport := time.Now()
+
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			_, writeErr := writer.Write(buf[:n])
+			if writeErr != nil {
+				return "", "", 0, writeErr
+			}
+			written += int64(n)
+
+			// Report progress at most every 100ms to avoid flooding
+			if onProgress != nil && time.Since(lastReport) > 100*time.Millisecond {
+				onProgress(written)
+				lastReport = time.Now()
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return "", "", 0, readErr
+		}
+	}
+
+	// Final progress report
+	if onProgress != nil {
+		onProgress(written)
+	}
+
+	if err := tempFile.Sync(); err != nil {
+		return "", "", 0, err
+	}
+	if err := tempFile.Close(); err != nil {
+		return "", "", 0, err
+	}
+
+	finalPath := filepath.Join(componentDir, desc.fileName)
+	_ = os.Remove(finalPath)
+	if err := os.Rename(tempFile.Name(), finalPath); err != nil {
+		return "", "", 0, err
+	}
+
+	checksum := hex.EncodeToString(hasher.Sum(nil))
+	return finalPath, checksum, written, nil
 }
 
 func (w *IntakeWorker) runOnce(ctx context.Context) error {
