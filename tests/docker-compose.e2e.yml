@@ -26,17 +26,13 @@ services:
     container_name: pm-e2e-server
     hostname: server
     environment:
-      # Server listens on all interfaces
-      SERVER_HOST: "0.0.0.0"
-      # Server uses default HTTP port 9090
+      # Run in HTTP-only mode (behind_proxy mode without actual proxy)
+      # This makes the server listen on HTTP port only (no TLS)
+      BEHIND_PROXY: "true"
       # Use SQLite for E2E tests (simpler, no external DB needed)
       SERVER_DB_TYPE: "sqlite"
       # Mount point for test database
       SERVER_DATA_DIR: "/data"
-      # Disable HTTPS for testing (simpler)
-      SERVER_TLS_ENABLED: "false"
-      # Enable WebSocket for agent connections
-      SERVER_WEBSOCKET_ENABLED: "true"
       # Admin credentials for tests
       ADMIN_PASSWORD: "e2e-test-password"
       # Disable auto-update checks in tests
@@ -76,16 +72,13 @@ services:
     environment:
       # Agent configuration via environment
       AGENT_DATA_DIR: "/data"
-      # Connect to server
-      AGENT_SERVER_URL: "http://server:9090"
-      AGENT_SERVER_ENABLED: "true"
+      # Connect to server (correct env var names)
+      SERVER_URL: "http://server:9090"
+      SERVER_ENABLED: "true"
       # Agent identity
       AGENT_NAME: "e2e-test-agent"
-      # Disable HTTPS for testing
-      AGENT_TLS_ENABLED: "false"
-      AGENT_PORT: "8080"
-      # Disable discovery in tests (no real printers)
-      AGENT_DISCOVERY_ENABLED: "false"
+      # HTTP port for agent web UI
+      WEB_HTTP_PORT: "8080"
       # Disable auto-update in tests
       AUTOUPDATE_ENABLED: "false"
       # Container detection
