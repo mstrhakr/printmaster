@@ -9545,36 +9545,21 @@ function renderAgentsOverview() {
             <div class="card-title">Agents Online</div>
             <div class="metric-kpi-value">${formatNumber(summary.active || 0)}</div>
             <div class="metric-kpi-label">Active of ${formatNumber(summary.total)}</div>
-            <div class="metric-status-chips">
-                <span class="metric-chip">Active ${formatNumber(summary.active || 0)}</span>
-                <span class="metric-chip">Inactive ${formatNumber(summary.inactive || 0)}</span>
-                <span class="metric-chip">Offline ${formatNumber(summary.offline || 0)}</span>
-            </div>
         </div>
         <div class="metric-card">
             <div class="card-title">Connection Mix</div>
             <div class="metric-kpi-value">${formatNumber(summary.connections.ws || 0)}</div>
             <div class="metric-kpi-label">Live WebSocket tunnels</div>
-            <div class="metric-status-chips">
-                <span class="metric-chip">HTTP ${formatNumber(summary.connections.http || 0)}</span>
-                <span class="metric-chip">Offline ${formatNumber(summary.connections.none || 0)}</span>
-            </div>
         </div>
         <div class="metric-card">
             <div class="card-title">Version Alignment</div>
             <div class="metric-kpi-value">${escapeHtml(summary.primaryVersion || 'Unknown')}</div>
             <div class="metric-kpi-label">${Math.round((summary.primaryVersionShare || 0) * 100)}% on this build</div>
-            <div class="metric-status-chips">
-                <span class="metric-chip">Outdated ${formatNumber(summary.outdated || 0)}</span>
-            </div>
         </div>
         <div class="metric-card">
             <div class="card-title">Top Platforms</div>
             <div class="metric-kpi-value">${platforms.length ? escapeHtml(platforms[0][0]) : '—'}</div>
             <div class="metric-kpi-label">Most common OS</div>
-            <div class="metric-status-chips">
-                ${platforms.map(([name, count]) => `<span class="metric-chip">${escapeHtml(name)} ${formatNumber(count)}</span>`).join('') || '<span class="metric-chip">No data</span>'}
-            </div>
         </div>
     `;
 }
