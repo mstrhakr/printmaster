@@ -1,14 +1,14 @@
 Package: printmaster-agent
-Version: 0.29.1
+Version: 0.29.2
 Architecture: amd64
 Maintainer: PrintMaster Team <printmaster@example.com>
 Installed-Size: 16900
 Depends: libc6
-Filename: pool/main/printmaster-agent_0.29.1_amd64.deb
-Size: 5772036
-MD5sum: b00caa5dec52db1da25b87c8bb060035
-SHA1: e291c9dd828c9d82678be91e0455c08a261a425f
-SHA256: e843abac3c4c07bc35d5b02a861dda63e42c9da6fe77266aa99d655a6d775823
+Filename: pool/main/printmaster-agent_0.29.2_amd64.deb
+Size: 5772550
+MD5sum: cf6ed8192f8ea9a2f3b4c5dd97855906
+SHA1: 2fe323cff6fb87498582768ed61773fed2db6d22
+SHA256: 7e8fca9777368aa19ff1e180f0601c220088682c5f137195b3faafe93b2f8362
 Section: admin
 Priority: optional
 Homepage: https://github.com/mstrhakr/printmaster
