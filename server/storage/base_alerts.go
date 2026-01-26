@@ -45,10 +45,10 @@ func isInQuietHours(qh QuietHours) bool {
 
 	// Handle overnight quiet hours (e.g., 22:00 - 07:00)
 	if startMins > endMins {
-		return currentMins >= startMins || currentMins < endMins
+		return currentMins >= startMins || currentMins <= endMins
 	}
 
-	return currentMins >= startMins && currentMins < endMins
+	return currentMins >= startMins && currentMins <= endMins
 }
 
 // CreateAlert inserts a new alert.
