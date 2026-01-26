@@ -11466,6 +11466,7 @@ async function deleteDevice(serial, agentId) {
     try {
         window.__pm_shared.log('Sending delete request:', {
             serial,
+            agent_id: agentId,
             delete_metrics: result.deleteMetrics,
             delete_from_agent: result.deleteFromAgent
         });
@@ -11475,6 +11476,7 @@ async function deleteDevice(serial, agentId) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 serial: serial,
+                agent_id: agentId,
                 delete_metrics: result.deleteMetrics,
                 delete_from_agent: result.deleteFromAgent
             })

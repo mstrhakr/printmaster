@@ -5898,6 +5898,7 @@ func handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Serial          string `json:"serial"`
+		AgentID         string `json:"agent_id"`          // Optional: agent to delete from (if device not in server DB)
 		DeleteMetrics   bool   `json:"delete_metrics"`    // Also delete metrics history
 		DeleteFromAgent bool   `json:"delete_from_agent"` // Also delete from agent's database
 	}
@@ -5919,14 +5920,19 @@ func handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 
 	ctx := context.Background()
 
-	// Look up device to get agent info before deleting
+	// Look up device to get agent info - but don't fail if not found
+	// (device may only exist on agent and not synced to server yet)
+	var agentID string
+	deviceExistsOnServer := false
 	device, err := serverStore.GetDevice(ctx, req.Serial)
-	if err != nil {
-		http.Error(w, "Device not found", http.StatusNotFound)
-		return
+	if err == nil && device != nil {
+		deviceExistsOnServer = true
+		agentID = device.AgentID
+	} else {
+		// Device not in server DB - use agent_id from request if provided
+		agentID = req.AgentID
 	}
 
-	agentID := device.AgentID
 	deletedFromAgent := false
 
 	// If requested, try to delete from agent first
@@ -5958,14 +5964,24 @@ func handleDeviceDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Delete from server database
-	if err := serverStore.DeleteDevice(ctx, req.Serial, req.DeleteMetrics); err != nil {
-		logError("Failed to delete device from server", "serial", req.Serial, "error", err)
-		http.Error(w, "Failed to delete device: "+err.Error(), http.StatusInternalServerError)
+	// Delete from server database (if it exists there)
+	deletedFromServer := false
+	if deviceExistsOnServer {
+		if err := serverStore.DeleteDevice(ctx, req.Serial, req.DeleteMetrics); err != nil {
+			logError("Failed to delete device from server", "serial", req.Serial, "error", err)
+			http.Error(w, "Failed to delete device: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		deletedFromServer = true
+	}
+
+	// If nothing was deleted, return an error
+	if !deletedFromServer && !deletedFromAgent {
+		http.Error(w, "Device not found on server or agent", http.StatusNotFound)
 		return
 	}
 
-	logInfo("Deleted device from server", "serial", req.Serial, "delete_metrics", req.DeleteMetrics, "deleted_from_agent", deletedFromAgent)
+	logInfo("Deleted device", "serial", req.Serial, "from_server", deletedFromServer, "from_agent", deletedFromAgent, "delete_metrics", req.DeleteMetrics)
 
 	// Broadcast device_deleted event to UI via SSE
 	sseHub.Broadcast(SSEEvent{
