@@ -119,6 +119,14 @@ type DiagnosticReport struct {
 
 	// Full raw_data from device (catch-all for any extra fields)
 	RawData map[string]interface{} `json:"raw_data,omitempty"`
+
+	// === Extended Diagnostic Data (separate gist files) ===
+
+	// DeviceRecord contains the full device database entry for debugging
+	DeviceRecord map[string]interface{} `json:"device_record,omitempty"`
+
+	// MetricsHistory contains the last N metrics snapshots for trend analysis
+	MetricsHistory []map[string]interface{} `json:"metrics_history,omitempty"`
 }
 
 // SNMPResponse represents a single SNMP OID/value pair from device query.

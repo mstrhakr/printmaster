@@ -46,14 +46,7 @@ export default {
         body: JSON.stringify({
           description: `PrintMaster Device Report: ${report.issue_type} - ${report.device_model || 'Unknown'}`,
           public: false,
-          files: {
-            'diagnostic_report.json': {
-              content: JSON.stringify(report, null, 2),
-            },
-            'summary.md': {
-              content: generateSummary(report),
-            },
-          },
+          files: buildGistFiles(report),
         }),
       });
 
@@ -98,6 +91,71 @@ function jsonResponse(data, status) {
   });
 }
 
+/**
+ * Build separate gist files for easier searching/debugging
+ */
+function buildGistFiles(report) {
+  const files = {};
+
+  // 1. Summary markdown (quick overview)
+  files['1_summary.md'] = {
+    content: generateSummary(report),
+  };
+
+  // 2. Core report (basic info without bulky nested data)
+  const coreReport = { ...report };
+  delete coreReport.device_record;
+  delete coreReport.metrics_history;
+  delete coreReport.snmp_responses;
+  delete coreReport.raw_data;
+  delete coreReport.recent_logs;
+  files['2_core_report.json'] = {
+    content: JSON.stringify(coreReport, null, 2),
+  };
+
+  // 3. Device record (full DB entry)
+  if (report.device_record && Object.keys(report.device_record).length > 0) {
+    files['3_device_record.json'] = {
+      content: JSON.stringify(report.device_record, null, 2),
+    };
+  }
+
+  // 4. Metrics history (time series data)
+  if (report.metrics_history && report.metrics_history.length > 0) {
+    files['4_metrics_history.json'] = {
+      content: JSON.stringify(report.metrics_history, null, 2),
+    };
+  }
+
+  // 5. SNMP responses (raw OID data)
+  if (report.snmp_responses && report.snmp_responses.length > 0) {
+    files['5_snmp_responses.json'] = {
+      content: JSON.stringify(report.snmp_responses, null, 2),
+    };
+  }
+
+  // 6. Raw data (any extra fields from device)
+  if (report.raw_data && Object.keys(report.raw_data).length > 0) {
+    files['6_raw_data.json'] = {
+      content: JSON.stringify(report.raw_data, null, 2),
+    };
+  }
+
+  // 7. Recent logs (for troubleshooting)
+  if (report.recent_logs && report.recent_logs.length > 0) {
+    files['7_recent_logs.txt'] = {
+      content: report.recent_logs.join('\n'),
+    };
+  }
+
+  // 8. Full report (everything in one file for complete reference)
+  files['8_full_report.json'] = {
+    content: JSON.stringify(report, null, 2),
+  };
+
+  return files;
+}
+
 function generateSummary(report) {
   const issueTypeLabels = {
     'wrong_manufacturer': 'Wrong Manufacturer Detection',
@@ -128,10 +186,21 @@ function generateSummary(report) {
 | Serial | ${report.current_serial || 'Unknown'} |
 | IP | ${report.device_ip || 'N/A'} |
 | Agent Version | ${report.agent_version || 'Unknown'} |
+| Metrics History | ${report.metrics_history ? report.metrics_history.length + ' snapshots' : 'None'} |
 
 ---
 
-📎 **Full diagnostic data is in \`diagnostic_report.json\`**
+## Files in this Gist
+
+| File | Description |
+|------|-------------|
+| \`2_core_report.json\` | Basic report metadata and current values |
+| \`3_device_record.json\` | Full device database entry |
+| \`4_metrics_history.json\` | Last 100 metrics snapshots (page counts, toner levels) |
+| \`5_snmp_responses.json\` | Raw SNMP OID/value pairs |
+| \`6_raw_data.json\` | Additional raw device data |
+| \`7_recent_logs.txt\` | Recent agent log entries |
+| \`8_full_report.json\` | Complete report (all data) |
 
 *Report ID: ${report.report_id}*
 `;

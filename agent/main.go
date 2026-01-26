@@ -4890,6 +4890,97 @@ func runInteractive(ctx context.Context, configFlag string) {
 		rpt.TonerLevels = req.TonerLevels
 		rpt.RawData = req.RawData
 
+		// Fetch full device record and metrics history from storage for diagnostics
+		if deviceStore != nil && req.DeviceSerial != "" {
+			// Get full device record
+			if device, err := deviceStore.Get(r.Context(), req.DeviceSerial); err == nil && device != nil {
+				deviceMap := map[string]interface{}{
+					"serial":             device.Serial,
+					"ip":                 device.IP,
+					"mac_address":        device.MACAddress,
+					"hostname":           device.Hostname,
+					"manufacturer":       device.Manufacturer,
+					"model":              device.Model,
+					"firmware":           device.Firmware,
+					"subnet_mask":        device.SubnetMask,
+					"gateway":            device.Gateway,
+					"consumables":        device.Consumables,
+					"status_messages":    device.StatusMessages,
+					"device_type":        device.DeviceType,
+					"source_type":        device.SourceType,
+					"discovery_method":   device.DiscoveryMethod,
+					"web_ui_url":         device.WebUIURL,
+					"asset_number":       device.AssetNumber,
+					"location":           device.Location,
+					"description":        device.Description,
+					"is_usb":             device.IsUSB,
+					"port_name":          device.PortName,
+					"driver_name":        device.DriverName,
+					"is_default":         device.IsDefault,
+					"is_shared":          device.IsShared,
+					"spooler_status":     device.SpoolerStatus,
+					"initial_page_count": device.InitialPageCount,
+					"is_saved":           device.IsSaved,
+					"visible":            device.Visible,
+					"first_seen":         device.FirstSeen,
+					"last_seen":          device.LastSeen,
+					"created_at":         device.CreatedAt,
+					"raw_data":           device.RawData,
+				}
+				rpt.DeviceRecord = deviceMap
+				if appLogger != nil {
+					appLogger.Info("Included device record in report", "serial", req.DeviceSerial)
+				}
+			}
+
+			// Get last 100 metrics snapshots
+			since := time.Now().AddDate(0, -6, 0) // 6 months back
+			until := time.Now()
+			if metricsHistory, err := deviceStore.GetMetricsHistory(r.Context(), req.DeviceSerial, since, until); err == nil {
+				// Limit to last 100
+				limit := 100
+				if len(metricsHistory) > limit {
+					metricsHistory = metricsHistory[:limit]
+				}
+
+				// Convert to generic maps for JSON serialization
+				metricsSlice := make([]map[string]interface{}, 0, len(metricsHistory))
+				for _, m := range metricsHistory {
+					metricsMap := map[string]interface{}{
+						"id":          m.ID,
+						"serial":      m.Serial,
+						"timestamp":   m.Timestamp,
+						"page_count":  m.PageCount,
+						"color_pages": m.ColorPages,
+						"mono_pages":  m.MonoPages,
+						"scan_count":  m.ScanCount,
+						"toner_levels": m.TonerLevels,
+						"paper_trays":  m.PaperTrays,
+						// HP-specific extended counters (agent only)
+						"fax_pages":           m.FaxPages,
+						"copy_pages":          m.CopyPages,
+						"other_pages":         m.OtherPages,
+						"copy_mono_pages":     m.CopyMonoPages,
+						"copy_flatbed_scans":  m.CopyFlatbedScans,
+						"copy_adf_scans":      m.CopyADFScans,
+						"fax_flatbed_scans":   m.FaxFlatbedScans,
+						"fax_adf_scans":       m.FaxADFScans,
+						"scan_to_host_flatbed": m.ScanToHostFlatbed,
+						"scan_to_host_adf":    m.ScanToHostADF,
+						"duplex_sheets":       m.DuplexSheets,
+						"jam_events":          m.JamEvents,
+						"scanner_jam_events":  m.ScannerJamEvents,
+						"tier":                m.Tier,
+					}
+					metricsSlice = append(metricsSlice, metricsMap)
+				}
+				rpt.MetricsHistory = metricsSlice
+				if appLogger != nil {
+					appLogger.Info("Included metrics history in report", "serial", req.DeviceSerial, "count", len(metricsSlice))
+				}
+			}
+		}
+
 		// Try to submit to proxy
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
