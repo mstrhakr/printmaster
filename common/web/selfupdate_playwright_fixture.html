@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Server Self-Update Playwright Fixture</title>
+  <style>
+    .status-pill { padding: 2px 8px; border-radius: 4px; font-size: 12px; display: inline-block; }
+    .status-muted { background: #6c757d; color: white; }
+    .status-info { background: #17a2b8; color: white; }
+    .status-warning { background: #ffc107; color: black; }
+    .status-success { background: #28a745; color: white; }
+    .status-error { background: #dc3545; color: white; }
+    .hidden { display: none; }
+    .panel { border: 1px solid #ddd; padding: 16px; margin: 16px; border-radius: 8px; }
+    .badge { padding: 2px 6px; border-radius: 3px; font-size: 11px; background: #007bff; color: white; }
+    button { padding: 8px 16px; margin: 4px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+    th { background: #f5f5f5; }
+    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; z-index: 9999; }
+    .toast-success { background: #28a745; color: white; }
+    .toast-error { background: #dc3545; color: white; }
+    .toast-message { margin: 0; }
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; }
+    .modal.hidden { display: none; }
+    .modal-content { background: white; padding: 20px; border-radius: 8px; max-width: 500px; width: 90%; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 4px; font-weight: 500; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+    .alert { padding: 12px; border-radius: 4px; margin-bottom: 16px; }
+    .alert-warning { background: #fff3cd; border: 1px solid #ffc107; color: #856404; }
+  </style>
+</head>
+<body>
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <!-- Confirm Modal -->
+  <div id="confirm_modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="confirm_modal_title">Confirm</h3>
+      <p id="confirm_modal_message">Are you sure?</p>
+      <div style="margin-top: 16px; text-align: right;">
+        <button id="confirm_modal_cancel">Cancel</button>
+        <button id="confirm_modal_confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Policy Edit Modal -->
+  <div id="policy-edit-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Edit Update Policy</h3>
+      <form id="policy-form">
+        <div class="form-group">
+          <label for="policy-check-days-input">Check Interval (days)</label>
+          <input type="number" id="policy-check-days-input" min="1" max="30" value="7">
+        </div>
+        <div class="form-group">
+          <label for="policy-version-strategy-input">Version Strategy</label>
+          <select id="policy-version-strategy-input">
+            <option value="minor">Minor updates only</option>
+            <option value="major">Allow major updates</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="policy-maintenance-start">Maintenance Window Start (UTC)</label>
+          <input type="number" id="policy-maintenance-start" min="0" max="23" value="2">
+        </div>
+        <div class="form-group">
+          <label for="policy-maintenance-end">Maintenance Window End (UTC)</label>
+          <input type="number" id="policy-maintenance-end" min="0" max="23" value="6">
+        </div>
+        <div style="margin-top: 16px; text-align: right;">
+          <button type="button" id="cancel-policy-btn">Cancel</button>
+          <button type="button" id="save-policy-btn">Save Policy</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Self-Update Status Panel -->
+  <div id="selfupdate-status-panel" class="panel">
+    <h3>Server Updates</h3>
+    
+    <div id="selfupdate-disabled-banner" class="alert alert-warning hidden">
+      <strong>Self-update disabled:</strong> <span id="selfupdate-disabled-reason-text"></span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Current Version:</label>
+      <span id="selfupdate-current-version">0.9.5</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Status:</label>
+      <span id="selfupdate-status" class="status-pill status-muted">idle</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Channel:</label>
+      <span id="selfupdate-channel">stable</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Last Check:</label>
+      <span id="selfupdate-last-check">Never</span>
+    </div>
+    
+    <div style="margin-top: 16px;">
+      <button id="selfupdate-check-btn">Check for Update</button>
+      <label style="margin-left: 16px;">
+        <input type="checkbox" id="selfupdate-auto-refresh" checked> Auto-refresh
+      </label>
+    </div>
+  </div>
+
+  <!-- Update Policy Panel -->
+  <div id="update-policy-panel" class="panel">
+    <h3>Update Policy</h3>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Check Interval:</label>
+      <span id="policy-check-interval">7</span> days
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Version Strategy:</label>
+      <span id="policy-version-strategy">minor</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Maintenance Window:</label>
+      <span id="policy-maintenance-window">02:00 - 06:00 UTC</span>
+    </div>
+    
+    <div style="margin-top: 16px;">
+      <button id="edit-policy-btn">Edit Policy</button>
+    </div>
+  </div>
+
+  <!-- Recent Update Runs -->
+  <div id="selfupdate-runs-panel" class="panel">
+    <h3>Recent Update Runs</h3>
+    
+    <div id="selfupdate-no-runs" class="hidden" style="color: #666; font-style: italic;">
+      No update runs recorded yet.
+    </div>
+    
+    <table id="selfupdate-runs-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Started</th>
+          <th>Completed</th>
+          <th>Error</th>
+        </tr>
+      </thead>
+      <tbody id="selfupdate-runs-tbody">
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Load shared.js from the common/web directory -->
+  <script src="./shared.js"></script>
+  
+  <script>
+    const STATUS_CLASSES = {
+      idle: 'status-muted',
+      checking: 'status-info',
+      pending: 'status-info',
+      downloading: 'status-warning',
+      staging: 'status-warning',
+      applying: 'status-warning',
+      succeeded: 'status-success',
+      failed: 'status-error',
+      skipped: 'status-muted',
+      disabled: 'status-muted',
+    };
+
+    // Set self-update status
+    window.setSelfUpdateStatus = function(data) {
+      const statusEl = document.getElementById('selfupdate-status');
+      const versionEl = document.getElementById('selfupdate-current-version');
+      const channelEl = document.getElementById('selfupdate-channel');
+      const lastCheckEl = document.getElementById('selfupdate-last-check');
+      const disabledBanner = document.getElementById('selfupdate-disabled-banner');
+      const disabledReasonText = document.getElementById('selfupdate-disabled-reason-text');
+      const checkBtn = document.getElementById('selfupdate-check-btn');
+
+      statusEl.textContent = data.status || 'idle';
+      statusEl.className = 'status-pill ' + (STATUS_CLASSES[data.status] || 'status-muted');
+
+      if (data.current_version) {
+        versionEl.textContent = data.current_version;
+      }
+      if (data.channel) {
+        channelEl.textContent = data.channel;
+      }
+      if (data.last_check_at) {
+        lastCheckEl.textContent = new Date(data.last_check_at).toLocaleString();
+      }
+
+      if (!data.enabled && data.disabled_reason) {
+        disabledBanner.classList.remove('hidden');
+        disabledReasonText.textContent = data.disabled_reason;
+        checkBtn.disabled = true;
+      } else {
+        disabledBanner.classList.add('hidden');
+        checkBtn.disabled = false;
+      }
+    };
+
+    // Set update runs
+    window.setUpdateRuns = function(runs) {
+      const tbody = document.getElementById('selfupdate-runs-tbody');
+      const table = document.getElementById('selfupdate-runs-table');
+      const noRunsMsg = document.getElementById('selfupdate-no-runs');
+
+      tbody.innerHTML = '';
+
+      if (!runs || runs.length === 0) {
+        table.classList.add('hidden');
+        noRunsMsg.classList.remove('hidden');
+        return;
+      }
+
+      table.classList.remove('hidden');
+      noRunsMsg.classList.add('hidden');
+
+      runs.forEach(run => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td><span class="status-pill ${STATUS_CLASSES[run.status] || 'status-muted'}">${run.status}</span></td>
+          <td>${run.current_version || '-'}</td>
+          <td>${run.target_version || '-'}</td>
+          <td>${run.started_at ? new Date(run.started_at).toLocaleString() : '-'}</td>
+          <td>${run.completed_at ? new Date(run.completed_at).toLocaleString() : '-'}</td>
+          <td>${run.error_code || '-'}</td>
+        `;
+        tbody.appendChild(row);
+      });
+    };
+
+    // Set update policy
+    window.setUpdatePolicy = function(policy) {
+      document.getElementById('policy-check-interval').textContent = policy.update_check_days || 7;
+      document.getElementById('policy-version-strategy').textContent = policy.version_pin_strategy || 'minor';
+      
+      const start = String(policy.maintenance_start_utc || 0).padStart(2, '0');
+      const end = String(policy.maintenance_end_utc || 0).padStart(2, '0');
+      document.getElementById('policy-maintenance-window').textContent = `${start}:00 - ${end}:00 UTC`;
+    };
+
+    // Check button handler
+    document.getElementById('selfupdate-check-btn').addEventListener('click', async function() {
+      const btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+
+      try {
+        const resp = await fetch('/api/v1/selfupdate/check', { method: 'POST' });
+        const data = await resp.json();
+        window.__lastCheckResult = data;
+        if (window.__pm_shared?.showToast) {
+          window.__pm_shared.showToast('Update check initiated', 'success');
+        }
+      } catch (err) {
+        console.error('Check failed:', err);
+        window.__lastCheckResult = { error: err.message };
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Check for Update';
+      }
+    });
+
+    // Edit policy button
+    document.getElementById('edit-policy-btn').addEventListener('click', function() {
+      document.getElementById('policy-edit-modal').classList.remove('hidden');
+    });
+
+    // Cancel policy edit
+    document.getElementById('cancel-policy-btn').addEventListener('click', function() {
+      document.getElementById('policy-edit-modal').classList.add('hidden');
+    });
+
+    // Save policy
+    document.getElementById('save-policy-btn').addEventListener('click', async function() {
+      const policy = {
+        update_check_days: parseInt(document.getElementById('policy-check-days-input').value, 10),
+        version_pin_strategy: document.getElementById('policy-version-strategy-input').value,
+        maintenance_start_utc: parseInt(document.getElementById('policy-maintenance-start').value, 10),
+        maintenance_end_utc: parseInt(document.getElementById('policy-maintenance-end').value, 10),
+      };
+
+      try {
+        const resp = await fetch('/api/v1/settings/update-policy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(policy),
+        });
+        const data = await resp.json();
+        if (data.success) {
+          window.setUpdatePolicy(policy);
+          document.getElementById('policy-edit-modal').classList.add('hidden');
+          if (window.__pm_shared?.showToast) {
+            window.__pm_shared.showToast('Policy saved', 'success');
+          }
+        }
+      } catch (err) {
+        console.error('Save failed:', err);
+      }
+    });
+
+    // Initialize with default state
+    window.setSelfUpdateStatus({ status: 'idle', enabled: true });
+    window.setUpdateRuns([]);
+  </script>
+</body>
+</html>

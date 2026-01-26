@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Auto-Update Playwright Fixture</title>
+  <style>
+    /* Minimal styles for testing */
+    .status-pill { padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    .status-muted { background: #6c757d; color: white; }
+    .status-info { background: #17a2b8; color: white; }
+    .status-warning { background: #ffc107; color: black; }
+    .status-success { background: #28a745; color: white; }
+    .status-error { background: #dc3545; color: white; }
+    .hidden { display: none; }
+    .progress-bar { height: 20px; background: #e9ecef; border-radius: 4px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: #007bff; transition: width 0.3s; }
+    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 4px; z-index: 9999; }
+    .toast-success { background: #28a745; color: white; }
+    .toast-error { background: #dc3545; color: white; }
+    .toast-message { margin: 0; }
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; }
+    .modal.hidden { display: none; }
+    .modal-content { background: white; padding: 20px; border-radius: 8px; max-width: 400px; }
+    .panel { border: 1px solid #ddd; padding: 16px; margin: 16px; border-radius: 8px; }
+    .badge { padding: 2px 6px; border-radius: 3px; font-size: 11px; background: #007bff; color: white; }
+    button { padding: 8px 16px; margin: 4px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <!-- Confirm Modal -->
+  <div id="confirm_modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="confirm_modal_title">Confirm</h3>
+      <p id="confirm_modal_message">Are you sure?</p>
+      <div style="margin-top: 16px; text-align: right;">
+        <button id="confirm_modal_cancel">Cancel</button>
+        <button id="confirm_modal_confirm">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auto-Update Status Panel -->
+  <div id="autoupdate-status-panel" class="panel">
+    <h3>Agent Updates</h3>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Current Version:</label>
+      <span id="autoupdate-current-version">1.0.0</span>
+      <span id="autoupdate-available-badge" class="badge hidden">Update Available</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Status:</label>
+      <span id="autoupdate-status" class="status-pill status-muted">idle</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Channel:</label>
+      <span id="autoupdate-channel">stable</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Policy Source:</label>
+      <span id="autoupdate-policy-source" class="badge">local</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Last Check:</label>
+      <span id="autoupdate-last-check">Never</span>
+    </div>
+    
+    <div style="margin-bottom: 12px;">
+      <label>Next Check:</label>
+      <span id="autoupdate-next-check">-</span>
+    </div>
+    
+    <div id="autoupdate-disabled-reason" class="hidden" style="color: #dc3545; margin-bottom: 12px;">
+    </div>
+    
+    <!-- Progress bar (shown during updates) -->
+    <div id="autoupdate-progress-container" class="hidden" style="margin-bottom: 12px;">
+      <div class="progress-bar">
+        <div id="autoupdate-progress-bar" class="progress-bar-fill" style="width: 0%;"></div>
+      </div>
+      <span id="autoupdate-progress-text">0%</span>
+    </div>
+    
+    <!-- Action buttons -->
+    <div style="margin-top: 16px;">
+      <button id="autoupdate-check-btn">Check for Update</button>
+      <button id="autoupdate-force-btn">Force Reinstall</button>
+      <button id="autoupdate-cancel-btn" class="hidden">Cancel Update</button>
+    </div>
+  </div>
+
+  <!-- Load shared.js from the common/web directory -->
+  <script src="./shared.js"></script>
+  
+  <script>
+    // Status class mapping
+    const STATUS_CLASSES = {
+      idle: 'status-muted',
+      checking: 'status-info',
+      pending: 'status-info',
+      downloading: 'status-warning',
+      staging: 'status-warning',
+      applying: 'status-warning',
+      restarting: 'status-warning',
+      succeeded: 'status-success',
+      failed: 'status-error',
+      skipped: 'status-muted',
+      rolled_back: 'status-error',
+      disabled: 'status-muted',
+      cancelled: 'status-muted',
+    };
+
+    const BUSY_STATUSES = new Set(['checking', 'pending', 'downloading', 'staging', 'applying', 'restarting']);
+
+    // Helper to set auto-update status
+    window.setAutoUpdateStatus = function(data) {
+      const statusEl = document.getElementById('autoupdate-status');
+      const versionEl = document.getElementById('autoupdate-current-version');
+      const channelEl = document.getElementById('autoupdate-channel');
+      const policyEl = document.getElementById('autoupdate-policy-source');
+      const lastCheckEl = document.getElementById('autoupdate-last-check');
+      const nextCheckEl = document.getElementById('autoupdate-next-check');
+      const disabledEl = document.getElementById('autoupdate-disabled-reason');
+      const availableBadge = document.getElementById('autoupdate-available-badge');
+      const cancelBtn = document.getElementById('autoupdate-cancel-btn');
+      const progressContainer = document.getElementById('autoupdate-progress-container');
+
+      // Update status pill
+      statusEl.textContent = data.status || 'idle';
+      statusEl.className = 'status-pill ' + (STATUS_CLASSES[data.status] || 'status-muted');
+
+      // Update version info
+      if (data.current_version) {
+        versionEl.textContent = data.current_version;
+      }
+      if (data.channel) {
+        channelEl.textContent = data.channel;
+      }
+      if (data.policy_source) {
+        policyEl.textContent = data.policy_source;
+      }
+
+      // Update timestamps
+      if (data.last_check_at) {
+        lastCheckEl.textContent = new Date(data.last_check_at).toLocaleString();
+      }
+      if (data.next_check_at) {
+        nextCheckEl.textContent = new Date(data.next_check_at).toLocaleString();
+      }
+
+      // Show/hide disabled reason
+      if (!data.enabled && data.disabled_reason) {
+        disabledEl.textContent = data.disabled_reason;
+        disabledEl.classList.remove('hidden');
+      } else {
+        disabledEl.classList.add('hidden');
+      }
+
+      // Show/hide update available badge
+      if (data.update_available && data.latest_version) {
+        availableBadge.textContent = data.latest_version + ' available';
+        availableBadge.classList.remove('hidden');
+      } else {
+        availableBadge.classList.add('hidden');
+      }
+
+      // Show/hide cancel button for active updates
+      if (BUSY_STATUSES.has(data.status)) {
+        cancelBtn.classList.remove('hidden');
+        progressContainer.classList.remove('hidden');
+      } else {
+        cancelBtn.classList.add('hidden');
+        progressContainer.classList.add('hidden');
+      }
+    };
+
+    // Helper to set progress
+    window.setAutoUpdateProgress = function(percent) {
+      const progressBar = document.getElementById('autoupdate-progress-bar');
+      const progressText = document.getElementById('autoupdate-progress-text');
+      const progressContainer = document.getElementById('autoupdate-progress-container');
+      
+      progressContainer.classList.remove('hidden');
+      progressBar.style.width = percent + '%';
+      progressText.textContent = percent + '%';
+    };
+
+    // Wire up check button
+    document.getElementById('autoupdate-check-btn').addEventListener('click', async function() {
+      const btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+      
+      try {
+        const resp = await fetch('/api/autoupdate/check', { method: 'POST' });
+        const data = await resp.json();
+        window.__lastCheckResult = data;
+        if (window.__pm_shared?.showToast) {
+          window.__pm_shared.showToast('Update check initiated', 'success');
+        }
+      } catch (err) {
+        console.error('Check failed:', err);
+        window.__lastCheckResult = { error: err.message };
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Check for Update';
+      }
+    });
+
+    // Wire up force button with confirmation
+    document.getElementById('autoupdate-force-btn').addEventListener('click', async function() {
+      if (!window.__pm_shared?.showConfirm) {
+        console.error('showConfirm not available');
+        return;
+      }
+      
+      const confirmed = await window.__pm_shared.showConfirm(
+        'This will force a reinstall of the current version. Continue?',
+        'Force Reinstall',
+        true
+      );
+      
+      if (!confirmed) return;
+      
+      const btn = this;
+      btn.disabled = true;
+      btn.textContent = 'Reinstalling...';
+      
+      try {
+        const resp = await fetch('/api/autoupdate/force', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'agent_ui_force_reinstall' }),
+        });
+        const data = await resp.json();
+        window.__lastForceResult = data;
+      } catch (err) {
+        console.error('Force reinstall failed:', err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Force Reinstall';
+      }
+    });
+
+    // Wire up cancel button
+    document.getElementById('autoupdate-cancel-btn').addEventListener('click', async function() {
+      const btn = this;
+      btn.disabled = true;
+      
+      try {
+        await fetch('/api/autoupdate/cancel', { method: 'POST' });
+        if (window.__pm_shared?.showToast) {
+          window.__pm_shared.showToast('Update cancelled', 'info');
+        }
+      } catch (err) {
+        console.error('Cancel failed:', err);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // Listen for SSE update_progress events
+    window.addEventListener('sse:update_progress', function(e) {
+      const data = e.detail;
+      window.setAutoUpdateStatus({ status: data.status, enabled: true });
+      
+      if (typeof data.progress === 'number' && data.progress >= 0) {
+        window.setAutoUpdateProgress(data.progress);
+      }
+      
+      // Show toasts for terminal states
+      if (data.status === 'succeeded' && window.__pm_shared?.showToast) {
+        window.__pm_shared.showToast(data.message || 'Update completed successfully', 'success');
+      } else if (data.status === 'failed' && window.__pm_shared?.showToast) {
+        window.__pm_shared.showToast(data.error || 'Update failed', 'error');
+      }
+    });
+  </script>
+</body>
+</html>
