@@ -167,3 +167,4 @@ server/.env
 server/test_results.json
 test_run_full.txt
 agent/docs/ICE Packet Capture.json
+cloudflare-worker/package-lock.json
