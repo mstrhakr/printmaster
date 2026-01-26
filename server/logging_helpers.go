@@ -73,6 +73,10 @@ func logDebug(msg string, kv ...interface{}) {
 	logWithLevel(logger.DEBUG, msg, kv...)
 }
 
+func logTrace(msg string, kv ...interface{}) {
+	logWithLevel(logger.TRACE, msg, kv...)
+}
+
 // logTraceTag logs a trace-level message with a category tag for filtering.
 // Used for high-volume diagnostic logs (e.g., proxy requests).
 func logTraceTag(tag string, msg string, kv ...interface{}) {

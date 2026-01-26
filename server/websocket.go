@@ -332,7 +332,7 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			break
 		}
 
-		logDebug("WebSocket raw message received", "agent_id", agent.AgentID, "len", len(message))
+		logTrace("WebSocket raw message received", "agent_id", agent.AgentID, "len", len(message))
 
 		// Parse message
 		var msg wscommon.Message
@@ -510,7 +510,7 @@ func handleWSProxyResponse(msg wscommon.Message) {
 		return
 	}
 
-	logDebug("Received WS proxy response", "request_id", requestID)
+	logTrace("Received WS proxy response", "request_id", requestID)
 
 	// Find the waiting channel for this request
 	proxyRequestsLock.Lock()

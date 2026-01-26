@@ -1455,8 +1455,8 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientIP := getRealIP(r)
 
-		// Log the incoming request at debug level
-		logDebug("Incoming request",
+		// Log the incoming request at trace level (too noisy for debug)
+		logTrace("Incoming request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"client_ip", clientIP,
