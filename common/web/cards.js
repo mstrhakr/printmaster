@@ -723,23 +723,20 @@
                 '</div>';
         }
 
-        // Editable row helper (mirrors agent UI behaviour)
-        const isLocked = (field) => Array.isArray(p.locked_fields) && p.locked_fields.some(f => (f.field || f.Field || '').toLowerCase() === field);
+        // Editable row helper - shows value as text with an edit button
         function renderEditableRow(label, field, value, opts = { type: 'text', readonly: false, placeholder: '' }) {
-            const locked = isLocked(field);
-            const inputId = 'field_' + field;
-            const safeVal = (value === undefined || value === null) ? '' : value;
-            const isReadonly = opts.readonly || locked;
-            const disabledStyle = locked ? 'background:var(--panel);color:var(--text);border-color:var(--border);cursor:not-allowed;opacity:0.8;' : '';
+            const safeVal = (value === undefined || value === null) ? '' : String(value);
+            const displayVal = safeVal || '<span style="color:var(--muted);font-style:italic">Not set</span>';
+            const serial = p.serial || p.Serial || '';
 
             let row = '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;padding:4px 0" data-field-row="' + field + '">';
             row += '<div style="color:var(--muted)">' + label + ':</div>';
-            if (opts.type === 'textarea') {
-                row += '<textarea id="' + inputId + '" ' + (isReadonly ? 'readonly' : '') + ' ' + (locked ? 'disabled' : '') + ' placeholder="' + (opts.placeholder || '') + '" style="min-height:56px;' + disabledStyle + '">' + safeVal + '</textarea>';
+            row += '<div id="field_' + field + '_display" style="word-break:break-word">' + displayVal + '</div>';
+            if (!opts.readonly) {
+                row += '<button class="edit-field-btn" data-field="' + field + '" data-serial="' + serial + '" data-current="' + safeVal.replace(/"/g, '&quot;') + '" data-label="' + label + '" title="Edit ' + label + '">✏️</button>';
             } else {
-                row += '<input id="' + inputId + '" type="' + opts.type + '" ' + (isReadonly ? 'readonly' : '') + ' ' + (locked ? 'disabled' : '') + ' value="' + safeVal + '" placeholder="' + (opts.placeholder || '') + '" style="' + disabledStyle + '">';
+                row += '<div style="width:28px"></div>'; // Spacer for alignment
             }
-            row += '<button class="lock-btn' + (locked ? ' locked' : '') + '" data-field="' + field + '" title="' + (locked ? 'Unlock field' : 'Lock field') + '"' + (opts.readonly ? ' style="visibility:hidden"' : '') + '></button>';
             row += '</div>';
             return row;
         }
@@ -768,19 +765,19 @@
         deviceInfo += renderEditableRow('Asset Number', 'asset_number', p.asset_number);
         deviceInfo += renderEditableRow('Location', 'location', p.location);
         deviceInfo += renderEditableRow('Description', 'description', p.description, { type: 'textarea' });
-        // Web UI with proxy buttons
+        // Web UI with proxy buttons and edit
         const webUIVal = p.web_ui_url || p.webui || '';
-        const webUILocked = isLocked('web_ui_url');
+        const serial = p.serial || p.Serial || '';
         let webUiRow = '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center" data-field-row="web_ui_url">';
         webUiRow += '<div style="color:var(--muted)">Web UI:</div>';
         webUiRow += '<div style="display:flex;gap:4px;align-items:center">';
-        webUiRow += '<input id="field_web_ui_url" type="text" value="' + webUIVal + '" ' + (webUILocked ? 'disabled' : '') + ' style="flex:1;' + (webUILocked ? 'background:var(--panel);opacity:0.8;' : '') + '">';
+        webUiRow += '<span id="field_web_ui_url_display" style="flex:1;word-break:break-all">' + (webUIVal || '<span style="color:var(--muted);font-style:italic">Not set</span>') + '</span>';
         if (webUIVal) {
             webUiRow += '<button style="font-size:11px;padding:2px 6px" data-action="open-direct" data-webui-url="' + webUIVal + '">Direct</button>';
-            webUiRow += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" data-action="open-proxy" data-serial="' + (p.serial || '') + '">Proxy</button>';
+            webUiRow += '<button style="font-size:11px;padding:2px 6px;background:#268bd2;color:#fff" data-action="open-proxy" data-serial="' + serial + '">Proxy</button>';
         }
         webUiRow += '</div>';
-        webUiRow += '<button class="lock-btn' + (webUILocked ? ' locked' : '') + '" data-field="web_ui_url" title="' + (webUILocked ? 'Unlock field' : 'Lock field') + '"></button>';
+        webUiRow += '<button class="edit-field-btn" data-field="web_ui_url" data-serial="' + serial + '" data-current="' + webUIVal.replace(/"/g, '&quot;') + '" data-label="Web UI URL" title="Edit Web UI URL">✏️</button>';
         webUiRow += '</div>';
         deviceInfo += webUiRow;
         if (p.last_seen) deviceInfo += '<div style="color:var(--muted);font-size:12px;margin-top:6px">Last Seen: ' + new Date(p.last_seen).toLocaleString() + '</div>';
@@ -946,14 +943,15 @@
 
         const liveTools = '<div id="action_buttons_area" class="device-live-tools">' +
             '<div class="device-live-actions-row">' +
-            '<button id="refresh_data_btn">Refresh Details</button>' +
+            '<button id="refresh_data_btn">Scan for Updates</button>' +
             (source === 'saved' ? '<button id="collect_metrics_btn">Collect Metrics</button>' : '') +
             '<span id="refresh_status" class="device-live-status"></span>' +
             '</div>' +
-            (source === 'saved' && (p.type === 'usb' || p.connection_type === 'usb') ? '<div style="color:var(--muted);font-size:11px;margin-top:4px">⚠️ USB metrics collection can take 30+ seconds</div>' : '') +
+            '<div style="color:var(--muted);font-size:11px;margin-top:4px">Scans the device via SNMP to check for updated values. Use edit buttons (✏️) to manually correct any field.</div>' +
+            (source === 'saved' && (p.type === 'usb' || p.connection_type === 'usb') ? '<div style="color:var(--warn);font-size:11px;margin-top:4px">⚠️ USB metrics collection can take 30+ seconds</div>' : '') +
             '<div id="diff_container"></div>' +
             '</div>';
-        html += renderInfoCard('Live Data Tools', liveTools, { className: 'device-live-card' });
+        html += renderInfoCard('Data Tools', liveTools, { className: 'device-live-card' });
 
         html += '</div>';
 
@@ -1049,51 +1047,58 @@
             }
         }, 50);
 
-        // Wire up lock toggles (delegates locking to server)
+        // Wire up edit field buttons
         try {
-            const isLocked = (field) => Array.isArray(p.locked_fields) && p.locked_fields.some(f => (f.field || f.Field || '').toLowerCase() === field);
-
             bodyEl.addEventListener('click', async (e) => {
-                const btn = e.target.closest && e.target.closest('.lock-btn');
+                const btn = e.target.closest && e.target.closest('.edit-field-btn');
                 if (!btn) return;
                 const field = btn.getAttribute('data-field');
-                const locked = btn.classList.contains('locked');
+                const serial = btn.getAttribute('data-serial');
+                const current = btn.getAttribute('data-current') || '';
+                const label = btn.getAttribute('data-label') || field.replace(/_/g, ' ');
 
-                const inputEl = document.getElementById('field_' + field);
-                if (!inputEl) return;
+                if (!serial || !field) return;
 
                 try {
-                    const r = await fetch('/devices/lock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: p.serial || p.Serial || '', field, lock: !locked }) });
-                    if (r.ok) {
-                        if (locked) {
-                            btn.classList.remove('locked');
-                            btn.title = 'Lock field';
-                            inputEl.disabled = false;
-                            inputEl.style.background = '';
-                            inputEl.style.opacity = '';
-                            inputEl.style.cursor = '';
-                        } else {
-                            btn.classList.add('locked');
-                            btn.title = 'Unlock field';
-                            inputEl.disabled = true;
-                            inputEl.style.transition = 'background 0.3s ease, opacity 0.3s ease';
-                            inputEl.style.background = 'var(--panel)';
-                            inputEl.style.opacity = '0.8';
-                            inputEl.style.cursor = 'not-allowed';
-                        }
-                    }
-                } catch (_) {}
-            });
-        } catch (e) { window.__pm_shared.warn('lock wiring failed', e); }
+                    const newValue = await window.__pm_shared.showPrompt('Edit ' + label + ':', current, 'Edit Field');
+                    if (newValue === null) return; // User cancelled
 
-        // Wire up refresh button
+                    const r = await fetch('/devices/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ serial, [field]: newValue })
+                    });
+                    if (!r.ok) {
+                        const t = await r.text();
+                        window.__pm_shared.showToast('Update failed: ' + t, 'error');
+                        return;
+                    }
+                    window.__pm_shared.showToast('Field updated', 'success');
+
+                    // Update the display value in the UI
+                    const displayEl = document.getElementById('field_' + field + '_display');
+                    if (displayEl) {
+                        displayEl.innerHTML = newValue || '<span style="color:var(--muted);font-style:italic">Not set</span>';
+                    }
+                    // Update the data-current attribute for future edits
+                    btn.setAttribute('data-current', newValue);
+                    // Also update the device object in memory
+                    p[field] = newValue;
+                } catch (err) {
+                    window.__pm_shared.showToast('Failed to update field', 'error');
+                    window.__pm_shared.error('Edit field error', err);
+                }
+            });
+        } catch (e) { window.__pm_shared.warn('edit field wiring failed', e); }
+
+        // Wire up scan for updates button
         try {
             document.getElementById('refresh_data_btn')?.addEventListener('click', async function () {
                 const statusEl = document.getElementById('refresh_status');
                 const btn = document.getElementById('refresh_data_btn');
                 if (!btn) return;
                 btn.disabled = true;
-                if (statusEl) statusEl.textContent = ' Previewing updates...';
+                if (statusEl) statusEl.textContent = ' Scanning device...';
                 try {
                     const body = { serial: p.serial || '', ip: p.ip };
                     const r = await fetch('/devices/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -1106,78 +1111,117 @@
                     const diffContainer = document.getElementById('diff_container');
                     if (diffContainer) diffContainer.innerHTML = '';
                     
-                    let diffHtml = '<div id="diff_card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px;margin-top:8px">';
-                    diffHtml += '<div style="font-weight:600;color:var(--highlight);margin-bottom:6px;font-size:14px">Proposed Updates</div>';
-                    diffHtml += '<div style="display:grid;grid-template-columns:auto 1fr auto;gap:6px 8px">';
+                    // Build list of differences
+                    let diffs = [];
                     fields.forEach(f => {
                         let currentVal = (f === 'dns_servers') ? (p.dns_servers || []).join(', ') : (p[f] || '');
                         let proposedVal = (f === 'dns_servers') ? (proposed[f] || []).join(', ') : (proposed[f] || '');
-                        const locked = isLocked(f);
-                        if (String(currentVal) !== String(proposedVal) && !locked && proposedVal !== '') {
-                            diffHtml += '<div style="color:var(--muted)">' + f.replace(/_/g, ' ') + '</div>';
-                            diffHtml += '<div><div style="font-size:12px;color:var(--muted)">' + (currentVal || '<i>empty</i>') + ' →</div><div>' + proposedVal + '</div></div>';
-                            diffHtml += '<label style="justify-self:end"><input type="checkbox" class="apply-proposed" data-field="' + f + '"> Apply</label>';
+                        if (String(currentVal) !== String(proposedVal) && proposedVal !== '') {
+                            diffs.push({ field: f, current: currentVal, proposed: proposedVal });
                         }
                     });
+
+                    if (diffs.length === 0) {
+                        if (diffContainer) {
+                            diffContainer.innerHTML = '<div style="color:var(--muted);padding:8px;font-size:13px;text-align:center">✓ Device data is up to date</div>';
+                        }
+                        return;
+                    }
+                    
+                    let diffHtml = '<div id="diff_card" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:10px;margin-top:8px">';
+                    diffHtml += '<div style="font-weight:600;color:var(--highlight);margin-bottom:6px;font-size:14px">Scanned Updates (' + diffs.length + ')</div>';
+                    diffHtml += '<div style="display:flex;flex-direction:column;gap:8px">';
+                    diffs.forEach(d => {
+                        const label = d.field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        diffHtml += '<div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:6px;background:rgba(0,0,0,0.1);border-radius:4px">';
+                        diffHtml += '<div><div style="color:var(--muted);font-size:11px;text-transform:uppercase">' + label + '</div>';
+                        diffHtml += '<div style="font-size:12px"><span style="color:var(--muted);text-decoration:line-through">' + (d.current || '<i>empty</i>') + '</span> → <span style="color:var(--highlight)">' + d.proposed + '</span></div></div>';
+                        diffHtml += '<button class="apply-single-btn" data-field="' + d.field + '" data-value="' + String(d.proposed).replace(/"/g, '&quot;') + '" style="font-size:11px;padding:4px 8px">Apply</button>';
+                        diffHtml += '</div>';
+                    });
                     diffHtml += '</div>';
-                    diffHtml += '<div style="margin-top:8px;text-align:right"><button id="apply_selected_btn" class="primary">Apply Selected</button></div>';
+                    if (diffs.length > 1) {
+                        diffHtml += '<div style="margin-top:8px;text-align:right"><button id="apply_all_btn" class="primary">Apply All (' + diffs.length + ')</button></div>';
+                    }
                     diffHtml += '</div>';
                     
-                    // Insert into the diff_container instead of at the top of bodyEl
+                    // Insert into the diff_container
                     if (diffContainer) {
                         diffContainer.innerHTML = diffHtml;
-                    } else {
-                        // Fallback to old behavior if container not found
-                        const container = document.createElement('div');
-                        container.innerHTML = diffHtml;
-                        bodyEl.insertBefore(container, bodyEl.firstChild);
-                    }
-
-                    document.getElementById('apply_selected_btn')?.addEventListener('click', async () => {
-                        const checkboxContainer = diffContainer || bodyEl;
-                        const checks = Array.from(checkboxContainer.querySelectorAll('.apply-proposed:checked'));
-                        if (checks.length === 0) { if (statusEl) statusEl.textContent = ' No changes selected'; return; }
-                        const payload = { serial: p.serial };
-                        checks.forEach(ch => {
-                            const f = ch.getAttribute('data-field');
-                            let v = proposed[f];
-                            payload[f] = v;
+                        
+                        // Wire up individual apply buttons
+                        diffContainer.querySelectorAll('.apply-single-btn').forEach(applyBtn => {
+                            applyBtn.addEventListener('click', async () => {
+                                const field = applyBtn.getAttribute('data-field');
+                                const value = applyBtn.getAttribute('data-value');
+                                applyBtn.disabled = true;
+                                applyBtn.textContent = '...';
+                                try {
+                                    const ur = await fetch('/devices/update', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ serial: p.serial, [field]: value })
+                                    });
+                                    if (!ur.ok) {
+                                        const t = await ur.text();
+                                        window.__pm_shared.showToast('Update failed: ' + t, 'error');
+                                        applyBtn.disabled = false;
+                                        applyBtn.textContent = 'Apply';
+                                        return;
+                                    }
+                                    applyBtn.textContent = '✓';
+                                    applyBtn.style.background = 'var(--success)';
+                                    applyBtn.style.color = '#fff';
+                                    // Update display
+                                    const displayEl = document.getElementById('field_' + field + '_display');
+                                    if (displayEl) {
+                                        displayEl.innerHTML = value || '<span style="color:var(--muted);font-style:italic">Not set</span>';
+                                    }
+                                    p[field] = value;
+                                    window.__pm_shared.showToast(field.replace(/_/g, ' ') + ' updated', 'success');
+                                } catch (err) {
+                                    window.__pm_shared.showToast('Update failed', 'error');
+                                    applyBtn.disabled = false;
+                                    applyBtn.textContent = 'Apply';
+                                }
+                            });
                         });
-                        const ur = await fetch('/devices/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-                        if (!ur.ok) { const t = await ur.text(); if (statusEl) statusEl.textContent = ' Update failed: ' + t; return; }
-                        if (statusEl) statusEl.textContent = ' Changes applied ✓';
-                        await new Promise(res => setTimeout(res, 400));
-                        // Re-open via agent helper which resolves discovered vs saved.
-                        // Use serial (saved-device lookup) rather than IP because the
-                        // shared wrapper now resolves by serial only.
-                        try {
-                            const serialId = p.serial || p.Serial;
-                            // Use the shared wrapper which resolves by serial/device-key.
-                            if (serialId && window.__pm_shared && typeof window.__pm_shared.showPrinterDetails === 'function') {
-                                window.__pm_shared.showPrinterDetails(serialId, source);
-                            } else if (serialId && typeof showPrinterDetails === 'function') {
-                                // Fallback to any global implementation (legacy pages)
-                                showPrinterDetails(serialId, source);
+
+                        // Wire up apply all button
+                        document.getElementById('apply_all_btn')?.addEventListener('click', async () => {
+                            const payload = { serial: p.serial };
+                            diffs.forEach(d => { payload[d.field] = d.proposed; });
+                            try {
+                                const ur = await fetch('/devices/update', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(payload)
+                                });
+                                if (!ur.ok) {
+                                    const t = await ur.text();
+                                    window.__pm_shared.showToast('Update failed: ' + t, 'error');
+                                    return;
+                                }
+                                window.__pm_shared.showToast('All updates applied', 'success');
+                                // Refresh the modal to show updated values
+                                await new Promise(res => setTimeout(res, 400));
+                                const serialId = p.serial || p.Serial;
+                                if (serialId && window.__pm_shared && typeof window.__pm_shared.showPrinterDetails === 'function') {
+                                    window.__pm_shared.showPrinterDetails(serialId, source);
+                                }
+                            } catch (err) {
+                                window.__pm_shared.showToast('Update failed', 'error');
                             }
-                        } catch (e) { /* best-effort, ignore */ }
-                    });
+                        });
+                    }
                 } catch (err) {
                     if (statusEl) statusEl.textContent = ' Failed: ' + err;
                 } finally {
                     btn.disabled = false;
                 }
             });
-            // Run the preview check automatically when the details modal is opened
-            // so users always see suggested fixes without needing to click Refresh.
-            try {
-                const autoRefreshBtn = document.getElementById('refresh_data_btn');
-                if (autoRefreshBtn) {
-                    // Slight defer so DOM is fully settled
-                    setTimeout(() => {
-                        try { autoRefreshBtn.click(); } catch (e) { /* best-effort */ }
-                    }, 80);
-                }
-            } catch (e) { /* ignore */ }
+            // DON'T auto-run the scan on modal open - it can timeout and confuse users
+            // Let them click "Scan for Updates" if they want to check for changes
         } catch (e) { window.__pm_shared.warn('refresh wiring failed', e); }
 
         // Wire up metrics collection button (saved devices only)

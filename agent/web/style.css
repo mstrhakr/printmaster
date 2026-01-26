@@ -298,6 +298,34 @@
   color: #dc322f;
 }
 
+/* Edit Field Button */
+.edit-field-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.edit-field-btn:hover {
+  background: var(--panel);
+  border-color: var(--border);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.edit-field-btn:active {
+  transform: scale(0.95);
+}
+
 /* Custom Lock Button */
 .lock-btn {
   width: 32px;
