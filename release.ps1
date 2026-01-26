@@ -35,6 +35,14 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = $PSScriptRoot
 
+# Reset test-pass environment variables at the start of a release
+# These are used by build.ps1 to skip redundant tests when building multiple components
+# We clear them here so tests run fresh at the start of each release, then persist
+# across the agent+server builds to avoid running the same tests twice
+$env:PRINTMASTER_JS_TESTS_PASSED = $null
+$env:PRINTMASTER_PLAYWRIGHT_PASSED = $null
+$env:PRINTMASTER_JS_SYNTAX_PASSED = $null
+
 # ANSI color codes for consistent formatting
 $ColorReset = "`e[0m"
 $ColorDim = "`e[2m"

@@ -25,9 +25,10 @@ $LogFile = $null  # Will be set dynamically with version info
 $MaxLogFiles = 10
 
 # Track which tests have already passed this session (avoid redundant runs)
-$script:JSUnitTestsPassed = $false
-$script:PlaywrightTestsPassed = $false
-$script:JSSyntaxCheckPassed = $false
+# Use environment variables to persist across sub-process invocations (e.g., release.ps1 calling build.ps1 twice)
+$script:JSUnitTestsPassed = ($env:PRINTMASTER_JS_TESTS_PASSED -eq '1')
+$script:PlaywrightTestsPassed = ($env:PRINTMASTER_PLAYWRIGHT_PASSED -eq '1')
+$script:JSSyntaxCheckPassed = ($env:PRINTMASTER_JS_SYNTAX_PASSED -eq '1')
 
 # Ensure logs directory exists
 if (-not (Test-Path $LogDir)) {
@@ -62,6 +63,7 @@ function Invoke-JSUnitTests {
         $testOutput | ForEach-Object { Write-BuildLog $_ "INFO" }
         Write-BuildLog "JS unit tests passed" "INFO"
         $script:JSUnitTestsPassed = $true
+        $env:PRINTMASTER_JS_TESTS_PASSED = '1'
         return $true
     }
     finally { Pop-Location }
@@ -107,6 +109,7 @@ function Invoke-JSSyntaxCheck {
 
         Write-BuildLog "JS syntax check passed" "INFO"
         $script:JSSyntaxCheckPassed = $true
+        $env:PRINTMASTER_JS_SYNTAX_PASSED = '1'
         return $true
     }
     finally { Pop-Location }
@@ -155,6 +158,7 @@ function Invoke-PlaywrightTests {
         }
         Write-BuildLog "Playwright smoke tests passed" "INFO"
         $script:PlaywrightTestsPassed = $true
+        $env:PRINTMASTER_PLAYWRIGHT_PASSED = '1'
         return $true
     }
     finally { Pop-Location }
