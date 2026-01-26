@@ -774,12 +774,12 @@
                                     ${showDrag && this.options.enableReorder && col.visible ? `
                                         <span class="column-drag-handle" title="Drag to reorder">⋮⋮</span>
                                     ` : '<span class="column-drag-placeholder"></span>'}
-                                    <label class="column-picker-checkbox">
+                                    <label class="column-picker-toggle">
+                                        <span class="column-picker-label">${escapeHtml(col.label)}</span>
                                         <input type="checkbox" 
                                                ${col.visible ? 'checked' : ''} 
                                                ${!col.hideable ? 'disabled' : ''}
                                                data-column-id="${col.id}">
-                                        <span>${escapeHtml(col.label)}</span>
                                     </label>
                                     ${col.pinnable ? `
                                         <div class="column-pin-controls">
