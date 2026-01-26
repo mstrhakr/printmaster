@@ -51,7 +51,7 @@ services:
     networks:
       - e2e-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8443/api/health"]
+      test: ["/printmaster-server", "--health"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -98,7 +98,7 @@ services:
     networks:
       - e2e-net
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/api/health"]
+      test: ["/printmaster-agent", "--health"]
       interval: 5s
       timeout: 3s
       retries: 10
