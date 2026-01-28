@@ -34,21 +34,31 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=release'" \
         -o printmaster-server .
 
-# Runtime stage - use distroless for minimal size
-FROM gcr.io/distroless/static:nonroot
+# Runtime stage - use Alpine for minimal size with shell support for entrypoint
+FROM alpine:3.21
 
-# Copy binary from builder
+# Install su-exec for dropping privileges (tiny, no dependencies)
+RUN apk add --no-cache su-exec
+
+# Copy binary and entrypoint from builder
 COPY --from=builder /build/server/printmaster-server /printmaster-server
+COPY server/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh /printmaster-server
 
-# Distroless nonroot user is UID 65532
+# Create data and log directories (will be chowned by entrypoint)
+RUN mkdir -p /var/lib/printmaster/server /var/log/printmaster/server
+
 # Data will be stored in /var/lib/printmaster/server (mount as volume)
 WORKDIR /var/lib/printmaster/server
 
 # Set standard container environment variable for detection
-ENV CONTAINER=docker
+# Default PUID/PGID for Unraid (nobody:users = 99:100)
+ENV CONTAINER=docker \
+    PUID=99 \
+    PGID=100
 
 # Expose ports
 EXPOSE 9090 9443
 
-# Run the server (distroless nonroot user)
-ENTRYPOINT ["/printmaster-server"]
+# Entrypoint handles permission setup and privilege dropping
+ENTRYPOINT ["/docker-entrypoint.sh"]

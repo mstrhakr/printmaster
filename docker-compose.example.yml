@@ -131,9 +131,10 @@ services:
       server:
         condition: service_healthy
     environment:
-      # User and group IDs for file permissions
-      PUID: ${PUID}
-      PGID: ${PGID}
+      # User and group IDs for file permissions (default: 99:100 for Unraid nobody:users)
+      # The container starts as root, fixes volume permissions, then drops to PUID:PGID
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
       # Server registration
       SERVER_URL: "http://printmaster-server:9090"
       DOCKER: "true"
@@ -145,7 +146,8 @@ services:
       LOG_LEVEL: "info"
     volumes:
       - '${ROOT_PATH}/agent/data:/var/lib/printmaster/agent:rw'
-    user: '99:100'
+    # NOTE: Do NOT set 'user:' here - PUID/PGID handles privilege dropping.
+    # If you must use 'user:', ensure the volume is pre-owned by that UID:GID.
     healthcheck:
       test: [ "CMD", "/printmaster-agent", "--health" ]
       interval: 30s

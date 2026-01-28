@@ -34,36 +34,31 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=release'" \
         -o printmaster-agent .
 
-# Prepare passwd/group entries so hosts that remap UID/GID (e.g., Unraid PUID/PGID 99:100)
-# have known identities inside the container. We keep the distroless nonroot user (65532)
-# and add a compat user/group pair for 99:100.
-RUN printf "root:x:0:0:root:/root:/sbin/nologin\n" \
-            "nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin\n" \
-            "printmaster:x:99:100:printmaster:/home/printmaster:/sbin/nologin\n" > /tmp/passwd && \
-        printf "root:x:0:\n" \
-            "nonroot:x:65532:\n" \
-            "users:x:100:nonroot,printmaster\n" > /tmp/group && \
-        mkdir -p /tmp/home/nonroot /tmp/home/printmaster
+# Runtime stage - use Alpine for minimal size with shell support for entrypoint
+FROM alpine:3.21
 
-# Runtime stage - use distroless for minimal size
-FROM gcr.io/distroless/cc-debian11:nonroot
+# Install su-exec for dropping privileges (tiny, no dependencies)
+RUN apk add --no-cache su-exec
 
-# Copy binary from builder
+# Copy binary and entrypoint from builder
 COPY --from=builder /build/agent/printmaster-agent /printmaster-agent
-# Provide passwd/group entries so running with --user 99:100 works cleanly
-COPY --from=builder /tmp/passwd /etc/passwd
-COPY --from=builder /tmp/group /etc/group
-COPY --from=builder /tmp/home /home
+COPY agent/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh /printmaster-agent
 
-# Distroless nonroot user is UID 65532
+# Create data directory (will be chowned by entrypoint)
+RUN mkdir -p /var/lib/printmaster/agent
+
 # Data will be stored in /var/lib/printmaster/agent (mount as volume)
 WORKDIR /var/lib/printmaster/agent
 
 # Set environment to indicate Docker environment
-ENV DOCKER=true
+# Default PUID/PGID for Unraid (nobody:users = 99:100)
+ENV DOCKER=true \
+    PUID=99 \
+    PGID=100
 
 # Expose web UI port (default 8080 HTTP, 8443 HTTPS)
 EXPOSE 8080 8443
 
-# Run the agent (distroless nonroot user)
-ENTRYPOINT ["/printmaster-agent"]
+# Entrypoint handles permission setup and privilege dropping
+ENTRYPOINT ["/docker-entrypoint.sh"]
