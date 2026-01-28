@@ -848,16 +848,11 @@ func runServer(ctx context.Context, configFlag string) {
 	if wsHub == nil {
 		wsHub = wscommon.NewHub()
 		// Create a bridge SSE client to forward events into wsHub
+		// Note: The bridge only broadcasts to wsHub, it doesn't need to receive messages.
+		// We do NOT register it as a client to avoid filling an unread channel.
 		go func() {
 			client := sseHub.NewClient()
-			id := "sse-bridge"
-			ch := make(chan wscommon.Message, 20)
-			wsHub.Register(id, ch)
-			defer func() {
-				wsHub.Unregister(id)
-				sseHub.RemoveClient(client)
-				close(ch)
-			}()
+			defer sseHub.RemoveClient(client)
 
 			for ev := range client.events {
 				m := wscommon.Message{Type: ev.Type, Data: ev.Data}
