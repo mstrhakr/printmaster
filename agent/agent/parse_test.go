@@ -191,3 +191,66 @@ func TestMergeVendorMetrics_GenericVendorNoMerge(t *testing.T) {
 		t.Errorf("expected PageCount to remain 500 for generic vendor, got %d", pi.PageCount)
 	}
 }
+
+func TestParsePDUs_TonerModelNotUsedAsSerial(t *testing.T) {
+	t.Parallel()
+
+	// Simulate scenario where prtGeneralSerialNumber times out/fails
+	// and only supply descriptions are available. The toner model number
+	// (TK-3402S) should NOT be used as a serial number guess.
+	vars := []gosnmp.SnmpPDU{
+		// sysDescr indicating Kyocera
+		{Name: "1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("KYOCERA Document Solutions Printing System")},
+		// Supply descriptions (prtMarkerSuppliesDescription)
+		{Name: "1.3.6.1.2.1.43.11.1.1.6.1.1", Type: gosnmp.OctetString, Value: []byte("TK-3402S")},       // Toner model - NOT a serial!
+		{Name: "1.3.6.1.2.1.43.11.1.1.6.1.2", Type: gosnmp.OctetString, Value: []byte("Waste Toner Box")},
+		// Supply levels to make it look like a printer
+		{Name: "1.3.6.1.2.1.43.11.1.1.9.1.1", Type: gosnmp.Integer, Value: 5940},
+		{Name: "1.3.6.1.2.1.43.11.1.1.8.1.1", Type: gosnmp.Integer, Value: 6000},
+		// Page count
+		{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 8},
+	}
+
+	pi, ok := ParsePDUs("172.52.105.138", vars, nil, nil)
+	if !ok {
+		t.Fatalf("expected device to be detected as printer due to supply descriptions")
+	}
+
+	// Serial should be empty - TK-3402S is a toner model number, not a device serial
+	if pi.Serial != "" {
+		t.Fatalf("expected serial to remain empty when only toner model numbers are present; got '%s'", pi.Serial)
+	}
+
+	// Consumables should include the toner descriptions
+	foundToner := false
+	for _, c := range pi.Consumables {
+		if c == "TK-3402S" {
+			foundToner = true
+			break
+		}
+	}
+	if !foundToner {
+		t.Errorf("expected TK-3402S in consumables, got %v", pi.Consumables)
+	}
+}
+
+func TestParsePDUs_OIDValueNotUsedAsSerial(t *testing.T) {
+	t.Parallel()
+
+	// Simulate scenario where sysObjectID value (.1.3.6.1.4.1.1347.41) might
+	// incorrectly be picked up as a serial number guess
+	vars := []gosnmp.SnmpPDU{
+		{Name: "1.3.6.1.2.1.1.2.0", Type: gosnmp.ObjectIdentifier, Value: ".1.3.6.1.4.1.1347.41"},
+		{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 100},
+	}
+
+	pi, ok := ParsePDUs("10.0.0.8", vars, nil, nil)
+	if !ok {
+		t.Fatalf("expected device to be detected as printer due to marker count")
+	}
+
+	// Serial should be empty - OID strings are not serial numbers
+	if pi.Serial != "" {
+		t.Fatalf("expected serial to remain empty when only OID values present; got '%s'", pi.Serial)
+	}
+}

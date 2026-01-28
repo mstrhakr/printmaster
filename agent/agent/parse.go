@@ -392,6 +392,75 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 		return true
 	}
 
+	// helper: detect OID-like strings (e.g., ".1.3.6.1.4.1.1347.41")
+	looksLikeOID := func(s string) bool {
+		s = strings.TrimSpace(s)
+		if len(s) < 5 {
+			return false
+		}
+		// OIDs start with optional dot followed by digits and dots
+		if s[0] == '.' {
+			s = s[1:]
+		}
+		// Must have at least 2 dots and mostly digits
+		dots := 0
+		digits := 0
+		for _, c := range s {
+			if c == '.' {
+				dots++
+			} else if c >= '0' && c <= '9' {
+				digits++
+			} else {
+				return false // OIDs only have dots and digits
+			}
+		}
+		return dots >= 2 && digits > dots
+	}
+
+	// helper: detect toner/supply model numbers that should NOT be used as serials
+	// These are consumable part numbers, not device serial numbers
+	looksLikeSupplyModel := func(s string) bool {
+		s = strings.ToUpper(strings.TrimSpace(s))
+		// Kyocera toner: TK-XXXX (e.g., TK-3402S, TK-8517K)
+		if strings.HasPrefix(s, "TK-") {
+			return true
+		}
+		// Brother toner: TN-XXXX (e.g., TN-760, TN-850)
+		if strings.HasPrefix(s, "TN-") {
+			return true
+		}
+		// Brother drum: DR-XXXX
+		if strings.HasPrefix(s, "DR-") {
+			return true
+		}
+		// HP toner cartridges: CF/CE/Q followed by digits (e.g., CF226A, CE255X, Q2612A)
+		if len(s) >= 4 && (strings.HasPrefix(s, "CF") || strings.HasPrefix(s, "CE") || strings.HasPrefix(s, "Q")) {
+			// Check if followed by digits
+			rest := s[2:]
+			if strings.HasPrefix(s, "Q") {
+				rest = s[1:]
+			}
+			if len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
+				return true
+			}
+		}
+		// Canon toner: various patterns like GPR-XX, CRG-XXX
+		if strings.HasPrefix(s, "GPR-") || strings.HasPrefix(s, "CRG-") {
+			return true
+		}
+		// Lexmark: various patterns
+		if strings.HasPrefix(s, "50F") || strings.HasPrefix(s, "60F") || strings.HasPrefix(s, "70C") {
+			return true
+		}
+		// Generic supply keywords
+		sLower := strings.ToLower(s)
+		if strings.Contains(sLower, "toner") || strings.Contains(sLower, "cartridge") ||
+			strings.Contains(sLower, "drum") || strings.Contains(sLower, "waste") {
+			return true
+		}
+		return false
+	}
+
 	for _, v := range allVars {
 		sval := pduToString(v.Value)
 		name := strings.TrimPrefix(v.Name, ".")
@@ -421,15 +490,14 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 				// skip entirely
 			} else if m := snRe.FindStringSubmatch(sval); len(m) > 1 {
 				cand := strings.TrimSpace(m[1])
-				if !looksLikeUUID(cand) {
+				if !looksLikeUUID(cand) && !looksLikeOID(cand) && !looksLikeSupplyModel(cand) {
 					serialGuess = cand
 				}
-			} else {
-				// compact token with no spaces; exclude UUID-like values
-				if len(sval) >= 6 && len(sval) <= 40 && !strings.Contains(sval, " ") && !looksLikeUUID(sval) {
-					serialGuess = strings.TrimSpace(sval)
-				}
 			}
+			// NOTE: Removed overly permissive fallback that matched any 6-40 char token.
+			// Serial guessing should only come from explicit SN:/SERIAL: labeled fields.
+			// If prtGeneralSerialNumber OID fails, we should NOT guess from random values
+			// like toner model numbers, OIDs, or other arbitrary strings.
 		}
 		if mfgGuess != "" && modelGuess != "" && serialGuess != "" {
 			break
