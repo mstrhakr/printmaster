@@ -279,6 +279,11 @@ const devicesVM = {
     },
     // Table customizer instance
     tableCustomizer: null,
+    // Selection state (file-explorer style selection)
+    selection: {
+        selectedIds: new Set(),    // Set of selected device IDs (serial or IP)
+        lastSelected: null,         // Last selected ID for shift-click range selection
+    },
 };
 
 const agentsVM = {
@@ -317,6 +322,11 @@ const agentsVM = {
     uiInitialized: false,
     // Table customizer instance
     tableCustomizer: null,
+    // Selection state (file-explorer style selection)
+    selection: {
+        selectedIds: new Set(),    // Set of selected agent IDs
+        lastSelected: null,         // Last selected ID for shift-click range selection
+    },
 };
 
 const tenantsVM = {
@@ -9440,12 +9450,25 @@ function initAgentsUI() {
             head.dataset.bound = 'true';
             head.addEventListener('click', handleAgentTableSortClick);
         }
-        // Add click handler for clickable rows (opens agent details modal)
+        // Add click handler for clickable rows (file-explorer style selection)
         const tbody = table.querySelector('tbody');
         if (tbody && !tbody.dataset.rowClickBound) {
             tbody.dataset.rowClickBound = 'true';
             tbody.addEventListener('click', (event) => {
                 // Don't trigger row click if clicking on a button or actions column
+                if (event.target.closest('button') || event.target.closest('.table-actions') || event.target.closest('.actions-col')) {
+                    return;
+                }
+                const row = event.target.closest('tr.agent-row-clickable');
+                if (!row) return;
+                const agentId = row.getAttribute('data-agent-id');
+                if (agentId) {
+                    // File-explorer style: click selects, double-click opens details
+                    handleAgentSelection(agentId, event);
+                }
+            });
+            // Double-click opens agent details
+            tbody.addEventListener('dblclick', (event) => {
                 if (event.target.closest('button') || event.target.closest('.table-actions') || event.target.closest('.actions-col')) {
                     return;
                 }
@@ -9459,12 +9482,25 @@ function initAgentsUI() {
         }
     }
 
-    // Add click handler for clickable agent cards (opens agent details modal)
+    // Add click handler for clickable agent cards (file-explorer style selection)
     const cardsContainer = document.getElementById('agents_cards');
     if (cardsContainer && !cardsContainer.dataset.cardClickBound) {
         cardsContainer.dataset.cardClickBound = 'true';
         cardsContainer.addEventListener('click', (event) => {
             // Don't trigger card click if clicking on a button or actions area
+            if (event.target.closest('button') || event.target.closest('.device-card-actions')) {
+                return;
+            }
+            const card = event.target.closest('.agent-card-clickable');
+            if (!card) return;
+            const agentId = card.getAttribute('data-agent-id');
+            if (agentId) {
+                // File-explorer style: click selects, double-click opens details
+                handleAgentSelection(agentId, event);
+            }
+        });
+        // Double-click opens agent details
+        cardsContainer.addEventListener('dblclick', (event) => {
             if (event.target.closest('button') || event.target.closest('.device-card-actions')) {
                 return;
             }
@@ -10598,6 +10634,166 @@ function addOrUpdateDeviceCard(device) {
         // insert at top
         container.insertAdjacentHTML('afterbegin', cardHtml);
     }
+}
+
+// ====== Selection Helpers (file-explorer style) ======
+
+/**
+ * Updates visual selection state for agent rows/cards
+ */
+function updateAgentSelectionUI() {
+    // Update table rows
+    document.querySelectorAll('tr.agent-row-clickable').forEach(row => {
+        const agentId = row.getAttribute('data-agent-id');
+        if (agentsVM.selection.selectedIds.has(agentId)) {
+            row.classList.add('agent-row-selected');
+        } else {
+            row.classList.remove('agent-row-selected');
+        }
+    });
+    // Update cards
+    document.querySelectorAll('.agent-card-clickable').forEach(card => {
+        const agentId = card.getAttribute('data-agent-id');
+        if (agentsVM.selection.selectedIds.has(agentId)) {
+            card.classList.add('agent-card-selected');
+        } else {
+            card.classList.remove('agent-card-selected');
+        }
+    });
+}
+
+/**
+ * Updates visual selection state for device rows/cards
+ */
+function updateDeviceSelectionUI() {
+    // Update table rows
+    document.querySelectorAll('tr.device-row-clickable').forEach(row => {
+        const serial = row.getAttribute('data-serial');
+        const ip = row.getAttribute('data-ip');
+        const id = serial || ip;
+        if (devicesVM.selection.selectedIds.has(id)) {
+            row.classList.add('device-row-selected');
+        } else {
+            row.classList.remove('device-row-selected');
+        }
+    });
+    // Update cards
+    document.querySelectorAll('.device-card-clickable').forEach(card => {
+        const serial = card.getAttribute('data-serial');
+        const ip = card.getAttribute('data-ip');
+        const id = serial || ip;
+        if (devicesVM.selection.selectedIds.has(id)) {
+            card.classList.add('device-card-selected');
+        } else {
+            card.classList.remove('device-card-selected');
+        }
+    });
+}
+
+/**
+ * Handles agent selection with file-explorer style modifiers
+ * @param {string} agentId - The agent ID being clicked
+ * @param {MouseEvent} event - The click event for modifier key detection
+ */
+function handleAgentSelection(agentId, event) {
+    const selection = agentsVM.selection;
+    
+    if (event.shiftKey && selection.lastSelected) {
+        // Shift+click: select range
+        const filtered = agentsVM.filtered;
+        const ids = filtered.map(a => a.id);
+        const lastIdx = ids.indexOf(selection.lastSelected);
+        const currIdx = ids.indexOf(agentId);
+        
+        if (lastIdx !== -1 && currIdx !== -1) {
+            const start = Math.min(lastIdx, currIdx);
+            const end = Math.max(lastIdx, currIdx);
+            // Clear selection if not ctrl pressed, then select range
+            if (!event.ctrlKey && !event.metaKey) {
+                selection.selectedIds.clear();
+            }
+            for (let i = start; i <= end; i++) {
+                selection.selectedIds.add(ids[i]);
+            }
+        }
+    } else if (event.ctrlKey || event.metaKey) {
+        // Ctrl+click: toggle individual selection
+        if (selection.selectedIds.has(agentId)) {
+            selection.selectedIds.delete(agentId);
+        } else {
+            selection.selectedIds.add(agentId);
+        }
+        selection.lastSelected = agentId;
+    } else {
+        // Normal click: clear selection, select only this one
+        selection.selectedIds.clear();
+        selection.selectedIds.add(agentId);
+        selection.lastSelected = agentId;
+    }
+    
+    updateAgentSelectionUI();
+}
+
+/**
+ * Handles device selection with file-explorer style modifiers
+ * @param {string} deviceId - The device ID (serial or IP) being clicked
+ * @param {MouseEvent} event - The click event for modifier key detection
+ */
+function handleDeviceSelection(deviceId, event) {
+    const selection = devicesVM.selection;
+    
+    if (event.shiftKey && selection.lastSelected) {
+        // Shift+click: select range
+        const filtered = devicesVM.filtered;
+        const ids = filtered.map(d => d.serial || d.ip);
+        const lastIdx = ids.indexOf(selection.lastSelected);
+        const currIdx = ids.indexOf(deviceId);
+        
+        if (lastIdx !== -1 && currIdx !== -1) {
+            const start = Math.min(lastIdx, currIdx);
+            const end = Math.max(lastIdx, currIdx);
+            // Clear selection if not ctrl pressed, then select range
+            if (!event.ctrlKey && !event.metaKey) {
+                selection.selectedIds.clear();
+            }
+            for (let i = start; i <= end; i++) {
+                selection.selectedIds.add(ids[i]);
+            }
+        }
+    } else if (event.ctrlKey || event.metaKey) {
+        // Ctrl+click: toggle individual selection
+        if (selection.selectedIds.has(deviceId)) {
+            selection.selectedIds.delete(deviceId);
+        } else {
+            selection.selectedIds.add(deviceId);
+        }
+        selection.lastSelected = deviceId;
+    } else {
+        // Normal click: clear selection, select only this one
+        selection.selectedIds.clear();
+        selection.selectedIds.add(deviceId);
+        selection.lastSelected = deviceId;
+    }
+    
+    updateDeviceSelectionUI();
+}
+
+/**
+ * Clears all agent selections
+ */
+function clearAgentSelection() {
+    agentsVM.selection.selectedIds.clear();
+    agentsVM.selection.lastSelected = null;
+    updateAgentSelectionUI();
+}
+
+/**
+ * Clears all device selections
+ */
+function clearDeviceSelection() {
+    devicesVM.selection.selectedIds.clear();
+    devicesVM.selection.lastSelected = null;
+    updateDeviceSelectionUI();
 }
 
 // ====== Agent Details ======
@@ -11826,12 +12022,27 @@ function initDevicesUI() {
                 devicesVM.tableCustomizer.bindHeaderEvents(head);
             }
         }
-        // Add click handler for clickable rows (opens device details modal)
+        // Add click handler for clickable rows (file-explorer style selection)
         const tbody = table.querySelector('tbody');
         if (tbody && !tbody.dataset.rowClickBound) {
             tbody.dataset.rowClickBound = 'true';
             tbody.addEventListener('click', (event) => {
                 // Don't trigger row click if clicking on a button or actions column
+                if (event.target.closest('button') || event.target.closest('.table-actions') || event.target.closest('.actions-col')) {
+                    return;
+                }
+                const row = event.target.closest('tr.device-row-clickable');
+                if (!row) return;
+                const serial = row.getAttribute('data-serial');
+                const ip = row.getAttribute('data-ip');
+                const deviceId = serial || ip;
+                if (deviceId) {
+                    // File-explorer style: click selects, double-click opens details
+                    handleDeviceSelection(deviceId, event);
+                }
+            });
+            // Double-click opens device details
+            tbody.addEventListener('dblclick', (event) => {
                 if (event.target.closest('button') || event.target.closest('.table-actions') || event.target.closest('.actions-col')) {
                     return;
                 }
@@ -11847,12 +12058,27 @@ function initDevicesUI() {
         }
     }
 
-    // Add click handler for clickable device cards (opens device details modal)
+    // Add click handler for clickable device cards (file-explorer style selection)
     const cardsContainer = document.getElementById('devices_cards');
     if (cardsContainer && !cardsContainer.dataset.cardClickBound) {
         cardsContainer.dataset.cardClickBound = 'true';
         cardsContainer.addEventListener('click', (event) => {
             // Don't trigger card click if clicking on a button or actions area
+            if (event.target.closest('button') || event.target.closest('.device-card-actions')) {
+                return;
+            }
+            const card = event.target.closest('.device-card-clickable');
+            if (!card) return;
+            const serial = card.getAttribute('data-serial');
+            const ip = card.getAttribute('data-ip');
+            const deviceId = serial || ip;
+            if (deviceId) {
+                // File-explorer style: click selects, double-click opens details
+                handleDeviceSelection(deviceId, event);
+            }
+        });
+        // Double-click opens device details
+        cardsContainer.addEventListener('dblclick', (event) => {
             if (event.target.closest('button') || event.target.closest('.device-card-actions')) {
                 return;
             }

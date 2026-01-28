@@ -162,6 +162,10 @@
             const menuItem = document.createElement('button');
             menuItem.className = 'pm-context-menu-item';
             if (item.danger) menuItem.classList.add('danger');
+            if (item.disabled) {
+                menuItem.classList.add('disabled');
+                menuItem.disabled = true;
+            }
             menuItem.setAttribute('role', 'menuitem');
             menuItem.setAttribute('data-action', item.action);
 
@@ -177,11 +181,13 @@
                 <span class="pm-context-menu-label">${escapeHtml(item.label)}</span>
             `;
 
-            // Handle click
-            menuItem.addEventListener('click', () => {
-                handleMenuAction(item.action, context);
-                closeContextMenu();
-            });
+            // Handle click (skip for disabled items)
+            if (!item.disabled) {
+                menuItem.addEventListener('click', () => {
+                    handleMenuAction(item.action, context);
+                    closeContextMenu();
+                });
+            }
 
             menu.appendChild(menuItem);
         });
@@ -339,8 +345,133 @@
                 }
                 break;
 
+            // Multi-select actions
+            case 'delete-agents':
+                if (context.selectedIds && context.selectedIds.length > 0) {
+                    deleteMultipleAgents(context.selectedIds);
+                }
+                break;
+
+            case 'delete-devices':
+                if (context.selectedIds && context.selectedIds.length > 0) {
+                    deleteMultipleDevices(context.selectedIds);
+                }
+                break;
+
+            case 'none':
+                // Do nothing - used for info items
+                break;
+
             default:
                 console.warn('Unknown context menu action:', action);
+        }
+    }
+
+    /**
+     * Delete multiple agents with confirmation
+     */
+    async function deleteMultipleAgents(agentIds) {
+        const shared = window.__pm_shared || {};
+        const count = agentIds.length;
+        
+        // Get confirmation
+        const confirmed = await (shared.confirm ? 
+            shared.confirm(`Delete ${count} agents?`, `This will permanently remove ${count} agents from the server. This action cannot be undone.`) :
+            confirm(`Delete ${count} agents? This action cannot be undone.`));
+        
+        if (!confirmed) return;
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const agentId of agentIds) {
+            try {
+                const response = await fetch(`/api/v1/agents/${encodeURIComponent(agentId)}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (e) {
+                console.error('Failed to delete agent:', agentId, e);
+                failCount++;
+            }
+        }
+
+        // Clear selection and refresh
+        if (window.agentsVM?.selection) {
+            window.agentsVM.selection.selectedIds.clear();
+            window.agentsVM.selection.lastSelected = null;
+        }
+
+        // Refresh agents list
+        if (shared.fetchAgents) {
+            shared.fetchAgents();
+        }
+
+        // Show result
+        if (shared.showToast) {
+            if (failCount === 0) {
+                shared.showToast(`Deleted ${successCount} agents`, 'success');
+            } else {
+                shared.showToast(`Deleted ${successCount} agents, ${failCount} failed`, 'warning');
+            }
+        }
+    }
+
+    /**
+     * Delete multiple devices with confirmation
+     */
+    async function deleteMultipleDevices(deviceIds) {
+        const shared = window.__pm_shared || {};
+        const count = deviceIds.length;
+        
+        // Get confirmation
+        const confirmed = await (shared.confirm ? 
+            shared.confirm(`Delete ${count} devices?`, `This will permanently remove ${count} devices from the server. This action cannot be undone.`) :
+            confirm(`Delete ${count} devices? This action cannot be undone.`));
+        
+        if (!confirmed) return;
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const deviceId of deviceIds) {
+            try {
+                const response = await fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (e) {
+                console.error('Failed to delete device:', deviceId, e);
+                failCount++;
+            }
+        }
+
+        // Clear selection and refresh
+        if (window.devicesVM?.selection) {
+            window.devicesVM.selection.selectedIds.clear();
+            window.devicesVM.selection.lastSelected = null;
+        }
+
+        // Refresh devices list
+        if (shared.fetchDevices) {
+            shared.fetchDevices();
+        }
+
+        // Show result
+        if (shared.showToast) {
+            if (failCount === 0) {
+                shared.showToast(`Deleted ${successCount} devices`, 'success');
+            } else {
+                shared.showToast(`Deleted ${successCount} devices, ${failCount} failed`, 'warning');
+            }
         }
     }
 
@@ -368,6 +499,52 @@
     }
 
     /**
+     * Get menu items for multi-selected agents
+     */
+    function getAgentMultiSelectMenuItems(context) {
+        return [
+            {
+                id: 'multi-info',
+                label: `${context.selectedCount} agents selected`,
+                icon: '📋',
+                action: 'none',
+                disabled: true
+            },
+            { divider: true },
+            {
+                id: 'delete-selected',
+                label: `Delete ${context.selectedCount} Agents`,
+                icon: '🗑️',
+                action: 'delete-agents',
+                danger: true
+            }
+        ];
+    }
+
+    /**
+     * Get menu items for multi-selected devices
+     */
+    function getDeviceMultiSelectMenuItems(context) {
+        return [
+            {
+                id: 'multi-info',
+                label: `${context.selectedCount} devices selected`,
+                icon: '📋',
+                action: 'none',
+                disabled: true
+            },
+            { divider: true },
+            {
+                id: 'delete-selected',
+                label: `Delete ${context.selectedCount} Devices`,
+                icon: '🗑️',
+                action: 'delete-devices',
+                danger: true
+            }
+        ];
+    }
+
+    /**
      * Initialize context menu handlers for agents table/cards
      */
     function initAgentContextMenu(container) {
@@ -389,17 +566,31 @@
             const agent = getAgentById(agentId);
             const meta = agent?.__meta || {};
 
+            // Check for multi-selection
+            const selection = window.agentsVM?.selection;
+            const selectedIds = selection?.selectedIds || new Set();
+            const isMultiSelect = selectedIds.size > 1 && selectedIds.has(agentId);
+
+            // WebSocket connection check - uses connection_type field
+            const connectionType = (agent?.connection_type || '').toLowerCase();
+            const hasWs = connectionType === 'ws';
+
             const context = {
                 agentId: agentId,
                 agentName: target.getAttribute('data-agent-name') || 
                            (agent && getAgentDisplayName(agent)) || 
                            agentId,
                 ip: agent?.ip || '',
-                hasWsConnection: meta.statusKey === 'active',
-                hasUpdate: hasAgentUpdate(agentId)
+                hasWsConnection: hasWs,
+                hasUpdate: hasAgentUpdate(agentId),
+                isMultiSelect: isMultiSelect,
+                selectedCount: isMultiSelect ? selectedIds.size : 1,
+                selectedIds: isMultiSelect ? Array.from(selectedIds) : [agentId]
             };
 
-            showContextMenu(event, AGENT_MENU_ITEMS, context);
+            // Use multi-select menu items if applicable
+            const menuItems = isMultiSelect ? getAgentMultiSelectMenuItems(context) : AGENT_MENU_ITEMS;
+            showContextMenu(event, menuItems, context);
         });
     }
 
@@ -421,19 +612,30 @@
             const serial = target.getAttribute('data-serial');
             const ip = target.getAttribute('data-ip');
             const agentId = target.getAttribute('data-agent-id');
+            const deviceId = serial || ip;
 
             // Get device data from the VM if available
             const device = getDeviceBySerial(serial);
+
+            // Check for multi-selection
+            const selection = window.devicesVM?.selection;
+            const selectedIds = selection?.selectedIds || new Set();
+            const isMultiSelect = selectedIds.size > 1 && selectedIds.has(deviceId);
 
             const context = {
                 serial: serial,
                 ip: ip || device?.ip || '',
                 mac: device?.mac || '',
                 agentId: agentId || device?.agent_id || '',
-                hasAccess: !!(ip && agentId)
+                hasAccess: !!(ip && agentId),
+                isMultiSelect: isMultiSelect,
+                selectedCount: isMultiSelect ? selectedIds.size : 1,
+                selectedIds: isMultiSelect ? Array.from(selectedIds) : [deviceId]
             };
 
-            showContextMenu(event, DEVICE_MENU_ITEMS, context);
+            // Use multi-select menu items if applicable
+            const menuItems = isMultiSelect ? getDeviceMultiSelectMenuItems(context) : DEVICE_MENU_ITEMS;
+            showContextMenu(event, menuItems, context);
         });
     }
 

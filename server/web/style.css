@@ -8705,6 +8705,40 @@ input[type="checkbox"]:indeterminate::before {
   transform: translateY(0);
 }
 
+/* Selected state for agent rows (file-explorer style) */
+.agent-row-selected {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-left: 3px solid var(--highlight);
+}
+
+.agent-row-selected:hover {
+  background: rgba(59, 130, 246, 0.2) !important;
+}
+
+/* Selected state for agent cards (file-explorer style) */
+.agent-card-selected {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: var(--highlight) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* Selected state for device rows (file-explorer style) */
+.device-row-selected {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-left: 3px solid var(--highlight);
+}
+
+.device-row-selected:hover {
+  background: rgba(59, 130, 246, 0.2) !important;
+}
+
+/* Selected state for device cards (file-explorer style) */
+.device-card-selected {
+  background: rgba(59, 130, 246, 0.15) !important;
+  border-color: var(--highlight) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
 /* Agent Details Modal with Overlay */
 #agent_details_overlay {
   position: fixed;
@@ -11982,6 +12016,18 @@ body.light-theme .simple-table th.sorted {
 .pm-context-menu-item.danger:focus {
   background: rgba(220, 50, 47, 0.15);
   color: var(--danger);
+}
+
+.pm-context-menu-item.disabled {
+  color: var(--muted);
+  cursor: default;
+  font-style: italic;
+}
+
+.pm-context-menu-item.disabled:hover,
+.pm-context-menu-item.disabled:focus {
+  background: transparent;
+  color: var(--muted);
 }
 
 .pm-context-menu-icon {
