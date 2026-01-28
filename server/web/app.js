@@ -227,16 +227,15 @@ const DEVICES_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICE
 const DEVICES_DEFAULT_SORT_DIR = getPersistedUIState(SERVER_UI_STATE_KEYS.DEVICES_SORT_DIR, 'desc', ['asc', 'desc']);
 const DEVICES_METRICS_MAX_AGE_MS = 60 * 1000;
 
-const AGENT_STATUS_KEYS = ['active', 'inactive', 'offline'];
-const AGENT_STATUS_ORDER = { active: 0, inactive: 1, offline: 2 };
-const AGENT_CONNECTION_KEYS = ['ws', 'http', 'none'];
-const AGENT_CONNECTION_ORDER = { ws: 0, http: 1, none: 2 };
+const AGENT_STATUS_KEYS = ['active', 'degraded', 'offline'];
+const AGENT_STATUS_ORDER = { active: 0, degraded: 1, offline: 2 };
+const AGENT_STATUS_LABELS = { active: 'Active', degraded: 'Degraded', offline: 'Offline' };
 const AGENT_STATUS_COLORS = {
     active: 'var(--success)',
-    inactive: 'var(--muted)',
+    degraded: 'var(--warning)',
     offline: 'var(--danger)'
 };
-const AGENTS_SORT_KEYS = ['last_seen', 'name', 'tenant', 'status', 'connection', 'version', 'platform'];
+const AGENTS_SORT_KEYS = ['last_seen', 'name', 'tenant', 'status', 'version', 'platform'];
 const AGENTS_VIEW_OPTIONS = ['cards', 'table'];
 const AGENTS_DEFAULT_VIEW = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_VIEW, 'table', AGENTS_VIEW_OPTIONS);
 const AGENTS_DEFAULT_SORT_KEY = getPersistedUIState(SERVER_UI_STATE_KEYS.AGENTS_SORT_KEY, 'last_seen', AGENTS_SORT_KEYS);
@@ -305,7 +304,6 @@ const agentsVM = {
         platform: '',
         tenantId: '',
         statuses: new Set(AGENT_STATUS_KEYS),
-        connections: new Set(AGENT_CONNECTION_KEYS),
         sortKey: AGENTS_DEFAULT_SORT_KEY || 'last_seen',
         sortDir: AGENTS_DEFAULT_SORT_DIR || 'desc',
     },
@@ -315,8 +313,6 @@ const agentsVM = {
         filtered: 0,
         totalStatuses: buildAgentStatusCounts(),
         filteredStatuses: buildAgentStatusCounts(),
-        totalConnections: buildAgentConnectionCounts(),
-        filteredConnections: buildAgentConnectionCounts(),
     },
     uiInitialized: false,
     // Table customizer instance
@@ -5114,7 +5110,7 @@ let dashboardFilters = {
     showSites: true,
     showAgents: true,
     showDevices: true,
-    agentStatus: new Set(['active', 'inactive', 'offline']),
+    agentStatus: new Set(['active', 'degraded', 'offline']),
     supplyBand: new Set(['critical', 'low', 'medium', 'high', 'unknown']),
     deviceStatus: new Set(['healthy', 'warning', 'error', 'jam'])
 };
@@ -5225,7 +5221,7 @@ function resetDashboardFilters() {
         showSites: true,
         showAgents: true,
         showDevices: true,
-        agentStatus: new Set(['active', 'inactive', 'offline']),
+        agentStatus: new Set(['active', 'degraded', 'offline']),
         supplyBand: new Set(['critical', 'low', 'medium', 'high', 'unknown']),
         deviceStatus: new Set(['healthy', 'warning', 'error', 'jam'])
     };
@@ -5254,7 +5250,7 @@ function updateDashboardActiveFilters() {
 
     // Check if any agent status is filtered
     if (dashboardFilters.agentStatus.size < 3) {
-        const missing = ['active', 'inactive', 'offline'].filter(s => !dashboardFilters.agentStatus.has(s));
+        const missing = ['active', 'degraded', 'offline'].filter(s => !dashboardFilters.agentStatus.has(s));
         missing.forEach(s => {
             chips.push(`<span class="filter-chip">Hiding ${s} agents <button data-filter="agentStatus" data-value="${s}">×</button></span>`);
         });
@@ -9399,15 +9395,6 @@ function initAgentsUI() {
         });
     }
 
-    const connectionFilter = document.getElementById('agents_connection_filter');
-    if (connectionFilter) {
-        connectionFilter.addEventListener('click', (event) => {
-            const btn = event.target.closest('[data-connection]');
-            if (!btn) return;
-            toggleAgentConnectionFilter(btn.getAttribute('data-connection'));
-        });
-    }
-
     const resetBtn = document.getElementById('agents_reset_filters');
     if (resetBtn) {
         resetBtn.addEventListener('click', resetAgentFilters);
@@ -9564,7 +9551,6 @@ function initAgentsTableCustomizer() {
 
     // Expose helper functions on window for use by column renderers
     window.renderAgentStatusBadge = renderAgentStatusBadge;
-    window.renderAgentConnectionBadge = renderAgentConnectionBadge;
     window.renderAgentVersionCell = renderAgentVersionCell;
     window.getAgentDisplayName = getAgentDisplayName;
 }
@@ -9634,20 +9620,15 @@ function computeAgentMetrics(list) {
     const summary = {
         total: list.length,
         active: 0,
-        inactive: 0,
+        degraded: 0,
         offline: 0,
-        connections: buildAgentConnectionCounts(),
         versions: {},
         platforms: {},
     };
     list.forEach(agent => {
         const meta = agent.__meta || {};
-        const statusKey = meta.statusKey || 'inactive';
-        const connKey = meta.connectionKey || 'none';
+        const statusKey = meta.statusKey || 'offline';
         summary[statusKey] = (summary[statusKey] || 0) + 1;
-        if (summary.connections[connKey] !== undefined) {
-            summary.connections[connKey] += 1;
-        }
         const version = meta.versionLabel || agent.version || 'Unknown';
         summary.versions[version] = (summary.versions[version] || 0) + 1;
         const platform = meta.platformLabel || agent.platform || 'Unknown';
@@ -9677,8 +9658,8 @@ function renderAgentsOverview() {
         </div>
         <div class="metric-card">
             <div class="card-title">Connection Mix</div>
-            <div class="metric-kpi-value">${formatNumber(summary.connections.ws || 0)}</div>
-            <div class="metric-kpi-label">Live WebSocket tunnels</div>
+            <div class="metric-kpi-value">${formatNumber(summary.degraded || 0)}</div>
+            <div class="metric-kpi-label">Degraded (HTTP fallback)</div>
         </div>
         <div class="metric-card">
             <div class="card-title">Version Alignment</div>
@@ -9736,26 +9717,17 @@ function applyAgentFilters() {
     }
     const totalStatuses = buildAgentStatusCounts();
     const filteredStatuses = buildAgentStatusCounts();
-    const totalConnections = buildAgentConnectionCounts();
-    const filteredConnections = buildAgentConnectionCounts();
     const filtered = [];
     agentsVM.items.forEach(agent => {
         const meta = agent.__meta || {};
-        const statusKey = meta.statusKey || 'inactive';
-        const connectionKey = meta.connectionKey || 'none';
+        const statusKey = meta.statusKey || 'offline';
         if (totalStatuses[statusKey] !== undefined) {
             totalStatuses[statusKey] += 1;
-        }
-        if (totalConnections[connectionKey] !== undefined) {
-            totalConnections[connectionKey] += 1;
         }
         if (matchesAgentFilters(agent, agentsVM.filters)) {
             filtered.push(agent);
             if (filteredStatuses[statusKey] !== undefined) {
                 filteredStatuses[statusKey] += 1;
-            }
-            if (filteredConnections[connectionKey] !== undefined) {
-                filteredConnections[connectionKey] += 1;
             }
         }
     });
@@ -9764,8 +9736,6 @@ function applyAgentFilters() {
     agentsVM.stats.filtered = agentsVM.filtered.length;
     agentsVM.stats.totalStatuses = totalStatuses;
     agentsVM.stats.filteredStatuses = filteredStatuses;
-    agentsVM.stats.totalConnections = totalConnections;
-    agentsVM.stats.filteredConnections = filteredConnections;
     renderAgentsInlineStats();
     renderAgentsActiveFilters();
     syncAgentQuickFilters();
@@ -9793,10 +9763,7 @@ function matchesAgentFilters(agent, filters) {
     if (filters.tenantId && tenantId !== filters.tenantId) {
         return false;
     }
-    if (filters.statuses && filters.statuses.size > 0 && !filters.statuses.has(meta.statusKey || 'inactive')) {
-        return false;
-    }
-    if (filters.connections && filters.connections.size > 0 && !filters.connections.has(meta.connectionKey || 'none')) {
+    if (filters.statuses && filters.statuses.size > 0 && !filters.statuses.has(meta.statusKey || 'offline')) {
         return false;
     }
     return true;
@@ -9824,9 +9791,7 @@ function getAgentSortValue(agent, key) {
         case 'name':
             return getAgentDisplayName(agent).toLowerCase();
         case 'status':
-            return AGENT_STATUS_ORDER[meta.statusKey || 'inactive'] || 0;
-        case 'connection':
-            return AGENT_CONNECTION_ORDER[meta.connectionKey || 'none'] || 0;
+            return AGENT_STATUS_ORDER[meta.statusKey || 'offline'] || 0;
         case 'version':
             return (agent.version || '').toLowerCase();
         case 'platform':
@@ -9848,7 +9813,7 @@ function renderAgentsInlineStats() {
         <div><strong>Showing:</strong> ${formatNumber(agentsVM.stats.filtered || 0)}</div>
         <div>
             <span class="status-pill healthy">Active ${formatNumber(statuses.active || 0)}</span>
-            <span class="status-pill warning">Inactive ${formatNumber(statuses.inactive || 0)}</span>
+            <span class="status-pill warning">Degraded ${formatNumber(statuses.degraded || 0)}</span>
             <span class="status-pill error">Offline ${formatNumber(statuses.offline || 0)}</span>
         </div>
     `;
@@ -9872,10 +9837,7 @@ function renderAgentsActiveFilters() {
         chips.push(buildFilterChip('Tenant', formatTenantDisplay(filters.tenantId), 'tenant'));
     }
     if (filters.statuses && filters.statuses.size > 0 && filters.statuses.size < AGENT_STATUS_KEYS.length) {
-        chips.push(buildFilterChip('Status', Array.from(filters.statuses).join(', '), 'statuses'));
-    }
-    if (filters.connections && filters.connections.size > 0 && filters.connections.size < AGENT_CONNECTION_KEYS.length) {
-        chips.push(buildFilterChip('Connection', Array.from(filters.connections).join(', '), 'connections'));
+        chips.push(buildFilterChip('Status', Array.from(filters.statuses).map(s => AGENT_STATUS_LABELS[s] || s).join(', '), 'statuses'));
     }
     if (chips.length === 0) {
         container.innerHTML = '';
@@ -9911,9 +9873,6 @@ function handleAgentFilterChipRemove(filterKey) {
         case 'statuses':
             agentsVM.filters.statuses = new Set(AGENT_STATUS_KEYS);
             break;
-        case 'connections':
-            agentsVM.filters.connections = new Set(AGENT_CONNECTION_KEYS);
-            break;
         default:
             return;
     }
@@ -9927,14 +9886,6 @@ function syncAgentQuickFilters() {
         btn.classList.toggle('active', active);
         const baseLabel = btn.getAttribute('data-label') || btn.textContent.trim();
         const count = agentsVM.stats.totalStatuses?.[key] || 0;
-        btn.innerHTML = `${escapeHtml(baseLabel)} <span class="pill-count">${formatNumber(count)}</span>`;
-    });
-    document.querySelectorAll('#agents_connection_filter [data-connection]').forEach(btn => {
-        const key = btn.getAttribute('data-connection');
-        const active = agentsVM.filters.connections.has(key);
-        btn.classList.toggle('active', active);
-        const baseLabel = btn.getAttribute('data-label') || btn.textContent.trim();
-        const count = agentsVM.stats.totalConnections?.[key] || 0;
         btn.innerHTML = `${escapeHtml(baseLabel)} <span class="pill-count">${formatNumber(count)}</span>`;
     });
 }
@@ -9954,28 +9905,12 @@ function toggleAgentStatusFilter(statusKey) {
     applyAgentFilters();
 }
 
-function toggleAgentConnectionFilter(connectionKey) {
-    if (!AGENT_CONNECTION_KEYS.includes(connectionKey)) return;
-    const next = new Set(agentsVM.filters.connections || AGENT_CONNECTION_KEYS);
-    if (next.has(connectionKey)) {
-        next.delete(connectionKey);
-    } else {
-        next.add(connectionKey);
-    }
-    if (next.size === 0) {
-        AGENT_CONNECTION_KEYS.forEach(key => next.add(key));
-    }
-    agentsVM.filters.connections = next;
-    applyAgentFilters();
-}
-
 function resetAgentFilters() {
     agentsVM.filters.query = '';
     agentsVM.filters.version = '';
     agentsVM.filters.platform = '';
     agentsVM.filters.tenantId = '';
     agentsVM.filters.statuses = new Set(AGENT_STATUS_KEYS);
-    agentsVM.filters.connections = new Set(AGENT_CONNECTION_KEYS);
     const searchInput = document.getElementById('agents_search');
     if (searchInput) searchInput.value = '';
     const versionSelect = document.getElementById('agents_version_filter');
@@ -10162,7 +10097,7 @@ function renderAgentVersionCell(agent, forTable = false) {
     // Check if update is available (normal state) - only show if latest is actually newer
     if (latestVersion && currentVersion && currentVersion !== 'N/A' && compareVersions(latestVersion, currentVersion) > 0) {
         const meta = agent.__meta || {};
-        const canUpdate = meta.connectionKey === 'ws';
+        const canUpdate = meta.statusKey === 'active';
         const tooltip = canUpdate ? `Update available: ${latestVersion}` : 'Agent not connected via WebSocket';
         const buttonClass = canUpdate ? 'update-btn' : 'update-btn disabled';
         const updateBtn = `<button class="${buttonClass}" data-action="update-agent" data-agent-id="${escapeHtml(agentId)}" title="${escapeHtml(tooltip)}" ${canUpdate ? '' : 'disabled'}>↑ ${escapeHtml(latestVersion)}</button>`;
@@ -10339,7 +10274,6 @@ function renderAgentTable(agents) {
                 </td>
                 <td>${escapeHtml(tenantLabel)}</td>
                 <td>${renderAgentStatusBadge(meta)}</td>
-                <td>${renderAgentConnectionBadge(meta)}</td>
                 <td>${escapeHtml(agent.platform || 'Unknown')}</td>
                 <td>${renderAgentVersionCell(agent, true)}</td>
                 <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
@@ -10352,9 +10286,7 @@ function renderAgentTable(agents) {
 function renderAgentCard(agent) {
     const meta = agent.__meta || {};
     const registeredDate = agent.registered_at ? new Date(agent.registered_at) : null;
-    const connLabel = renderAgentConnectionBadge(meta);
-    const wsVersion = agent.ws_version ? `<span class="muted-text" style="margin-left:6px;">v${escapeHtml(agent.ws_version)}</span>` : '';
-    const statusColor = AGENT_STATUS_COLORS[meta.statusKey || 'inactive'] || 'var(--muted)';
+    const statusColor = AGENT_STATUS_COLORS[meta.statusKey || 'offline'] || 'var(--muted)';
     const tenantLabel = formatTenantDisplay(agent.tenant_id || meta.tenantId || '');
     return `
         <div class="device-card agent-card-clickable" data-agent-id="${escapeHtml(agent.agent_id || '')}" data-agent-name="${escapeHtml(getAgentDisplayName(agent))}" title="Click to view details, right-click for actions">
@@ -10373,11 +10305,7 @@ function renderAgentCard(agent) {
             <div class="device-card-info">
                 <div class="device-card-row">
                     <span class="device-card-label">Status</span>
-                    <span class="device-card-value agent-status-value" style="color:${statusColor}">● ${escapeHtml(agent.status || meta.statusLabel || 'unknown')}</span>
-                </div>
-                <div class="device-card-row">
-                    <span class="device-card-label">Connection</span>
-                    <span class="device-card-value">${connLabel} ${wsVersion}</span>
+                    <span class="device-card-value agent-status-value">${renderAgentStatusBadge(meta)}</span>
                 </div>
                 <div class="device-card-row">
                     <span class="device-card-label">IP Address</span>
@@ -10413,18 +10341,10 @@ function renderAgentCard(agent) {
 }
 
 function renderAgentStatusBadge(meta) {
-    const label = meta.statusLabel || meta.statusKey || 'Unknown';
-    const code = meta.statusKey || 'inactive';
+    const code = meta.statusKey || 'offline';
+    const label = AGENT_STATUS_LABELS[code] || meta.statusLabel || 'Unknown';
     const tone = code === 'active' ? 'healthy' : code === 'offline' ? 'error' : 'warning';
     return `<span class="status-pill ${tone}">${escapeHtml(label)}</span>`;
-}
-
-function renderAgentConnectionBadge(meta) {
-    const key = meta.connectionKey || 'none';
-    const labels = { ws: 'Live', http: 'HTTP Fallback', none: 'Offline' };
-    const cls = key === 'ws' ? 'conn-badge ws' : key === 'http' ? 'conn-badge http' : 'conn-badge none';
-    const label = labels[key] || 'Offline';
-    return `<span class="${cls}" aria-label="Connection ${escapeHtml(label)}">${escapeHtml(label)}</span>`;
 }
 
 function findAgentCardElement(agentId) {
@@ -10605,8 +10525,9 @@ function enrichSingleAgent(agent) {
     if (!agent || typeof agent !== 'object') {
         return agent;
     }
-    const statusKey = normalizeAgentStatus(agent.status);
-    const connectionKey = normalizeAgentConnection(agent.connection_type);
+    // Derive status from connection_type: ws=active, http=degraded, none/missing=offline
+    const statusKey = normalizeAgentStatusFromConnection(agent.connection_type);
+    const statusLabel = AGENT_STATUS_LABELS[statusKey] || statusKey;
     const lastSeenIso = agent.last_seen || agent.last_heartbeat || agent.updated_at;
     const lastSeenDate = lastSeenIso ? new Date(lastSeenIso) : null;
     const tenantId = agent.tenant_id || '';
@@ -10615,9 +10536,7 @@ function enrichSingleAgent(agent) {
         ...agent,
         __meta: {
             statusKey,
-            statusLabel: agent.status || statusKey,
-            connectionKey,
-            connectionLabel: connectionKey,
+            statusLabel,
             versionLabel: agent.version || 'Unknown',
             platformLabel: agent.platform || 'Unknown',
             lastSeenRelative: lastSeenDate ? formatRelativeTime(lastSeenDate) : 'Never',
@@ -10644,35 +10563,20 @@ function buildAgentSearchBlob(agent, tenantLabel) {
     return parts.join(' ').toLowerCase();
 }
 
-function normalizeAgentStatus(status) {
-    const key = (status || '').toLowerCase();
-    if (AGENT_STATUS_KEYS.includes(key)) {
-        return key;
+function normalizeAgentStatusFromConnection(connectionType) {
+    const conn = (connectionType || '').toLowerCase();
+    if (conn === 'ws' || conn.includes('websocket')) {
+        return 'active';
     }
-    if (key.includes('offline')) return 'offline';
-    if (key.includes('active')) return 'active';
-    return 'inactive';
-}
-
-function normalizeAgentConnection(connection) {
-    const key = (connection || '').toLowerCase();
-    if (AGENT_CONNECTION_KEYS.includes(key)) {
-        return key;
+    if (conn === 'http' || conn.includes('http')) {
+        return 'degraded';
     }
-    if (key.includes('ws')) return 'ws';
-    if (key.includes('http')) return 'http';
-    return 'none';
+    return 'offline';
 }
 
 function buildAgentStatusCounts() {
     const map = {};
     AGENT_STATUS_KEYS.forEach(key => { map[key] = 0; });
-    return map;
-}
-
-function buildAgentConnectionCounts() {
-    const map = {};
-    AGENT_CONNECTION_KEYS.forEach(key => { map[key] = 0; });
     return map;
 }
 
@@ -10752,7 +10656,7 @@ function renderAgentDetailsModal(agent) {
     
     const statusColors = {
         'active': 'var(--success)',
-        'inactive': 'var(--muted)',
+        'degraded': 'var(--warning)',
         'offline': 'var(--error)'
     };
     const statusColor = statusColors[agent.status] || 'var(--muted)';

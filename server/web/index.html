@@ -141,8 +141,8 @@
                             <div class="dashboard-filter-group">
                                 <div class="filter-label">Agent Status</div>
                                 <div id="dashboard_agent_status_filter" class="pill-toggle-group compact" role="group">
-                                    <button class="pill active" data-status="active" title="Active agents">Active</button>
-                                    <button class="pill active" data-status="inactive" title="Inactive agents">Inactive</button>
+                                    <button class="pill active" data-status="active" title="Active agents (WebSocket)">Active</button>
+                                    <button class="pill active" data-status="degraded" title="Degraded agents (HTTP fallback)">Degraded</button>
                                     <button class="pill active" data-status="offline" title="Offline agents">Offline</button>
                                 </div>
                             </div>
@@ -309,16 +309,8 @@
                                 <div class="filter-label">Status</div>
                                 <div id="agents_status_filter" class="pill-toggle-group compact" role="group" aria-label="Status filters">
                                     <button class="pill active" data-status="active" data-label="Active">Active</button>
-                                    <button class="pill active" data-status="inactive" data-label="Inactive">Inactive</button>
+                                    <button class="pill active" data-status="degraded" data-label="Degraded">Degraded</button>
                                     <button class="pill active" data-status="offline" data-label="Offline">Offline</button>
-                                </div>
-                            </div>
-                            <div class="sidebar-filter-group">
-                                <div class="filter-label">Connection</div>
-                                <div id="agents_connection_filter" class="pill-toggle-group compact" role="group" aria-label="Connection filters">
-                                    <button class="pill active" data-connection="ws" data-label="Live WS">Live WS</button>
-                                    <button class="pill active" data-connection="http" data-label="HTTP">HTTP</button>
-                                    <button class="pill active" data-connection="none" data-label="Offline">Offline</button>
                                 </div>
                             </div>
                         </div>

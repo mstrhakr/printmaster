@@ -366,27 +366,10 @@
             resizable: true,
             filterable: true,
             filterType: 'select',
-            filterOptions: ['active', 'inactive', 'offline'],
+            filterOptions: ['active', 'degraded', 'offline'],
             render: (agent, meta) => {
                 return window.renderAgentStatusBadge?.(meta) || 
-                    `<span class="status-pill ${meta.statusKey || 'inactive'}">${escapeHtml(meta.statusLabel || 'Unknown')}</span>`;
-            }
-        },
-        {
-            id: 'connection',
-            label: 'Connection',
-            sortKey: 'connection',
-            width: 120,
-            minWidth: 90,
-            pinnable: false,
-            hideable: true,
-            resizable: true,
-            filterable: true,
-            filterType: 'select',
-            filterOptions: ['ws', 'http', 'none'],
-            render: (agent, meta) => {
-                return window.renderAgentConnectionBadge?.(meta) || 
-                    `<span class="conn-badge ${meta.connectionKey || 'none'}">${meta.connectionKey || 'Offline'}</span>`;
+                    `<span class="status-pill ${meta.statusKey || 'offline'}">${escapeHtml(meta.statusLabel || 'Unknown')}</span>`;
             }
         },
         {

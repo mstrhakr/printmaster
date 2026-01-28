@@ -395,7 +395,7 @@
                            (agent && getAgentDisplayName(agent)) || 
                            agentId,
                 ip: agent?.ip || '',
-                hasWsConnection: meta.connectionKey === 'ws',
+                hasWsConnection: meta.statusKey === 'active',
                 hasUpdate: hasAgentUpdate(agentId)
             };
 
