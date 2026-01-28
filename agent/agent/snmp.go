@@ -353,3 +353,149 @@ func DiagnosticWalk(snmp SNMPClient, logFn func(string), roots []string, maxEntr
 func FullDiagnosticWalk(snmp SNMPClient, logFn func(string), roots []string, maxEntries int) []gosnmp.SnmpPDU {
 	return diagnosticWalk(snmp, logFn, roots, maxEntries, nil) // No stop keywords
 }
+
+// WalkProgress contains progress information for streaming walks
+type WalkProgress struct {
+	Stage       string `json:"stage"`        // "connecting", "walking", "complete", "error"
+	RootIndex   int    `json:"root_index"`   // Current root being walked (0-based)
+	RootCount   int    `json:"root_count"`   // Total number of roots
+	RootOID     string `json:"root_oid"`     // Current root OID being walked
+	OIDsFound   int    `json:"oids_found"`   // Total OIDs collected so far
+	MaxOIDs     int    `json:"max_oids"`     // Maximum OIDs to collect
+	Percent     int    `json:"percent"`      // Estimated percentage (0-100)
+	Message     string `json:"message"`      // Human-readable status
+	Error       string `json:"error,omitempty"`
+}
+
+// ProgressCallback is called during walks to report progress
+type ProgressCallback func(progress WalkProgress)
+
+// FullDiagnosticWalkWithProgress performs a complete SNMP walk with progress reporting.
+// The progressFn is called periodically (not for every OID to avoid overhead).
+// Returns collected PDUs and any error.
+func FullDiagnosticWalkWithProgress(snmp SNMPClient, logFn func(string), roots []string, maxEntries int, progressFn ProgressCallback) []gosnmp.SnmpPDU {
+	collected := []gosnmp.SnmpPDU{}
+	if snmp == nil {
+		if progressFn != nil {
+			progressFn(WalkProgress{Stage: "error", Error: "SNMP client is nil"})
+		}
+		return collected
+	}
+
+	if maxEntries <= 0 {
+		maxEntries = 5000
+	}
+
+	count := 0
+	rootCount := len(roots)
+
+	// Estimate typical OIDs per root for progress calculation
+	// MIB-2: ~200-500, Printer-MIB: ~100-300, Enterprise: ~500-2000
+	// We use a weighted estimate assuming ~2000 total typical
+	estimatedTotal := 2000
+	if maxEntries < estimatedTotal {
+		estimatedTotal = maxEntries
+	}
+
+	// Report interval: every 50 OIDs or 2 seconds, whichever comes first
+	reportInterval := 50
+	lastReport := 0
+
+	for rootIdx, root := range roots {
+		if progressFn != nil {
+			// Calculate rough percentage based on root progress + OIDs within root
+			basePercent := (rootIdx * 100) / rootCount
+			progressFn(WalkProgress{
+				Stage:     "walking",
+				RootIndex: rootIdx,
+				RootCount: rootCount,
+				RootOID:   root,
+				OIDsFound: count,
+				MaxOIDs:   maxEntries,
+				Percent:   basePercent,
+				Message:   fmt.Sprintf("Walking %s (%d OIDs collected)", formatRootName(root), count),
+			})
+		}
+
+		if logFn != nil {
+			logFn("Starting diagnostic SNMP walk of " + root)
+		}
+
+		err := snmp.Walk(root, func(pdu gosnmp.SnmpPDU) error {
+			if logFn != nil {
+				logFn(fmt.Sprintf("WALK %s Type=%v Value=%#v", pdu.Name, pdu.Type, pdu.Value))
+			}
+			collected = append(collected, pdu)
+			count++
+
+			// Report progress periodically
+			if progressFn != nil && count-lastReport >= reportInterval {
+				lastReport = count
+				// Calculate percentage: weighted by roots completed + OIDs within estimated total
+				rootProgress := float64(rootIdx) / float64(rootCount)
+				oidProgress := float64(count) / float64(estimatedTotal)
+				// Blend: 30% root-based, 70% OID-based (OIDs are more granular)
+				percent := int((rootProgress*0.3 + oidProgress*0.7) * 100)
+				if percent > 95 {
+					percent = 95 // Cap at 95% until complete
+				}
+				progressFn(WalkProgress{
+					Stage:     "walking",
+					RootIndex: rootIdx,
+					RootCount: rootCount,
+					RootOID:   root,
+					OIDsFound: count,
+					MaxOIDs:   maxEntries,
+					Percent:   percent,
+					Message:   fmt.Sprintf("Collecting SNMP data... %d OIDs", count),
+				})
+			}
+
+			// Stop if we've hit the count limit
+			if maxEntries > 0 && count >= maxEntries {
+				return fmt.Errorf("walk limit reached")
+			}
+			return nil
+		})
+
+		if err != nil && logFn != nil {
+			logFn("Diagnostic walk error: " + err.Error())
+		}
+
+		if maxEntries > 0 && count >= maxEntries {
+			if logFn != nil {
+				logFn("Diagnostic walk reached max entries; stopping further walks")
+			}
+			break
+		}
+	}
+
+	// Final progress report
+	if progressFn != nil {
+		progressFn(WalkProgress{
+			Stage:     "complete",
+			RootIndex: rootCount,
+			RootCount: rootCount,
+			OIDsFound: count,
+			MaxOIDs:   maxEntries,
+			Percent:   100,
+			Message:   fmt.Sprintf("SNMP walk complete: %d OIDs collected", count),
+		})
+	}
+
+	return collected
+}
+
+// formatRootName returns a human-readable name for common OID roots
+func formatRootName(oid string) string {
+	switch oid {
+	case "1.3.6.1.2.1":
+		return "MIB-2 (System/Interfaces)"
+	case "1.3.6.1.2.1.43":
+		return "Printer-MIB"
+	case "1.3.6.1.4.1":
+		return "Enterprise MIBs"
+	default:
+		return oid
+	}
+}

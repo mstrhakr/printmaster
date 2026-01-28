@@ -106,7 +106,10 @@
                     <div class="device-report-actions">
                         <button type="submit" class="device-report-submit" id="report_submit_btn">
                             <span class="device-report-submit-text">Submit Report → GitHub</span>
-                            <span class="device-report-submit-loading" style="display:none;">Submitting...</span>
+                            <span class="device-report-submit-progress" style="display:none;">
+                                <span class="device-report-progress-bar"></span>
+                                <span class="device-report-progress-text">0%</span>
+                            </span>
                         </button>
                     </div>
                     
@@ -311,7 +314,9 @@
             
             const submitBtn = document.getElementById('report_submit_btn');
             const submitText = submitBtn.querySelector('.device-report-submit-text');
-            const submitLoading = submitBtn.querySelector('.device-report-submit-loading');
+            const submitProgress = submitBtn.querySelector('.device-report-submit-progress');
+            const progressBar = submitBtn.querySelector('.device-report-progress-bar');
+            const progressText = submitBtn.querySelector('.device-report-progress-text');
             const statusEl = document.getElementById('report_status');
             
             // Gather form data
@@ -327,38 +332,34 @@
                 return;
             }
             
-            // Disable button, show loading (different message if full walk)
+            // Disable button, show progress
             submitBtn.disabled = true;
             submitText.style.display = 'none';
-            submitLoading.textContent = formData.fullWalk ? 
-                'Collecting SNMP data...' : 'Submitting...';
-            submitLoading.style.display = 'inline';
+            submitProgress.style.display = 'flex';
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Starting...';
             statusEl.style.display = 'none';
             
+            // Helper to update progress display
+            const updateProgress = (percent, message) => {
+                progressBar.style.width = percent + '%';
+                progressText.textContent = message || (percent + '%');
+            };
+            
             try {
-                // Collect diagnostic data
+                // Collect diagnostic data for the request
                 const report = collectDiagnosticData(device, parseDebug, formData);
                 
-                // Submit to proxy
-                const result = await submitReport(report);
-                
-                if (result.success && result.issue_url) {
-                    showStatus(statusEl, 'success', 'Report submitted! Opening GitHub...');
-                    
-                    // Open GitHub issue in new tab
-                    setTimeout(() => {
-                        window.open(result.issue_url, '_blank');
-                    }, 500);
-                } else if (result.gist_url) {
-                    // Partial success - gist created but issue URL missing
-                    const issueUrl = buildFallbackIssueUrl(report) + 
-                        '&gist=' + encodeURIComponent(result.gist_url);
-                    showStatus(statusEl, 'success', 'Report submitted! Opening GitHub...');
-                    setTimeout(() => {
-                        window.open(issueUrl, '_blank');
-                    }, 500);
+                // Use streaming endpoint if full walk is requested (takes longer)
+                if (formData.fullWalk) {
+                    const result = await submitReportWithProgress(report, updateProgress);
+                    handleSubmitResult(result, report, statusEl);
                 } else {
-                    throw new Error(result.error || 'Unknown error');
+                    // Quick submit without streaming
+                    updateProgress(50, 'Submitting...');
+                    const result = await submitReport(report);
+                    updateProgress(100, 'Complete!');
+                    handleSubmitResult(result, report, statusEl);
                 }
                 
             } catch (error) {
@@ -380,8 +381,114 @@
                 // Re-enable button
                 submitBtn.disabled = false;
                 submitText.style.display = 'inline';
-                submitLoading.style.display = 'none';
+                submitProgress.style.display = 'none';
             }
+        });
+    }
+    
+    /**
+     * Handle submit result (success or partial success)
+     */
+    function handleSubmitResult(result, report, statusEl) {
+        if (result.success && result.issue_url) {
+            showStatus(statusEl, 'success', 'Report submitted! Opening GitHub...');
+            setTimeout(() => {
+                window.open(result.issue_url, '_blank');
+            }, 500);
+        } else if (result.gist_url) {
+            // Partial success - gist created but issue URL missing
+            const issueUrl = buildFallbackIssueUrl(report) + 
+                '&gist=' + encodeURIComponent(result.gist_url);
+            showStatus(statusEl, 'success', 'Report submitted! Opening GitHub...');
+            setTimeout(() => {
+                window.open(issueUrl, '_blank');
+            }, 500);
+        } else if (result.fallback) {
+            // Server returned fallback mode
+            downloadReportFile(result.report || report);
+            const fallbackUrl = result.issue_url || buildFallbackIssueUrl(report);
+            showStatus(statusEl, 'warning', 
+                'Could not submit automatically. ' +
+                'A diagnostic file has been downloaded. ' +
+                '<a href="' + fallbackUrl + '" target="_blank">Click here to open GitHub</a> ' +
+                'and attach the file to your issue.'
+            );
+        } else {
+            throw new Error(result.error || 'Unknown error');
+        }
+    }
+    
+    /**
+     * Submit report using SSE streaming for progress updates
+     */
+    async function submitReportWithProgress(report, onProgress) {
+        return new Promise((resolve, reject) => {
+            // We need to POST data and receive SSE, which is tricky.
+            // Use fetch with ReadableStream to handle SSE-like response.
+            fetch('/api/report/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(report)
+            }).then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                
+                function processEvents() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            // Stream ended without complete event - treat as error
+                            reject(new Error('Stream ended unexpectedly'));
+                            return;
+                        }
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        // Parse SSE events from buffer
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                        
+                        let eventType = '';
+                        for (const line of lines) {
+                            if (line.startsWith('event: ')) {
+                                eventType = line.slice(7).trim();
+                            } else if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    
+                                    if (eventType === 'progress') {
+                                        onProgress(parsed.percent || 0, parsed.message || '');
+                                    } else if (eventType === 'complete') {
+                                        onProgress(100, 'Complete!');
+                                        resolve(parsed);
+                                        return;
+                                    } else if (eventType === 'error') {
+                                        if (parsed.fallback) {
+                                            // Fallback mode - resolve with fallback data
+                                            resolve(parsed);
+                                            return;
+                                        }
+                                        reject(new Error(parsed.error || 'Unknown error'));
+                                        return;
+                                    }
+                                } catch (e) {
+                                    console.warn('Failed to parse SSE data:', data, e);
+                                }
+                            }
+                        }
+                        
+                        // Continue reading
+                        processEvents();
+                    }).catch(reject);
+                }
+                
+                processEvents();
+            }).catch(reject);
         });
     }
 

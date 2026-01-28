@@ -5058,6 +5058,280 @@ func runInteractive(ctx context.Context, configFlag string) {
 		json.NewEncoder(w).Encode(proxyResp)
 	})
 
+	// POST /api/report/stream - Submit a device report with SSE progress streaming
+	// This endpoint performs the same work as /api/report but streams progress updates
+	// during the SNMP walk phase via Server-Sent Events.
+	http.HandleFunc("/api/report/stream", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Set up SSE headers
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		// Helper to send SSE events
+		sendEvent := func(eventType string, data interface{}) {
+			jsonData, _ := json.Marshal(data)
+			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, jsonData)
+			flusher.Flush()
+		}
+
+		var req agent.ReportRequest
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+			sendEvent("error", map[string]string{"error": fmt.Sprintf("invalid request: %v", err)})
+			return
+		}
+
+		// Validate required fields
+		if req.IssueType == "" {
+			sendEvent("error", map[string]string{"error": "issue_type is required"})
+			return
+		}
+
+		// Send initial progress
+		sendEvent("progress", map[string]interface{}{
+			"stage":   "starting",
+			"percent": 0,
+			"message": "Preparing report...",
+		})
+
+		// Create the report submitter
+		agentID := agentConfig.Server.AgentID
+		submitter := agent.NewReportSubmitter(Version, agentID, appLogger)
+
+		// Get parse debug data if available
+		var parseDebug *agent.ParseDebug
+		if req.DeviceIP != "" {
+			if pd, ok := agent.GetParseDebug(req.DeviceIP); ok {
+				parseDebug = &pd
+			}
+		}
+
+		// If FullWalk is requested, perform a complete SNMP walk with progress
+		if req.FullWalk && req.DeviceIP != "" {
+			sendEvent("progress", map[string]interface{}{
+				"stage":   "connecting",
+				"percent": 5,
+				"message": "Connecting to device...",
+			})
+
+			if appLogger != nil {
+				appLogger.Info("Performing full SNMP walk with progress for report", "ip", req.DeviceIP)
+			}
+
+			cfg, err := agent.GetSNMPConfig()
+			if err == nil {
+				client, err := agent.NewSNMPClient(cfg, req.DeviceIP, 10)
+				if err == nil {
+					defer client.Close()
+
+					sendEvent("progress", map[string]interface{}{
+						"stage":   "walking",
+						"percent": 10,
+						"message": "Starting SNMP walk...",
+					})
+
+					// Walk with progress callback
+					progressFn := func(p agent.WalkProgress) {
+						// Map progress to 10-90% range (reserve 0-10 for setup, 90-100 for submission)
+						adjustedPercent := 10 + (p.Percent * 80 / 100)
+						sendEvent("progress", map[string]interface{}{
+							"stage":      p.Stage,
+							"percent":    adjustedPercent,
+							"message":    p.Message,
+							"oids_found": p.OIDsFound,
+							"root_oid":   p.RootOID,
+						})
+					}
+
+					cols := agent.FullDiagnosticWalkWithProgress(client, nil, []string{
+						"1.3.6.1.2.1",    // MIB-2
+						"1.3.6.1.2.1.43", // Printer-MIB
+						"1.3.6.1.4.1",    // Enterprise MIBs
+					}, 5000, progressFn)
+
+					// Convert PDUs to RawPDU format
+					fullWalkData := make([]agent.RawPDU, 0, len(cols))
+					for _, pdu := range cols {
+						fullWalkData = append(fullWalkData, agent.PDUToRawPDU(pdu))
+					}
+
+					if parseDebug == nil {
+						parseDebug = &agent.ParseDebug{
+							IP:        req.DeviceIP,
+							Timestamp: time.Now().Format(time.RFC3339),
+						}
+					}
+					parseDebug.FullWalkData = fullWalkData
+
+					if appLogger != nil {
+						appLogger.Info("Full SNMP walk complete", "ip", req.DeviceIP, "oids_collected", len(fullWalkData))
+					}
+				} else if appLogger != nil {
+					appLogger.Warn("Failed to create SNMP client for full walk", "ip", req.DeviceIP, "error", err)
+					sendEvent("progress", map[string]interface{}{
+						"stage":   "warning",
+						"percent": 90,
+						"message": "Could not connect to device for SNMP walk",
+					})
+				}
+			} else if appLogger != nil {
+				appLogger.Warn("Failed to get SNMP config for full walk", "error", err)
+			}
+		}
+
+		sendEvent("progress", map[string]interface{}{
+			"stage":   "building",
+			"percent": 90,
+			"message": "Building report...",
+		})
+
+		// Get recent logs for context
+		var recentLogs []string
+		logPath := filepath.Join(".", "logs", "agent.log")
+		var allLogLines []string
+		if logData, err := os.ReadFile(logPath); err == nil {
+			allLogLines = strings.Split(string(logData), "\n")
+			start := len(allLogLines) - 50
+			if start < 0 {
+				start = 0
+			}
+			recentLogs = allLogLines[start:]
+		}
+
+		// Build the report
+		issueType := agent.ParseIssueType(req.IssueType)
+		rpt := submitter.BuildReport(
+			issueType,
+			req.ExpectedValue,
+			req.UserMessage,
+			req.DeviceIP,
+			req.DeviceSerial,
+			req.DeviceModel,
+			req.DeviceMAC,
+			req.CurrentManufacturer,
+			req.CurrentHostname,
+			req.CurrentPageCount,
+			parseDebug,
+			recentLogs,
+		)
+
+		// Supplement with client-provided data
+		if len(rpt.SNMPResponses) == 0 && len(req.SNMPResponses) > 0 {
+			rpt.SNMPResponses = req.SNMPResponses
+		}
+		if rpt.DetectedVendor == "" && req.DetectedVendor != "" {
+			rpt.DetectedVendor = req.DetectedVendor
+		}
+		if len(rpt.DetectionSteps) == 0 && len(req.DetectionSteps) > 0 {
+			rpt.DetectionSteps = req.DetectionSteps
+		}
+
+		// Populate extended device info
+		rpt.Firmware = req.Firmware
+		rpt.SubnetMask = req.SubnetMask
+		rpt.Gateway = req.Gateway
+		rpt.Consumables = req.Consumables
+		rpt.StatusMessages = req.StatusMessages
+		rpt.DiscoveryMethod = req.DiscoveryMethod
+		rpt.WebUIURL = req.WebUIURL
+		rpt.DeviceType = req.DeviceType
+		rpt.SourceType = req.SourceType
+		rpt.IsUSB = req.IsUSB
+		rpt.PortName = req.PortName
+		rpt.DriverName = req.DriverName
+		rpt.IsDefault = req.IsDefault
+		rpt.IsShared = req.IsShared
+		rpt.SpoolerStatus = req.SpoolerStatus
+		rpt.ColorPages = req.ColorPages
+		rpt.MonoPages = req.MonoPages
+		rpt.ScanCount = req.ScanCount
+		rpt.TonerLevels = req.TonerLevels
+		rpt.RawData = req.RawData
+
+		// Fetch device record and metrics from storage
+		if deviceStore != nil && req.DeviceSerial != "" {
+			if device, err := deviceStore.Get(r.Context(), req.DeviceSerial); err == nil && device != nil {
+				deviceMap := map[string]interface{}{
+					"serial": device.Serial, "ip": device.IP, "mac_address": device.MACAddress,
+					"hostname": device.Hostname, "manufacturer": device.Manufacturer, "model": device.Model,
+					"firmware": device.Firmware, "device_type": device.DeviceType, "source_type": device.SourceType,
+				}
+				rpt.DeviceRecord = deviceMap
+			}
+
+			since := time.Now().AddDate(0, -6, 0)
+			until := time.Now()
+			if metricsHistory, err := deviceStore.GetMetricsHistory(r.Context(), req.DeviceSerial, since, until); err == nil {
+				limit := 100
+				if len(metricsHistory) > limit {
+					metricsHistory = metricsHistory[:limit]
+				}
+				metricsSlice := make([]map[string]interface{}, 0, len(metricsHistory))
+				for _, m := range metricsHistory {
+					metricsSlice = append(metricsSlice, map[string]interface{}{
+						"timestamp": m.Timestamp, "page_count": m.PageCount,
+						"color_pages": m.ColorPages, "mono_pages": m.MonoPages,
+						"toner_levels": m.TonerLevels,
+					})
+				}
+				rpt.MetricsHistory = metricsSlice
+			}
+		}
+
+		// Extended logs
+		if len(allLogLines) > 0 {
+			start := len(allLogLines) - 200
+			if start < 0 {
+				start = 0
+			}
+			rpt.AgentLogs = allLogLines[start:]
+		}
+
+		sendEvent("progress", map[string]interface{}{
+			"stage":   "submitting",
+			"percent": 95,
+			"message": "Submitting to GitHub...",
+		})
+
+		// Submit to proxy
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+
+		proxyResp, err := submitter.SubmitToProxy(ctx, rpt)
+		if err != nil {
+			if appLogger != nil {
+				appLogger.Warn("Failed to submit report to proxy", "error", err)
+			}
+			sendEvent("error", map[string]interface{}{
+				"error":     err.Error(),
+				"report":    rpt,
+				"issue_url": report.BuildGitHubIssueURL(rpt, ""),
+				"fallback":  true,
+			})
+			return
+		}
+
+		if appLogger != nil {
+			appLogger.Info("Report submitted successfully (streamed)",
+				"report_id", rpt.ReportID,
+				"gist_url", proxyResp.GistURL,
+				"issue_type", issueType.String())
+		}
+
+		sendEvent("complete", proxyResp)
+	})
+
 	// Endpoint to return current scan metrics snapshot
 	// TODO(deprecate): Remove /scan_metrics endpoint - superseded by metrics API
 	// Still used by UI metrics display, needs replacement before removal

@@ -1282,6 +1282,38 @@ input[type="checkbox"]:disabled {
   cursor: not-allowed;
 }
 
+/* Progress bar inside submit button */
+.device-report-submit-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  position: relative;
+}
+
+.device-report-progress-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.device-report-progress-text {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
 .device-report-submit-loading {
   display: inline-flex;
   align-items: center;
