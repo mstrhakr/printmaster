@@ -761,31 +761,77 @@ func parseTag(tag string) (string, string) {
 }
 
 func buildDescriptor(component, version, assetName string) (artifactDescriptor, bool) {
+	// Primary pattern: printmaster-{component}-v{version}-{platform}-{arch}[.ext]
+	// e.g., printmaster-agent-v0.29.1-linux-amd64
 	prefix := fmt.Sprintf("printmaster-%s-v%s-", component, version)
-	if !strings.HasPrefix(assetName, prefix) {
-		return artifactDescriptor{}, false
+	if strings.HasPrefix(assetName, prefix) {
+		remainder := strings.TrimPrefix(assetName, prefix)
+		core := remainder
+		if idx := strings.Index(core, "."); idx != -1 {
+			core = core[:idx]
+		}
+		parts := strings.Split(core, "-")
+		if len(parts) >= 2 {
+			platform := strings.ToLower(parts[0])
+			arch := strings.ToLower(parts[1])
+			if safeSegmentPattern.MatchString(platform) && safeSegmentPattern.MatchString(arch) {
+				return artifactDescriptor{
+					component: component,
+					version:   version,
+					platform:  platform,
+					arch:      arch,
+					fileName:  assetName,
+				}, true
+			}
+		}
 	}
-	remainder := strings.TrimPrefix(assetName, prefix)
-	core := remainder
-	if idx := strings.Index(core, "."); idx != -1 {
-		core = core[:idx]
+
+	// Debian package pattern: printmaster-{component}_{version}_{arch}.deb
+	// e.g., printmaster-agent_0.29.1_amd64.deb
+	debPrefix := fmt.Sprintf("printmaster-%s_%s_", component, version)
+	if strings.HasPrefix(assetName, debPrefix) && strings.HasSuffix(assetName, ".deb") {
+		remainder := strings.TrimPrefix(assetName, debPrefix)
+		arch := strings.TrimSuffix(remainder, ".deb")
+		if safeSegmentPattern.MatchString(arch) {
+			return artifactDescriptor{
+				component: component,
+				version:   version,
+				platform:  "linux",
+				arch:      arch,
+				fileName:  assetName,
+			}, true
+		}
 	}
-	parts := strings.Split(core, "-")
-	if len(parts) < 2 {
-		return artifactDescriptor{}, false
+
+	// RPM package pattern: printmaster-{component}-{version}-{release}.{dist}.{arch}.rpm
+	// e.g., printmaster-agent-0.29.1-1.fc43.x86_64.rpm
+	rpmPrefix := fmt.Sprintf("printmaster-%s-%s-", component, version)
+	if strings.HasPrefix(assetName, rpmPrefix) && strings.HasSuffix(assetName, ".rpm") {
+		remainder := strings.TrimPrefix(assetName, rpmPrefix)
+		remainder = strings.TrimSuffix(remainder, ".rpm")
+		// Format: {release}.{dist}.{arch}
+		parts := strings.Split(remainder, ".")
+		if len(parts) >= 3 {
+			arch := parts[len(parts)-1]
+			// Normalize RPM arch names to standard
+			if arch == "x86_64" {
+				arch = "amd64"
+			} else if arch == "aarch64" {
+				arch = "arm64"
+			}
+			if safeSegmentPattern.MatchString(arch) {
+				return artifactDescriptor{
+					component: component,
+					version:   version,
+					platform:  "linux",
+					arch:      arch,
+					fileName:  assetName,
+				}, true
+			}
+		}
 	}
-	platform := strings.ToLower(parts[0])
-	arch := strings.ToLower(parts[1])
-	if !safeSegmentPattern.MatchString(platform) || !safeSegmentPattern.MatchString(arch) {
-		return artifactDescriptor{}, false
-	}
-	return artifactDescriptor{
-		component: component,
-		version:   version,
-		platform:  platform,
-		arch:      arch,
-		fileName:  assetName,
-	}, true
+
+	return artifactDescriptor{}, false
 }
 
 func fileExists(path string) bool {

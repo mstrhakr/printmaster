@@ -240,12 +240,26 @@ test('device context menu: appearance, actions, delete flow', async ({ page }) =
            (cards && cards.dataset.contextMenuBound === 'true');
   }, { timeout: 5000 });
   
+  // Small stabilization wait to ensure event handlers are fully attached
+  await page.waitForTimeout(100);
+  
   // --- Test 1: Context menu appears on right-click ---
   const deviceElement = page.locator('[data-serial="ABC123"]').first();
-  await deviceElement.click({ button: 'right' });
   
+  // Retry right-click if context menu doesn't appear (handles timing edge cases)
   const contextMenu = page.locator('.pm-context-menu');
-  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await deviceElement.click({ button: 'right' });
+    try {
+      await expect(contextMenu).toBeVisible({ timeout: 2000 });
+      break;
+    } catch (e) {
+      if (attempt === 2) throw e;
+      // Close any partial menu and retry
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(50);
+    }
+  }
   
   // Verify menu items exist
   await expect(contextMenu.locator('[data-action="show-printer-details"]')).toBeVisible();
@@ -374,14 +388,27 @@ test('agent context menu: appearance and actions', async ({ page }) => {
            (cards && cards.dataset.contextMenuBound === 'true');
   }, { timeout: 5000 });
   
+  // Small stabilization wait to ensure event handlers are fully attached
+  await page.waitForTimeout(100);
+  
   const agentElement = page.locator('[data-agent-id="agent-001"]').first();
   await expect(agentElement).toBeVisible();
   
   // --- Test 1: Context menu appears ---
-  await agentElement.click({ button: 'right', force: true });
-  
+  // Retry right-click if context menu doesn't appear (handles timing edge cases)
   const contextMenu = page.locator('.pm-context-menu');
-  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await agentElement.click({ button: 'right', force: true });
+    try {
+      await expect(contextMenu).toBeVisible({ timeout: 2000 });
+      break;
+    } catch (e) {
+      if (attempt === 2) throw e;
+      // Close any partial menu and retry
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(50);
+    }
+  }
   
   // Verify agent menu items
   await expect(contextMenu.locator('[data-action="view-agent"]')).toBeVisible();

@@ -1683,6 +1683,7 @@ func loadUnifiedSettings(store storage.AgentConfigStore) pmsettings.Settings {
 // applyServerConfigFromStore merges persisted server connection settings from the
 // agent config database into the in-memory configuration so that UI-driven join
 // flows can enable uploads without editing config.toml manually.
+// Note: Environment variables take precedence over stored config values.
 func applyServerConfigFromStore(agentCfg *AgentConfig, store storage.AgentConfigStore, log *logger.Logger) {
 	if agentCfg == nil || store == nil {
 		return
@@ -1700,12 +1701,24 @@ func applyServerConfigFromStore(agentCfg *AgentConfig, store storage.AgentConfig
 		return
 	}
 
-	agentCfg.Server.URL = strings.TrimSpace(persisted.URL)
+	// Only apply stored URL if no environment variable is set
+	// This allows SERVER_URL env var to override stored config (Docker Compose scenario)
+	envURL := os.Getenv("SERVER_URL")
+	if envURL == "" {
+		agentCfg.Server.URL = strings.TrimSpace(persisted.URL)
+	} else if log != nil {
+		log.Debug("SERVER_URL environment variable set; ignoring stored URL",
+			"env_url", envURL,
+			"stored_url", persisted.URL)
+	}
 	if persisted.Name != "" {
 		agentCfg.Server.Name = persisted.Name
 	}
 	agentCfg.Server.CAPath = persisted.CAPath
-	agentCfg.Server.InsecureSkipVerify = persisted.InsecureSkipVerify
+	// Only apply InsecureSkipVerify from store if env var not set
+	if os.Getenv("SERVER_INSECURE_SKIP_VERIFY") == "" {
+		agentCfg.Server.InsecureSkipVerify = persisted.InsecureSkipVerify
+	}
 	if persisted.UploadInterval > 0 {
 		agentCfg.Server.UploadInterval = persisted.UploadInterval
 	}
