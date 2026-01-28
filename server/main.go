@@ -5044,6 +5044,11 @@ func proxyThroughWebSocket(w http.ResponseWriter, r *http.Request, agentID strin
 // proxyThroughWebSocketWithTimeout sends an HTTP request through WebSocket with custom timeout.
 // Use longer timeouts for operations like metrics collection that may take significant time.
 func proxyThroughWebSocketWithTimeout(w http.ResponseWriter, r *http.Request, agentID string, targetURL string, timeout time.Duration) {
+	// Remove security headers that would block proxied content from being displayed
+	// This must happen BEFORE any response is written (including errors)
+	w.Header().Del("X-Frame-Options")
+	w.Header().Del("Content-Security-Policy")
+
 	// Detect if we're proxying to the agent's device proxy endpoint
 	// In this case, the agent already handles all content rewriting, so we just need
 	// to translate the agent's prefix (/proxy/{serial}/) to server's prefix (/api/v1/proxy/device/{serial}/)

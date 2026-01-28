@@ -5799,6 +5799,61 @@ func runInteractive(ctx context.Context, configFlag string) {
 		}
 	})
 
+	// checkAndFallbackProtocol does a quick TCP connectivity check on the target URL.
+	// If the connection fails, it tries the alternative protocol (https↔http).
+	// This handles cases where web_ui_url is incorrectly set (e.g., HTTPS when device only supports HTTP).
+	checkAndFallbackProtocol := func(ctx context.Context, targetURL, deviceIP, serial string, log *logger.Logger) string {
+		parsed, err := url.Parse(targetURL)
+		if err != nil {
+			return targetURL
+		}
+
+		// Determine host:port to check
+		host := parsed.Host
+		if host == "" {
+			return targetURL
+		}
+
+		// Quick TCP probe with short timeout (don't block the user)
+		checkCtx, checkCancel := context.WithTimeout(ctx, 3*time.Second)
+		defer checkCancel()
+
+		d := net.Dialer{}
+		conn, err := d.DialContext(checkCtx, "tcp", host)
+		if err == nil {
+			conn.Close()
+			return targetURL // Primary URL works
+		}
+
+		// Connection failed - try alternative protocol
+		log.Debug("Proxy: primary URL unreachable, trying fallback", "url", targetURL, "error", err.Error())
+
+		var altURL string
+		if parsed.Scheme == "https" {
+			// Try HTTP on port 80
+			altURL = "http://" + deviceIP
+		} else {
+			// Try HTTPS on port 443
+			altURL = "https://" + deviceIP
+		}
+
+		altParsed, err := url.Parse(altURL)
+		if err != nil {
+			return targetURL
+		}
+
+		altConn, err := d.DialContext(checkCtx, "tcp", altParsed.Host)
+		if err == nil {
+			altConn.Close()
+			log.Info("Proxy: using fallback protocol", "serial", serial, "original", targetURL, "fallback", altURL)
+			return altURL
+		}
+
+		// Both failed - return original and let the proxy handler report the error
+		log.Warn("Proxy: both protocols unreachable", "serial", serial, "primary", targetURL, "fallback", altURL)
+		return targetURL
+	}
+
 	// Proxy printer web UI - /proxy/<serial>/<path...>
 	http.HandleFunc("/proxy/", func(w http.ResponseWriter, r *http.Request) {
 		// Determine if request is over HTTPS
@@ -5892,6 +5947,10 @@ func runInteractive(ctx context.Context, configFlag string) {
 			if targetURL == "" {
 				targetURL = "http://" + device.IP
 			}
+
+			// Quick connectivity check with automatic HTTP/HTTPS fallback
+			// This helps when web_ui_url is incorrectly set (common with self-signed HTTPS)
+			targetURL = checkAndFallbackProtocol(ctx, targetURL, device.IP, serial, appLogger)
 		}
 
 		target, err := url.Parse(targetURL)
