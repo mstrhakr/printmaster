@@ -10132,8 +10132,9 @@ function renderAgentVersionCell(agent, forTable = false) {
     
     // Check if update is available (normal state) - only show if latest is actually newer
     if (latestVersion && currentVersion && currentVersion !== 'N/A' && compareVersions(latestVersion, currentVersion) > 0) {
-        const meta = agent.__meta || {};
-        const canUpdate = meta.statusKey === 'active';
+        // Check for WebSocket connection using connection_type field
+        const connectionType = (agent.connection_type || '').toLowerCase();
+        const canUpdate = connectionType === 'ws';
         const tooltip = canUpdate ? `Update available: ${latestVersion}` : 'Agent not connected via WebSocket';
         const buttonClass = canUpdate ? 'update-btn' : 'update-btn disabled';
         const updateBtn = `<button class="${buttonClass}" data-action="update-agent" data-agent-id="${escapeHtml(agentId)}" title="${escapeHtml(tooltip)}" ${canUpdate ? '' : 'disabled'}>↑ ${escapeHtml(latestVersion)}</button>`;
