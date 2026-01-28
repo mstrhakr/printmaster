@@ -183,7 +183,6 @@ func getUnixDefaultGateway() (string, error) {
 	return "", fmt.Errorf("default gateway not found in route table")
 }
 
-
 // getCommonSerialOIDs returns the most common printer serial number OID
 func getCommonSerialOIDs() []string {
 	return []string{
@@ -356,15 +355,15 @@ func FullDiagnosticWalk(snmp SNMPClient, logFn func(string), roots []string, max
 
 // WalkProgress contains progress information for streaming walks
 type WalkProgress struct {
-	Stage       string `json:"stage"`        // "connecting", "walking", "complete", "error"
-	RootIndex   int    `json:"root_index"`   // Current root being walked (0-based)
-	RootCount   int    `json:"root_count"`   // Total number of roots
-	RootOID     string `json:"root_oid"`     // Current root OID being walked
-	OIDsFound   int    `json:"oids_found"`   // Total OIDs collected so far
-	MaxOIDs     int    `json:"max_oids"`     // Maximum OIDs to collect
-	Percent     int    `json:"percent"`      // Estimated percentage (0-100)
-	Message     string `json:"message"`      // Human-readable status
-	Error       string `json:"error,omitempty"`
+	Stage     string `json:"stage"`      // "connecting", "walking", "complete", "error"
+	RootIndex int    `json:"root_index"` // Current root being walked (0-based)
+	RootCount int    `json:"root_count"` // Total number of roots
+	RootOID   string `json:"root_oid"`   // Current root OID being walked
+	OIDsFound int    `json:"oids_found"` // Total OIDs collected so far
+	MaxOIDs   int    `json:"max_oids"`   // Maximum OIDs to collect
+	Percent   int    `json:"percent"`    // Estimated percentage (0-100)
+	Message   string `json:"message"`    // Human-readable status
+	Error     string `json:"error,omitempty"`
 }
 
 // ProgressCallback is called during walks to report progress
