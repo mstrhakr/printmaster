@@ -202,7 +202,7 @@ func TestParsePDUs_TonerModelNotUsedAsSerial(t *testing.T) {
 		// sysDescr indicating Kyocera
 		{Name: "1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("KYOCERA Document Solutions Printing System")},
 		// Supply descriptions (prtMarkerSuppliesDescription)
-		{Name: "1.3.6.1.2.1.43.11.1.1.6.1.1", Type: gosnmp.OctetString, Value: []byte("TK-3402S")},       // Toner model - NOT a serial!
+		{Name: "1.3.6.1.2.1.43.11.1.1.6.1.1", Type: gosnmp.OctetString, Value: []byte("TK-3402S")}, // Toner model - NOT a serial!
 		{Name: "1.3.6.1.2.1.43.11.1.1.6.1.2", Type: gosnmp.OctetString, Value: []byte("Waste Toner Box")},
 		// Supply levels to make it look like a printer
 		{Name: "1.3.6.1.2.1.43.11.1.1.9.1.1", Type: gosnmp.Integer, Value: 5940},
