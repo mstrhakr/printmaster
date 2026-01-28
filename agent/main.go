@@ -585,6 +585,23 @@ func (a *agentAuthManager) handleAuthMe(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// When accessed through server proxy, the server injects principal info in headers
+	// Return that info so the proxied UI can display the correct role/permissions
+	if r.Header.Get("X-PrintMaster-Proxy") == "server" {
+		user := r.Header.Get("X-PrintMaster-User")
+		role := r.Header.Get("X-PrintMaster-Role")
+		if user != "" && role != "" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(&AgentPrincipal{
+				Username: user,
+				Role:     role,
+				Source:   "server-proxy",
+			})
+			return
+		}
+	}
+
 	if principal, ok := a.authenticate(r); ok && principal != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(principal)

@@ -5096,6 +5096,14 @@ func proxyThroughWebSocketWithTimeout(w http.ResponseWriter, r *http.Request, ag
 		}
 	}
 
+	// Add principal info for the agent to use when returning auth/me responses
+	// This allows the proxied agent UI to know who the server-authenticated user is
+	principal := getPrincipal(r)
+	if principal != nil && principal.User != nil {
+		headers["X-PrintMaster-User"] = principal.User.Username
+		headers["X-PrintMaster-Role"] = string(principal.Role)
+	}
+
 	logTraceTag("proxy", "Proxy request dispatched",
 		"agent_id", agentID,
 		"request_id", requestID,
