@@ -27,6 +27,9 @@ func TestDefaultAgentConfig(t *testing.T) {
 	}
 
 	// Test SNMP settings
+	if cfg.SNMP.Version != "2c" {
+		t.Errorf("expected default SNMP version to be '2c', got %s", cfg.SNMP.Version)
+	}
 	if cfg.SNMP.Community != "public" {
 		t.Errorf("expected default SNMP community to be 'public', got %s", cfg.SNMP.Community)
 	}
@@ -35,6 +38,13 @@ func TestDefaultAgentConfig(t *testing.T) {
 	}
 	if cfg.SNMP.Retries != 1 {
 		t.Errorf("expected default SNMP retries to be 1, got %d", cfg.SNMP.Retries)
+	}
+	// SNMPv3 settings should be empty by default
+	if cfg.SNMP.SecurityLevel != "" {
+		t.Errorf("expected default SNMP security level to be empty, got %s", cfg.SNMP.SecurityLevel)
+	}
+	if cfg.SNMP.Username != "" {
+		t.Errorf("expected default SNMP username to be empty, got %s", cfg.SNMP.Username)
 	}
 
 	// Test Server settings
@@ -265,6 +275,67 @@ timeout_ms = 2000
 	}
 	if cfg.AutoUpdate.Mode != updatepolicy.AgentOverrideNever {
 		t.Errorf("expected auto-update mode disabled via env override, got %s", cfg.AutoUpdate.Mode)
+	}
+}
+
+func TestLoadAgentConfigSNMPv3(t *testing.T) {
+	t.Parallel()
+
+	// Create temporary config file with SNMPv3 settings
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.toml")
+
+	configContent := `asset_id_regex = "\\b\\d{5}\\b"
+discovery_concurrency = 50
+
+[snmp]
+version = "3"
+community = ""
+timeout_ms = 3000
+retries = 2
+security_level = "authPriv"
+username = "snmpuser"
+auth_protocol = "SHA256"
+auth_password = "authpass123"
+priv_protocol = "AES"
+priv_password = "privpass123"
+context_name = "mycontext"
+`
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	// Load config
+	cfg, err := LoadAgentConfig(configPath)
+	if err != nil {
+		t.Fatalf("failed to load config: %v", err)
+	}
+
+	// Verify SNMPv3 settings
+	if cfg.SNMP.Version != "3" {
+		t.Errorf("expected SNMP version to be '3', got %s", cfg.SNMP.Version)
+	}
+	if cfg.SNMP.SecurityLevel != "authPriv" {
+		t.Errorf("expected SNMP security level to be 'authPriv', got %s", cfg.SNMP.SecurityLevel)
+	}
+	if cfg.SNMP.Username != "snmpuser" {
+		t.Errorf("expected SNMP username to be 'snmpuser', got %s", cfg.SNMP.Username)
+	}
+	if cfg.SNMP.AuthProtocol != "SHA256" {
+		t.Errorf("expected SNMP auth protocol to be 'SHA256', got %s", cfg.SNMP.AuthProtocol)
+	}
+	if cfg.SNMP.AuthPassword != "authpass123" {
+		t.Errorf("expected SNMP auth password to be 'authpass123', got %s", cfg.SNMP.AuthPassword)
+	}
+	if cfg.SNMP.PrivProtocol != "AES" {
+		t.Errorf("expected SNMP priv protocol to be 'AES', got %s", cfg.SNMP.PrivProtocol)
+	}
+	if cfg.SNMP.PrivPassword != "privpass123" {
+		t.Errorf("expected SNMP priv password to be 'privpass123', got %s", cfg.SNMP.PrivPassword)
+	}
+	if cfg.SNMP.ContextName != "mycontext" {
+		t.Errorf("expected SNMP context name to be 'mycontext', got %s", cfg.SNMP.ContextName)
 	}
 }
 

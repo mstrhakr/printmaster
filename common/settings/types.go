@@ -73,9 +73,30 @@ type DiscoverySettings struct {
 
 // SNMPSettings configure SNMP queries (fleet-managed).
 type SNMPSettings struct {
+	// Version specifies the SNMP protocol version: "1", "2c", or "3"
+	Version string `json:"version"`
+	// Community is the community string for SNMPv1/v2c
 	Community string `json:"community"`
-	TimeoutMS int    `json:"timeout_ms"`
-	Retries   int    `json:"retries"`
+	// TimeoutMS is the SNMP timeout in milliseconds
+	TimeoutMS int `json:"timeout_ms"`
+	// Retries is the number of retry attempts for failed queries
+	Retries int `json:"retries"`
+
+	// SNMPv3 security parameters
+	// SecurityLevel: "noAuthNoPriv", "authNoPriv", or "authPriv"
+	SecurityLevel string `json:"security_level,omitempty"`
+	// Username is the SNMPv3 security name (USM user)
+	Username string `json:"username,omitempty"`
+	// AuthProtocol: "MD5", "SHA", "SHA224", "SHA256", "SHA384", "SHA512" (empty = no auth)
+	AuthProtocol string `json:"auth_protocol,omitempty"`
+	// AuthPassword is the authentication passphrase
+	AuthPassword string `json:"auth_password,omitempty"`
+	// PrivProtocol: "DES", "AES", "AES192", "AES256" (empty = no privacy)
+	PrivProtocol string `json:"priv_protocol,omitempty"`
+	// PrivPassword is the privacy passphrase
+	PrivPassword string `json:"priv_password,omitempty"`
+	// ContextName is the SNMPv3 context name (optional)
+	ContextName string `json:"context_name,omitempty"`
 }
 
 // FeaturesSettings toggle optional features (fleet-managed).

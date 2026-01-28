@@ -2483,7 +2483,7 @@ select:focus {
   flex-direction: column;
   padding: 16px;
   overflow-y: auto;
-  height: calc(100vh - 180px);
+  height: calc(100vh - 200px);
 }
 
 .logs-main-header {
@@ -4007,7 +4007,7 @@ select:focus {
   flex-direction: column;
   padding: 16px;
   overflow-y: auto;
-  height: calc(100vh - 180px);
+  height: calc(100vh - 200px);
 }
 
 /* ============================================
@@ -4019,7 +4019,8 @@ select:focus {
 .sidebar-layout {
   display: flex;
   gap: 0;
-  min-height: calc(100vh - 180px);
+  min-height: calc(100vh - 200px);
+  max-height: calc(100vh - 200px);
 }
 
 /* Base sidebar */
@@ -4032,7 +4033,7 @@ select:focus {
   transition: width 0.3s ease;
   position: sticky;
   top: 0;
-  height: calc(100vh - 180px);
+  height: calc(100vh - 200px);
   overflow: hidden;
 }
 
@@ -4117,7 +4118,7 @@ select:focus {
   flex-direction: column;
   padding: 16px;
   overflow-y: auto;
-  height: calc(100vh - 180px);
+  height: calc(100vh - 200px);
 }
 
 /* Mobile responsive for sidebars */
@@ -4300,7 +4301,7 @@ select:focus {
   flex-direction: column;
   padding: 16px;
   overflow-y: auto;
-  height: calc(100vh - 180px);
+  height: calc(100vh - 200px);
 }
 
 .agents-main-header {
@@ -4372,8 +4373,8 @@ select:focus {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow-y: auto;
-  height: calc(100vh - 180px);
+  overflow: hidden; /* Prevent double scrollbars - children handle scrolling */
+  height: calc(100vh - 200px);
 }
 
 .devices-main-header {
@@ -4778,6 +4779,23 @@ select:focus {
 #devices_table_wrapper .table-wrapper,
 #agents_table_wrapper .table-wrapper {
   margin-top: 12px;
+}
+
+/* Make table wrapper fill available space and handle both scrollbars */
+#devices_table_wrapper,
+#agents_table_wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#devices_table_wrapper .table-wrapper,
+#agents_table_wrapper .table-wrapper {
+  flex: 1;
+  min-height: 0;
+  overflow: auto; /* Both scrollbars on this single container */
 }
 
 .simple-table th[data-sort-key] {
@@ -10326,7 +10344,7 @@ select:hover {
   flex-direction: column;
   padding: 16px;
   overflow-y: auto;
-  height: calc(100vh - 180px);
+  height: calc(100vh - 200px);
 }
 
 /* Summary cards */

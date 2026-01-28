@@ -9,6 +9,46 @@ const AGENT_UI_STATE_KEYS = {
     ACTIVE_TAB: 'pm_agent_active_tab',
 };
 
+// Toggle SNMPv3 settings visibility based on SNMP version selection
+function toggleSNMPv3Settings() {
+    const version = document.getElementById('dev_snmp_version')?.value || '2c';
+    const v1v2cSettings = document.getElementById('snmp_v1v2c_settings');
+    const v3Settings = document.getElementById('snmp_v3_settings');
+    
+    if (version === '3') {
+        // Hide v1/v2c community string, show v3 settings
+        if (v1v2cSettings) v1v2cSettings.style.display = 'none';
+        if (v3Settings) v3Settings.style.display = 'block';
+        // Also update auth/priv visibility based on security level
+        toggleSNMPv3AuthPriv();
+    } else {
+        // Show v1/v2c community string, hide v3 settings
+        if (v1v2cSettings) v1v2cSettings.style.display = 'block';
+        if (v3Settings) v3Settings.style.display = 'none';
+    }
+}
+
+// Toggle SNMPv3 auth/priv settings visibility based on security level
+function toggleSNMPv3AuthPriv() {
+    const secLevel = document.getElementById('dev_snmp_security_level')?.value || 'noAuthNoPriv';
+    const authSettings = document.getElementById('snmp_v3_auth_settings');
+    const privSettings = document.getElementById('snmp_v3_priv_settings');
+    
+    if (secLevel === 'noAuthNoPriv') {
+        // Hide both auth and priv settings
+        if (authSettings) authSettings.style.display = 'none';
+        if (privSettings) privSettings.style.display = 'none';
+    } else if (secLevel === 'authNoPriv') {
+        // Show auth, hide priv
+        if (authSettings) authSettings.style.display = 'block';
+        if (privSettings) privSettings.style.display = 'none';
+    } else {
+        // authPriv: show both
+        if (authSettings) authSettings.style.display = 'block';
+        if (privSettings) privSettings.style.display = 'block';
+    }
+}
+
 // Update the header info bar with version and server details
 async function updateHeaderInfoBar() {
     const versionEl = document.getElementById('header_version');
@@ -4145,10 +4185,24 @@ function loadSettings() {
         document.getElementById('dev_debug_logging').value = log.level || 'info';
         document.getElementById('dev_dump_parse_debug').checked = !!log.dump_parse_debug;
         
-        // SNMP settings
+        // SNMP settings - basic
+        document.getElementById('dev_snmp_version').value = snmp.version || '2c';
         document.getElementById('dev_snmp_community').value = snmp.community || '';
         document.getElementById('dev_snmp_timeout').value = snmp.timeout_ms || 2000;
         document.getElementById('dev_snmp_retries').value = snmp.retries || 1;
+        
+        // SNMP settings - v3 security
+        document.getElementById('dev_snmp_security_level').value = snmp.security_level || 'authPriv';
+        document.getElementById('dev_snmp_username').value = snmp.username || '';
+        document.getElementById('dev_snmp_auth_protocol').value = snmp.auth_protocol || 'SHA256';
+        document.getElementById('dev_snmp_auth_password').value = snmp.auth_password || '';
+        document.getElementById('dev_snmp_priv_protocol').value = snmp.priv_protocol || 'AES';
+        document.getElementById('dev_snmp_priv_password').value = snmp.priv_password || '';
+        document.getElementById('dev_snmp_context_name').value = snmp.context_name || '';
+        
+        // Update SNMPv3 UI visibility based on version
+        toggleSNMPv3Settings();
+        toggleSNMPv3AuthPriv();
         
         // Features settings
         document.getElementById('dev_asset_id_regex').value = feat.asset_id_regex || '';
@@ -4592,11 +4646,23 @@ function renderPrinterInfo(pi) {
 function saveDevSettings() {
     const logLevel = document.getElementById('dev_debug_logging').value;
     // Compose the new settings structure
+    const snmpVersion = document.getElementById('dev_snmp_version').value || '2c';
     const snmpSettings = {
+        version: snmpVersion,
         community: document.getElementById('dev_snmp_community').value,
         timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
         retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1
     };
+    // Add SNMPv3 settings if version 3 is selected
+    if (snmpVersion === '3') {
+        snmpSettings.security_level = document.getElementById('dev_snmp_security_level').value || 'noAuthNoPriv';
+        snmpSettings.username = document.getElementById('dev_snmp_username').value || '';
+        snmpSettings.auth_protocol = document.getElementById('dev_snmp_auth_protocol').value || '';
+        snmpSettings.auth_password = document.getElementById('dev_snmp_auth_password').value || '';
+        snmpSettings.priv_protocol = document.getElementById('dev_snmp_priv_protocol').value || '';
+        snmpSettings.priv_password = document.getElementById('dev_snmp_priv_password').value || '';
+        snmpSettings.context_name = document.getElementById('dev_snmp_context_name').value || '';
+    }
     const featuresSettings = {
         asset_id_regex: document.getElementById('dev_asset_id_regex').value || '',
         epson_remote_mode_enabled: document.getElementById('dev_epson_remote_mode')?.checked ?? false
@@ -4904,11 +4970,23 @@ async function saveAllSettings(btn) {
         const logLevel = document.getElementById('dev_debug_logging').value;
 
         // Compose SNMP settings (moved from developer)
+        const snmpVersion = document.getElementById('dev_snmp_version').value || '2c';
         const snmpSettings = {
+            version: snmpVersion,
             community: document.getElementById('dev_snmp_community').value,
             timeout_ms: parseInt(document.getElementById('dev_snmp_timeout').value) || 2000,
             retries: parseInt(document.getElementById('dev_snmp_retries').value) || 1
         };
+        // Add SNMPv3 settings if version 3 is selected
+        if (snmpVersion === '3') {
+            snmpSettings.security_level = document.getElementById('dev_snmp_security_level').value || 'noAuthNoPriv';
+            snmpSettings.username = document.getElementById('dev_snmp_username').value || '';
+            snmpSettings.auth_protocol = document.getElementById('dev_snmp_auth_protocol').value || '';
+            snmpSettings.auth_password = document.getElementById('dev_snmp_auth_password').value || '';
+            snmpSettings.priv_protocol = document.getElementById('dev_snmp_priv_protocol').value || '';
+            snmpSettings.priv_password = document.getElementById('dev_snmp_priv_password').value || '';
+            snmpSettings.context_name = document.getElementById('dev_snmp_context_name').value || '';
+        }
 
         // Compose features settings
         const featuresSettings = {

@@ -4179,11 +4179,39 @@ func runInteractive(ctx context.Context, configFlag string) {
 			appLogger.Info("Using default AssetIDRegex", "pattern", "five-digit")
 		}
 
-		// Apply SNMP community
+		// Apply SNMP settings to environment for sub-packages
+		if agentConfig.SNMP.Version != "" {
+			_ = os.Setenv("SNMP_VERSION", agentConfig.SNMP.Version)
+		}
 		if agentConfig.SNMP.Community != "" {
 			_ = os.Setenv("SNMP_COMMUNITY", agentConfig.SNMP.Community)
-			appLogger.Info("SNMP community configured from TOML")
 		}
+		// SNMPv3 settings
+		if agentConfig.SNMP.SecurityLevel != "" {
+			_ = os.Setenv("SNMP_SECURITY_LEVEL", agentConfig.SNMP.SecurityLevel)
+		}
+		if agentConfig.SNMP.Username != "" {
+			_ = os.Setenv("SNMP_USERNAME", agentConfig.SNMP.Username)
+		}
+		if agentConfig.SNMP.AuthProtocol != "" {
+			_ = os.Setenv("SNMP_AUTH_PROTOCOL", agentConfig.SNMP.AuthProtocol)
+		}
+		if agentConfig.SNMP.AuthPassword != "" {
+			_ = os.Setenv("SNMP_AUTH_PASSWORD", agentConfig.SNMP.AuthPassword)
+		}
+		if agentConfig.SNMP.PrivProtocol != "" {
+			_ = os.Setenv("SNMP_PRIV_PROTOCOL", agentConfig.SNMP.PrivProtocol)
+		}
+		if agentConfig.SNMP.PrivPassword != "" {
+			_ = os.Setenv("SNMP_PRIV_PASSWORD", agentConfig.SNMP.PrivPassword)
+		}
+		if agentConfig.SNMP.ContextName != "" {
+			_ = os.Setenv("SNMP_CONTEXT_NAME", agentConfig.SNMP.ContextName)
+		}
+		appLogger.Info("SNMP configured from TOML",
+			"version", agentConfig.SNMP.Version,
+			"has_community", agentConfig.SNMP.Community != "",
+			"has_v3_user", agentConfig.SNMP.Username != "")
 
 		// Apply SNMP timeout and retries settings
 		scannerConfig.Lock()

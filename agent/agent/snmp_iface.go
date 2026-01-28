@@ -24,14 +24,33 @@ var NewSNMPClient = func(cfg *SNMPConfig, target string, timeoutSeconds int) (SN
 		tsec = 30
 	}
 	snmp := &gosnmp.GoSNMP{
-		Target:    target,
-		Port:      161,
-		Community: cfg.Community,
-		Version:   cfg.Version,
-		Timeout:   time.Duration(tsec) * time.Second,
+		Target:  target,
+		Port:    161,
+		Version: cfg.Version,
+		Timeout: time.Duration(tsec) * time.Second,
 		// increase retries to be more tolerant on lossy networks
 		Retries: 3,
 	}
+
+	// Configure based on SNMP version
+	if cfg.Version == gosnmp.Version3 {
+		// SNMPv3 configuration
+		snmp.SecurityModel = gosnmp.UserSecurityModel
+		snmp.MsgFlags = cfg.SecurityLevel
+		snmp.ContextName = cfg.ContextName
+
+		snmp.SecurityParameters = &gosnmp.UsmSecurityParameters{
+			UserName:                 cfg.Username,
+			AuthenticationProtocol:   cfg.AuthProtocol,
+			AuthenticationPassphrase: cfg.AuthPassword,
+			PrivacyProtocol:          cfg.PrivProtocol,
+			PrivacyPassphrase:        cfg.PrivPassword,
+		}
+	} else {
+		// SNMPv1/v2c configuration
+		snmp.Community = cfg.Community
+	}
+
 	if err := snmp.Connect(); err != nil {
 		return nil, err
 	}

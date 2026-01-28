@@ -3,6 +3,7 @@ package scanner
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gosnmp/gosnmp"
@@ -10,8 +11,26 @@ import (
 
 // SNMPConfig holds SNMP connection parameters.
 type SNMPConfig struct {
+	// Community is the community string for SNMPv1/v2c
 	Community string
-	Version   gosnmp.SnmpVersion
+	// Version is the SNMP protocol version (gosnmp.Version1, Version2c, Version3)
+	Version gosnmp.SnmpVersion
+
+	// SNMPv3 security parameters
+	// SecurityLevel: noAuthNoPriv, authNoPriv, or authPriv
+	SecurityLevel gosnmp.SnmpV3MsgFlags
+	// Username is the SNMPv3 security name (USM user)
+	Username string
+	// AuthProtocol: MD5, SHA, SHA224, SHA256, SHA384, SHA512
+	AuthProtocol gosnmp.SnmpV3AuthProtocol
+	// AuthPassword is the authentication passphrase
+	AuthPassword string
+	// PrivProtocol: DES, AES, AES192, AES256
+	PrivProtocol gosnmp.SnmpV3PrivProtocol
+	// PrivPassword is the privacy passphrase
+	PrivPassword string
+	// ContextName is the SNMPv3 context name (optional)
+	ContextName string
 }
 
 // SNMPClient defines the interface for SNMP operations.
@@ -48,33 +67,90 @@ func (c *gosnmpClient) Close() error {
 }
 
 // GetSNMPConfig loads SNMP configuration from environment variables.
-// Defaults to community="public" and version=v1 if not specified.
+// Defaults to community="public" and version=v2c if not specified.
 func GetSNMPConfig() (*SNMPConfig, error) {
 	community := os.Getenv("SNMP_COMMUNITY")
 	if community == "" {
 		community = "public"
 	}
 
-	versionStr := os.Getenv("SNMP_VERSION")
-	version := gosnmp.Version1 // default
+	versionStr := strings.ToLower(os.Getenv("SNMP_VERSION"))
+	version := gosnmp.Version2c // default to v2c for better compatibility
 
-	if versionStr != "" {
-		switch versionStr {
-		case "1":
-			version = gosnmp.Version1
-		case "2c":
-			version = gosnmp.Version2c
-		case "3":
-			version = gosnmp.Version3
-		default:
-			return nil, fmt.Errorf("unsupported SNMP version: %s", versionStr)
-		}
+	switch versionStr {
+	case "", "2c", "v2c", "2":
+		version = gosnmp.Version2c
+	case "1", "v1":
+		version = gosnmp.Version1
+	case "3", "v3":
+		version = gosnmp.Version3
+	default:
+		return nil, fmt.Errorf("unsupported SNMP version: %s (use 1, 2c, or 3)", versionStr)
 	}
 
-	return &SNMPConfig{
+	cfg := &SNMPConfig{
 		Community: community,
 		Version:   version,
-	}, nil
+	}
+
+	// SNMPv3 configuration from environment
+	if version == gosnmp.Version3 {
+		cfg.Username = os.Getenv("SNMP_USERNAME")
+		cfg.ContextName = os.Getenv("SNMP_CONTEXT_NAME")
+
+		// Security level
+		secLevel := strings.ToLower(os.Getenv("SNMP_SECURITY_LEVEL"))
+		switch secLevel {
+		case "authpriv":
+			cfg.SecurityLevel = gosnmp.AuthPriv
+		case "authnopriv":
+			cfg.SecurityLevel = gosnmp.AuthNoPriv
+		default:
+			cfg.SecurityLevel = gosnmp.NoAuthNoPriv
+		}
+
+		// Auth protocol
+		authProto := strings.ToUpper(os.Getenv("SNMP_AUTH_PROTOCOL"))
+		switch authProto {
+		case "MD5":
+			cfg.AuthProtocol = gosnmp.MD5
+		case "SHA", "SHA1":
+			cfg.AuthProtocol = gosnmp.SHA
+		case "SHA224":
+			cfg.AuthProtocol = gosnmp.SHA224
+		case "SHA256":
+			cfg.AuthProtocol = gosnmp.SHA256
+		case "SHA384":
+			cfg.AuthProtocol = gosnmp.SHA384
+		case "SHA512":
+			cfg.AuthProtocol = gosnmp.SHA512
+		default:
+			cfg.AuthProtocol = gosnmp.NoAuth
+		}
+		cfg.AuthPassword = os.Getenv("SNMP_AUTH_PASSWORD")
+
+		// Privacy protocol
+		privProto := strings.ToUpper(os.Getenv("SNMP_PRIV_PROTOCOL"))
+		switch privProto {
+		case "DES":
+			cfg.PrivProtocol = gosnmp.DES
+		case "AES", "AES128":
+			cfg.PrivProtocol = gosnmp.AES
+		case "AES192":
+			cfg.PrivProtocol = gosnmp.AES192
+		case "AES256":
+			cfg.PrivProtocol = gosnmp.AES256
+		case "AES192C":
+			cfg.PrivProtocol = gosnmp.AES192C
+		case "AES256C":
+			cfg.PrivProtocol = gosnmp.AES256C
+		default:
+			cfg.PrivProtocol = gosnmp.NoPriv
+		}
+		cfg.PrivPassword = os.Getenv("SNMP_PRIV_PASSWORD")
+	}
+
+	return cfg, nil
 }
 
 // newSNMPClientImpl is the actual implementation of NewSNMPClient.
@@ -92,12 +168,30 @@ func newSNMPClientImpl(cfg *SNMPConfig, target string, timeoutSeconds int) (SNMP
 	}
 
 	conn := &gosnmp.GoSNMP{
-		Target:    target,
-		Port:      161,
-		Community: cfg.Community,
-		Version:   cfg.Version,
-		Timeout:   time.Duration(timeout) * time.Second,
-		Retries:   3,
+		Target:  target,
+		Port:    161,
+		Version: cfg.Version,
+		Timeout: time.Duration(timeout) * time.Second,
+		Retries: 3,
+	}
+
+	// Configure based on SNMP version
+	if cfg.Version == gosnmp.Version3 {
+		// SNMPv3 configuration
+		conn.SecurityModel = gosnmp.UserSecurityModel
+		conn.MsgFlags = cfg.SecurityLevel
+		conn.ContextName = cfg.ContextName
+
+		conn.SecurityParameters = &gosnmp.UsmSecurityParameters{
+			UserName:                 cfg.Username,
+			AuthenticationProtocol:   cfg.AuthProtocol,
+			AuthenticationPassphrase: cfg.AuthPassword,
+			PrivacyProtocol:          cfg.PrivProtocol,
+			PrivacyPassphrase:        cfg.PrivPassword,
+		}
+	} else {
+		// SNMPv1/v2c configuration
+		conn.Community = cfg.Community
 	}
 
 	client := &gosnmpClient{conn: conn}

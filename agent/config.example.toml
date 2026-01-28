@@ -11,7 +11,13 @@ discovery_concurrency = 50
 epson_remote_mode_enabled = false
 
 [snmp]
-  # Default SNMP community string (change for security)
+  # SNMP protocol version: "1", "2c", or "3"
+  # - "1"  : Legacy, no encryption, community-based auth
+  # - "2c" : Standard, no encryption, community-based auth (recommended for most networks)
+  # - "3"  : Secure, supports authentication and encryption
+  version = "2c"
+  
+  # Community string for SNMPv1/v2c (ignored for v3)
   community = "public"
   
   # SNMP timeout in milliseconds
@@ -19,6 +25,32 @@ epson_remote_mode_enabled = false
   
   # Number of retries for failed SNMP queries
   retries = 1
+  
+  # ===== SNMPv3 Security Settings (only used when version = "3") =====
+  
+  # Security level: "noAuthNoPriv", "authNoPriv", or "authPriv"
+  # - "noAuthNoPriv" : No authentication, no encryption (not recommended)
+  # - "authNoPriv"   : Authentication only
+  # - "authPriv"     : Authentication + encryption (recommended for v3)
+  security_level = ""
+  
+  # SNMPv3 username (USM security name)
+  username = ""
+  
+  # Authentication protocol: "MD5", "SHA", "SHA224", "SHA256", "SHA384", "SHA512"
+  auth_protocol = ""
+  
+  # Authentication password (minimum 8 characters)
+  auth_password = ""
+  
+  # Privacy/encryption protocol: "DES", "AES", "AES192", "AES256"
+  priv_protocol = ""
+  
+  # Privacy password (minimum 8 characters)
+  priv_password = ""
+  
+  # SNMPv3 context name (usually empty unless device requires it)
+  context_name = ""
 
 [server]
   # Enable server upload mode (set to true when using with PrintMaster Server)

@@ -41,9 +41,17 @@ func DefaultSettings() Settings {
 			MetricsRescanIntervalSeconds: 0, // 0 means use minutes-based interval
 		},
 		SNMP: SNMPSettings{
-			Community: "",
-			TimeoutMS: 2000,
-			Retries:   1,
+			Version:       "2c",
+			Community:     "",
+			TimeoutMS:     2000,
+			Retries:       1,
+			SecurityLevel: "",
+			Username:      "",
+			AuthProtocol:  "",
+			AuthPassword:  "",
+			PrivProtocol:  "",
+			PrivPassword:  "",
+			ContextName:   "",
 		},
 		Features: FeaturesSettings{
 			EpsonRemoteModeEnabled: false,

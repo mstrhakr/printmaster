@@ -27,9 +27,30 @@ type AgentConfig struct {
 
 // SNMPConfig holds SNMP client settings
 type SNMPConfig struct {
+	// Version specifies the SNMP protocol version: "1", "2c", or "3"
+	Version string `toml:"version"`
+	// Community is the community string for SNMPv1/v2c
 	Community string `toml:"community"`
-	TimeoutMs int    `toml:"timeout_ms"`
-	Retries   int    `toml:"retries"`
+	// TimeoutMs is the SNMP timeout in milliseconds
+	TimeoutMs int `toml:"timeout_ms"`
+	// Retries is the number of retry attempts for failed queries
+	Retries int `toml:"retries"`
+
+	// SNMPv3 security parameters
+	// SecurityLevel: "noAuthNoPriv", "authNoPriv", or "authPriv"
+	SecurityLevel string `toml:"security_level"`
+	// Username is the SNMPv3 security name (USM user)
+	Username string `toml:"username"`
+	// AuthProtocol: "MD5", "SHA", "SHA224", "SHA256", "SHA384", "SHA512"
+	AuthProtocol string `toml:"auth_protocol"`
+	// AuthPassword is the authentication passphrase
+	AuthPassword string `toml:"auth_password"`
+	// PrivProtocol: "DES", "AES", "AES192", "AES256"
+	PrivProtocol string `toml:"priv_protocol"`
+	// PrivPassword is the privacy passphrase
+	PrivPassword string `toml:"priv_password"`
+	// ContextName is the SNMPv3 context name (optional)
+	ContextName string `toml:"context_name"`
 }
 
 // ServerConnectionConfig holds server registration and upload settings
@@ -80,9 +101,17 @@ func DefaultAgentConfig() *AgentConfig {
 		Concurrency:            50,
 		EpsonRemoteModeEnabled: false,
 		SNMP: SNMPConfig{
-			Community: "public",
-			TimeoutMs: 2000,
-			Retries:   1,
+			Version:       "2c",
+			Community:     "public",
+			TimeoutMs:     2000,
+			Retries:       1,
+			SecurityLevel: "",
+			Username:      "",
+			AuthProtocol:  "",
+			AuthPassword:  "",
+			PrivProtocol:  "",
+			PrivPassword:  "",
+			ContextName:   "",
 		},
 		Server: ServerConnectionConfig{
 			Enabled:            false,
@@ -145,6 +174,10 @@ func ApplyEnvironmentOverrides(cfg *AgentConfig) {
 			cfg.Concurrency = concurrency
 		}
 	}
+	// SNMP basic settings
+	if val := os.Getenv("SNMP_VERSION"); val != "" {
+		cfg.SNMP.Version = val
+	}
 	if val := os.Getenv("SNMP_COMMUNITY"); val != "" {
 		cfg.SNMP.Community = val
 	}
@@ -157,6 +190,28 @@ func ApplyEnvironmentOverrides(cfg *AgentConfig) {
 		if retries, err := strconv.Atoi(val); err == nil {
 			cfg.SNMP.Retries = retries
 		}
+	}
+	// SNMPv3 settings
+	if val := os.Getenv("SNMP_SECURITY_LEVEL"); val != "" {
+		cfg.SNMP.SecurityLevel = val
+	}
+	if val := os.Getenv("SNMP_USERNAME"); val != "" {
+		cfg.SNMP.Username = val
+	}
+	if val := os.Getenv("SNMP_AUTH_PROTOCOL"); val != "" {
+		cfg.SNMP.AuthProtocol = val
+	}
+	if val := os.Getenv("SNMP_AUTH_PASSWORD"); val != "" {
+		cfg.SNMP.AuthPassword = val
+	}
+	if val := os.Getenv("SNMP_PRIV_PROTOCOL"); val != "" {
+		cfg.SNMP.PrivProtocol = val
+	}
+	if val := os.Getenv("SNMP_PRIV_PASSWORD"); val != "" {
+		cfg.SNMP.PrivPassword = val
+	}
+	if val := os.Getenv("SNMP_CONTEXT_NAME"); val != "" {
+		cfg.SNMP.ContextName = val
 	}
 	if val := os.Getenv("SERVER_ENABLED"); val != "" {
 		cfg.Server.Enabled = val == "true" || val == "1"

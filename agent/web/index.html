@@ -555,12 +555,98 @@
                     <div style="color:var(--muted);font-size:13px;margin-bottom:4px;">
                         Configure default SNMP parameters for device discovery and monitoring.
                     </div>
+                    
+                    <!-- SNMP Version Selector -->
                     <label style="display:flex;align-items:center;gap:8px;">
-                        <span style="min-width:200px;">Default Community String:</span>
-                        <input id="dev_snmp_community" type="text" style="width:220px" placeholder="public" />
-                        <span style="color:var(--muted);font-size:12px;">SNMP v1/v2c community (read-only
-                            access)</span>
+                        <span style="min-width:200px;">SNMP Version:</span>
+                        <select id="dev_snmp_version" style="width:180px;" onchange="toggleSNMPv3Settings()">
+                            <option value="1">v1 - Legacy (no encryption)</option>
+                            <option value="2c" selected>v2c - Standard (community-based)</option>
+                            <option value="3">v3 - Secure (user-based auth)</option>
+                        </select>
+                        <span style="color:var(--muted);font-size:12px;">Protocol version for SNMP queries</span>
                     </label>
+                    
+                    <!-- v1/v2c Community String -->
+                    <div id="snmp_v1v2c_settings">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">Community String:</span>
+                            <input id="dev_snmp_community" type="text" style="width:220px" placeholder="public" />
+                            <span style="color:var(--muted);font-size:12px;">SNMP v1/v2c community (read-only access)</span>
+                        </label>
+                    </div>
+                    
+                    <!-- SNMPv3 Settings (hidden by default) -->
+                    <div id="snmp_v3_settings" style="display:none; border:1px solid var(--border); border-radius:6px; padding:12px; margin-top:8px;">
+                        <div style="font-weight:500;color:var(--highlight);margin-bottom:12px;">SNMPv3 Security Settings</div>
+                        
+                        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                            <span style="min-width:200px;">Security Level:</span>
+                            <select id="dev_snmp_security_level" style="width:220px;" onchange="toggleSNMPv3AuthPriv()">
+                                <option value="noAuthNoPriv">No Auth, No Privacy</option>
+                                <option value="authNoPriv">Authentication Only</option>
+                                <option value="authPriv" selected>Auth + Privacy (Recommended)</option>
+                            </select>
+                        </label>
+                        
+                        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                            <span style="min-width:200px;">Username:</span>
+                            <input id="dev_snmp_username" type="text" style="width:220px" placeholder="snmpuser" />
+                            <span style="color:var(--muted);font-size:12px;">SNMPv3 USM security name</span>
+                        </label>
+                        
+                        <!-- Authentication settings -->
+                        <div id="snmp_v3_auth_settings">
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                <span style="min-width:200px;">Auth Protocol:</span>
+                                <select id="dev_snmp_auth_protocol" style="width:180px;">
+                                    <option value="">None</option>
+                                    <option value="MD5">MD5</option>
+                                    <option value="SHA">SHA-1</option>
+                                    <option value="SHA224">SHA-224</option>
+                                    <option value="SHA256" selected>SHA-256</option>
+                                    <option value="SHA384">SHA-384</option>
+                                    <option value="SHA512">SHA-512</option>
+                                </select>
+                                <span style="color:var(--muted);font-size:12px;">Authentication hash algorithm</span>
+                            </label>
+                            
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                <span style="min-width:200px;">Auth Password:</span>
+                                <input id="dev_snmp_auth_password" type="password" style="width:220px" placeholder="••••••••" />
+                                <span style="color:var(--muted);font-size:12px;">Authentication passphrase (min 8 chars)</span>
+                            </label>
+                        </div>
+                        
+                        <!-- Privacy settings -->
+                        <div id="snmp_v3_priv_settings">
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                <span style="min-width:200px;">Privacy Protocol:</span>
+                                <select id="dev_snmp_priv_protocol" style="width:180px;">
+                                    <option value="">None</option>
+                                    <option value="DES">DES</option>
+                                    <option value="AES" selected>AES-128</option>
+                                    <option value="AES192">AES-192</option>
+                                    <option value="AES256">AES-256</option>
+                                </select>
+                                <span style="color:var(--muted);font-size:12px;">Encryption algorithm for data privacy</span>
+                            </label>
+                            
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                                <span style="min-width:200px;">Privacy Password:</span>
+                                <input id="dev_snmp_priv_password" type="password" style="width:220px" placeholder="••••••••" />
+                                <span style="color:var(--muted);font-size:12px;">Privacy passphrase (min 8 chars)</span>
+                            </label>
+                        </div>
+                        
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <span style="min-width:200px;">Context Name:</span>
+                            <input id="dev_snmp_context_name" type="text" style="width:220px" placeholder="" />
+                            <span style="color:var(--muted);font-size:12px;">Optional SNMPv3 context (usually blank)</span>
+                        </label>
+                    </div>
+                    
+                    <!-- Common SNMP settings -->
                     <label style="display:flex;align-items:center;gap:8px;">
                         <span style="min-width:200px;">Timeout (milliseconds):</span>
                         <input id="dev_snmp_timeout" type="number" style="width:120px" min="500" max="10000"
