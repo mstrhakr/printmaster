@@ -252,6 +252,8 @@ test('device context menu: appearance, actions, delete flow', async ({ page }) =
     await deviceElement.click({ button: 'right' });
     try {
       await expect(contextMenu).toBeVisible({ timeout: 2000 });
+      // Wait for menu items to be populated (menu can be visible before items render)
+      await expect(contextMenu.locator('.pm-context-menu-item').first()).toBeVisible({ timeout: 2000 });
       break;
     } catch (e) {
       if (attempt === 2) throw e;
@@ -261,10 +263,10 @@ test('device context menu: appearance, actions, delete flow', async ({ page }) =
     }
   }
   
-  // Verify menu items exist
-  await expect(contextMenu.locator('[data-action="show-printer-details"]')).toBeVisible();
-  await expect(contextMenu.locator('[data-action="copy-serial"]')).toBeVisible();
-  await expect(contextMenu.locator('[data-action="delete-device"]')).toBeVisible();
+  // Verify menu items exist (increase timeout for stability)
+  await expect(contextMenu.locator('[data-action="show-printer-details"]')).toBeVisible({ timeout: 5000 });
+  await expect(contextMenu.locator('[data-action="copy-serial"]')).toBeVisible({ timeout: 5000 });
+  await expect(contextMenu.locator('[data-action="delete-device"]')).toBeVisible({ timeout: 5000 });
   
   // Verify delete has danger styling
   const deleteItem = contextMenu.locator('[data-action="delete-device"]');
