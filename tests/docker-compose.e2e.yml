@@ -31,14 +31,14 @@ services:
       BEHIND_PROXY: "true"
       # Use SQLite for E2E tests (simpler, no external DB needed)
       SERVER_DB_TYPE: "sqlite"
-      # Mount point for test database
-      SERVER_DATA_DIR: "/data"
+      # Database path (direct path to the pre-seeded SQLite database)
+      SERVER_DB_PATH: "/data/server.db"
       # Admin credentials for tests
       ADMIN_PASSWORD: "e2e-test-password"
       # Disable auto-update checks in tests
       AUTOUPDATE_ENABLED: "false"
-      # Container detection
-      CONTAINER: "docker"
+      # Container detection (used by config.GetDataDirectory)
+      DOCKER: "true"
     ports:
       - "9090:9090"
     volumes:
@@ -70,8 +70,8 @@ services:
       server:
         condition: service_healthy
     environment:
-      # Agent configuration via environment
-      AGENT_DATA_DIR: "/data"
+      # Database path (direct path to the pre-seeded SQLite database)
+      AGENT_DB_PATH: "/data/agent.db"
       # Connect to server (correct env var names)
       SERVER_URL: "http://server:9090"
       SERVER_ENABLED: "true"
@@ -83,8 +83,8 @@ services:
       WEB_AUTH_MODE: "disabled"
       # Disable auto-update in tests
       AUTOUPDATE_ENABLED: "false"
-      # Container detection
-      CONTAINER: "docker"
+      # Container detection (used by config.GetDataDirectory)
+      DOCKER: "true"
     ports:
       - "8080:8080"
     volumes:
