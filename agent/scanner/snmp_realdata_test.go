@@ -7,8 +7,6 @@ import (
 	"testing"
 
 	"printmaster/common/snmp/oids"
-
-	"github.com/gosnmp/gosnmp"
 )
 
 // SNMPTestData represents the structure of our test data files
@@ -36,60 +34,6 @@ func loadTestData(t *testing.T, filename string) []SNMPTestData {
 	}
 
 	return records
-}
-
-// convertToPDUs converts test data to gosnmp PDUs
-func convertToPDUs(data []SNMPTestData) []gosnmp.SnmpPDU {
-	pdus := make([]gosnmp.SnmpPDU, 0, len(data))
-
-	for _, d := range data {
-		pdu := gosnmp.SnmpPDU{
-			Name: "." + d.OID,
-		}
-
-		switch d.Type {
-		case "OctetString":
-			pdu.Type = gosnmp.OctetString
-			pdu.Value = []byte(d.Value)
-		case "Integer":
-			pdu.Type = gosnmp.Integer
-			var val int
-			if err := json.Unmarshal([]byte(d.Value), &val); err == nil {
-				pdu.Value = val
-			}
-		case "Counter32":
-			pdu.Type = gosnmp.Counter32
-			var val uint32
-			if err := json.Unmarshal([]byte(d.Value), &val); err == nil {
-				pdu.Value = val
-			}
-		case "Gauge32", "Gauge":
-			pdu.Type = gosnmp.Gauge32
-			var val uint32
-			if err := json.Unmarshal([]byte(d.Value), &val); err == nil {
-				pdu.Value = val
-			}
-		case "TimeTicks":
-			pdu.Type = gosnmp.TimeTicks
-			var val uint32
-			if err := json.Unmarshal([]byte(d.Value), &val); err == nil {
-				pdu.Value = val
-			}
-		case "ObjectIdentifier":
-			pdu.Type = gosnmp.ObjectIdentifier
-			pdu.Value = d.Value
-		case "Null":
-			pdu.Type = gosnmp.Null
-			pdu.Value = nil
-		default:
-			pdu.Type = gosnmp.OctetString
-			pdu.Value = []byte(d.Value)
-		}
-
-		pdus = append(pdus, pdu)
-	}
-
-	return pdus
 }
 
 // findOIDValue finds a specific OID value from test data
