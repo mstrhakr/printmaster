@@ -133,6 +133,80 @@ type DiagnosticReport struct {
 
 	// ServerLogs contains recent server log entries (when report submitted via server)
 	ServerLogs []string `json:"server_logs,omitempty"`
+
+	// USBProxyInfo contains USB-specific device information for USB printers.
+	// This helps debug IPP-USB connectivity and web scraping issues.
+	USBProxyInfo *USBProxyInfo `json:"usb_proxy_info,omitempty"`
+}
+
+// USBProxyInfo contains USB device information for diagnostic purposes.
+// This is populated when the device is a USB printer to help debug IPP-USB issues.
+type USBProxyInfo struct {
+	// DevicePath is the OS-specific USB device path (WinUSB path on Windows)
+	DevicePath string `json:"device_path,omitempty"`
+
+	// VendorID is the USB Vendor ID (e.g., 0x0482 for Kyocera)
+	VendorID uint16 `json:"vendor_id,omitempty"`
+
+	// VendorIDHex is the vendor ID as a hex string for readability
+	VendorIDHex string `json:"vendor_id_hex,omitempty"`
+
+	// ProductID is the USB Product ID
+	ProductID uint16 `json:"product_id,omitempty"`
+
+	// ProductIDHex is the product ID as a hex string for readability
+	ProductIDHex string `json:"product_id_hex,omitempty"`
+
+	// USBManufacturer is the manufacturer string from USB descriptor
+	USBManufacturer string `json:"usb_manufacturer,omitempty"`
+
+	// USBProduct is the product name from USB descriptor
+	USBProduct string `json:"usb_product,omitempty"`
+
+	// USBSerial is the serial number from USB descriptor
+	USBSerial string `json:"usb_serial,omitempty"`
+
+	// InterfaceNumber is the USB interface that supports IPP-USB
+	InterfaceNumber uint8 `json:"interface_number,omitempty"`
+
+	// SpoolerPortName is the Windows spooler port (e.g., "USB001")
+	SpoolerPortName string `json:"spooler_port_name,omitempty"`
+
+	// Status indicates the current USB connection status
+	Status string `json:"status,omitempty"`
+
+	// DetectedVendorScraper is the vendor scraper selected for web UI parsing
+	DetectedVendorScraper string `json:"detected_vendor_scraper,omitempty"`
+
+	// ProbeResults contains results from probing USB web endpoints
+	ProbeResults []USBProbeResult `json:"probe_results,omitempty"`
+
+	// ProbeError contains any error encountered during probing
+	ProbeError string `json:"probe_error,omitempty"`
+}
+
+// USBProbeResult represents the result of probing a single USB web endpoint.
+type USBProbeResult struct {
+	// Path is the URL path that was probed (e.g., "/status.html")
+	Path string `json:"path"`
+
+	// Description explains what this endpoint is for
+	Description string `json:"description,omitempty"`
+
+	// StatusCode is the HTTP response status code (0 if connection failed)
+	StatusCode int `json:"status_code"`
+
+	// ContentType is the Content-Type header from the response
+	ContentType string `json:"content_type,omitempty"`
+
+	// Size is the response body size in bytes
+	Size int `json:"size,omitempty"`
+
+	// Error contains any error message if the probe failed
+	Error string `json:"error,omitempty"`
+
+	// Preview contains a truncated preview of the response body (first 500 bytes)
+	Preview string `json:"preview,omitempty"`
 }
 
 // SNMPResponse represents a single SNMP OID/value pair from device query.

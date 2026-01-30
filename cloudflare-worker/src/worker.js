@@ -111,6 +111,7 @@ function buildGistFiles(report) {
   delete coreReport.recent_logs;
   delete coreReport.agent_logs;
   delete coreReport.server_logs;
+  delete coreReport.usb_proxy_info;  // USB probe results can be large
   files['2_core_report.json'] = {
     content: JSON.stringify(coreReport, null, 2),
   };
@@ -157,14 +158,21 @@ function buildGistFiles(report) {
     };
   }
 
-  // 9. Recent logs (legacy field - for backward compatibility)
+  // 9. USB Proxy Info (for USB devices - includes VID/PID, device path, and endpoint probe results)
+  if (report.usb_proxy_info && Object.keys(report.usb_proxy_info).length > 0) {
+    files['9_usb_proxy_info.json'] = {
+      content: JSON.stringify(report.usb_proxy_info, null, 2),
+    };
+  }
+
+  // 10. Recent logs (legacy field - for backward compatibility)
   if (report.recent_logs && report.recent_logs.length > 0) {
-    files['9_recent_logs.txt'] = {
+    files['10_recent_logs.txt'] = {
       content: report.recent_logs.join('\n'),
     };
   }
 
-  // 10. Full report (everything in one file for complete reference)
+  // 99. Full report (everything in one file for complete reference)
   files['99_full_report.json'] = {
     content: JSON.stringify(report, null, 2),
   };
@@ -201,10 +209,15 @@ function generateSummary(report) {
 |-------|-------|
 | Serial | ${report.current_serial || 'Unknown'} |
 | IP | ${report.device_ip || 'N/A'} |
+| Device Type | ${report.device_type || report.is_usb ? 'USB' : 'Network'} |
 | Agent Version | ${report.agent_version || 'Unknown'} |
 | Metrics History | ${report.metrics_history ? report.metrics_history.length + ' snapshots' : 'None'} |
 | Agent Logs | ${report.agent_logs ? report.agent_logs.length + ' lines' : 'None'} |
 | Server Logs | ${report.server_logs ? report.server_logs.length + ' lines' : 'None'} |
+${report.usb_proxy_info ? `| USB Vendor ID | ${report.usb_proxy_info.vendor_id_hex || 'N/A'} |
+| USB Product ID | ${report.usb_proxy_info.product_id_hex || 'N/A'} |
+| USB Scraper | ${report.usb_proxy_info.detected_vendor_scraper || 'N/A'} |
+| USB Probe Results | ${report.usb_proxy_info.probe_results ? report.usb_proxy_info.probe_results.length + ' endpoints' : 'None'} |` : ''}
 
 ---
 
@@ -219,6 +232,7 @@ function generateSummary(report) {
 | \`6_raw_data.json\` | Additional raw device data |
 | \`7_agent_logs.txt\` | Agent log entries (200 lines) |
 | \`8_server_logs.txt\` | Server log entries (200 lines, if reported via server) |
+| \`9_usb_proxy_info.json\` | USB device info and endpoint probe results (USB devices only) |
 | \`99_full_report.json\` | Complete report (all data) |
 
 *Report ID: ${report.report_id}*

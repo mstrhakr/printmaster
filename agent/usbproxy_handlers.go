@@ -17,6 +17,8 @@ import (
 	"printmaster/agent/storage"
 	"printmaster/agent/usbproxy"
 	"printmaster/agent/usbproxy/metrics"
+	"printmaster/common/logger"
+	"printmaster/common/report"
 )
 
 var (
@@ -538,4 +540,145 @@ func CollectUSBMetricsSnapshot(ctx context.Context, serial string) (*storage.Met
 	}
 
 	return snapshot, nil
+}
+
+// collectUSBProxyInfo gathers USB device information for diagnostic reports.
+// This includes VID/PID, device path, and probe results from web endpoint testing.
+func collectUSBProxyInfo(ctx context.Context, serial string, appLog *logger.Logger) *report.USBProxyInfo {
+	usbProxyManagerMu.RLock()
+	manager := usbProxyManager
+	usbProxyManagerMu.RUnlock()
+
+	if manager == nil {
+		return &report.USBProxyInfo{
+			ProbeError: "USB proxy manager not available",
+		}
+	}
+
+	// Get printer info by serial
+	printer, found := manager.GetPrinterBySerial(serial)
+	if !found {
+		// Also try by spooler port
+		printers := manager.GetPrinters()
+		for _, p := range printers {
+			if strings.EqualFold(p.SerialNumber, serial) || strings.EqualFold(p.SpoolerPortName, serial) {
+				printer = p
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found {
+		// Return basic info indicating the USB printer wasn't found in the proxy manager
+		// This is useful diagnostic info - maybe WinUSB isn't installed for this device
+		return &report.USBProxyInfo{
+			ProbeError: fmt.Sprintf("USB printer with serial '%s' not found in USB proxy manager. Device may not have WinUSB driver installed.", serial),
+		}
+	}
+
+	info := &report.USBProxyInfo{
+		DevicePath:      printer.DevicePath,
+		VendorID:        printer.VendorID,
+		VendorIDHex:     fmt.Sprintf("0x%04X", printer.VendorID),
+		ProductID:       printer.ProductID,
+		ProductIDHex:    fmt.Sprintf("0x%04X", printer.ProductID),
+		USBManufacturer: printer.Manufacturer,
+		USBProduct:      printer.Product,
+		USBSerial:       printer.SerialNumber,
+		InterfaceNumber: printer.InterfaceNumber,
+		SpoolerPortName: printer.SpoolerPortName,
+		Status:          string(printer.Status),
+	}
+
+	// Detect which vendor scraper will be used
+	vendor := metrics.DetectVendor(printer.Manufacturer, printer.Product, printer.VendorID)
+	info.DetectedVendorScraper = vendor.Name()
+
+	// Try to get transport and probe endpoints
+	transport, err := manager.GetTransportForSerial(serial)
+	if err != nil {
+		info.ProbeError = fmt.Sprintf("Failed to get USB transport: %v", err)
+		return info
+	}
+
+	// Probe endpoints with a reasonable timeout
+	endpoints := vendor.Endpoints()
+	probeCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+
+	// Limit to first 10 endpoints to keep report size reasonable
+	maxEndpoints := 10
+	if len(endpoints) > maxEndpoints {
+		endpoints = endpoints[:maxEndpoints]
+	}
+
+	if appLog != nil {
+		appLog.Info("Probing USB endpoints for diagnostic report",
+			"serial", serial,
+			"vendor", vendor.Name(),
+			"endpoints", len(endpoints))
+	}
+
+	for _, ep := range endpoints {
+		// Check for context cancellation
+		select {
+		case <-probeCtx.Done():
+			info.ProbeError = "Probe timeout"
+			return info
+		default:
+		}
+
+		result := report.USBProbeResult{
+			Path:        ep.Path,
+			Description: ep.Description,
+		}
+
+		// Create HTTP request
+		epCtx, epCancel := context.WithTimeout(probeCtx, 10*time.Second)
+		req, err := http.NewRequestWithContext(epCtx, "GET", "http://usb-printer"+ep.Path, nil)
+		if err != nil {
+			epCancel()
+			result.Error = err.Error()
+			info.ProbeResults = append(info.ProbeResults, result)
+			continue
+		}
+
+		// Send request via USB transport
+		resp, err := transport.RoundTrip(req)
+		epCancel()
+		if err != nil {
+			result.Error = err.Error()
+			info.ProbeResults = append(info.ProbeResults, result)
+			continue
+		}
+
+		result.StatusCode = resp.StatusCode
+		result.ContentType = resp.Header.Get("Content-Type")
+
+		// Read preview of body
+		body := make([]byte, 4096)
+		n, _ := resp.Body.Read(body)
+		resp.Body.Close()
+
+		result.Size = n
+		if n > 0 && result.StatusCode == http.StatusOK {
+			preview := string(body[:n])
+			if len(preview) > 500 {
+				preview = preview[:500] + "..."
+			}
+			result.Preview = preview
+		}
+
+		info.ProbeResults = append(info.ProbeResults, result)
+
+		if appLog != nil {
+			appLog.Debug("USB probe result",
+				"path", ep.Path,
+				"status", result.StatusCode,
+				"size", result.Size)
+		}
+	}
+
+	return info
 }

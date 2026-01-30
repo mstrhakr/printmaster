@@ -5084,6 +5084,11 @@ func runInteractive(ctx context.Context, configFlag string) {
 			rpt.AgentLogs = allLogLines[start:]
 		}
 
+		// Collect USB proxy info if this is a USB device
+		if req.IsUSB && req.DeviceSerial != "" {
+			rpt.USBProxyInfo = collectUSBProxyInfo(r.Context(), req.DeviceSerial, appLogger)
+		}
+
 		// Try to submit to proxy
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()

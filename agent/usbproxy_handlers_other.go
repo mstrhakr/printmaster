@@ -9,6 +9,8 @@ import (
 	"net/http"
 
 	"printmaster/agent/storage"
+	"printmaster/common/logger"
+	"printmaster/common/report"
 )
 
 // InitUSBProxy is a no-op on non-Windows platforms
@@ -54,4 +56,11 @@ func RegisterUSBProxyHandlers() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"supported":false,"running":false}`))
 	})
+}
+
+// collectUSBProxyInfo returns nil on non-Windows platforms since USB proxy is not supported
+func collectUSBProxyInfo(ctx context.Context, serial string, appLog *logger.Logger) *report.USBProxyInfo {
+	return &report.USBProxyInfo{
+		ProbeError: "USB proxy not supported on this platform",
+	}
 }
