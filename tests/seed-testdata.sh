@@ -1,15 +1,20 @@
 #!/bin/bash
-# Seed E2E test databases
-# Creates fresh SQLite databases with test data for E2E testing.
+# Seed E2E test databases with test data
+#
+# This script seeds test data into EXISTING databases that were created
+# by the application containers on startup. This avoids schema duplication.
 #
 # Usage: ./seed-testdata.sh
 #
-# Requirements: sqlite3 must be installed
+# Requirements: 
+#   - sqlite3 must be installed
+#   - Containers must be running with initialized databases
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TESTDATA_DIR="${SCRIPT_DIR}/testdata"
+SEED_DIR="${TESTDATA_DIR}/seed"
 
 echo "=== PrintMaster E2E Test Data Seeder ==="
 echo ""
@@ -24,26 +29,34 @@ if ! command -v sqlite3 &> /dev/null; then
     exit 1
 fi
 
-# Create directories if needed
+# Create directories if needed (containers will create DBs here)
 mkdir -p "${TESTDATA_DIR}/server"
 mkdir -p "${TESTDATA_DIR}/agent"
 
-# Remove old databases
-echo "Removing old test databases..."
-rm -f "${TESTDATA_DIR}/server/server.db"
-rm -f "${TESTDATA_DIR}/agent/agent.db"
+# Check if databases exist (containers should have created them)
+if [ ! -f "${TESTDATA_DIR}/server/server.db" ]; then
+    echo "ERROR: Server database not found at ${TESTDATA_DIR}/server/server.db"
+    echo "Make sure containers have started and created their databases."
+    exit 1
+fi
 
-# Create server database
-echo "Creating server test database..."
-sqlite3 "${TESTDATA_DIR}/server/server.db" < "${TESTDATA_DIR}/seed/server_seed.sql"
+if [ ! -f "${TESTDATA_DIR}/agent/agent.db" ]; then
+    echo "ERROR: Agent database not found at ${TESTDATA_DIR}/agent/agent.db"
+    echo "Make sure containers have started and created their databases."
+    exit 1
+fi
 
-# Create agent database
-echo "Creating agent test database..."
-sqlite3 "${TESTDATA_DIR}/agent/agent.db" < "${TESTDATA_DIR}/seed/agent_seed.sql"
+# Seed server data (data-only, no schema)
+echo "Seeding server test data..."
+sqlite3 "${TESTDATA_DIR}/server/server.db" < "${SEED_DIR}/server_data.sql"
 
-# Verify databases
+# Seed agent data (data-only, no schema)
+echo "Seeding agent test data..."
+sqlite3 "${TESTDATA_DIR}/agent/agent.db" < "${SEED_DIR}/agent_data.sql"
+
+# Verify data was seeded
 echo ""
-echo "Verifying databases..."
+echo "Verifying seeded data..."
 
 SERVER_DEVICES=$(sqlite3 "${TESTDATA_DIR}/server/server.db" "SELECT COUNT(*) FROM devices;")
 SERVER_AGENTS=$(sqlite3 "${TESTDATA_DIR}/server/server.db" "SELECT COUNT(*) FROM agents;")
@@ -54,10 +67,3 @@ echo "  Agent:  ${AGENT_DEVICES} devices"
 
 echo ""
 echo "=== Seed complete! ==="
-echo ""
-echo "Test databases created at:"
-echo "  ${TESTDATA_DIR}/server/server.db"
-echo "  ${TESTDATA_DIR}/agent/agent.db"
-echo ""
-echo "Run E2E tests with:"
-echo "  docker compose -f tests/docker-compose.e2e.yml up --build"

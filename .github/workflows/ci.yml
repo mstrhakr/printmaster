@@ -209,10 +209,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
 
-      - name: Seed test databases
+      - name: Create data directories
         run: |
-          chmod +x tests/seed-testdata.sh
-          ./tests/seed-testdata.sh
+          mkdir -p tests/testdata/server
+          mkdir -p tests/testdata/agent
 
       - name: Start E2E environment
         working-directory: ./tests
@@ -261,6 +261,12 @@ jobs:
             docker compose -f tests/docker-compose.e2e.yml logs agent
             exit 1
           fi
+
+      - name: Seed test data
+        run: |
+          # Containers created the schema on startup, now seed test data
+          chmod +x tests/seed-testdata.sh
+          ./tests/seed-testdata.sh
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:

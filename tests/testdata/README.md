@@ -1,38 +1,44 @@
 # PrintMaster E2E Test Data Directory
-#
-# This directory contains seed data for E2E testing.
-# Databases are pre-populated with test devices, agents, and configuration
-# to enable predictable, reproducible tests.
-#
-# Structure:
-#   testdata/
-#   ├── server/          # Server data directory (mounted to /data in container)
-#   │   └── server.db    # Pre-seeded SQLite database
-#   ├── agent/           # Agent data directory (mounted to /data in container)  
-#   │   ├── agent.db     # Pre-seeded SQLite database
-#   │   └── agent_id     # Fixed agent UUID for test stability
-#   └── seed/            # SQL scripts to generate seed databases
-#
-# The .gitkeep files ensure directories exist in git.
-# Actual database files are gitignored and regenerated during test setup.
 
-## Regenerating Test Databases
+This directory contains seed data for E2E testing.
+Containers create their own database schema on startup, then test data
+is seeded from SQL files to enable predictable, reproducible tests.
 
-Run the seed script to create fresh test databases:
+## Structure
 
-```bash
-# From tests/ directory
-./seed-testdata.sh
+```
+testdata/
+├── server/          # Server data directory (mounted to /data in container)
+│   └── server.db    # Created by container, seeded with test data
+├── agent/           # Agent data directory (mounted to /data in container)  
+│   ├── agent.db     # Created by container, seeded with test data
+│   └── agent_id     # Fixed agent UUID for test stability
+└── seed/            # SQL scripts with test data (INSERT statements only)
+    ├── server_data.sql   # Server test data (no schema, just INSERTs)
+    └── agent_data.sql    # Agent test data (no schema, just INSERTs)
 ```
 
-Or manually:
+The .gitkeep files ensure directories exist in git.
+Actual database files are gitignored and regenerated during test setup.
+
+## How E2E Tests Work
+
+1. **Containers start** - Server and agent containers create their own schema
+2. **Wait for health** - CI waits for containers to be healthy
+3. **Seed data** - `seed-testdata.sh` injects test data via sqlite3
+4. **Run tests** - E2E tests verify behavior against seeded data
+
+This approach avoids schema duplication - the seed files contain only
+INSERT statements, not CREATE TABLE. Schema changes are automatically
+picked up from the application code.
+
+## Regenerating Test Data
+
+After containers have started and created their databases:
 
 ```bash
-# Create server seed database
-sqlite3 testdata/server/server.db < seed/server_seed.sql
-
-# Create agent seed database  
-sqlite3 testdata/agent/agent.db < seed/agent_seed.sql
+# From repo root
+./tests/seed-testdata.sh
 ```
 
 ## Test Data Contents
