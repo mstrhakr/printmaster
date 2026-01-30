@@ -52,10 +52,10 @@ RUN mkdir -p /var/lib/printmaster/agent
 WORKDIR /var/lib/printmaster/agent
 
 # Set environment to indicate Docker environment
-# Default PUID/PGID for Unraid (nobody:users = 99:100)
+# Default to root; users can override PUID/PGID to drop privileges
 ENV DOCKER=true \
-    PUID=99 \
-    PGID=100
+    PUID=0 \
+    PGID=0
 
 # Expose web UI port (default 8080 HTTP, 8443 HTTPS)
 EXPOSE 8080 8443

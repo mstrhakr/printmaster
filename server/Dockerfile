@@ -52,10 +52,10 @@ RUN mkdir -p /var/lib/printmaster/server /var/log/printmaster/server
 WORKDIR /var/lib/printmaster/server
 
 # Set standard container environment variable for detection
-# Default PUID/PGID for Unraid (nobody:users = 99:100)
+# Default to root; users can override PUID/PGID to drop privileges
 ENV CONTAINER=docker \
-    PUID=99 \
-    PGID=100
+    PUID=0 \
+    PGID=0
 
 # Expose ports
 EXPOSE 9090 9443
