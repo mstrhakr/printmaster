@@ -622,12 +622,19 @@
             const selectedIds = selection?.selectedIds || new Set();
             const isMultiSelect = selectedIds.size > 1 && selectedIds.has(deviceId);
 
+            // Determine if device WebUI is accessible:
+            // - Network devices need both IP and agent
+            // - USB devices only need an agent (proxy goes through agent's USB handler)
+            const effectiveAgentId = agentId || device?.agent_id || '';
+            const isUSB = device?.is_usb || device?.device_type === 'usb';
+            const hasWebAccess = effectiveAgentId && (ip || isUSB);
+
             const context = {
                 serial: serial,
                 ip: ip || device?.ip || '',
                 mac: device?.mac || '',
-                agentId: agentId || device?.agent_id || '',
-                hasAccess: !!(ip && agentId),
+                agentId: effectiveAgentId,
+                hasAccess: hasWebAccess,
                 isMultiSelect: isMultiSelect,
                 selectedCount: isMultiSelect ? selectedIds.size : 1,
                 selectedIds: isMultiSelect ? Array.from(selectedIds) : [deviceId]
