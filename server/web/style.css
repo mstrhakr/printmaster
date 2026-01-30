@@ -497,6 +497,109 @@ h1 {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  position: relative;
+  /* Make horizontal scrollbar always visible for better UX */
+  scrollbar-gutter: stable;
+}
+
+/* Visual scroll indicators using box-shadow on the wrapper */
+.table-wrapper.can-scroll-left {
+  box-shadow: inset 30px 0 20px -20px rgba(0, 0, 0, 0.4);
+}
+
+.table-wrapper.can-scroll-right {
+  box-shadow: inset -30px 0 20px -20px rgba(0, 0, 0, 0.4);
+}
+
+.table-wrapper.can-scroll-left.can-scroll-right {
+  box-shadow: 
+    inset 30px 0 20px -20px rgba(0, 0, 0, 0.4),
+    inset -30px 0 20px -20px rgba(0, 0, 0, 0.4);
+}
+
+/* Container for scroll hint arrows (added by JS) */
+.table-scroll-hint {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7, 54, 66, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+  color: var(--highlight);
+}
+
+.table-scroll-hint.left {
+  left: 8px;
+}
+
+.table-scroll-hint.right {
+  right: 8px;
+}
+
+.table-scroll-hint.visible {
+  opacity: 0.8;
+}
+
+.table-scroll-hint:hover {
+  opacity: 1;
+}
+
+/* SVG arrow icon in scroll hints */
+.table-scroll-hint svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+}
+
+/* Sticky horizontal scrollbar at bottom of viewport for wide tables */
+.table-scroll-container {
+  position: relative;
+}
+
+.table-scroll-indicator {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 8px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  z-index: 10;
+  display: none; /* JS will show when needed */
+}
+
+.table-scroll-indicator.visible {
+  display: block;
+}
+
+.table-scroll-track {
+  height: 100%;
+  background: var(--panel);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.table-scroll-thumb {
+  height: 100%;
+  background: var(--highlight);
+  border-radius: 4px;
+  cursor: grab;
+  transition: background 0.15s ease;
+}
+
+.table-scroll-thumb:hover {
+  background: var(--accent);
 }
 
 .simple-table {
@@ -2482,8 +2585,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow-y: auto;
-  height: calc(100vh - 200px);
+  /* No overflow/height restrictions - let page scroll naturally */
 }
 
 .logs-main-header {
@@ -4006,8 +4108,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow-y: auto;
-  height: calc(100vh - 200px);
+  /* No overflow/height restrictions - let page scroll naturally */
 }
 
 /* ============================================
@@ -4020,7 +4121,7 @@ select:focus {
   display: flex;
   gap: 0;
   min-height: calc(100vh - 200px);
-  max-height: calc(100vh - 200px);
+  /* No max-height - let content determine height and page scroll naturally */
 }
 
 /* Base sidebar */
@@ -4032,9 +4133,11 @@ select:focus {
   flex-direction: column;
   transition: width 0.3s ease;
   position: sticky;
-  top: 0;
-  height: calc(100vh - 200px);
-  overflow: hidden;
+  top: 60px; /* Account for header */
+  height: fit-content;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  align-self: flex-start;
 }
 
 .filter-sidebar.collapsed {
@@ -4117,8 +4220,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow-y: auto;
-  height: calc(100vh - 200px);
+  /* No overflow/height restrictions - let page scroll naturally */
 }
 
 /* Mobile responsive for sidebars */
@@ -4300,8 +4402,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow-y: auto;
-  height: calc(100vh - 200px);
+  /* No overflow/height restrictions - let page scroll naturally */
 }
 
 .agents-main-header {
@@ -4373,8 +4474,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow: hidden; /* Prevent double scrollbars - children handle scrolling */
-  height: calc(100vh - 200px);
+  /* No overflow/height restrictions - let page scroll naturally */
 }
 
 .devices-main-header {
@@ -4441,7 +4541,11 @@ select:focus {
 }
 
 .tenants-sidebar {
-  height: calc(100vh - 220px);
+  position: sticky;
+  top: 60px;
+  height: fit-content;
+  max-height: calc(100vh - 80px);
+  align-self: flex-start;
 }
 
 .tenants-main {
@@ -4450,8 +4554,7 @@ select:focus {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow-y: auto;
-  height: calc(100vh - 220px);
+  /* No overflow/height restrictions - let page scroll naturally */
 }
 
 .tenants-main-header {
@@ -10343,8 +10446,7 @@ select:hover {
   display: flex;
   flex-direction: column;
   padding: 16px;
-  overflow-y: auto;
-  height: calc(100vh - 200px);
+  /* No overflow/height restrictions - let page scroll naturally */
 }
 
 /* Summary cards */

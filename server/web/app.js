@@ -109,6 +109,56 @@ function getUserTenantIds() {
 }
 
 /**
+ * Initialize horizontal scroll indicators for table wrappers.
+ * Adds visual cues (shadow gradients) to show when more content is available.
+ * @param {HTMLElement|string} containerOrSelector - The table wrapper element or selector
+ */
+function initTableScrollIndicators(containerOrSelector) {
+    const container = typeof containerOrSelector === 'string' 
+        ? document.querySelector(containerOrSelector)
+        : containerOrSelector;
+    
+    if (!container || !container.classList.contains('table-wrapper')) return;
+    
+    const updateScrollIndicators = () => {
+        const { scrollLeft, scrollWidth, clientWidth } = container;
+        const canScrollLeft = scrollLeft > 5;
+        const canScrollRight = scrollLeft + clientWidth < scrollWidth - 5;
+        
+        container.classList.toggle('can-scroll-left', canScrollLeft);
+        container.classList.toggle('can-scroll-right', canScrollRight);
+    };
+    
+    // Initial check
+    updateScrollIndicators();
+    
+    // Update on scroll
+    container.addEventListener('scroll', updateScrollIndicators, { passive: true });
+    
+    // Update on resize
+    const resizeObserver = new ResizeObserver(updateScrollIndicators);
+    resizeObserver.observe(container);
+    
+    // Store cleanup function for later removal if needed
+    container._scrollIndicatorCleanup = () => {
+        container.removeEventListener('scroll', updateScrollIndicators);
+        resizeObserver.disconnect();
+    };
+}
+
+/**
+ * Initialize all table scroll indicators in the document.
+ * Called on page load and after dynamic content updates.
+ */
+function initAllTableScrollIndicators() {
+    document.querySelectorAll('.table-wrapper').forEach(wrapper => {
+        if (!wrapper._scrollIndicatorCleanup) {
+            initTableScrollIndicators(wrapper);
+        }
+    });
+}
+
+/**
  * Check if user is a global admin (not tenant-scoped).
  */
 function isGlobalAdmin() {
@@ -726,6 +776,9 @@ document.addEventListener('DOMContentLoaded', function () {
         connectSSE();
         // Update auth-related UI (logout button)
         updateAuthUI();
+        
+        // Initialize horizontal scroll indicators for all table wrappers
+        initAllTableScrollIndicators();
     }).catch(err=>{
         window.__pm_shared.error('Auth initialization failed', err);
     });
@@ -12573,6 +12626,13 @@ function renderDeviceTable(devices, append = false) {
         cards.classList.add('hidden');
     }
     wrapper.classList.remove('hidden');
+    
+    // Initialize horizontal scroll indicators for the table
+    const tableWrapper = wrapper.querySelector('.table-wrapper');
+    if (tableWrapper) {
+        initTableScrollIndicators(tableWrapper);
+    }
+    
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
     
