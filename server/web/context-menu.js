@@ -602,9 +602,9 @@
         container.dataset.contextMenuBound = 'true';
 
         container.addEventListener('contextmenu', (event) => {
-            // Find the device row or card
+            // Find the device row or card (supports both table rows and card views)
             const row = event.target.closest('tr[data-serial]');
-            const card = event.target.closest('.device-card[data-serial]');
+            const card = event.target.closest('.saved-device-card[data-serial], .device-card[data-serial]');
             const target = row || card;
 
             if (!target) return;

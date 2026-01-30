@@ -38,7 +38,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.21
 
 # Install su-exec for dropping privileges (tiny, no dependencies)
-RUN apk add --no-cache su-exec
+# Install sqlite3 for database management and testing
+RUN apk add --no-cache su-exec sqlite
 
 # Copy binary and entrypoint from builder
 COPY --from=builder /build/server/printmaster-server /printmaster-server
