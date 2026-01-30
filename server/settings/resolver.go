@@ -211,7 +211,7 @@ func normalizeSectionList(sections []string) []string {
 	if len(sections) == 0 {
 		return []string{}
 	}
-	valid := map[string]bool{"discovery": true, "snmp": true, "features": true}
+	valid := map[string]bool{"discovery": true, "snmp": true, "features": true, "spooler": true}
 	seen := make(map[string]bool)
 	out := make([]string, 0, len(sections))
 	for _, s := range sections {
