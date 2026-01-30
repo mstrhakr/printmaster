@@ -265,8 +265,16 @@ jobs:
       - name: Seed test data
         run: |
           # Containers created the schema on startup, now seed test data
-          chmod +x tests/seed-testdata.sh
-          ./tests/seed-testdata.sh
+          # Must seed from inside containers since they own the DB files
+          echo "Seeding server test data..."
+          docker exec pm-e2e-server sh -c "cat > /tmp/seed.sql && sqlite3 /data/server.db < /tmp/seed.sql" < tests/testdata/seed/server_data.sql
+          
+          echo "Seeding agent test data..."
+          docker exec pm-e2e-agent sh -c "cat > /tmp/seed.sql && sqlite3 /data/agent.db < /tmp/seed.sql" < tests/testdata/seed/agent_data.sql
+          
+          echo "Verifying seeded data..."
+          docker exec pm-e2e-server sqlite3 /data/server.db "SELECT 'Server devices: ' || COUNT(*) FROM devices;"
+          docker exec pm-e2e-agent sqlite3 /data/agent.db "SELECT 'Agent devices: ' || COUNT(*) FROM devices;"
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
