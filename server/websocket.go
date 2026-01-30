@@ -348,6 +348,10 @@ func handleAgentWebSocket(w http.ResponseWriter, r *http.Request, serverStore st
 			handleWSHeartbeat(conn, agent, msg, serverStore)
 		case wscommon.MessageTypeProxyResponse:
 			handleWSProxyResponse(msg)
+		case wscommon.MessageTypeProxyStreamChunk:
+			handleWSProxyStreamChunk(msg)
+		case wscommon.MessageTypeProxyStreamEnd:
+			handleWSProxyStreamEnd(msg)
 		case wscommon.MessageTypeUpdateProgress:
 			handleWSUpdateProgress(agent, msg)
 		case wscommon.MessageTypeJobProgress:
@@ -531,6 +535,74 @@ func handleWSProxyResponse(msg wscommon.Message) {
 		// Successfully delivered
 	case <-time.After(5 * time.Second):
 		logWarn("Timeout delivering proxy response", "request_id", requestID)
+	}
+}
+
+// handleWSProxyStreamChunk handles streaming proxy response chunks from agents
+func handleWSProxyStreamChunk(msg wscommon.Message) {
+	requestID, ok := msg.Data["request_id"].(string)
+	if !ok {
+		logWarn("Stream chunk missing request_id")
+		return
+	}
+
+	// Find the waiting channel for this request (don't delete - more chunks coming)
+	proxyRequestsLock.RLock()
+	respChan, exists := proxyRequests[requestID]
+	proxyRequestsLock.RUnlock()
+
+	if !exists {
+		// This can happen if the connection was closed - not necessarily an error
+		logDebug("Received stream chunk for unknown/closed request", "request_id", requestID)
+		return
+	}
+
+	// Forward the chunk to the HTTP handler (non-blocking)
+	select {
+	case respChan <- msg:
+		// Successfully delivered
+	default:
+		// Channel full - consumer might be slow
+		logDebug("Stream chunk dropped (channel full)", "request_id", requestID)
+	}
+}
+
+// handleWSProxyStreamEnd handles end of streaming proxy response
+func handleWSProxyStreamEnd(msg wscommon.Message) {
+	requestID, ok := msg.Data["request_id"].(string)
+	if !ok {
+		logWarn("Stream end missing request_id")
+		return
+	}
+
+	logDebug("Received stream end", "request_id", requestID)
+
+	// Find and remove the waiting channel
+	proxyRequestsLock.Lock()
+	respChan, exists := proxyRequests[requestID]
+	if exists {
+		delete(proxyRequests, requestID)
+	}
+	proxyRequestsLock.Unlock()
+
+	if !exists {
+		return
+	}
+
+	// Send end signal to the HTTP handler
+	endMsg := wscommon.Message{
+		Type: wscommon.MessageTypeProxyStreamEnd,
+		Data: map[string]interface{}{
+			"request_id": requestID,
+			"stream_end": true,
+		},
+	}
+
+	select {
+	case respChan <- endMsg:
+		// Successfully delivered
+	case <-time.After(5 * time.Second):
+		logWarn("Timeout delivering stream end", "request_id", requestID)
 	}
 }
 

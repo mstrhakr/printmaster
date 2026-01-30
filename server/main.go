@@ -3639,8 +3639,9 @@ func setupRoutes(cfg *Config) {
 	http.HandleFunc("/devices/preview", requireWebAuth(handleDevicePreviewProxy))
 	http.HandleFunc("/devices/update", requireWebAuth(handleDeviceUpdateProxy))
 	http.HandleFunc("/devices/metrics/collect", requireWebAuth(handleDeviceMetricsCollectProxy))
-	http.HandleFunc("/api/report", requireWebAuth(handleDeviceReportProxy))       // Proxy device reports to agent
-	http.HandleFunc("/api/v1/devices/delete", requireWebAuth(handleDeviceDelete)) // Delete device from server and optionally agent
+	http.HandleFunc("/api/report", requireWebAuth(handleDeviceReportProxy))              // Proxy device reports to agent
+	http.HandleFunc("/api/report/stream", requireWebAuth(handleDeviceReportStreamProxy)) // Proxy streaming device reports to agent
+	http.HandleFunc("/api/v1/devices/delete", requireWebAuth(handleDeviceDelete))        // Delete device from server and optionally agent
 
 	// Web UI endpoints - keep landing/static public so login assets load
 	http.HandleFunc("/", handleWebUI)
@@ -5722,6 +5723,8 @@ func handleDeviceMetricsCollectProxy(w http.ResponseWriter, r *http.Request) {
 // This allows the server UI to submit device reports with full diagnostic data
 // (parseDebug, SNMP responses, logs) that only the agent has access to
 func handleDeviceReportProxy(w http.ResponseWriter, r *http.Request) {
+	logDebug("handleDeviceReportProxy called", "method", r.Method)
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -5734,13 +5737,17 @@ func handleDeviceReportProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
+		logError("Device report: failed to read body", "error", err)
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		logError("Device report: invalid JSON", "error", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
+
+	logDebug("Device report: looking up device", "serial", req.DeviceSerial, "ip", req.DeviceIP)
 
 	// Look up device to find the agent - try by serial first, then IP
 	ctx := context.Background()
@@ -5893,6 +5900,260 @@ func proxyReportWithServerLogs(w http.ResponseWriter, r *http.Request, agentID s
 	case <-time.After(timeout):
 		logError("Report proxy timeout", "agent_id", agentID)
 		http.Error(w, "Agent request timeout", http.StatusGatewayTimeout)
+	}
+}
+
+// handleDeviceReportStreamProxy proxies /api/report/stream requests to the device's agent
+// This endpoint streams SSE progress updates during SNMP walks for real-time feedback
+func handleDeviceReportStreamProxy(w http.ResponseWriter, r *http.Request) {
+	logDebug("handleDeviceReportStreamProxy called", "method", r.Method)
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse request body to extract device info for agent lookup
+	var req struct {
+		DeviceIP     string `json:"device_ip"`
+		DeviceSerial string `json:"device_serial"`
+	}
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		logError("Report stream: failed to read body", "error", err)
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		logError("Report stream: invalid JSON", "error", err)
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	logDebug("Report stream: looking up device", "serial", req.DeviceSerial, "ip", req.DeviceIP)
+
+	// Look up device to find the agent
+	ctx := context.Background()
+	var device *storage.Device
+
+	if req.DeviceSerial != "" {
+		device, _ = serverStore.GetDevice(ctx, req.DeviceSerial)
+	}
+
+	if device == nil && req.DeviceIP != "" {
+		devices, err := serverStore.ListAllDevices(ctx)
+		if err == nil {
+			for _, d := range devices {
+				if d.IP == req.DeviceIP {
+					device = d
+					break
+				}
+			}
+		}
+	}
+
+	if device == nil {
+		logWarn("Report stream: device not found", "serial", req.DeviceSerial, "ip", req.DeviceIP)
+		http.Error(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	if device.AgentID == "" {
+		logWarn("Report stream: device has no agent", "serial", device.Serial)
+		http.Error(w, "Device has no associated agent", http.StatusBadRequest)
+		return
+	}
+
+	if !isAgentConnectedWS(device.AgentID) {
+		logWarn("Report stream: agent not connected", "agent_id", device.AgentID, "serial", device.Serial)
+		http.Error(w, "Device's agent not connected - please submit from agent UI", http.StatusServiceUnavailable)
+		return
+	}
+
+	logInfo("Proxying streaming report to agent", "agent_id", device.AgentID, "serial", device.Serial)
+
+	// Use the agent's streaming endpoint with true WebSocket streaming
+	agentURL := "http://localhost:8080/api/report/stream"
+
+	// Restore the request body
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	// Use true streaming proxy that forwards SSE chunks from agent in real-time
+	proxyReportWithTrueStreaming(w, r, device.AgentID, agentURL, bodyBytes)
+}
+
+// proxyReportWithTrueStreaming proxies a streaming report request to the agent
+// and forwards SSE events in real-time as they arrive via WebSocket.
+func proxyReportWithTrueStreaming(w http.ResponseWriter, r *http.Request, agentID string, targetURL string, bodyBytes []byte) {
+	timeout := 120 * time.Second // Longer timeout for full SNMP walks
+	requestID := fmt.Sprintf("%s-%d", agentID, time.Now().UnixNano())
+
+	logDebug("Starting true-streaming report proxy", "request_id", requestID, "agent_id", agentID)
+
+	// Set up SSE headers immediately
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		logError("Report stream: streaming not supported")
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Create response channel with larger buffer for streaming
+	respChan := make(chan wscommon.Message, 100)
+
+	// Register the channel for this request
+	proxyRequestsLock.Lock()
+	proxyRequests[requestID] = respChan
+	proxyRequestsLock.Unlock()
+
+	defer func() {
+		proxyRequestsLock.Lock()
+		delete(proxyRequests, requestID)
+		proxyRequestsLock.Unlock()
+	}()
+
+	// Encode request body
+	bodyStr := base64.StdEncoding.EncodeToString(bodyBytes)
+
+	// Extract headers
+	headers := make(map[string]string)
+	for k, v := range r.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	// Send streaming proxy request to agent
+	conn, exists := getAgentWSConnection(agentID)
+	if !exists {
+		logError("Report stream: agent not connected", "agent_id", agentID)
+		fmt.Fprintf(w, "event: error\ndata: {\"error\":\"Agent not connected\",\"fallback\":true}\n\n")
+		flusher.Flush()
+		return
+	}
+
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeProxyRequest,
+		Data: map[string]interface{}{
+			"request_id": requestID,
+			"url":        targetURL,
+			"method":     r.Method,
+			"headers":    headers,
+			"body":       bodyStr,
+			"streaming":  true, // Signal streaming mode to agent
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		logError("Report stream: failed to marshal request", "error", err)
+		fmt.Fprintf(w, "event: error\ndata: {\"error\":\"Internal error\",\"fallback\":true}\n\n")
+		flusher.Flush()
+		return
+	}
+
+	if err := conn.WriteRaw(payload, 10*time.Second); err != nil {
+		logError("Report stream: failed to send request", "error", err)
+		fmt.Fprintf(w, "event: error\ndata: {\"error\":\"Failed to contact agent\",\"fallback\":true}\n\n")
+		flusher.Flush()
+		return
+	}
+
+	logDebug("Streaming proxy request sent, forwarding chunks", "request_id", requestID)
+
+	// Forward streaming chunks from agent to client
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
+	for {
+		select {
+		case resp, ok := <-respChan:
+			if !ok {
+				// Channel closed
+				logDebug("Report stream: channel closed", "request_id", requestID)
+				return
+			}
+
+			// Check message type
+			switch resp.Type {
+			case wscommon.MessageTypeProxyStreamChunk:
+				// Check if this is the start message with headers
+				if isStart, _ := resp.Data["is_start"].(bool); isStart {
+					// Log that streaming started but don't send headers to client
+					// (SSE headers are already set)
+					logDebug("Report stream: streaming started from agent", "request_id", requestID)
+					continue
+				}
+
+				// Forward chunk data directly to client
+				if chunkB64, ok := resp.Data["chunk"].(string); ok {
+					chunkData, err := base64.StdEncoding.DecodeString(chunkB64)
+					if err != nil {
+						logWarn("Report stream: failed to decode chunk", "error", err)
+						continue
+					}
+					w.Write(chunkData)
+					flusher.Flush()
+				}
+
+			case wscommon.MessageTypeProxyStreamEnd:
+				// Stream ended - inject server logs into any pending data if needed
+				logDebug("Report stream: stream ended", "request_id", requestID)
+				return
+
+			case wscommon.MessageTypeProxyResponse:
+				// Fallback: got a buffered response instead of stream
+				// This happens if agent doesn't support streaming or stream failed
+				logDebug("Report stream: received buffered response (fallback)", "request_id", requestID)
+
+				statusCode := 200
+				if code, ok := resp.Data["status_code"].(float64); ok {
+					statusCode = int(code)
+				}
+
+				if bodyB64, ok := resp.Data["body"].(string); ok {
+					bodyData, err := base64.StdEncoding.DecodeString(bodyB64)
+					if err == nil {
+						// Try to inject server logs
+						var responseData map[string]interface{}
+						if json.Unmarshal(bodyData, &responseData) == nil {
+							if reportData, ok := responseData["report"].(map[string]interface{}); ok {
+								serverLogs := tailServerLogFile(200)
+								reportData["server_logs"] = serverLogs
+								responseData["report"] = reportData
+								if modified, err := json.Marshal(responseData); err == nil {
+									bodyData = modified
+								}
+							}
+						}
+
+						// Send as complete event
+						if statusCode >= 200 && statusCode < 300 {
+							fmt.Fprintf(w, "event: complete\ndata: %s\n\n", bodyData)
+						} else {
+							fmt.Fprintf(w, "event: error\ndata: {\"error\":\"Agent returned status %d\",\"fallback\":true}\n\n", statusCode)
+						}
+						flusher.Flush()
+					}
+				}
+				return
+
+			default:
+				logDebug("Report stream: unknown message type", "type", resp.Type)
+			}
+
+		case <-timeoutTimer.C:
+			logError("Report stream: timeout", "request_id", requestID, "agent_id", agentID)
+			fmt.Fprintf(w, "event: error\ndata: {\"error\":\"Request timed out\",\"fallback\":true}\n\n")
+			flusher.Flush()
+			return
+		}
 	}
 }
 

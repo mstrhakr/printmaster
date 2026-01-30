@@ -561,6 +561,9 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		method = "GET"
 	}
 
+	// Check if this is a streaming request
+	streaming, _ := msg.Data["streaming"].(bool)
+
 	// Extract headers
 	headers := make(map[string]string)
 	if headersData, ok := msg.Data["headers"].(map[string]interface{}); ok {
@@ -602,9 +605,71 @@ func (ws *WSClient) handleProxyRequest(msg wscommon.Message) {
 		return
 	}
 
-	// Direct invocation - bypass HTTP round-trip entirely
-	DebugCtx("Using local handler for proxy request", "request_id", requestID, "path", parsed.Path)
-	ws.handleLocalProxyRequest(requestID, method, parsed.Path, parsed.RawQuery, headers, bodyBytes, localHandler)
+	// Use streaming or buffered handler based on request flag
+	if streaming {
+		DebugCtx("Using streaming handler for proxy request", "request_id", requestID, "path", parsed.Path)
+		ws.handleStreamingProxyRequest(requestID, method, parsed.Path, parsed.RawQuery, headers, bodyBytes, localHandler)
+	} else {
+		DebugCtx("Using local handler for proxy request", "request_id", requestID, "path", parsed.Path)
+		ws.handleLocalProxyRequest(requestID, method, parsed.Path, parsed.RawQuery, headers, bodyBytes, localHandler)
+	}
+}
+
+// handleStreamingProxyRequest handles proxy requests that need to stream the response
+// back to the server in real-time (e.g., SSE endpoints like /api/report/stream)
+func (ws *WSClient) handleStreamingProxyRequest(requestID, method, path, rawQuery string, headers map[string]string, body []byte, handler http.Handler) {
+	start := time.Now()
+
+	// Build the request URL path with query string
+	reqPath := path
+	if reqPath == "" {
+		reqPath = "/"
+	}
+	if rawQuery != "" {
+		reqPath = reqPath + "?" + rawQuery
+	}
+
+	TraceTagCtx("proxy", "Streaming proxy request", "request_id", requestID, "method", method, "path", reqPath, "body_bytes", len(body))
+
+	// Create request for the handler
+	var req *http.Request
+	var err error
+	if len(body) > 0 {
+		req, err = http.NewRequest(method, reqPath, bytes.NewReader(body))
+	} else {
+		req, err = http.NewRequest(method, reqPath, nil)
+	}
+	if err != nil {
+		ws.sendProxyError(requestID, fmt.Sprintf("Failed to create streaming request: %v", err))
+		return
+	}
+
+	// Set headers (skip hop-by-hop headers)
+	for k, v := range headers {
+		if strings.EqualFold(k, "Connection") || strings.EqualFold(k, "Keep-Alive") ||
+			strings.EqualFold(k, "Proxy-Authenticate") || strings.EqualFold(k, "Proxy-Authorization") ||
+			strings.EqualFold(k, "TE") || strings.EqualFold(k, "Trailers") ||
+			strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Upgrade") {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
+
+	// Mark this as a server-proxied request
+	req.Header.Set("X-PrintMaster-Proxy", "server")
+
+	// Use our streaming ResponseWriter that sends chunks via WebSocket
+	streamWriter := newStreamingResponseWriter(ws, requestID)
+
+	// Invoke the handler - this will call Write() on our streaming writer
+	// which sends chunks via WebSocket as they're generated
+	handler.ServeHTTP(streamWriter, req)
+
+	// Signal end of stream
+	ws.sendProxyStreamEnd(requestID)
+
+	duration := time.Since(start)
+	TraceTagCtx("proxy", "Streaming proxy completed", "request_id", requestID, "duration", duration)
 }
 
 // handleLocalProxyRequest handles proxy requests to the agent's own web server
@@ -730,6 +795,161 @@ func (ws *WSClient) sendProxyError(requestID string, errorMsg string) {
 	ws.sendProxyResponse(requestID, 502, map[string]string{
 		"Content-Type": "text/plain",
 	}, []byte(errorMsg))
+}
+
+// streamingResponseWriter implements http.ResponseWriter and streams chunks via WebSocket
+type streamingResponseWriter struct {
+	ws          *WSClient
+	requestID   string
+	headers     http.Header
+	statusCode  int
+	wroteHeader bool
+	headersSent bool
+}
+
+func newStreamingResponseWriter(ws *WSClient, requestID string) *streamingResponseWriter {
+	return &streamingResponseWriter{
+		ws:         ws,
+		requestID:  requestID,
+		headers:    make(http.Header),
+		statusCode: http.StatusOK,
+	}
+}
+
+func (w *streamingResponseWriter) Header() http.Header {
+	return w.headers
+}
+
+func (w *streamingResponseWriter) WriteHeader(statusCode int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	w.statusCode = statusCode
+
+	// Send headers as the first stream chunk
+	if !w.headersSent {
+		w.headersSent = true
+		headers := make(map[string]string)
+		for k, v := range w.headers {
+			if len(v) > 0 {
+				// Skip frame-busting headers
+				if strings.EqualFold(k, "X-Frame-Options") ||
+					strings.EqualFold(k, "Content-Security-Policy") ||
+					strings.EqualFold(k, "Content-Security-Policy-Report-Only") {
+					continue
+				}
+				headers[k] = v[0]
+			}
+		}
+		w.ws.sendProxyStreamStart(w.requestID, statusCode, headers)
+	}
+}
+
+func (w *streamingResponseWriter) Write(data []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+
+	// Send chunk via WebSocket
+	w.ws.sendProxyStreamChunk(w.requestID, data)
+	return len(data), nil
+}
+
+// Flush implements http.Flusher - for SSE endpoints this triggers sending buffered data
+func (w *streamingResponseWriter) Flush() {
+	// Data is already sent immediately in Write(), so Flush is a no-op
+	// but we need to implement the interface for SSE handlers to work
+}
+
+// sendProxyStreamStart sends the initial headers for a streaming proxy response
+func (ws *WSClient) sendProxyStreamStart(requestID string, statusCode int, headers map[string]string) {
+	ws.mu.RLock()
+	conn := ws.conn
+	connected := ws.connected
+	ws.mu.RUnlock()
+
+	if !connected || conn == nil {
+		WarnCtx("Cannot send stream start - not connected", "request_id", requestID)
+		return
+	}
+
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeProxyStreamChunk,
+		Data: map[string]interface{}{
+			"request_id":  requestID,
+			"status_code": statusCode,
+			"headers":     headers,
+			"is_start":    true,
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		WarnCtx("Failed to marshal stream start", "error", err)
+		return
+	}
+
+	if err := conn.WriteRaw(payload, ws.writeTimeout); err != nil {
+		WarnCtx("Failed to send stream start", "error", err)
+	}
+}
+
+// sendProxyStreamChunk sends a chunk of streaming proxy response data
+func (ws *WSClient) sendProxyStreamChunk(requestID string, data []byte) {
+	ws.mu.RLock()
+	conn := ws.conn
+	connected := ws.connected
+	ws.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return // Silently drop - connection lost
+	}
+
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeProxyStreamChunk,
+		Data: map[string]interface{}{
+			"request_id": requestID,
+			"chunk":      base64.StdEncoding.EncodeToString(data),
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	// Use a short timeout for streaming chunks
+	conn.WriteRaw(payload, 5*time.Second)
+}
+
+// sendProxyStreamEnd signals the end of a streaming proxy response
+func (ws *WSClient) sendProxyStreamEnd(requestID string) {
+	ws.mu.RLock()
+	conn := ws.conn
+	connected := ws.connected
+	ws.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return
+	}
+
+	msg := wscommon.Message{
+		Type: wscommon.MessageTypeProxyStreamEnd,
+		Data: map[string]interface{}{
+			"request_id": requestID,
+		},
+		Timestamp: time.Now(),
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+
+	conn.WriteRaw(payload, ws.writeTimeout)
 }
 
 // CommandHandler is called when a command is received from the server

@@ -27,14 +27,16 @@ func (m *Message) Marshal() ([]byte, error) {
 
 // Standard message type constants used by server/agent/UI
 const (
-	MessageTypeHeartbeat      = "heartbeat"
-	MessageTypePong           = "pong"
-	MessageTypeError          = "error"
-	MessageTypeProxyRequest   = "proxy_request"
-	MessageTypeProxyResponse  = "proxy_response"
-	MessageTypeCommand        = "command"         // Server-to-agent command
-	MessageTypeCommandResult  = "command_result"  // Agent-to-server command response
-	MessageTypeUpdateProgress = "update_progress" // Agent-to-server update status
-	MessageTypeJobProgress    = "job_progress"    // Agent-to-server background job progress
-	MessageTypeDeviceDeleted  = "device_deleted"  // Agent-to-server device deletion notification
+	MessageTypeHeartbeat        = "heartbeat"
+	MessageTypePong             = "pong"
+	MessageTypeError            = "error"
+	MessageTypeProxyRequest     = "proxy_request"
+	MessageTypeProxyResponse    = "proxy_response"
+	MessageTypeProxyStreamChunk = "proxy_stream_chunk" // Streaming proxy response chunk
+	MessageTypeProxyStreamEnd   = "proxy_stream_end"   // End of streaming proxy response
+	MessageTypeCommand          = "command"            // Server-to-agent command
+	MessageTypeCommandResult    = "command_result"     // Agent-to-server command response
+	MessageTypeUpdateProgress   = "update_progress"    // Agent-to-server update status
+	MessageTypeJobProgress      = "job_progress"       // Agent-to-server background job progress
+	MessageTypeDeviceDeleted    = "device_deleted"     // Agent-to-server device deletion notification
 )
