@@ -918,6 +918,9 @@ func (s *PostgresStore) initSchema() error {
 		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'spooler_status') THEN
 			ALTER TABLE devices ADD COLUMN spooler_status TEXT;
 		END IF;
+		IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'devices' AND column_name = 'usb_webui_available') THEN
+			ALTER TABLE devices ADD COLUMN usb_webui_available BOOLEAN DEFAULT FALSE;
+		END IF;
 	END $$;
 	`
 
