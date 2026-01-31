@@ -27,11 +27,12 @@ WORKDIR /build/server
 ARG VERSION=dev
 ARG BUILD_TIME
 ARG GIT_COMMIT
+ARG BUILD_TYPE=release
 ARG TARGETARCH
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
-        -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=release'" \
+        -ldflags="-s -w -X 'main.Version=${VERSION}' -X 'main.BuildTime=${BUILD_TIME}' -X 'main.GitCommit=${GIT_COMMIT}' -X 'main.BuildType=${BUILD_TYPE}'" \
         -o printmaster-server .
 
 # Runtime stage - use Alpine for minimal size with shell support for entrypoint

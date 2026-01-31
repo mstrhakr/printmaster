@@ -234,6 +234,12 @@ jobs:
         echo "version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
         echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
         echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        # Dev builds from main branch, release builds from tags
+        if [[ "${{ github.ref }}" == refs/tags/agent-v* ]]; then
+          echo "build_type=release" >> $GITHUB_OUTPUT
+        else
+          echo "build_type=dev" >> $GITHUB_OUTPUT
+        fi
     
     - name: Build and push by digest
       id: build
@@ -246,6 +252,7 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           BUILD_TIME=${{ steps.version.outputs.build_time }}
           GIT_COMMIT=${{ steps.version.outputs.git_commit }}
+          BUILD_TYPE=${{ steps.version.outputs.build_type }}
         cache-from: type=gha,scope=agent-${{ matrix.suffix }}
         cache-to: type=gha,mode=max,scope=agent-${{ matrix.suffix }}
         outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-agent,push-by-digest=true,name-canonical=true,push=true
