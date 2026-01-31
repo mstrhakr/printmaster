@@ -12904,11 +12904,33 @@ function getTonerColor(name) {
     return '#757575';
 }
 
+// Ink/toner color keywords - only these appear in mini consumable bars
+const INK_COLOR_KEYWORDS = ['black', 'cyan', 'magenta', 'yellow', 'photo', 'matte', 'light', 'gray', 'grey', 'red', 'blue', 'green', 'orange', 'violet'];
+// Maintenance/non-ink keywords to exclude from mini bars
+const NON_INK_KEYWORDS = ['drum', 'belt', 'waste', 'fuser', 'maintenance', 'kit', 'transfer', 'opc', 'developer', 'roller', 'unit'];
+
+function isInkOrToner(name) {
+    const lower = (name || '').toLowerCase();
+    // Exclude if it matches a maintenance keyword
+    for (const kw of NON_INK_KEYWORDS) {
+        if (lower.includes(kw)) return false;
+    }
+    // Include if it matches an ink/toner color keyword
+    for (const kw of INK_COLOR_KEYWORDS) {
+        if (lower.includes(kw)) return true;
+    }
+    // Also include if it contains 'toner' or 'ink' without maintenance keywords
+    if (lower.includes('toner') || lower.includes('ink')) return true;
+    return false;
+}
+
 function getDeviceTonerData(device) {
     const source = device.toner_levels || device.toner || device.consumables || device.supplies;
     if (!source || typeof source !== 'object' || Array.isArray(source)) return [];
     const entries = [];
     for (const [name, value] of Object.entries(source)) {
+        // Only include actual ink/toner colors, not drums, belts, waste, etc.
+        if (!isInkOrToner(name)) continue;
         const level = normalizePercentage(value);
         if (typeof level === 'number') {
             entries.push({ name, level, color: getTonerColor(name) });
@@ -13301,21 +13323,17 @@ function classifyConsumableBand(device, tonerLevels) {
 
 function getDeviceConsumableLevels(device) {
     const values = [];
-    const pushLevels = (entry) => {
-        if (Array.isArray(entry)) {
-            entry.forEach(val => pushLevels(val));
-            return;
+    const source = device.toner_levels || device.toner || device.consumables || device.supplies;
+    if (source && typeof source === 'object' && !Array.isArray(source)) {
+        // Only include actual ink/toner levels, not drums, belts, waste, etc.
+        for (const [name, value] of Object.entries(source)) {
+            if (!isInkOrToner(name)) continue;
+            const num = normalizePercentage(value);
+            if (typeof num === 'number') {
+                values.push(num);
+            }
         }
-        if (entry && typeof entry === 'object') {
-            Object.keys(entry).forEach(key => pushLevels(entry[key]));
-            return;
-        }
-        const num = normalizePercentage(entry);
-        if (typeof num === 'number') {
-            values.push(num);
-        }
-    };
-    pushLevels(device.toner_levels || device.toner || device.consumables || device.supplies);
+    }
     return values;
 }
 
