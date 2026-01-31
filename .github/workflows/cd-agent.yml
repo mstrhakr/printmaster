@@ -125,7 +125,7 @@ jobs:
         path: agent/dist/*.deb
 
     - name: Install WiX Toolset (Windows)
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-latest' && steps.version.outputs.build_type == 'release'
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
@@ -145,7 +145,7 @@ jobs:
         "$binPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Build Agent MSI
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-latest' && steps.version.outputs.build_type == 'release'
       shell: pwsh
       run: |
         $ErrorActionPreference = 'Stop'
@@ -159,11 +159,14 @@ jobs:
         if (!(Test-Path $distDir)) {
           New-Item -ItemType Directory -Path $distDir | Out-Null
         }
+        # WiX requires version in x.x.x.x format - strip any dev suffix
+        $baseVersion = (Get-Content 'agent/VERSION').Trim()
+        $wixVersion = "$baseVersion.0"
         $wixobj = Join-Path $distDir 'printmaster-agent.wixobj'
         $wxs = 'build\windows\msi\printmaster-agent.wxs'
         $candleArgs = @(
           '-nologo',
-          "-dProductVersion=$agentVersion",
+          "-dProductVersion=$wixVersion",
           "-dAgentBinaryPath=$agentExe",
           '-out', $wixobj,
           $wxs
@@ -187,7 +190,7 @@ jobs:
         path: agent/printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}*
 
     - name: Upload Agent MSI
-      if: matrix.os == 'windows-latest'
+      if: matrix.os == 'windows-latest' && steps.version.outputs.build_type == 'release'
       uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.3.0
       with:
         name: agent-windows-msi
