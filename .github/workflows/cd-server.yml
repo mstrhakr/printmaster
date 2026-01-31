@@ -484,3 +484,110 @@ jobs:
         fail_on_unmatched_files: false
         draft: false
         prerelease: false
+
+  release-server-dev:
+    name: Create Server Dev Release
+    if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+    needs: [build-server, merge-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.3.0
+      with:
+        fetch-depth: 0
+    
+    - name: Download release artifacts
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        path: artifacts
+        pattern: server-*
+        merge-multiple: false
+    
+    - name: Get version info
+      id: version
+      run: |
+        BASE_VERSION=$(cat server/VERSION)
+        GIT_COMMIT=$(git rev-parse --short HEAD)
+        DEV_VERSION="${BASE_VERSION}-dev.${GIT_COMMIT}"
+        echo "version=$DEV_VERSION" >> $GITHUB_OUTPUT
+        echo "tag=server-v$DEV_VERSION" >> $GITHUB_OUTPUT
+        echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+        echo "git_commit=$GIT_COMMIT" >> $GITHUB_OUTPUT
+    
+    - name: Prepare release binaries
+      run: |
+        cd artifacts
+        for dir in */; do
+          name="${dir%/}"
+          binary=$(find "$dir" -maxdepth 1 -type f -name "printmaster-*" | head -n 1)
+          if [ -n "$binary" ]; then
+            cp "$binary" "./$(basename "$binary")"
+            echo "Prepared: $(basename "$binary")"
+          fi
+        done
+        echo "=== Release Binaries ==="
+        ls -lh printmaster-* 2>/dev/null || true
+    
+    - name: Delete existing dev release (if any)
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Delete the existing dev tag/release if it exists (we always update the dev release)
+        TAG="server-v${{ steps.version.outputs.version }}"
+        if gh release view "$TAG" &>/dev/null; then
+          echo "Deleting existing release $TAG..."
+          gh release delete "$TAG" --yes || true
+        fi
+        if git ls-remote --tags origin | grep -q "refs/tags/$TAG"; then
+          echo "Deleting existing tag $TAG..."
+          git push origin --delete "$TAG" || true
+        fi
+    
+    - name: Create GitHub Dev Release
+      uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: PrintMaster Server v${{ steps.version.outputs.version }} (Dev)
+        body: |
+          ## PrintMaster Server v${{ steps.version.outputs.version }} (Development Build)
+          
+          ⚠️ **This is a development build from the main branch.** It may contain unstable or experimental features.
+          
+          To receive dev builds automatically, set your server's `releases.include_prerelease = "true"` or run a dev build of the server.
+          
+          ---
+          
+          ### 📦 Installation
+          
+          #### Docker
+          ```bash
+          # Pull the dev image
+          docker pull ghcr.io/mstrhakr/printmaster-server:main
+          
+          # Run the container
+          docker run -d \
+            --name printmaster-server \
+            -p 9090:9090 \
+            -v printmaster-data:/var/lib/printmaster/server \
+            ghcr.io/mstrhakr/printmaster-server:main
+          ```
+          
+          ---
+          
+          ### ⏱️ Build Information
+          - **Base Version:** ${{ steps.version.outputs.base_version }}
+          - **Commit:** ${{ steps.version.outputs.git_commit }}
+          - **Full SHA:** ${{ github.sha }}
+          - **Workflow run:** ${{ github.run_id }}
+          
+          ### 🔗 Links
+          - [Documentation](https://github.com/mstrhakr/printmaster/tree/main/docs)
+          - [Docker Images](https://github.com/mstrhakr/printmaster/pkgs/container/printmaster-server)
+          - [Issue Tracker](https://github.com/mstrhakr/printmaster/issues)
+        files: artifacts/printmaster-*
+        fail_on_unmatched_files: false
+        draft: false
+        prerelease: true

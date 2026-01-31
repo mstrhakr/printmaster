@@ -105,6 +105,12 @@
   # Minutes between automatic release syncs
   poll_interval_minutes = 240
 
+  # Include prerelease/dev builds in release sync: "true", "false", or "" (auto-detect)
+  # - "true"  : Always sync prerelease builds
+  # - "false" : Only sync stable releases
+  # - ""      : Auto-detect based on build type (dev server -> include prereleases)
+  include_prerelease = ""
+
 [self_update]
   # Update channel: "stable", "dev", or "" (auto-detect from build type)
   # - "stable" : Only receive stable release updates  

@@ -80,6 +80,8 @@
   # Keep a smaller cache in container deployments
   max_releases = 4
   poll_interval_minutes = 240
+  # Include prereleases: "true", "false", or "" (auto-detect from build type)
+  include_prerelease = ""
 
 [self_update]
   # Containers typically disable self-update, but channel still required

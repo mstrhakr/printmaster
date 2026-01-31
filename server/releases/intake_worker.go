@@ -56,7 +56,8 @@ type Options struct {
 	GitHubToken       string
 	HTTPClient        *http.Client
 	MaxReleases       int
-	RetentionVersions int // 0 = disabled (keep all), N = keep N versions per component
+	RetentionVersions int  // 0 = disabled (keep all), N = keep N versions per component
+	IncludePrerelease bool // If true, include prerelease/dev builds in synced releases
 	UserAgent         string
 	ManifestManager   *Manager
 }
@@ -72,6 +73,7 @@ type IntakeWorker struct {
 	client            *http.Client
 	maxReleases       int
 	retentionVersions int
+	includePrerelease bool
 	token             string
 	userAgent         string
 	manifests         *Manager
@@ -160,6 +162,7 @@ func NewIntakeWorker(store storage.Store, log *logger.Logger, opts Options) (*In
 		client:            client,
 		maxReleases:       maxReleases,
 		retentionVersions: opts.RetentionVersions,
+		includePrerelease: opts.IncludePrerelease,
 		token:             strings.TrimSpace(opts.GitHubToken),
 		userAgent:         userAgent,
 		manifests:         opts.ManifestManager,
@@ -244,7 +247,10 @@ func (w *IntakeWorker) runOnceWithProgress(ctx context.Context, onProgress Progr
 		if component == "" || version == "" {
 			continue
 		}
-		if rel.Draft || rel.Prerelease {
+		if rel.Draft {
+			continue
+		}
+		if rel.Prerelease && !w.includePrerelease {
 			continue
 		}
 		if processed[component] >= w.maxReleases {
@@ -525,7 +531,7 @@ func (w *IntakeWorker) runOnce(ctx context.Context) error {
 		return err
 	}
 
-	w.logInfo("Processing releases from GitHub", "count", len(releases))
+	w.logInfo("Processing releases from GitHub", "count", len(releases), "include_prerelease", w.includePrerelease)
 
 	processed := map[string]int{}
 	for _, rel := range releases {
@@ -534,14 +540,18 @@ func (w *IntakeWorker) runOnce(ctx context.Context) error {
 			w.logInfo("Skipping release with unparseable tag", "tag", rel.TagName)
 			continue
 		}
-		if rel.Draft || rel.Prerelease {
-			w.logInfo("Skipping draft/prerelease", "tag", rel.TagName, "draft", rel.Draft, "prerelease", rel.Prerelease)
+		if rel.Draft {
+			w.logInfo("Skipping draft", "tag", rel.TagName)
+			continue
+		}
+		if rel.Prerelease && !w.includePrerelease {
+			w.logInfo("Skipping prerelease (include_prerelease disabled)", "tag", rel.TagName)
 			continue
 		}
 		if processed[component] >= w.maxReleases {
 			continue
 		}
-		w.logInfo("Processing release", "component", component, "version", version, "assets", len(rel.Assets))
+		w.logInfo("Processing release", "component", component, "version", version, "assets", len(rel.Assets), "prerelease", rel.Prerelease)
 		if err := w.processRelease(ctx, component, version, rel); err != nil {
 			w.logWarn("release processing failed", "component", component, "version", version, "error", err)
 			continue

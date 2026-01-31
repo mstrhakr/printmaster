@@ -225,6 +225,21 @@ func selfUpdateChannel(configured string) string {
 	return "stable"
 }
 
+// shouldIncludePrerelease determines if prerelease/dev builds should be included in release intake.
+// If configured explicitly ("true"/"false"), use that; otherwise auto-detect from BuildType.
+// Dev builds automatically include prereleases, release builds don't.
+func shouldIncludePrerelease(configured string) bool {
+	switch strings.ToLower(configured) {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
+	default:
+		// Auto-detect: dev builds include prereleases
+		return BuildType == "dev"
+	}
+}
+
 // sanitizeEmailHeader removes CR and LF characters from email header values
 // to prevent email header injection attacks.
 func sanitizeEmailHeader(s string) string {
@@ -721,6 +736,7 @@ func runServer(ctx context.Context, configFlag string) {
 		MaxReleases:       cfg.Releases.MaxReleases,
 		PollInterval:      time.Duration(cfg.Releases.PollIntervalMinutes) * time.Minute,
 		RetentionVersions: cfg.Releases.RetentionVersions,
+		IncludePrerelease: shouldIncludePrerelease(cfg.Releases.IncludePrerelease),
 	}); err != nil {
 		logWarn("Release intake worker disabled", "error", err)
 	} else {

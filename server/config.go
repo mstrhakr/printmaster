@@ -50,9 +50,10 @@ type ServerConfig struct {
 
 // ReleasesConfig tunes the GitHub release intake worker.
 type ReleasesConfig struct {
-	MaxReleases         int `toml:"max_releases"`
-	PollIntervalMinutes int `toml:"poll_interval_minutes"`
-	RetentionVersions   int `toml:"retention_versions"` // 0 = disabled (keep all), N = keep N versions per component
+	MaxReleases         int    `toml:"max_releases"`
+	PollIntervalMinutes int    `toml:"poll_interval_minutes"`
+	RetentionVersions   int    `toml:"retention_versions"` // 0 = disabled (keep all), N = keep N versions per component
+	IncludePrerelease   string `toml:"include_prerelease"` // "true", "false", or "" (auto-detect from build type)
 }
 
 // SelfUpdateConfig exposes tweakable server auto-update controls.
@@ -161,7 +162,8 @@ func DefaultConfig() *Config {
 		Releases: ReleasesConfig{
 			MaxReleases:         6,
 			PollIntervalMinutes: 240,
-			RetentionVersions:   6, // Keep 6 versions per component; 0 = keep all (no pruning)
+			RetentionVersions:   6,  // Keep 6 versions per component; 0 = keep all (no pruning)
+			IncludePrerelease:   "", // Auto-detect: dev builds include prereleases, release builds don't
 		},
 		SelfUpdate: SelfUpdateConfig{
 			Channel:              "stable",
@@ -260,6 +262,10 @@ func applyEnvOverrides(cfg *Config, tracker *ConfigSourceTracker) {
 			cfg.Releases.RetentionVersions = v
 			tracker.EnvKeys["releases.retention_versions"] = true
 		}
+	}
+	if val := os.Getenv("RELEASES_INCLUDE_PRERELEASE"); val != "" {
+		cfg.Releases.IncludePrerelease = val
+		tracker.EnvKeys["releases.include_prerelease"] = true
 	}
 	if val := os.Getenv("SELF_UPDATE_CHANNEL"); val != "" {
 		cfg.SelfUpdate.Channel = val
