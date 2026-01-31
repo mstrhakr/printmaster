@@ -154,6 +154,7 @@ func (s *SQLiteStore) initSchema() error {
 		is_default INTEGER DEFAULT 0,
 		is_shared INTEGER DEFAULT 0,
 		spooler_status TEXT,
+		usb_webui_available INTEGER DEFAULT 0,
 		FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
 	);
 

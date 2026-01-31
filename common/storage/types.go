@@ -64,15 +64,16 @@ type Device struct {
 	RawData         map[string]interface{} `json:"raw_data,omitempty"`     // Additional fields as JSON for extensibility
 
 	// Device classification fields (for unified device view)
-	DeviceType       string `json:"device_type,omitempty"`        // network, usb, local, shared, virtual
-	SourceType       string `json:"source_type,omitempty"`        // snmp, spooler, manual
-	IsUSB            bool   `json:"is_usb,omitempty"`             // Convenience flag for USB devices
-	InitialPageCount int    `json:"initial_page_count,omitempty"` // User-set baseline for audit trail
-	PortName         string `json:"port_name,omitempty"`          // Port info (USB001, LPT1:, etc.) for spooler devices
-	DriverName       string `json:"driver_name,omitempty"`        // Driver name for spooler devices
-	IsDefault        bool   `json:"is_default,omitempty"`         // Is this the default printer?
-	IsShared         bool   `json:"is_shared,omitempty"`          // Is this printer shared on the network?
-	SpoolerStatus    string `json:"spooler_status,omitempty"`     // Status from spooler (ready, offline, etc.)
+	DeviceType        string `json:"device_type,omitempty"`         // network, usb, local, shared, virtual
+	SourceType        string `json:"source_type,omitempty"`         // snmp, spooler, manual
+	IsUSB             bool   `json:"is_usb,omitempty"`              // Convenience flag for USB devices
+	InitialPageCount  int    `json:"initial_page_count,omitempty"`  // User-set baseline for audit trail
+	PortName          string `json:"port_name,omitempty"`           // Port info (USB001, LPT1:, etc.) for spooler devices
+	DriverName        string `json:"driver_name,omitempty"`         // Driver name for spooler devices
+	IsDefault         bool   `json:"is_default,omitempty"`          // Is this the default printer?
+	IsShared          bool   `json:"is_shared,omitempty"`           // Is this printer shared on the network?
+	SpoolerStatus     string `json:"spooler_status,omitempty"`      // Status from spooler (ready, offline, etc.)
+	UsbWebUIAvailable bool   `json:"usb_webui_available,omitempty"` // USB printer has accessible web UI via IPP-USB
 }
 
 // MetricsSnapshot represents a point-in-time snapshot of device metrics (base struct)

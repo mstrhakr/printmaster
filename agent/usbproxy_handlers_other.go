@@ -29,6 +29,11 @@ func CanUSBProxySerial(serial string) bool {
 	return false
 }
 
+// ProbeUSBWebUI always returns false on non-Windows platforms
+func ProbeUSBWebUI(serial string) bool {
+	return false
+}
+
 // HandleUSBProxy always returns false on non-Windows platforms
 func HandleUSBProxy(w http.ResponseWriter, r *http.Request, serial string) bool {
 	return false

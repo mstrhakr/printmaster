@@ -411,6 +411,23 @@ func (w *SpoolerWorker) syncPrinterToDevice(ctx context.Context, p *spooler.Loca
 		Visible: true,
 	}
 
+	// For USB printers, probe for web UI availability via IPP-USB
+	if p.Type == spooler.PrinterTypeUSB && p.SerialNumber != "" {
+		// Only probe if we haven't already confirmed it, or it's a new device
+		shouldProbe := !existsInDB || !existingDevice.UsbWebUIAvailable
+		if shouldProbe {
+			if ProbeUSBWebUI(p.SerialNumber) {
+				device.UsbWebUIAvailable = true
+				w.logger.Info("USB printer has accessible web UI",
+					"printer", p.Name,
+					"serial", p.SerialNumber)
+			}
+		} else {
+			// Preserve existing USB web UI availability status
+			device.UsbWebUIAvailable = existingDevice.UsbWebUIAvailable
+		}
+	}
+
 	// Preserve user-set fields from existing device
 	if existsInDB {
 		// Keep existing values for user-configurable fields
@@ -477,9 +494,18 @@ func (w *SpoolerWorker) mergeSpoolerIntoSNMPDevice(ctx context.Context, existing
 	existing.SpoolerStatus = p.Status
 	existing.LastSeen = p.LastSeen
 
-	// If spooler says it's USB, update the IsUSB flag
+	// If spooler says it's USB, update the IsUSB flag and probe for web UI
 	if p.Type == spooler.PrinterTypeUSB {
 		existing.IsUSB = true
+		// Probe for USB web UI if not already confirmed
+		if !existing.UsbWebUIAvailable && p.SerialNumber != "" {
+			if ProbeUSBWebUI(p.SerialNumber) {
+				existing.UsbWebUIAvailable = true
+				w.logger.Info("USB printer has accessible web UI (merged device)",
+					"printer", p.Name,
+					"serial", p.SerialNumber)
+			}
+		}
 	}
 
 	// Update device type to reflect shared status if applicable

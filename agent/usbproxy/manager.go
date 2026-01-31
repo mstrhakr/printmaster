@@ -588,3 +588,91 @@ func (m *Manager) ProxyRequestBySerial(w http.ResponseWriter, r *http.Request, i
 	m.ProxyRequest(w, r, printer.DevicePath)
 	return true
 }
+
+// ProbeWebUI checks if a USB printer has an accessible web UI via IPP-USB.
+// It attempts an HTTP GET to "/" through the USB transport and returns true
+// if a valid HTML response is received.
+func (m *Manager) ProbeWebUI(serial string) bool {
+	if serial == "" {
+		return false
+	}
+
+	printer, found := m.GetPrinterForProxy(serial)
+	if !found {
+		m.logger.Debug("ProbeWebUI: printer not found", "serial", serial)
+		return false
+	}
+
+	// Create a session to test connectivity
+	session, err := m.GetOrCreateSession(printer.DevicePath)
+	if err != nil {
+		m.logger.Debug("ProbeWebUI: failed to create session",
+			"serial", serial,
+			"error", err)
+		return false
+	}
+
+	// Create a simple HTTP GET request to root
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", "/", nil)
+	if err != nil {
+		m.logger.Debug("ProbeWebUI: failed to create request",
+			"serial", serial,
+			"error", err)
+		return false
+	}
+
+	// Send request via USB transport
+	resp, err := session.Transport.RoundTrip(req)
+	if err != nil {
+		m.logger.Debug("ProbeWebUI: request failed",
+			"serial", serial,
+			"error", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	// Check for successful HTTP response (200-299 or 3xx redirect)
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		m.logger.Debug("ProbeWebUI: bad status code",
+			"serial", serial,
+			"status", resp.StatusCode)
+		return false
+	}
+
+	// Check content type - should be HTML for a web UI
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		// Some printers don't set Content-Type, read a bit of body to check
+		buf := make([]byte, 512)
+		n, _ := resp.Body.Read(buf)
+		content := strings.ToLower(string(buf[:n]))
+		// Check for HTML markers
+		if !strings.Contains(content, "<html") && !strings.Contains(content, "<!doctype") {
+			m.logger.Debug("ProbeWebUI: response does not appear to be HTML",
+				"serial", serial)
+			return false
+		}
+	} else {
+		contentType = strings.ToLower(contentType)
+		if !strings.Contains(contentType, "text/html") &&
+			!strings.Contains(contentType, "application/xhtml") {
+			m.logger.Debug("ProbeWebUI: content type is not HTML",
+				"serial", serial,
+				"content_type", contentType)
+			return false
+		}
+	}
+
+	m.logger.Info("ProbeWebUI: USB printer has accessible web UI",
+		"serial", serial,
+		"product", printer.Product)
+	return true
+}
+
+// ProbeWebUIByIdentifier is like ProbeWebUI but accepts serial or port name
+func (m *Manager) ProbeWebUIByIdentifier(identifier string) bool {
+	return m.ProbeWebUI(identifier)
+}

@@ -6372,6 +6372,9 @@ func handleDevicesBatch(w http.ResponseWriter, r *http.Request) {
 		if v, ok := deviceMap["spooler_status"].(string); ok {
 			device.SpoolerStatus = v
 		}
+		if v, ok := deviceMap["usb_webui_available"].(bool); ok {
+			device.UsbWebUIAvailable = v
+		}
 		device.RawData = deviceMap
 
 		if device.Serial == "" {

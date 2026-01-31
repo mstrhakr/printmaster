@@ -623,18 +623,29 @@
             const isMultiSelect = selectedIds.size > 1 && selectedIds.has(deviceId);
 
             // Determine if device WebUI is accessible:
-            // - Network devices need both IP and agent
-            // - USB devices only need an agent (proxy goes through agent's USB handler)
+            // - Devices with explicit web_ui_url always show the button
+            // - Network devices need an IP (and agent for proxy)
+            // - USB devices with usb_webui_available=true can be accessed via agent proxy
             const effectiveAgentId = agentId || device?.agent_id || '';
-            const isUSB = device?.is_usb || device?.device_type === 'usb';
-            const hasWebAccess = effectiveAgentId && (ip || isUSB);
+            const effectiveIP = ip || device?.ip || '';
+            const webUiUrl = device?.web_ui_url || device?.webui || '';
+            const usbWebUIAvailable = device?.usb_webui_available || false;
+            
+            // Check if agent is online (needed for USB proxy to work)
+            const agent = getAgentById(effectiveAgentId);
+            const agentOnline = agent?.status === 'active' || agent?.status === 'online';
+            
+            // USB web UI requires agent to be connected for proxying
+            const hasUsbWebAccess = usbWebUIAvailable && effectiveAgentId && agentOnline;
+            const hasWebAccess = webUiUrl || (effectiveIP && effectiveAgentId) || hasUsbWebAccess;
 
             const context = {
                 serial: serial,
-                ip: ip || device?.ip || '',
+                ip: effectiveIP,
                 mac: device?.mac || '',
                 agentId: effectiveAgentId,
                 hasAccess: hasWebAccess,
+                webUiUrl: webUiUrl,
                 isMultiSelect: isMultiSelect,
                 selectedCount: isMultiSelect ? selectedIds.size : 1,
                 selectedIds: isMultiSelect ? Array.from(selectedIds) : [deviceId]

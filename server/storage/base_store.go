@@ -553,8 +553,8 @@ func (s *BaseStore) UpsertDevice(ctx context.Context, device *Device) error {
 			last_seen, first_seen, created_at, discovery_method,
 			asset_number, location, description, web_ui_url, raw_data,
 			device_type, source_type, is_usb, port_name, driver_name,
-			is_default, is_shared, spooler_status
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			is_default, is_shared, spooler_status, usb_webui_available
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(serial) DO UPDATE SET
 			agent_id = excluded.agent_id,
 			ip = excluded.ip,
@@ -577,7 +577,8 @@ func (s *BaseStore) UpsertDevice(ctx context.Context, device *Device) error {
 			driver_name = excluded.driver_name,
 			is_default = excluded.is_default,
 			is_shared = excluded.is_shared,
-			spooler_status = excluded.spooler_status
+			spooler_status = excluded.spooler_status,
+			usb_webui_available = excluded.usb_webui_available
 	`
 
 	_, err := s.execContext(ctx, query,
@@ -589,7 +590,8 @@ func (s *BaseStore) UpsertDevice(ctx context.Context, device *Device) error {
 		device.Location, device.Description, device.WebUIURL,
 		string(rawDataJSON),
 		device.DeviceType, device.SourceType, device.IsUSB, device.PortName,
-		device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus)
+		device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
+		device.UsbWebUIAvailable)
 
 	return err
 }
@@ -602,7 +604,7 @@ func (s *BaseStore) GetDevice(ctx context.Context, serial string) (*Device, erro
 		       last_seen, first_seen, created_at, discovery_method,
 		       asset_number, location, description, web_ui_url, raw_data,
 		       device_type, source_type, is_usb, port_name, driver_name,
-		       is_default, is_shared, spooler_status
+		       is_default, is_shared, spooler_status, usb_webui_available
 		FROM devices
 		WHERE serial = ?
 	`
@@ -610,7 +612,7 @@ func (s *BaseStore) GetDevice(ctx context.Context, serial string) (*Device, erro
 	var device Device
 	var consumablesJSON, statusJSON, rawDataJSON sql.NullString
 	var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
-	var isUSB, isDefault, isShared sql.NullBool
+	var isUSB, isDefault, isShared, usbWebUIAvailable sql.NullBool
 
 	err := s.queryRowContext(ctx, query, serial).Scan(
 		&device.Serial, &device.AgentID, &device.IP, &device.Manufacturer,
@@ -620,7 +622,7 @@ func (s *BaseStore) GetDevice(ctx context.Context, serial string) (*Device, erro
 		&device.DiscoveryMethod, &device.AssetNumber, &device.Location,
 		&device.Description, &device.WebUIURL, &rawDataJSON,
 		&deviceType, &sourceType, &isUSB, &portName, &driverName,
-		&isDefault, &isShared, &spoolerStatus)
+		&isDefault, &isShared, &spoolerStatus, &usbWebUIAvailable)
 
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("device not found: %s", serial)
@@ -665,6 +667,9 @@ func (s *BaseStore) GetDevice(ctx context.Context, serial string) (*Device, erro
 	if spoolerStatus.Valid {
 		device.SpoolerStatus = spoolerStatus.String
 	}
+	if usbWebUIAvailable.Valid {
+		device.UsbWebUIAvailable = usbWebUIAvailable.Bool
+	}
 
 	return &device, nil
 }
@@ -677,7 +682,7 @@ func (s *BaseStore) ListDevices(ctx context.Context, agentID string) ([]*Device,
 		       last_seen, first_seen, created_at, discovery_method,
 		       asset_number, location, description, web_ui_url, raw_data,
 		       device_type, source_type, is_usb, port_name, driver_name,
-		       is_default, is_shared, spooler_status
+		       is_default, is_shared, spooler_status, usb_webui_available
 		FROM devices
 		WHERE agent_id = ?
 		ORDER BY last_seen DESC
@@ -700,7 +705,7 @@ func (s *BaseStore) ListAllDevices(ctx context.Context) ([]*Device, error) {
 		       last_seen, first_seen, created_at, discovery_method,
 		       asset_number, location, description, web_ui_url, raw_data,
 		       device_type, source_type, is_usb, port_name, driver_name,
-		       is_default, is_shared, spooler_status
+		       is_default, is_shared, spooler_status, usb_webui_available
 		FROM devices
 		ORDER BY last_seen DESC
 	`
@@ -744,7 +749,7 @@ func (s *BaseStore) ListAllDevicesPaginated(ctx context.Context, limit, offset i
 			       last_seen, first_seen, created_at, discovery_method,
 			       asset_number, location, description, web_ui_url, raw_data,
 			       device_type, source_type, is_usb, port_name, driver_name,
-			       is_default, is_shared, spooler_status
+			       is_default, is_shared, spooler_status, usb_webui_available
 			FROM devices
 			ORDER BY last_seen DESC
 			LIMIT ? OFFSET ?
@@ -762,7 +767,7 @@ func (s *BaseStore) ListAllDevicesPaginated(ctx context.Context, limit, offset i
 			       last_seen, first_seen, created_at, discovery_method,
 			       asset_number, location, description, web_ui_url, raw_data,
 			       device_type, source_type, is_usb, port_name, driver_name,
-			       is_default, is_shared, spooler_status
+			       is_default, is_shared, spooler_status, usb_webui_available
 			FROM devices
 			WHERE agent_id IN (%s)
 			ORDER BY last_seen DESC
@@ -787,7 +792,7 @@ func (s *BaseStore) scanDevices(rows *sql.Rows) ([]*Device, error) {
 		var device Device
 		var consumablesJSON, statusJSON, rawDataJSON sql.NullString
 		var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
-		var isUSB, isDefault, isShared sql.NullBool
+		var isUSB, isDefault, isShared, usbWebUIAvailable sql.NullBool
 
 		err := rows.Scan(
 			&device.Serial, &device.AgentID, &device.IP, &device.Manufacturer,
@@ -797,7 +802,7 @@ func (s *BaseStore) scanDevices(rows *sql.Rows) ([]*Device, error) {
 			&device.DiscoveryMethod, &device.AssetNumber, &device.Location,
 			&device.Description, &device.WebUIURL, &rawDataJSON,
 			&deviceType, &sourceType, &isUSB, &portName, &driverName,
-			&isDefault, &isShared, &spoolerStatus)
+			&isDefault, &isShared, &spoolerStatus, &usbWebUIAvailable)
 		if err != nil {
 			return nil, err
 		}
@@ -837,6 +842,9 @@ func (s *BaseStore) scanDevices(rows *sql.Rows) ([]*Device, error) {
 		}
 		if spoolerStatus.Valid {
 			device.SpoolerStatus = spoolerStatus.String
+		}
+		if usbWebUIAvailable.Valid {
+			device.UsbWebUIAvailable = usbWebUIAvailable.Bool
 		}
 
 		devices = append(devices, &device)

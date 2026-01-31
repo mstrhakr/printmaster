@@ -89,6 +89,19 @@ func CanUSBProxySerial(serial string) bool {
 	return manager.CanProxySerial(serial)
 }
 
+// ProbeUSBWebUI checks if a USB printer has an accessible web UI via IPP-USB.
+// Returns true if the printer has a working web UI that can be proxied.
+func ProbeUSBWebUI(serial string) bool {
+	usbProxyManagerMu.RLock()
+	manager := usbProxyManager
+	usbProxyManagerMu.RUnlock()
+
+	if manager == nil {
+		return false
+	}
+	return manager.ProbeWebUI(serial)
+}
+
 // GetUSBTransportForSerial returns an http.RoundTripper for a USB printer
 // This allows the main proxy handler to use USB transport with standard reverse proxy
 func GetUSBTransportForSerial(serial string) (http.RoundTripper, error) {

@@ -218,6 +218,7 @@ func (s *PostgresStore) initSchema() error {
 		is_default BOOLEAN DEFAULT FALSE,
 		is_shared BOOLEAN DEFAULT FALSE,
 		spooler_status TEXT,
+		usb_webui_available BOOLEAN DEFAULT FALSE,
 		CONSTRAINT fk_devices_agent FOREIGN KEY(agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
 	);
 

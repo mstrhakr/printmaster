@@ -843,6 +843,28 @@ func (s *SQLiteStore) runMigrations() error {
 		}
 	}
 
+	// Migration 9 -> 10: Add usb_webui_available column for USB printer web UI detection
+	if currentVersion < 10 {
+		var tableExists int
+		err := s.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='devices'").Scan(&tableExists)
+		if err == nil && tableExists > 0 {
+			_, err = s.db.Exec(`ALTER TABLE devices ADD COLUMN usb_webui_available BOOLEAN DEFAULT 0`)
+			if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+				return fmt.Errorf("failed to add usb_webui_available column: %w", err)
+			}
+		}
+
+		// Record migration
+		_, err = s.db.Exec(`INSERT OR REPLACE INTO schema_version (version, applied_at) VALUES (10, ?)`, time.Now())
+		if err != nil {
+			return fmt.Errorf("failed to record schema version: %w", err)
+		}
+
+		if storageLogger != nil {
+			storageLogger.Info("Applied schema migration 9->10: USB web UI availability tracking")
+		}
+	}
+
 	// Schema repair: ensure critical columns exist regardless of recorded version
 	// This handles cases where migration tracking got out of sync with actual schema
 	if err := s.repairSchema(); err != nil {
@@ -881,7 +903,7 @@ func (s *SQLiteStore) repairSchema() error {
 		existingCols[name] = true
 	}
 
-	// Critical columns that must exist (added in migration 9)
+	// Critical columns that must exist (added in migrations 9 and 10)
 	criticalColumns := []struct {
 		name string
 		def  string
@@ -895,6 +917,7 @@ func (s *SQLiteStore) repairSchema() error {
 		{"is_default", "BOOLEAN DEFAULT 0"},
 		{"is_shared", "BOOLEAN DEFAULT 0"},
 		{"spooler_status", "TEXT"},
+		{"usb_webui_available", "BOOLEAN DEFAULT 0"},
 	}
 
 	repaired := false
@@ -951,8 +974,8 @@ func (s *SQLiteStore) Create(ctx context.Context, device *Device) error {
 			discovery_method, walk_filename, last_scan_id, raw_data,
 			asset_number, location, description, web_ui_url, locked_fields,
 			device_type, source_type, is_usb, initial_page_count,
-			port_name, driver_name, is_default, is_shared, spooler_status
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			port_name, driver_name, is_default, is_shared, spooler_status, usb_webui_available
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := s.db.ExecContext(ctx, query,
@@ -965,6 +988,7 @@ func (s *SQLiteStore) Create(ctx context.Context, device *Device) error {
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
 		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
 		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
+		device.UsbWebUIAvailable,
 	)
 
 	if err != nil {
@@ -1001,7 +1025,7 @@ func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
 			   discovery_method, walk_filename, last_scan_id, raw_data,
 			   asset_number, location, description, web_ui_url, locked_fields,
 			   device_type, source_type, is_usb, initial_page_count,
-			   port_name, driver_name, is_default, is_shared, spooler_status
+			   port_name, driver_name, is_default, is_shared, spooler_status, usb_webui_available
 		FROM devices WHERE serial = ?
 	`
 
@@ -1009,7 +1033,7 @@ func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
 	var consumablesJSON, statusJSON, dnsJSON, rawJSON sql.NullString
 	var assetNumber, location, description, webUIURL, lockedFieldsJSON sql.NullString
 	var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
-	var isUSB, isDefault, isShared sql.NullBool
+	var isUSB, isDefault, isShared, usbWebUIAvailable sql.NullBool
 	var initialPageCount sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, query, serial).Scan(
@@ -1021,7 +1045,7 @@ func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
 		&device.DiscoveryMethod, &device.WalkFilename, &device.LastScanID, &rawJSON,
 		&assetNumber, &location, &description, &webUIURL, &lockedFieldsJSON,
 		&deviceType, &sourceType, &isUSB, &initialPageCount,
-		&portName, &driverName, &isDefault, &isShared, &spoolerStatus,
+		&portName, &driverName, &isDefault, &isShared, &spoolerStatus, &usbWebUIAvailable,
 	)
 
 	if err == sql.ErrNoRows {
@@ -1087,6 +1111,9 @@ func (s *SQLiteStore) Get(ctx context.Context, serial string) (*Device, error) {
 	if spoolerStatus.Valid {
 		device.SpoolerStatus = spoolerStatus.String
 	}
+	if usbWebUIAvailable.Valid {
+		device.UsbWebUIAvailable = usbWebUIAvailable.Bool
+	}
 
 	return device, nil
 }
@@ -1114,7 +1141,8 @@ func (s *SQLiteStore) Update(ctx context.Context, device *Device) error {
 			discovery_method = ?, walk_filename = ?, last_scan_id = ?, raw_data = ?,
 			asset_number = ?, location = ?, description = ?, web_ui_url = ?, locked_fields = ?,
 			device_type = ?, source_type = ?, is_usb = ?, initial_page_count = ?,
-			port_name = ?, driver_name = ?, is_default = ?, is_shared = ?, spooler_status = ?
+			port_name = ?, driver_name = ?, is_default = ?, is_shared = ?, spooler_status = ?,
+			usb_webui_available = ?
 		WHERE serial = ?
 	`
 
@@ -1127,6 +1155,7 @@ func (s *SQLiteStore) Update(ctx context.Context, device *Device) error {
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
 		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
 		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
+		device.UsbWebUIAvailable,
 		device.Serial,
 	)
 
@@ -1179,8 +1208,8 @@ func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 			discovery_method, walk_filename, last_scan_id, raw_data,
 			asset_number, location, description, web_ui_url, locked_fields,
 			device_type, source_type, is_usb, initial_page_count,
-			port_name, driver_name, is_default, is_shared, spooler_status
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			port_name, driver_name, is_default, is_shared, spooler_status, usb_webui_available
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(serial) DO UPDATE SET
 			ip = excluded.ip,
 			manufacturer = excluded.manufacturer,
@@ -1211,7 +1240,8 @@ func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 			driver_name = excluded.driver_name,
 			is_default = excluded.is_default,
 			is_shared = excluded.is_shared,
-			spooler_status = excluded.spooler_status
+			spooler_status = excluded.spooler_status,
+			usb_webui_available = excluded.usb_webui_available
 			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields, initial_page_count are NOT updated (preserved from existing row)
 	`
 
@@ -1225,6 +1255,7 @@ func (s *SQLiteStore) Upsert(ctx context.Context, device *Device) error {
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
 		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
 		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
+		device.UsbWebUIAvailable,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert device: %w", err)
@@ -1311,7 +1342,7 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 			   discovery_method, walk_filename, last_scan_id, raw_data,
 			   asset_number, location, description, web_ui_url, locked_fields,
 			   device_type, source_type, is_usb, initial_page_count,
-			   port_name, driver_name, is_default, is_shared, spooler_status
+			   port_name, driver_name, is_default, is_shared, spooler_status, usb_webui_available
 		FROM devices WHERE 1=1
 	`
 	args := []interface{}{}
@@ -1372,7 +1403,7 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 		var consumablesJSON, statusJSON, dnsJSON, rawJSON sql.NullString
 		var assetNumber, location, description, webUIURL, lockedFieldsJSON sql.NullString
 		var deviceType, sourceType, portName, driverName, spoolerStatus sql.NullString
-		var isUSB, isDefault, isShared sql.NullBool
+		var isUSB, isDefault, isShared, usbWebUIAvailable sql.NullBool
 		var initialPageCount sql.NullInt64
 
 		err := rows.Scan(
@@ -1384,7 +1415,7 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 			&device.DiscoveryMethod, &device.WalkFilename, &device.LastScanID, &rawJSON,
 			&assetNumber, &location, &description, &webUIURL, &lockedFieldsJSON,
 			&deviceType, &sourceType, &isUSB, &initialPageCount,
-			&portName, &driverName, &isDefault, &isShared, &spoolerStatus,
+			&portName, &driverName, &isDefault, &isShared, &spoolerStatus, &usbWebUIAvailable,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan device: %w", err)
@@ -1445,6 +1476,9 @@ func (s *SQLiteStore) List(ctx context.Context, filter DeviceFilter) ([]*Device,
 		}
 		if spoolerStatus.Valid {
 			device.SpoolerStatus = spoolerStatus.String
+		}
+		if usbWebUIAvailable.Valid {
+			device.UsbWebUIAvailable = usbWebUIAvailable.Bool
 		}
 
 		devices = append(devices, device)
@@ -1951,8 +1985,8 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 			discovery_method, walk_filename, last_scan_id, raw_data,
 			asset_number, location, description, web_ui_url, locked_fields,
 			device_type, source_type, is_usb, initial_page_count,
-			port_name, driver_name, is_default, is_shared, spooler_status
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			port_name, driver_name, is_default, is_shared, spooler_status, usb_webui_available
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(serial) DO UPDATE SET
 			ip = excluded.ip,
 			manufacturer = excluded.manufacturer,
@@ -1983,7 +2017,8 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 			driver_name = excluded.driver_name,
 			is_default = excluded.is_default,
 			is_shared = excluded.is_shared,
-			spooler_status = excluded.spooler_status
+			spooler_status = excluded.spooler_status,
+			usb_webui_available = excluded.usb_webui_available
 			-- IMPORTANT: created_at, first_seen, is_saved, locked_fields, initial_page_count are NOT updated (preserved from existing row)
 	`
 
@@ -1997,6 +2032,7 @@ func (s *SQLiteStore) upsertWithExecer(ctx context.Context, ex execer, device *D
 		device.AssetNumber, device.Location, device.Description, device.WebUIURL, string(lockedFieldsJSON),
 		device.DeviceType, device.SourceType, device.IsUSB, device.InitialPageCount,
 		device.PortName, device.DriverName, device.IsDefault, device.IsShared, device.SpoolerStatus,
+		device.UsbWebUIAvailable,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to upsert device: %w", err)
