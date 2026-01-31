@@ -83,9 +83,21 @@ jobs:
       id: version
       shell: bash
       run: |
-        echo "agent_version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
-        echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-        echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+        BASE_VERSION=$(cat agent/VERSION)
+        GIT_COMMIT=$(git rev-parse --short HEAD)
+        BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        
+        # Determine if this is a release (tag push) or dev build (main branch push)
+        if [[ "${{ github.ref }}" == refs/tags/agent-v* ]]; then
+          echo "agent_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "build_type=release" >> $GITHUB_OUTPUT
+        else
+          echo "agent_version=${BASE_VERSION}-dev.${GIT_COMMIT}" >> $GITHUB_OUTPUT
+          echo "build_type=dev" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "git_commit=$GIT_COMMIT" >> $GITHUB_OUTPUT
+        echo "build_time=$BUILD_TIME" >> $GITHUB_OUTPUT
     
     - name: Build Agent
       working-directory: ./agent
@@ -94,7 +106,7 @@ jobs:
         GOARCH: ${{ matrix.goarch }}
         CGO_ENABLED: 0
       run: |
-        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.agent_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=release'" -o printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
+        go build -ldflags="-s -w -X 'main.Version=${{ steps.version.outputs.agent_version }}' -X 'main.BuildTime=${{ steps.version.outputs.build_time }}' -X 'main.GitCommit=${{ steps.version.outputs.git_commit }}' -X 'main.BuildType=${{ steps.version.outputs.build_type }}'" -o printmaster-agent-v${{ steps.version.outputs.agent_version }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }} .
 
     - name: Build Debian Package (Linux)
       if: matrix.goos == 'linux'
