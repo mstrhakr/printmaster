@@ -1,4 +1,4 @@
-// Playwright config with multiple viewport sizes
+// Playwright config with multiple browsers and viewport sizes
 module.exports = {
   testDir: './common/web/__tests__/playwright',
   testMatch: '*.test.js',
@@ -7,9 +7,10 @@ module.exports = {
     headless: true,
   },
   projects: [
+    // ===== CHROMIUM (Chrome/Edge) =====
     // Standard desktop (1080p) - most common
     { 
-      name: 'desktop', 
+      name: 'chromium-desktop', 
       use: { 
         browserName: 'chromium',
         viewport: { width: 1920, height: 1080 }
@@ -17,7 +18,7 @@ module.exports = {
     },
     // Low-end desktop / laptop (720p)
     { 
-      name: 'desktop-small', 
+      name: 'chromium-desktop-small', 
       use: { 
         browserName: 'chromium',
         viewport: { width: 1280, height: 720 }
@@ -25,9 +26,37 @@ module.exports = {
     },
     // Mobile (iPhone 14 size)
     { 
-      name: 'mobile', 
+      name: 'chromium-mobile', 
       use: { 
         browserName: 'chromium',
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true
+      } 
+    },
+
+    // ===== FIREFOX =====
+    // Note: Firefox does NOT support isMobile option, so no firefox-mobile project
+    { 
+      name: 'firefox-desktop', 
+      use: { 
+        browserName: 'firefox',
+        viewport: { width: 1920, height: 1080 }
+      } 
+    },
+
+    // ===== WEBKIT (Safari) =====
+    { 
+      name: 'webkit-desktop', 
+      use: { 
+        browserName: 'webkit',
+        viewport: { width: 1920, height: 1080 }
+      } 
+    },
+    { 
+      name: 'webkit-mobile', 
+      use: { 
+        browserName: 'webkit',
         viewport: { width: 390, height: 844 },
         isMobile: true,
         hasTouch: true

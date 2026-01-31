@@ -201,10 +201,12 @@ function isMobileViewport(page) {
 
 // ========== Device Context Menu - Single Page Load ==========
 
-test('device context menu: appearance, actions, delete flow', async ({ page }) => {
+test('device context menu: appearance, actions, delete flow', async ({ page, browserName }) => {
   test.skip(isMobileViewport(page), 'Context menus are desktop-only (mobile uses different navigation)');
-  // Grant clipboard permissions upfront
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  // Grant clipboard permissions upfront (Chromium only - Firefox/WebKit don't support these permissions)
+  if (browserName === 'chromium') {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  }
   
   const apiCalls = [];
   
@@ -355,10 +357,13 @@ test('device context menu: appearance, actions, delete flow', async ({ page }) =
 
 // ========== Agent Context Menu - Single Page Load ==========
 
-test('agent context menu: appearance and actions', async ({ page }) => {
+test('agent context menu: appearance and actions', async ({ page, browserName }) => {
   test.skip(isMobileViewport(page), 'Context menus are desktop-only (mobile uses different navigation)');
   
-  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  // Grant clipboard permissions (Chromium only - Firefox/WebKit don't support these permissions)
+  if (browserName === 'chromium') {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  }
   
   await page.addInitScript(() => {
     window.EventSource = class {
