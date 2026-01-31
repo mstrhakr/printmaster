@@ -3,6 +3,7 @@ run-name: "CD Agent: ${{ github.ref_name }}"
 
 on:
   push:
+    branches: [main]
     tags:
       - 'agent-v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch: {}
@@ -293,6 +294,12 @@ jobs:
       run: |
         echo "version=$(cat agent/VERSION)" >> $GITHUB_OUTPUT
         echo "git_commit=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        # Determine if this is a release (tag push) or dev build (main branch push)
+        if [[ "${{ github.ref }}" == refs/tags/agent-v* ]]; then
+          echo "is_release=true" >> $GITHUB_OUTPUT
+        else
+          echo "is_release=false" >> $GITHUB_OUTPUT
+        fi
     
     - name: Extract metadata
       id: meta
@@ -300,10 +307,12 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-agent
         tags: |
-          type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
-          type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
-          type=raw,value=latest,enable=true
-          type=raw,value=${{ steps.version.outputs.version }}
+          type=semver,pattern={{version}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release }}
+          type=raw,value=latest,enable=${{ steps.version.outputs.is_release }}
+          type=raw,value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release }}
+          type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+          type=raw,value=dev-${{ steps.version.outputs.git_commit }},enable=${{ github.ref == 'refs/heads/main' }}
         labels: |
           org.opencontainers.image.description=PrintMaster Agent container image (build ${{ steps.version.outputs.version }} / commit ${{ steps.version.outputs.git_commit }})
     
@@ -315,10 +324,15 @@ jobs:
     
     - name: Inspect image
       run: |
-        docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-agent:${{ steps.version.outputs.version }}
+        if [[ "${{ github.ref }}" == refs/tags/agent-v* ]]; then
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-agent:${{ steps.version.outputs.version }}
+        else
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-agent:main
+        fi
 
   build-rpm:
     name: Build RPM Packages (Fedora)
+    if: startsWith(github.ref, 'refs/tags/agent-v')
     needs: [build-agent]
     runs-on: ubuntu-latest
     permissions:
@@ -370,6 +384,7 @@ jobs:
 
   release-agent:
     name: Create Agent Release
+    if: startsWith(github.ref, 'refs/tags/agent-v')
     needs: [build-agent, merge-docker, build-rpm]
     runs-on: ubuntu-latest
     permissions:
