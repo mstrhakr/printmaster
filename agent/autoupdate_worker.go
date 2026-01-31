@@ -125,11 +125,25 @@ func startAutoUpdateManager(
 	fleetProvider *fleetPolicyProvider,
 	dataDir string,
 	currentVersion string,
+	buildType string,
+	configuredChannel string,
 	isService bool,
 	log *logger.Logger,
 ) (*autoupdate.Manager, error) {
 	if serverClient == nil {
 		return nil, nil // No server connection, no auto-update
+	}
+
+	// Determine update channel:
+	// 1. If explicitly configured, use that
+	// 2. Otherwise, derive from build type (dev builds use "dev" channel, releases use "stable")
+	channel := configuredChannel
+	if channel == "" {
+		if buildType == "dev" {
+			channel = "dev"
+		} else {
+			channel = "stable"
+		}
 	}
 
 	clientAdapter := autoupdate.NewClientAdapter(serverClient)
@@ -141,7 +155,7 @@ func startAutoUpdateManager(
 		CurrentVersion:   currentVersion,
 		Platform:         runtime.GOOS,
 		Arch:             runtime.GOARCH,
-		Channel:          "stable", // TODO: make configurable
+		Channel:          channel,
 		DataDir:          dataDir,
 		IsService:        isService,
 		ServerClient:     clientAdapter,
@@ -245,6 +259,8 @@ func initAutoUpdateWorker(
 		fleetProvider,
 		dataDir,
 		Version,
+		BuildType,
+		agentCfg.AutoUpdate.Channel,
 		isService,
 		log,
 	)

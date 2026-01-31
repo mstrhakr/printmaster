@@ -382,7 +382,7 @@ func (w *IntakeWorker) runOnceWithProgress(ctx context.Context, onProgress Progr
 			Version:      p.desc.version,
 			Platform:     p.desc.platform,
 			Arch:         p.desc.arch,
-			Channel:      "stable",
+			Channel:      channelFromVersion(p.desc.version),
 			SourceURL:    p.asset.BrowserDownloadURL,
 			CachePath:    cachePath,
 			SHA256:       sha,
@@ -650,7 +650,7 @@ func (w *IntakeWorker) ensureArtifact(ctx context.Context, desc artifactDescript
 		Version:      desc.version,
 		Platform:     desc.platform,
 		Arch:         desc.arch,
-		Channel:      "stable",
+		Channel:      channelFromVersion(desc.version),
 		SourceURL:    asset.BrowserDownloadURL,
 		CachePath:    cachePath,
 		SHA256:       sha,
@@ -893,4 +893,13 @@ func (w *IntakeWorker) logWarn(msg string, kv ...interface{}) {
 	if w.log != nil {
 		w.log.Warn(msg, kv...)
 	}
+}
+
+// channelFromVersion determines the update channel based on the version string.
+// Versions containing "-dev." are assigned to the "dev" channel, all others to "stable".
+func channelFromVersion(version string) string {
+	if strings.Contains(version, "-dev.") {
+		return "dev"
+	}
+	return "stable"
 }

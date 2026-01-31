@@ -106,7 +106,10 @@
   poll_interval_minutes = 240
 
 [self_update]
-  # Channel to follow when applying server updates
+  # Update channel: "stable", "dev", or "" (auto-detect from build type)
+  # - "stable" : Only receive stable release updates  
+  # - "dev"    : Receive development builds (main branch builds)
+  # - ""       : Auto-detect based on build type (dev builds -> dev channel)
   channel = "stable"
 
   # Limit of cached artifacts considered for update selection

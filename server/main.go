@@ -213,6 +213,18 @@ func sanitizeAssetVersion(input string) string {
 	return b.String()
 }
 
+// selfUpdateChannel determines the update channel for the server.
+// If configured explicitly, use that; otherwise derive from BuildType.
+func selfUpdateChannel(configured string) string {
+	if configured != "" {
+		return configured
+	}
+	if BuildType == "dev" {
+		return "dev"
+	}
+	return "stable"
+}
+
 // sanitizeEmailHeader removes CR and LF characters from email header values
 // to prevent email header injection attacks.
 func sanitizeEmailHeader(s string) string {
@@ -754,7 +766,7 @@ func runServer(ctx context.Context, configFlag string) {
 		Enabled:        cfg.Server.SelfUpdateEnabled,
 		CurrentVersion: Version,
 		Component:      "server",
-		Channel:        "stable",
+		Channel:        selfUpdateChannel(cfg.SelfUpdate.Channel),
 		Platform:       runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		DatabaseConfig: string(dbConfigJSON),

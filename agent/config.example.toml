@@ -79,6 +79,12 @@ epson_remote_mode_enabled = false
   # local    -> always use the local_policy block below
   # disabled -> never auto-update unless triggered manually
   mode = "inherit"
+  
+  # Update channel: "stable", "dev", or "" (auto-detect from build type)
+  # - "stable" : Only receive stable release updates
+  # - "dev"    : Receive development builds (main branch builds)
+  # - ""       : Auto-detect based on build type (dev builds -> dev channel)
+  channel = ""
 
   [auto_update.local_policy]
     # Number of days between update checks when falling back to local policy
