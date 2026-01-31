@@ -107,6 +107,8 @@ func TestNormalizeDescription(t *testing.T) {
 
 		// Kyocera ECOSYS P2040dw monochrome
 		{"TK-1162 mono", "TK-1162", "toner_black"},
+		{"TK-1162S with S suffix", "TK-1162S", "toner_black"},
+		{"TK-1150L with L suffix", "TK-1150L", "toner_black"},
 
 		// Epson ColorWorks CW-C6500Au label printer (SJIC ink cartridges)
 		{"epson SJIC35P-BK", "SJIC35P-BK", "toner_black"},

@@ -12,10 +12,11 @@ import (
 var partNumberPattern = regexp.MustCompile(`(?i)^(tk|tn|ce|cf|w\d|cb|cc|q\d|c\d)[- ]?\d{3,5}([kcmy])$`)
 
 // monoTonerPattern matches monochrome toner part numbers without color suffix:
-// - Kyocera: TK-3182, TK-1172, TK-1152
+// - Kyocera: TK-3182, TK-1172, TK-1152, TK-1162S (S=Standard capacity)
 // - Brother: TN-760, TN-850
 // These are always black toner for monochrome printers
-var monoTonerPattern = regexp.MustCompile(`(?i)^(tk|tn)[- ]?\d{3,5}$`)
+// Optional suffix for capacity variants: S (Standard), L (Large), X (Extra), H (High)
+var monoTonerPattern = regexp.MustCompile(`(?i)^(tk|tn)[- ]?\d{3,5}[slxh]?$`)
 
 // epsonInkCartridgePattern matches Epson ink cartridge part numbers with color suffixes:
 // - ColorWorks: SJIC35P-BK, SJIC35P-C, SJIC35P-M, SJIC35P-Y
