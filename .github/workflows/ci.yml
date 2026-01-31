@@ -4,6 +4,9 @@ run-name: "CI: ${{ github.ref_name }} (${{ github.event.head_commit.message || g
 on:
   push:
     branches: [main]
+    tags:
+      - 'agent-v[0-9]+.[0-9]+.[0-9]+'
+      - 'server-v[0-9]+.[0-9]+.[0-9]+'
   pull_request:
     branches: [main]
   workflow_dispatch: {}
