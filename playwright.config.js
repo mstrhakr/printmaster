@@ -3,6 +3,8 @@ module.exports = {
   testDir: './common/web/__tests__/playwright',
   testMatch: '*.test.js',
   timeout: 30000,
+  // Use more workers for faster test execution (CI runners have 4 cores, local typically has more)
+  workers: process.env.CI ? 4 : '75%',
   use: {
     headless: true,
   },
