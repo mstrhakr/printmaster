@@ -362,6 +362,9 @@ func buildQueryOIDsWithModule(profile QueryProfile, caps *capabilities.DeviceCap
 		queryOIDs = append(queryOIDs, oids.PrtMarkerLifeCount)
 		queryOIDs = appendUniqueOIDs(queryOIDs, VendorIDTargetOIDs()...)
 	case QueryFull:
+		// QueryFull intentionally returns nil because it uses SNMP walk operations
+		// rather than targeted GET requests. Callers should use FullQuery() directly
+		// for complete device enumeration instead of buildQueryOIDsWithModule.
 		return nil
 	case QueryMetrics:
 		queryOIDs = append(queryOIDs, vendorModule.BaseOIDs()...)
