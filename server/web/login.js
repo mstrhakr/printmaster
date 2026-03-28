@@ -51,6 +51,14 @@
 
     let tenantLookupInitialized = false;
 
+    function navigateTo(target){
+        if(typeof window.__pmLoginNavigate === 'function'){
+            window.__pmLoginNavigate(target);
+            return;
+        }
+        window.location = target;
+    }
+
     function showError(message){
         if(!elements.error) return;
         elements.error.textContent = message;
@@ -253,7 +261,7 @@
                 if(redirectTarget){
                     qp.set('redirect', redirectTarget);
                 }
-                window.location = window.location.pathname + '?' + qp.toString();
+                navigateTo(window.location.pathname + '?' + qp.toString());
                 return;
             }
             setLookupStatus('We could not find an organization for that email domain. Double-check the spelling or contact your administrator.', true);
@@ -297,7 +305,7 @@
         if(redirectTarget){
             qs.set('redirect', redirectTarget);
         }
-        window.location = '/auth/oidc/start/' + encodeURIComponent(slug) + (qs.toString() ? ('?' + qs.toString()) : '');
+        navigateTo('/auth/oidc/start/' + encodeURIComponent(slug) + (qs.toString() ? ('?' + qs.toString()) : ''));
     }
 
     function disableInputs(){
@@ -353,7 +361,7 @@
                 const callbackUrl = new URL(target);
                 callbackUrl.searchParams.set('token', token);
                 
-                window.location = callbackUrl.toString();
+                navigateTo(callbackUrl.toString());
                 return;
             } catch (e) {
                 console.error('Agent callback token failed:', e);
@@ -363,7 +371,7 @@
         }
         
         // Normal redirect for server pages
-        window.location = target;
+        navigateTo(target);
     }
 
     async function doLogin(){
@@ -404,7 +412,7 @@
         }
         const cancel = document.getElementById('login_cancel');
         if(cancel){
-            cancel.onclick = function(){ window.location = redirectTarget || '/'; };
+            cancel.onclick = function(){ navigateTo(redirectTarget || '/'); };
         }
         const pwd = document.getElementById('login_password');
         if(pwd){

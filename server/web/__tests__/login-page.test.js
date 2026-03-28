@@ -5,22 +5,10 @@ const { JSDOM } = require('jsdom');
 const loginHtml = fs.readFileSync(path.join(__dirname, '..', 'login.html'), 'utf8');
 
 function mockLocation(win, url) {
-    const parsed = new URL(url);
     const state = { lastAssigned: null };
-    Object.defineProperty(win, 'location', {
-        configurable: true,
-        get() {
-            return {
-                href: parsed.href,
-                origin: parsed.origin,
-                pathname: parsed.pathname,
-                search: parsed.search,
-            };
-        },
-        set(value) {
-            state.lastAssigned = value;
-        }
-    });
+    win.__pmLoginNavigate = value => {
+        state.lastAssigned = value;
+    };
     return () => state.lastAssigned;
 }
 
