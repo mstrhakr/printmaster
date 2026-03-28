@@ -11859,6 +11859,8 @@ function showDeleteDeviceConfirm(serial, agentId) {
         wrapper.id = uid;
         
         const hasAgent = agentId && agentId !== '';
+        const deleteMetricsId = `${uid}_delete_metrics`;
+        const deleteFromAgentId = `${uid}_delete_from_agent`;
         
         wrapper.innerHTML = `
             <div class="modal-content" style="max-width:520px;">
@@ -11871,8 +11873,8 @@ function showDeleteDeviceConfirm(serial, agentId) {
                     <p style="margin-bottom:16px;color:var(--text-muted);font-size:13px;">This will permanently remove the device from the server database.</p>
                     
                     <div style="background:var(--bg-tertiary);border-radius:8px;padding:12px;margin-bottom:12px;">
-                        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;">
-                            <input type="checkbox" id="${uid}_delete_metrics" style="margin-top:3px;cursor:pointer;">
+                        <label for="${deleteMetricsId}" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;width:100%;">
+                            <input type="checkbox" id="${deleteMetricsId}" style="margin-top:3px;cursor:pointer;flex-shrink:0;">
                             <div>
                                 <span style="font-weight:500;">Also delete metrics history</span>
                                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
@@ -11882,8 +11884,8 @@ function showDeleteDeviceConfirm(serial, agentId) {
                         </label>
                         
                         ${hasAgent ? `
-                        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;">
-                            <input type="checkbox" id="${uid}_delete_from_agent" style="margin-top:3px;cursor:pointer;">
+                        <label for="${deleteFromAgentId}" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;width:100%;">
+                            <input type="checkbox" id="${deleteFromAgentId}" style="margin-top:3px;cursor:pointer;flex-shrink:0;">
                             <div>
                                 <span style="font-weight:500;">Also delete from agent</span>
                                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
@@ -11909,8 +11911,8 @@ function showDeleteDeviceConfirm(serial, agentId) {
         const btnConfirm = wrapper.querySelector('[data-action="confirm"]');
         const btnCancel = wrapper.querySelector('[data-action="cancel"]');
         const closeX = wrapper.querySelector('.modal-close-x');
-        const chkMetrics = wrapper.querySelector(`#${uid}_delete_metrics`);
-        const chkAgent = wrapper.querySelector(`#${uid}_delete_from_agent`);
+        const chkMetrics = wrapper.querySelector(`#${deleteMetricsId}`);
+        const chkAgent = wrapper.querySelector(`#${deleteFromAgentId}`);
 
         function cleanup() {
             try { btnConfirm && btnConfirm.removeEventListener('click', onConfirm); } catch (e) {}

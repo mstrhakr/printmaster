@@ -316,14 +316,18 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
   await expect(modal.locator('text=ABC123')).toBeVisible();
   await expect(modal.locator('text=Also delete metrics history')).toBeVisible();
   await expect(modal.locator('text=Also delete from agent')).toBeVisible();
+
+  const deleteMetricsOption = modal.locator('label').filter({ hasText: 'Also delete metrics history' });
+  const deleteFromAgentOption = modal.locator('label').filter({ hasText: 'Also delete from agent' });
+  const deleteMetricsCheckbox = deleteMetricsOption.locator('input[type="checkbox"]');
+  const deleteFromAgentCheckbox = deleteFromAgentOption.locator('input[type="checkbox"]');
   
   // --- Test 7: Modal checkboxes work ---
-  const checkboxes = modal.locator('input[type="checkbox"]');
-  await expect(checkboxes.first()).not.toBeChecked();
-  await checkboxes.first().click();
-  await expect(checkboxes.first()).toBeChecked();
-  await checkboxes.nth(1).click();
-  await expect(checkboxes.nth(1)).toBeChecked();
+  await expect(deleteMetricsCheckbox).not.toBeChecked();
+  await deleteMetricsOption.click();
+  await expect(deleteMetricsCheckbox).toBeChecked();
+  await deleteFromAgentOption.click();
+  await expect(deleteFromAgentCheckbox).toBeChecked();
   
   // --- Test 8: Cancel closes modal without API call ---
   apiCalls.length = 0; // Clear tracked calls
@@ -337,9 +341,8 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
   await expect(modal).toBeVisible({ timeout: 5000 });
   
   // Check both options
-  const modalCheckboxes = modal.locator('input[type="checkbox"]');
-  await modalCheckboxes.first().click();
-  await modalCheckboxes.nth(1).click();
+  await deleteMetricsOption.click();
+  await deleteFromAgentOption.click();
   
   // Click delete
   await modal.locator('button:has-text("Delete")').click();
