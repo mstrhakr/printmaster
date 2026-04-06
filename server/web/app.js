@@ -114,31 +114,31 @@ function getUserTenantIds() {
  * @param {HTMLElement|string} containerOrSelector - The table wrapper element or selector
  */
 function initTableScrollIndicators(containerOrSelector) {
-    const container = typeof containerOrSelector === 'string' 
+    const container = typeof containerOrSelector === 'string'
         ? document.querySelector(containerOrSelector)
         : containerOrSelector;
-    
+
     if (!container || !container.classList.contains('table-wrapper')) return;
-    
+
     const updateScrollIndicators = () => {
         const { scrollLeft, scrollWidth, clientWidth } = container;
         const canScrollLeft = scrollLeft > 5;
         const canScrollRight = scrollLeft + clientWidth < scrollWidth - 5;
-        
+
         container.classList.toggle('can-scroll-left', canScrollLeft);
         container.classList.toggle('can-scroll-right', canScrollRight);
     };
-    
+
     // Initial check
     updateScrollIndicators();
-    
+
     // Update on scroll
     container.addEventListener('scroll', updateScrollIndicators, { passive: true });
-    
+
     // Update on resize
     const resizeObserver = new ResizeObserver(updateScrollIndicators);
     resizeObserver.observe(container);
-    
+
     // Store cleanup function for later removal if needed
     container._scrollIndicatorCleanup = () => {
         container.removeEventListener('scroll', updateScrollIndicators);
@@ -514,11 +514,13 @@ const SERVER_SETTINGS_SCHEMA = [
             { key: 'user', label: 'SMTP Username', type: 'text', helper: 'Leave blank if your relay allows anonymous auth.', configKey: 'smtp.user' },
             { key: 'pass', label: 'SMTP Password', type: 'password', placeholder: 'Leave blank to keep existing secret', helper: 'Value is only stored if you provide a new password.', configKey: 'smtp.pass' },
             { key: 'from', label: 'From Address', type: 'text', placeholder: 'printmaster@yourdomain.com', helper: 'Default sender for outbound email.', configKey: 'smtp.from' },
-            { key: 'email_theme', label: 'Email Theme', type: 'select', options: [
-                { value: 'auto', label: 'Auto (follows user preference)' },
-                { value: 'dark', label: 'Dark (Solarized Dark)' },
-                { value: 'light', label: 'Light (Solarized Light)' }
-            ], helper: 'Color theme for HTML emails (invites, password resets).', configKey: 'smtp.email_theme' }
+            {
+                key: 'email_theme', label: 'Email Theme', type: 'select', options: [
+                    { value: 'auto', label: 'Auto (follows user preference)' },
+                    { value: 'dark', label: 'Dark (Solarized Dark)' },
+                    { value: 'light', label: 'Light (Solarized Light)' }
+                ], helper: 'Color theme for HTML emails (invites, password resets).', configKey: 'smtp.email_theme'
+            }
         ]
     }
 ];
@@ -643,14 +645,14 @@ function createTabButtons(tabId, label) {
         mobile.appendChild(btn);
         registerTabButton(btn);
     }
-    
+
     // Also add to mobile bottom tabs with appropriate icon
     const iconMap = {
         'settings': '<svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>',
         'alerts': '<svg viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>',
         'admin': '<svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>'
     };
-    
+
     if (iconMap[tabId]) {
         ensureMobileBottomTab(tabId, label, iconMap[tabId]);
     }
@@ -727,7 +729,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Initialize tabs (after dynamic tabs injected)
         initTabs();
         initLogSubTabs();
-        
+
         // Initialize hash-based navigation (enables browser back/forward buttons)
         initHashNavigation();
 
@@ -736,7 +738,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Load server status first (sets tenancy_enabled flag needed by other components)
         await loadServerStatus();
-        
+
         // Check if onboarding wizard should be shown (first-run setup)
         await checkOnboardingStatus();
 
@@ -776,10 +778,10 @@ document.addEventListener('DOMContentLoaded', function () {
         connectSSE();
         // Update auth-related UI (logout button)
         updateAuthUI();
-        
+
         // Initialize horizontal scroll indicators for all table wrappers
         initAllTableScrollIndicators();
-    }).catch(err=>{
+    }).catch(err => {
         window.__pm_shared.error('Auth initialization failed', err);
     });
 });
@@ -787,9 +789,9 @@ document.addEventListener('DOMContentLoaded', function () {
 // Ensure user is authenticated, show login modal if not. Resolves true once authenticated.
 // ensureAuthenticated replaced by shared utility window.__pm_auth.ensureAuth()
 
-function showLoginModal(){
+function showLoginModal() {
     const modal = document.getElementById('login_modal');
-    if(!modal) return;
+    if (!modal) return;
     modal.style.display = 'flex';
     document.getElementById('login_username').focus();
 
@@ -797,30 +799,30 @@ function showLoginModal(){
     const cancel = document.getElementById('login_cancel');
     const errEl = document.getElementById('login_error');
 
-    const doSubmit = async ()=>{
-        errEl.style.display='none';
+    const doSubmit = async () => {
+        errEl.style.display = 'none';
         const u = document.getElementById('login_username').value || '';
         const p = document.getElementById('login_password').value || '';
-        try{
-            const r = await fetch('/api/v1/auth/login', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({username:u,password:p})});
-            if(!r.ok){
+        try {
+            const r = await fetch('/api/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) });
+            if (!r.ok) {
                 const text = await r.text();
                 errEl.textContent = text || 'Invalid credentials';
-                errEl.style.display='block';
+                errEl.style.display = 'block';
                 return;
             }
             // success - hide modal and re-init UI
-            modal.style.display='none';
+            modal.style.display = 'none';
             window.location.reload();
-        }catch(ex){
+        } catch (ex) {
             errEl.textContent = ex && ex.message ? ex.message : 'Login failed';
-            errEl.style.display='block';
+            errEl.style.display = 'block';
         }
     };
 
     submit.onclick = doSubmit;
-    cancel.onclick = ()=>{ modal.style.display='none'; };
-    document.getElementById('login_password').addEventListener('keypress', function(e){ if(e.key==='Enter'){ doSubmit(); } });
+    cancel.onclick = () => { modal.style.display = 'none'; };
+    document.getElementById('login_password').addEventListener('keypress', function (e) { if (e.key === 'Enter') { doSubmit(); } });
 }
 
 // Log out the current user and show login modal
@@ -931,31 +933,31 @@ function connectSSE() {
         window.__pm_shared.log('SSE onopen, readyState=', eventSource.readyState);
         updateLiveIndicator(true);
     };
-    
+
     eventSource.addEventListener('connected', (e) => {
         window.__pm_shared.log('SSE connected:', e.data);
         updateLiveIndicator(true);
     });
-    
+
     eventSource.addEventListener('agent_registered', (e) => {
         try {
             const data = JSON.parse(e.data);
             window.__pm_shared.log('Agent registered (SSE):', data);
             upsertAgentRecord(data);
             // Show joined bubble when registration event received
-            try { setAgentJoined(data.agent_id, true); } catch (ex) {}
+            try { setAgentJoined(data.agent_id, true); } catch (ex) { }
         } catch (err) {
             window.__pm_shared.warn('Failed to parse agent_registered event, falling back to full reload:', err);
             loadAgents();
         }
     });
-    
+
     eventSource.addEventListener('agent_connected', (e) => {
         try {
             const data = JSON.parse(e.data);
             window.__pm_shared.log('Agent connected (SSE):', data);
             updateAgentConnection(data.agent_id, 'ws');
-            
+
             // Check if this agent was in "restarting" state (update in progress)
             const updateState = agentsVM.updateState[data.agent_id];
             if (updateState && updateState.status === 'restarting') {
@@ -968,7 +970,7 @@ function connectSSE() {
             loadAgents();
         }
     });
-    
+
     eventSource.addEventListener('agent_disconnected', (e) => {
         try {
             const data = JSON.parse(e.data);
@@ -979,7 +981,7 @@ function connectSSE() {
             loadAgents();
         }
     });
-    
+
     eventSource.addEventListener('agent_heartbeat', (e) => {
         try {
             const data = JSON.parse(e.data);
@@ -989,7 +991,7 @@ function connectSSE() {
             window.__pm_shared.log('Agent heartbeat (raw):', e.data);
         }
     });
-    
+
     eventSource.addEventListener('device_updated', (e) => {
         try {
             const data = JSON.parse(e.data);
@@ -1005,7 +1007,7 @@ function connectSSE() {
             }
         }
     });
-    
+
     eventSource.addEventListener('update_progress', (e) => {
         try {
             const data = JSON.parse(e.data);
@@ -1036,7 +1038,7 @@ function connectSSE() {
             window.__pm_shared.warn('Failed to parse metrics_snapshot event:', err);
         }
     });
-    
+
     eventSource.onerror = (e) => {
         // EventSource provides automatic reconnects, but log useful state
         updateLiveIndicator(false);
@@ -1055,7 +1057,7 @@ function checkConfigStatus() {
     if (localStorage.getItem('hideConfigWarning') === 'true') {
         return;
     }
-    
+
     fetch('/api/config/status')
         .then(res => res.json())
         .then(data => {
@@ -1066,7 +1068,7 @@ function checkConfigStatus() {
                     message += `• ${err}\n`;
                 });
                 message += '\nThe server is running with default settings. Please check your config.toml file.';
-                
+
                 window.__pm_shared.showAlert(message, '⚠️ Configuration Error', true, true);
             } else if (data.using_defaults) {
                 // No config file found - show informational modal
@@ -1075,7 +1077,7 @@ function checkConfigStatus() {
                     message += `• ${path}\n`;
                 });
                 message += '\nThe server is running with default settings.';
-                
+
                 window.__pm_shared.showAlert(message, 'ℹ️ Using Default Configuration', false, true);
             }
         })
@@ -1124,12 +1126,12 @@ function toggleMetricsTimeSelector(targetId) {
 function initThemeToggle() {
     const toggle = document.getElementById('theme-toggle-checkbox');
     const savedTheme = localStorage.getItem('theme') || 'dark';
-    
+
     if (savedTheme === 'light') {
         toggle.checked = true;
         document.body.classList.add('light-mode');
     }
-    
+
     toggle.addEventListener('change', function () {
         if (this.checked) {
             document.body.classList.add('light-mode');
@@ -1148,12 +1150,12 @@ function initTabs() {
     const mobileNav = document.getElementById('mobile_nav');
     const mobileNavToggle = document.getElementById('mobile_nav_toggle');
     const mobileNavOverlay = document.getElementById('mobile_nav_overlay');
-    
+
     allTabs.forEach(registerTabButton);
-    
+
     // Initialize mobile bottom tab bar
     initMobileBottomTabs();
-    
+
     // Legacy hamburger menu (kept for backwards compatibility)
     if (hamburger) {
         hamburger.addEventListener('click', () => {
@@ -1191,7 +1193,7 @@ function initTabs() {
 function initMobileBottomTabs() {
     const bottomTabs = document.getElementById('mobile_bottom_tabs');
     if (!bottomTabs) return;
-    
+
     const tabItems = bottomTabs.querySelectorAll('.mobile-tab-item');
     tabItems.forEach(item => {
         item.addEventListener('click', () => {
@@ -1207,7 +1209,7 @@ function initMobileBottomTabs() {
 function updateMobileBottomTabsActiveState(targetTab) {
     const bottomTabs = document.getElementById('mobile_bottom_tabs');
     if (!bottomTabs) return;
-    
+
     const tabItems = bottomTabs.querySelectorAll('.mobile-tab-item');
     tabItems.forEach(item => {
         if (item.dataset.target === targetTab) {
@@ -1222,24 +1224,24 @@ function updateMobileBottomTabsActiveState(targetTab) {
 function ensureMobileBottomTab(tabId, label, iconSvg) {
     const bottomTabs = document.getElementById('mobile_bottom_tabs');
     if (!bottomTabs) return;
-    
+
     const inner = bottomTabs.querySelector('.mobile-bottom-tabs-inner');
     if (!inner) return;
-    
+
     // Check if tab already exists
     if (inner.querySelector(`[data-target="${tabId}"]`)) return;
-    
+
     // Create new tab item
     const item = document.createElement('button');
     item.className = 'mobile-tab-item';
     item.dataset.target = tabId;
     item.setAttribute('aria-label', label);
     item.innerHTML = iconSvg + `<span>${label}</span>`;
-    
+
     item.addEventListener('click', () => {
         switchTab(tabId);
     });
-    
+
     inner.appendChild(item);
 }
 
@@ -1247,7 +1249,7 @@ function closeMobileNav() {
     const mobileNav = document.getElementById('mobile_nav');
     const mobileNavToggle = document.getElementById('mobile_nav_toggle');
     const mobileNavOverlay = document.getElementById('mobile_nav_overlay');
-    
+
     if (mobileNav) mobileNav.classList.remove('active');
     if (mobileNavToggle) mobileNavToggle.classList.remove('active');
     if (mobileNavOverlay) mobileNavOverlay.classList.remove('active');
@@ -1675,7 +1677,7 @@ function initAlertsSubTabs() {
     const historyStatusFilter = document.getElementById('alerts_history_status_filter');
     const historyScopeFilter = document.getElementById('alerts_history_scope_filter');
     const historySearchFilter = document.getElementById('alerts_history_search');
-    
+
     // Time filter triggers full reload (changes API query)
     if (historyTimeFilter) {
         historyTimeFilter.addEventListener('change', loadAlertHistory);
@@ -1759,7 +1761,7 @@ async function loadAlertSummary() {
         const infoCount = summary.info_count || 0;
         const totalActive = summary.active_count || 0;
         const healthyCount = totalActive === 0 ? 1 : 0; // Show checkmark if no active alerts
-        
+
         const el = (id) => document.getElementById(id);
         if (el('summary_healthy_count')) el('summary_healthy_count').textContent = healthyCount > 0 ? '✓' : 0;
         if (el('summary_warning_count')) el('summary_warning_count').textContent = warningCount;
@@ -1773,7 +1775,7 @@ async function loadAlertSummary() {
         const agentAlerts = byScope['agent'] || 0;
         const siteAlerts = byScope['site'] || 0;
         const tenantAlerts = byScope['tenant'] || 0;
-        
+
         updateScopeBar('devices', deviceAlerts === 0 ? 100 : 0, deviceAlerts > 0 && deviceAlerts < 5 ? 100 : 0, deviceAlerts >= 5 ? 100 : 0, `${deviceAlerts} alerts`);
         updateScopeBar('agents', agentAlerts === 0 ? 100 : 0, agentAlerts > 0 && agentAlerts < 3 ? 100 : 0, agentAlerts >= 3 ? 100 : 0, `${agentAlerts} alerts`);
         updateScopeBar('sites', siteAlerts === 0 ? 100 : 0, siteAlerts > 0 && siteAlerts < 2 ? 100 : 0, siteAlerts >= 2 ? 100 : 0, `${siteAlerts} alerts`);
@@ -1793,7 +1795,7 @@ async function loadAlertSummary() {
         // Backend provides: active_rules, active_channels
         if (el('status_active_rules')) el('status_active_rules').textContent = summary.active_rules || 0;
         if (el('status_channels')) el('status_channels').textContent = summary.active_channels || 0;
-        
+
         // Show maintenance mode / quiet hours status
         if (summary.has_maintenance && el('maintenance_indicator')) {
             el('maintenance_indicator').style.display = '';
@@ -1815,7 +1817,7 @@ async function loadAlertSummary() {
             switchAlertsView('active');
         });
     }
-    
+
     // Load recent alerts preview
     await loadRecentAlertsPreview();
 }
@@ -1823,18 +1825,18 @@ async function loadAlertSummary() {
 async function loadRecentAlertsPreview() {
     const recentContainer = document.getElementById('recent_alerts_summary');
     if (!recentContainer) return;
-    
+
     try {
         const resp = await fetch('/api/v1/alerts?limit=5');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         const alerts = data.alerts || [];
-        
+
         if (alerts.length === 0) {
             recentContainer.innerHTML = '<div class="muted-text">No recent alerts</div>';
             return;
         }
-        
+
         // Render recent alerts as compact list
         recentContainer.innerHTML = alerts.map(alert => `
             <div class="recent-alert-item ${alert.severity}" data-alert-id="${alert.id}">
@@ -1875,39 +1877,39 @@ const alertsInfiniteScroll = {
 async function loadActiveAlerts(append = false) {
     const container = document.getElementById('active_alerts_list');
     if (!container) return;
-    
+
     // Prevent concurrent loads
     if (alertsInfiniteScroll.loading) return;
-    
+
     // Reset state on fresh load
     if (!append) {
         alertsInfiniteScroll.offset = 0;
         alertsInfiniteScroll.hasMore = true;
     }
-    
+
     // Don't fetch if no more data
     if (append && !alertsInfiniteScroll.hasMore) return;
-    
+
     alertsInfiniteScroll.loading = true;
     const el = (id) => document.getElementById(id);
-    
+
     try {
         const params = new URLSearchParams({
             status: 'active',
             limit: alertsInfiniteScroll.limit.toString(),
             offset: alertsInfiniteScroll.offset.toString()
         });
-        
+
         const resp = await fetch(`/api/v1/alerts?${params}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         const alerts = data.alerts || [];
         const totalCount = data.total_count || 0;
-        
+
         // Update pagination state
         alertsInfiniteScroll.offset += alerts.length;
         alertsInfiniteScroll.hasMore = data.has_more === true;
-        
+
         // Update summary counts from total (only on initial load)
         if (!append) {
             // Fetch all for counts (uses a separate lightweight call or cached total)
@@ -1921,7 +1923,7 @@ async function loadActiveAlerts(append = false) {
                 else if (a.severity === 'warning') warning++;
                 else info++;
             });
-            
+
             const suffix = alertsInfiniteScroll.hasMore ? '+' : '';
             if (el('alerts_critical_count')) el('alerts_critical_count').textContent = critical + suffix;
             if (el('alerts_warning_count')) el('alerts_warning_count').textContent = warning + suffix;
@@ -1929,7 +1931,7 @@ async function loadActiveAlerts(append = false) {
             if (el('alerts_acknowledged_count')) el('alerts_acknowledged_count').textContent = acknowledged + suffix;
             if (el('alerts_suppressed_count')) el('alerts_suppressed_count').textContent = suppressed + suffix;
         }
-        
+
         // Handle empty state
         if (!append && alerts.length === 0) {
             container.innerHTML = `
@@ -1944,20 +1946,20 @@ async function loadActiveAlerts(append = false) {
             cleanupAlertsInfiniteScroll();
             return;
         }
-        
+
         // Remove existing sentinel before adding new content
         const existingSentinel = document.getElementById(alertsInfiniteScroll.sentinelId);
         if (existingSentinel) existingSentinel.remove();
-        
+
         // Render alert cards
         const newContent = alerts.map(alert => renderAlertCard(alert)).join('');
-        
+
         if (append) {
             container.insertAdjacentHTML('beforeend', newContent);
         } else {
             container.innerHTML = newContent;
         }
-        
+
         // Add sentinel for infinite scroll if there's more data
         if (alertsInfiniteScroll.hasMore) {
             const sentinel = document.createElement('div');
@@ -1967,13 +1969,13 @@ async function loadActiveAlerts(append = false) {
             container.appendChild(sentinel);
             setupAlertsInfiniteScroll();
         }
-        
+
         // Bind action buttons on new elements
         container.querySelectorAll('.alert-action-btn:not([data-bound])').forEach(btn => {
             btn.setAttribute('data-bound', 'true');
             btn.addEventListener('click', (e) => handleAlertAction(e.target.dataset.action, e.target.dataset.alertId));
         });
-        
+
     } catch (err) {
         console.error('Failed to load active alerts:', err);
         if (!append) {
@@ -1989,10 +1991,10 @@ function setupAlertsInfiniteScroll() {
     if (alertsInfiniteScroll.observer) {
         alertsInfiniteScroll.observer.disconnect();
     }
-    
+
     const sentinel = document.getElementById(alertsInfiniteScroll.sentinelId);
     if (!sentinel) return;
-    
+
     // Create IntersectionObserver with rootMargin to trigger before sentinel is visible
     alertsInfiniteScroll.observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
@@ -2005,7 +2007,7 @@ function setupAlertsInfiniteScroll() {
         rootMargin: '200px', // Load 200px before sentinel becomes visible
         threshold: 0
     });
-    
+
     alertsInfiniteScroll.observer.observe(sentinel);
 }
 
@@ -2018,11 +2020,11 @@ function cleanupAlertsInfiniteScroll() {
 
 function renderAlertCard(alert) {
     const severityClass = alert.severity || 'info';
-    const statusBadge = alert.status === 'acknowledged' ? '<span class="badge badge-warning">Acknowledged</span>' : 
-                        alert.status === 'suppressed' ? '<span class="badge badge-muted">Suppressed</span>' : '';
+    const statusBadge = alert.status === 'acknowledged' ? '<span class="badge badge-warning">Acknowledged</span>' :
+        alert.status === 'suppressed' ? '<span class="badge badge-muted">Suppressed</span>' : '';
     const timeAgo = formatRelativeTime(alert.triggered_at);
     const scope = alert.scope || 'device';
-    
+
     let scopeIcon = '';
     switch (scope) {
         case 'device': scopeIcon = '🖨️'; break;
@@ -2031,12 +2033,12 @@ function renderAlertCard(alert) {
         case 'tenant': scopeIcon = '🏛️'; break;
         case 'fleet': scopeIcon = '🌐'; break;
     }
-    
+
     const details = [];
     if (alert.device_serial) details.push(`Device: ${alert.device_serial}`);
     if (alert.agent_id) details.push(`Agent: ${alert.agent_id.substring(0, 8)}...`);
     if (alert.site_id) details.push(`Site: ${alert.site_id}`);
-    
+
     return `
         <div class="alert-card alert-${severityClass}" data-alert-id="${alert.id}">
             <div class="alert-card-header">
@@ -2073,22 +2075,22 @@ async function handleAlertAction(action, alertId) {
 async function loadAlertHistory() {
     const tbody = document.getElementById('alerts_history_body');
     if (!tbody) return;
-    
+
     try {
         const resp = await fetch('/api/v1/alerts?status=resolved');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         const alerts = data.alerts || [];
-        
+
         // Store all alerts
         alertHistoryRenderState.allAlerts = alerts;
-        
+
         if (alerts.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" class="alert-history-empty">No alert history available. Alerts will appear here once resolved.</td></tr>';
             cleanupAlertHistoryInfiniteScroll();
             return;
         }
-        
+
         // Apply filters and render
         applyAlertHistoryFilters();
     } catch (err) {
@@ -2100,7 +2102,7 @@ async function loadAlertHistory() {
 
 function applyAlertHistoryFilters() {
     const alerts = alertHistoryRenderState.allAlerts;
-    
+
     // Get filter values
     const statusFilter = document.getElementById('alerts_history_status_filter');
     const scopeFilter = document.getElementById('alerts_history_scope_filter');
@@ -2108,7 +2110,7 @@ function applyAlertHistoryFilters() {
     const filterStatus = statusFilter ? statusFilter.value : '';
     const filterScope = scopeFilter ? scopeFilter.value : '';
     const filterSearch = searchFilter ? searchFilter.value.toLowerCase().trim() : '';
-    
+
     // Apply filters
     const filteredAlerts = alerts.filter(a => {
         if (filterStatus && a.status !== filterStatus) return false;
@@ -2119,11 +2121,11 @@ function applyAlertHistoryFilters() {
         }
         return true;
     });
-    
+
     // Store filtered alerts and reset display state
     alertHistoryRenderState.filteredAlerts = filteredAlerts;
     alertHistoryRenderState.displayed = 0;
-    
+
     // Render the filtered alerts
     renderAlertHistoryTable(filteredAlerts);
 }
@@ -2132,25 +2134,25 @@ function renderAlertHistoryRow(a) {
     const triggeredAt = a.triggered_at ? new Date(a.triggered_at) : null;
     const resolvedAt = a.resolved_at ? new Date(a.resolved_at) : null;
     const duration = resolvedAt && triggeredAt ? resolvedAt - triggeredAt : null;
-    
+
     const timeHtml = triggeredAt
         ? `<span class="ah-time-date">${formatDateShort(triggeredAt)}</span>${formatTimeShort(triggeredAt)}`
         : '<span class="ah-time">—</span>';
-    
+
     const severityClass = `ah-severity-${(a.severity || 'info').toLowerCase()}`;
     const severityHtml = `<span class="ah-severity ${severityClass}">${escapeHtml((a.severity || 'info').toUpperCase())}</span>`;
-    
+
     const scopeIcon = getScopeIcon(a.scope);
     const scopeHtml = `<span class="ah-scope">${scopeIcon}${escapeHtml(a.scope || 'device')}</span>`;
-    
+
     const durationHtml = duration !== null
         ? `<span class="ah-duration">${formatDuration(duration)}</span>`
         : '<span class="ah-duration">—</span>';
-    
+
     const resolvedHtml = resolvedAt
         ? `<span class="ah-resolved">${formatRelativeTime(resolvedAt)}</span>`
         : '<span class="ah-resolved">—</span>';
-    
+
     // Build context tags for target info
     const contextTags = [];
     if (a.target_id) {
@@ -2159,7 +2161,7 @@ function renderAlertHistoryRow(a) {
     if (a.rule_name) {
         contextTags.push(`<span class="ah-context-tag"><span class="tag-key">rule</span>=<span class="tag-value">${escapeHtml(a.rule_name)}</span></span>`);
     }
-    
+
     return `<tr>
         <td class="ah-time">${timeHtml}</td>
         <td>${severityHtml}</td>
@@ -2176,36 +2178,36 @@ function renderAlertHistoryRow(a) {
 function renderAlertHistoryTable(alerts, append = false) {
     const tbody = document.getElementById('alerts_history_body');
     if (!tbody) return;
-    
+
     if (!Array.isArray(alerts) || alerts.length === 0) {
         const hasFilters = alertHistoryRenderState.allAlerts.length > 0;
-        const message = hasFilters 
-            ? 'No alerts match the current filters' 
+        const message = hasFilters
+            ? 'No alerts match the current filters'
             : 'No alert history available. Alerts will appear here once resolved.';
         tbody.innerHTML = `<tr><td colspan="6" class="alert-history-empty">${message}</td></tr>`;
         cleanupAlertHistoryInfiniteScroll();
         return;
     }
-    
+
     // Progressive rendering - only render a page at a time
     if (!append) {
         alertHistoryRenderState.displayed = 0;
         tbody.innerHTML = '';
     }
-    
+
     const startIdx = alertHistoryRenderState.displayed;
     const endIdx = Math.min(startIdx + alertHistoryRenderState.pageSize, alerts.length);
     const pageAlerts = alerts.slice(startIdx, endIdx);
-    
+
     // Remove existing sentinel
     const existingSentinel = document.getElementById('alert_history_load_more_sentinel');
     if (existingSentinel) existingSentinel.remove();
-    
+
     // Render the rows
     const rows = pageAlerts.map(a => renderAlertHistoryRow(a)).join('');
     tbody.insertAdjacentHTML('beforeend', rows);
     alertHistoryRenderState.displayed = endIdx;
-    
+
     // Add sentinel row if more items available
     if (endIdx < alerts.length) {
         const sentinelRow = document.createElement('tr');
@@ -2222,10 +2224,10 @@ function renderAlertHistoryTable(alerts, append = false) {
 // Setup IntersectionObserver for alert history infinite scroll
 function setupAlertHistoryInfiniteScroll() {
     cleanupAlertHistoryInfiniteScroll();
-    
+
     const sentinel = document.getElementById('alert_history_load_more_sentinel');
     if (!sentinel) return;
-    
+
     alertHistoryRenderState.observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && alertHistoryRenderState.displayed < alertHistoryRenderState.filteredAlerts.length) {
@@ -2237,7 +2239,7 @@ function setupAlertHistoryInfiniteScroll() {
         rootMargin: '200px',
         threshold: 0
     });
-    
+
     alertHistoryRenderState.observer.observe(sentinel);
 }
 
@@ -2277,7 +2279,7 @@ const formatDuration = formatDurationMs;
 async function loadRecentReports() {
     const container = document.getElementById('recent_reports_list');
     if (!container) return;
-    
+
     // Map report type codes to display names
     const typeDisplayNames = {
         'device_inventory': 'Device Inventory',
@@ -2303,13 +2305,13 @@ async function loadRecentReports() {
         'cost_analysis': 'Cost Analysis',
         'custom': 'Custom'
     };
-    
+
     try {
         const resp = await fetch('/api/v1/report-runs?limit=10');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const data = await resp.json();
         const runs = data.runs || [];
-        
+
         if (runs.length === 0) {
             container.innerHTML = '<div class="muted-text">No reports generated yet. Use the buttons above to generate a report.</div>';
         } else {
@@ -2326,9 +2328,9 @@ async function loadRecentReports() {
                     </thead>
                     <tbody>
                         ${runs.map(run => {
-                            const typeCode = run.report_type || 'unknown';
-                            const typeDisplay = typeDisplayNames[typeCode] || typeCode;
-                            return `
+                const typeCode = run.report_type || 'unknown';
+                const typeDisplay = typeDisplayNames[typeCode] || typeCode;
+                return `
                             <tr>
                                 <td>${escapeHtml(run.report_name || 'Report #' + run.report_id)}</td>
                                 <td><span class="badge">${typeDisplay}</span></td>
@@ -2357,13 +2359,13 @@ async function downloadReportRun(runId, format) {
         const resp = await fetch(`/api/v1/report-runs/${runId}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const run = await resp.json();
-        
+
         // Check for result_data (JSON field name from API)
         if (!run.result_data) {
             window.__pm_shared.showToast('Report data not available', 'error');
             return;
         }
-        
+
         function csvEscape(value) {
             const str = String(value ?? '');
             // Quote if it contains commas, quotes, or newlines
@@ -2458,7 +2460,7 @@ async function downloadReportRun(runId, format) {
             filename = `report-${runId}.json`;
             mimeType = 'application/json';
         }
-        
+
         const blob = new Blob([content], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -2468,7 +2470,7 @@ async function downloadReportRun(runId, format) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        
+
         window.__pm_shared.showToast(`Downloaded ${filename}`, 'success');
     } catch (err) {
         console.error('Failed to download report:', err);
@@ -2499,9 +2501,9 @@ async function generateReport(type) {
             timeRangeType = selected;
         }
     }
-    
+
     window.__pm_shared.showToast(`Generating ${type} report...`, 'info');
-    
+
     try {
         // First create a report definition
         const createResp = await fetch('/api/v1/reports', {
@@ -2515,23 +2517,23 @@ async function generateReport(type) {
                 ...(timeRangeDays ? { time_range_days: timeRangeDays } : {})
             })
         });
-        
+
         if (!createResp.ok) throw new Error(`Failed to create report: HTTP ${createResp.status}`);
         const report = await createResp.json();
-        
+
         // Then run it immediately
         const runResp = await fetch(`/api/v1/reports/${report.id}/run`, {
             method: 'POST'
         });
-        
+
         if (!runResp.ok) throw new Error(`Failed to run report: HTTP ${runResp.status}`);
         const run = await runResp.json();
-        
+
         window.__pm_shared.showToast('Report generated successfully!', 'success');
-        
+
         // Show download modal
         showReportDownloadModal(run);
-        
+
         // Refresh the recent reports list
         loadRecentReports();
     } catch (err) {
@@ -2543,7 +2545,7 @@ async function generateReport(type) {
 function showReportDownloadModal(run) {
     const modal = document.getElementById('report_download_modal');
     if (!modal) return;
-    
+
     const info = document.getElementById('report_download_info');
     if (info) {
         info.innerHTML = `
@@ -2555,11 +2557,11 @@ function showReportDownloadModal(run) {
             </p>
         `;
     }
-    
+
     // Wire download buttons
     const csvBtn = document.getElementById('report_download_csv');
     const jsonBtn = document.getElementById('report_download_json');
-    
+
     if (csvBtn) {
         csvBtn.onclick = () => {
             downloadReportRun(run.id, 'csv');
@@ -2572,14 +2574,14 @@ function showReportDownloadModal(run) {
             modal.style.display = 'none';
         };
     }
-    
+
     // Wire close buttons
     const closeBtn = document.getElementById('report_download_close');
     const closeX = document.getElementById('report_download_close_x');
     const closeModal = () => modal.style.display = 'none';
     if (closeBtn) closeBtn.onclick = closeModal;
     if (closeX) closeX.onclick = closeModal;
-    
+
     modal.style.display = 'flex';
 }
 
@@ -2597,7 +2599,7 @@ function toggleAlertsSection(sectionId) {
     const section = document.getElementById(sectionId);
     if (!section) return;
     section.classList.toggle('collapsed');
-    
+
     // Persist state to localStorage
     const collapsedSections = JSON.parse(localStorage.getItem('alertsSectionsCollapsed') || '{}');
     collapsedSections[sectionId] = section.classList.contains('collapsed');
@@ -2625,18 +2627,18 @@ function updateAlertsQuickStats(stats) {
     const channelsCount = document.getElementById('stats_channels_count');
     const policiesCount = document.getElementById('stats_policies_count');
     const activeAlerts = document.getElementById('stats_active_alerts');
-    
+
     if (rulesCount) rulesCount.textContent = stats.rules || 0;
     if (channelsCount) channelsCount.textContent = stats.channels || 0;
     if (policiesCount) policiesCount.textContent = stats.policies || 0;
     if (activeAlerts) activeAlerts.textContent = stats.activeAlerts || 0;
-    
+
     // Update section badges
     const rulesBadge = document.getElementById('rules_badge');
     const channelsBadge = document.getElementById('channels_badge');
     const escalationBadge = document.getElementById('escalation_badge');
     const schedulesBadge = document.getElementById('schedules_badge');
-    
+
     if (rulesBadge) rulesBadge.textContent = stats.rules || 0;
     if (channelsBadge) channelsBadge.textContent = stats.channels || 0;
     if (escalationBadge) escalationBadge.textContent = stats.policies || 0;
@@ -2646,7 +2648,7 @@ function updateAlertsQuickStats(stats) {
 function initAlertRulesUI() {
     if (alertRulesUIInitialized) return;
     alertRulesUIInitialized = true;
-    
+
     // Restore collapsed section state
     restoreAlertsSectionState();
 
@@ -2694,7 +2696,7 @@ function initAlertRulesUI() {
             btn.addEventListener('click', () => generateReport(type));
         }
     });
-    
+
     // Initialize all modal event handlers
     initAlertRuleModal();
     initNotificationChannelModal();
@@ -2721,7 +2723,7 @@ async function loadAlertRules() {
             const data = await resp.json();
             const rules = data.rules || [];
             stats.rules = rules.length;
-            
+
             if (rules.length === 0) {
                 rulesContainer.innerHTML = `
                     <div class="config-empty-state">
@@ -2762,7 +2764,7 @@ async function loadAlertRules() {
             rulesContainer.innerHTML = '<div class="error-text">Failed to load alert rules.</div>';
         }
     }
-    
+
     // Load notification channels
     if (channelsContainer) {
         try {
@@ -2772,7 +2774,7 @@ async function loadAlertRules() {
             const channels = data.channels || [];
             cachedNotificationChannels = channels;
             stats.channels = channels.length;
-            
+
             if (channels.length === 0) {
                 channelsContainer.innerHTML = `
                     <div class="config-empty-state">
@@ -2809,7 +2811,7 @@ async function loadAlertRules() {
             channelsContainer.innerHTML = '<div class="error-text">Failed to load notification channels.</div>';
         }
     }
-    
+
     // Load escalation policies
     if (escalationContainer) {
         try {
@@ -2818,7 +2820,7 @@ async function loadAlertRules() {
             const data = await resp.json();
             const policies = data.policies || [];
             stats.policies = policies.length;
-            
+
             if (policies.length === 0) {
                 escalationContainer.innerHTML = `
                     <div class="config-empty-state">
@@ -2830,7 +2832,7 @@ async function loadAlertRules() {
                     </div>`;
             } else {
                 escalationContainer.innerHTML = policies.map(p => {
-                    const stepsSummary = (p.steps || []).length > 0 
+                    const stepsSummary = (p.steps || []).length > 0
                         ? `${p.steps.length} step${p.steps.length !== 1 ? 's' : ''}`
                         : 'No steps';
                     return `
@@ -2861,7 +2863,7 @@ async function loadAlertRules() {
             escalationContainer.innerHTML = '<div class="error-text">Failed to load escalation policies.</div>';
         }
     }
-    
+
     // Load maintenance windows  
     if (maintenanceContainer) {
         try {
@@ -2869,7 +2871,7 @@ async function loadAlertRules() {
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const data = await resp.json();
             const windows = data.windows || [];
-            
+
             if (windows.length === 0) {
                 maintenanceContainer.innerHTML = `
                     <div class="config-empty-state">
@@ -2927,7 +2929,7 @@ async function loadAlertRules() {
             const data = await resp.json();
             const schedules = data.schedules || [];
             stats.schedules = schedules.length;
-            
+
             if (schedules.length === 0) {
                 schedulesContainer.innerHTML = `
                     <div class="config-empty-state">
@@ -3043,7 +3045,7 @@ async function testNotificationChannel(id) {
     const originalText = btn.textContent;
     btn.textContent = 'Sending...';
     btn.disabled = true;
-    
+
     try {
         const resp = await fetch(`/api/v1/notification-channels/${id}/test`, { method: 'POST' });
         if (!resp.ok) {
@@ -3079,7 +3081,7 @@ function getChannelSummary(channel) {
     try {
         config = channel.config_json ? JSON.parse(channel.config_json) : (channel.config || {});
     } catch (e) { config = {}; }
-    
+
     switch (channel.type) {
         case 'email':
             const recipients = Array.isArray(config.to) ? config.to.join(', ') : (config.to || 'No recipients');
@@ -3217,19 +3219,19 @@ function initAlertRuleModal() {
     const modal = document.getElementById('alert_rule_modal');
     if (!modal || alertRuleModalInitialized) return;
     alertRuleModalInitialized = true;
-    
+
     const closeBtn = document.getElementById('alert_rule_modal_close_x');
     const cancelBtn = document.getElementById('alert_rule_cancel');
     const saveBtn = document.getElementById('alert_rule_save');
-    
+
     if (closeBtn) closeBtn.addEventListener('click', closeAlertRuleModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeAlertRuleModal);
     if (saveBtn) saveBtn.addEventListener('click', saveAlertRule);
-    
+
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeAlertRuleModal();
     });
-    
+
     // Sync severity radio buttons with hidden select
     const severityRadios = modal.querySelectorAll('input[name="alert_severity"]');
     const severitySelect = document.getElementById('alert_rule_severity');
@@ -3239,13 +3241,13 @@ function initAlertRuleModal() {
             updateAlertRulePreview();
         });
     });
-    
+
     // Update preview when type/threshold/operator changes
     const typeSelect = document.getElementById('alert_rule_type');
     const thresholdInput = document.getElementById('alert_rule_threshold');
     const operatorSelect = document.getElementById('alert_rule_operator');
     const durationInput = document.getElementById('alert_rule_duration');
-    
+
     if (typeSelect) typeSelect.addEventListener('change', () => {
         updateAlertRuleThresholdVisibility();
         updateAlertRulePreview();
@@ -3253,7 +3255,7 @@ function initAlertRuleModal() {
     if (thresholdInput) thresholdInput.addEventListener('input', updateAlertRulePreview);
     if (operatorSelect) operatorSelect.addEventListener('change', updateAlertRulePreview);
     if (durationInput) durationInput.addEventListener('input', updateAlertRulePreview);
-    
+
     // Show/hide scope ID field based on scope selection
     const scopeSelect = document.getElementById('alert_rule_scope');
     if (scopeSelect) {
@@ -3272,16 +3274,16 @@ function updateAlertRuleThresholdVisibility() {
     const thresholdRow = document.getElementById('alert_rule_threshold_row');
     const durationRow = document.getElementById('alert_rule_duration_row');
     const unitSpan = document.getElementById('alert_rule_threshold_unit');
-    
+
     if (!typeSelect) return;
-    
+
     const type = typeSelect.value;
     const hasThreshold = ['toner_low', 'supply_empty', 'page_count'].includes(type);
     const hasDuration = ['device_offline', 'agent_offline'].includes(type);
-    
+
     if (thresholdRow) thresholdRow.style.display = hasThreshold ? 'flex' : 'none';
     if (durationRow) durationRow.style.display = hasDuration ? 'flex' : 'none';
-    
+
     // Update unit based on type
     if (unitSpan) {
         if (type === 'page_count') {
@@ -3296,17 +3298,17 @@ function updateAlertRuleThresholdVisibility() {
 function updateAlertRulePreview() {
     const previewText = document.getElementById('alert_rule_preview_text');
     if (!previewText) return;
-    
+
     const typeSelect = document.getElementById('alert_rule_type');
     const thresholdInput = document.getElementById('alert_rule_threshold');
     const operatorSelect = document.getElementById('alert_rule_operator');
     const durationInput = document.getElementById('alert_rule_duration');
-    
+
     const type = typeSelect?.value || 'toner_low';
     const threshold = thresholdInput?.value || '10';
     const operator = operatorSelect?.value || 'lt';
     const duration = durationInput?.value || '5';
-    
+
     const typeLabels = {
         'toner_low': 'toner level',
         'supply_empty': 'supply level',
@@ -3316,7 +3318,7 @@ function updateAlertRulePreview() {
         'page_count': 'page count',
         'custom': 'custom metric'
     };
-    
+
     const operatorLabels = {
         'lt': 'drops below',
         'lte': 'reaches or drops below',
@@ -3324,7 +3326,7 @@ function updateAlertRulePreview() {
         'gte': 'reaches or exceeds',
         'eq': 'equals'
     };
-    
+
     let preview = '';
     if (['device_offline', 'device_error', 'agent_offline'].includes(type)) {
         preview = `Alert when ${typeLabels[type]} for more than ${duration} minutes`;
@@ -3332,7 +3334,7 @@ function updateAlertRulePreview() {
         const unit = type === 'page_count' ? ' pages' : '%';
         preview = `Alert when ${typeLabels[type]} ${operatorLabels[operator]} ${threshold}${unit}`;
     }
-    
+
     previewText.textContent = preview;
 }
 
@@ -3347,23 +3349,23 @@ function initNotificationChannelModal() {
     const modal = document.getElementById('notification_channel_modal');
     if (!modal || notificationChannelModalInitialized) return;
     notificationChannelModalInitialized = true;
-    
+
     const closeBtn = document.getElementById('notification_channel_modal_close_x');
     const cancelBtn = document.getElementById('channel_cancel');
     const saveBtn = document.getElementById('channel_save');
     const testBtn = document.getElementById('channel_test');
     const typeSelect = document.getElementById('channel_type');
-    
+
     if (closeBtn) closeBtn.addEventListener('click', closeNotificationChannelModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeNotificationChannelModal);
     if (saveBtn) saveBtn.addEventListener('click', saveNotificationChannel);
     if (testBtn) testBtn.addEventListener('click', testNotificationChannel);
-    
+
     // Handle type change to show/hide config sections
     if (typeSelect) {
         typeSelect.addEventListener('change', updateChannelConfigSection);
     }
-    
+
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeNotificationChannelModal();
     });
@@ -3380,17 +3382,17 @@ function initEscalationPolicyModal() {
     const modal = document.getElementById('escalation_policy_modal');
     if (!modal || escalationPolicyModalInitialized) return;
     escalationPolicyModalInitialized = true;
-    
+
     const closeBtn = document.getElementById('escalation_policy_modal_close_x');
     const cancelBtn = document.getElementById('escalation_cancel');
     const saveBtn = document.getElementById('escalation_save');
     const addStepBtn = document.getElementById('add_escalation_step');
-    
+
     if (closeBtn) closeBtn.addEventListener('click', closeEscalationPolicyModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeEscalationPolicyModal);
     if (saveBtn) saveBtn.addEventListener('click', saveEscalationPolicy);
     if (addStepBtn) addStepBtn.addEventListener('click', addEscalationStep);
-    
+
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeEscalationPolicyModal();
     });
@@ -3399,17 +3401,17 @@ function initEscalationPolicyModal() {
 function addEscalationStep(afterMinutes = 15, channelId = '') {
     const container = document.getElementById('escalation_steps_container');
     if (!container) return;
-    
+
     const stepNum = container.querySelectorAll('.escalation-step').length + 1;
     const stepDiv = document.createElement('div');
     stepDiv.className = 'escalation-step';
-    
+
     // Build channel options from cached channels
     const channelOptions = (cachedNotificationChannels || [])
         .filter(ch => ch.enabled)
         .map(ch => `<option value="${ch.id}" ${ch.id == channelId ? 'selected' : ''}>${escapeHtml(ch.name)} (${ch.type})</option>`)
         .join('');
-    
+
     stepDiv.innerHTML = `
         <div class="escalation-step-header">
             <span class="escalation-step-number">Step ${stepNum}</span>
@@ -3427,19 +3429,19 @@ function addEscalationStep(afterMinutes = 15, channelId = '') {
             </select>
         </div>
     `;
-    
+
     stepDiv.querySelector('.remove-step').addEventListener('click', () => {
         stepDiv.remove();
         renumberEscalationSteps();
     });
-    
+
     container.appendChild(stepDiv);
 }
 
 function renumberEscalationSteps() {
     const container = document.getElementById('escalation_steps_container');
     if (!container) return;
-    
+
     container.querySelectorAll('.escalation-step').forEach((step, idx) => {
         const label = step.querySelector('.escalation-step-number');
         if (label) label.textContent = `Step ${idx + 1}`;
@@ -3457,19 +3459,19 @@ function initMaintenanceWindowModal() {
     const modal = document.getElementById('maintenance_window_modal');
     if (!modal || maintenanceWindowModalInitialized) return;
     maintenanceWindowModalInitialized = true;
-    
+
     const closeBtn = document.getElementById('maintenance_window_modal_close_x');
     const cancelBtn = document.getElementById('maintenance_cancel');
     const saveBtn = document.getElementById('maintenance_save');
-    
+
     if (closeBtn) closeBtn.addEventListener('click', closeMaintenanceWindowModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeMaintenanceWindowModal);
     if (saveBtn) saveBtn.addEventListener('click', saveMaintenanceWindow);
-    
+
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeMaintenanceWindowModal();
     });
-    
+
     // Handle recurring toggle to show/hide options
     const recurringCheck = document.getElementById('maintenance_recurring');
     const recurringOptions = document.getElementById('maintenance_recurring_options');
@@ -3478,7 +3480,7 @@ function initMaintenanceWindowModal() {
             recurringOptions.style.display = recurringCheck.checked ? 'block' : 'none';
         });
     }
-    
+
     // Update duration preview when dates change
     const startInput = document.getElementById('maintenance_start');
     const endInput = document.getElementById('maintenance_end');
@@ -3486,7 +3488,7 @@ function initMaintenanceWindowModal() {
         startInput.addEventListener('change', updateMaintenanceDurationPreview);
         endInput.addEventListener('change', updateMaintenanceDurationPreview);
     }
-    
+
     // Show/hide scope ID field based on scope selection
     const scopeSelect = document.getElementById('maintenance_scope');
     if (scopeSelect) {
@@ -3504,30 +3506,30 @@ function updateMaintenanceDurationPreview() {
     const startInput = document.getElementById('maintenance_start');
     const endInput = document.getElementById('maintenance_end');
     const durationText = document.getElementById('maintenance_duration_text');
-    
+
     if (!startInput || !endInput || !durationText) return;
-    
+
     const start = startInput.value ? new Date(startInput.value) : null;
     const end = endInput.value ? new Date(endInput.value) : null;
-    
+
     if (!start || !end) {
         durationText.textContent = 'Select start and end times';
         return;
     }
-    
+
     if (end <= start) {
         durationText.textContent = 'End time must be after start time';
         durationText.style.color = 'var(--danger)';
         return;
     }
-    
+
     durationText.style.color = '';
-    
+
     const diffMs = end - start;
     const diffMins = Math.round(diffMs / 60000);
     const diffHours = Math.floor(diffMins / 60);
     const remainMins = diffMins % 60;
-    
+
     let duration = '';
     if (diffHours > 0) {
         duration += `${diffHours} hour${diffHours !== 1 ? 's' : ''}`;
@@ -3535,7 +3537,7 @@ function updateMaintenanceDurationPreview() {
     } else {
         duration = `${diffMins} minutes`;
     }
-    
+
     durationText.textContent = `Duration: ${duration}`;
 }
 
@@ -3550,15 +3552,15 @@ function initScheduledReportModal() {
     const modal = document.getElementById('scheduled_report_modal');
     if (!modal || scheduledReportModalInitialized) return;
     scheduledReportModalInitialized = true;
-    
+
     const closeBtn = document.getElementById('scheduled_report_modal_close_x');
     const cancelBtn = document.getElementById('schedule_cancel');
     const saveBtn = document.getElementById('schedule_save');
-    
+
     if (closeBtn) closeBtn.addEventListener('click', closeScheduledReportModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeScheduledReportModal);
     if (saveBtn) saveBtn.addEventListener('click', saveScheduledReport);
-    
+
     modal.addEventListener('click', (e) => {
         if (e.target === modal) closeScheduledReportModal();
     });
@@ -3572,10 +3574,10 @@ function closeScheduledReportModal() {
 function showAlertRuleModal(existingRule = null) {
     const modal = document.getElementById('alert_rule_modal');
     if (!modal) return;
-    
+
     const form = modal.querySelector('form') || modal;
     const isEdit = existingRule && existingRule.id;
-    
+
     // Reset/populate form fields
     const nameInput = form.querySelector('#alert_rule_name');
     const typeSelect = form.querySelector('#alert_rule_type');
@@ -3585,7 +3587,7 @@ function showAlertRuleModal(existingRule = null) {
     const durationInput = form.querySelector('#alert_rule_duration');
     const severitySelect = form.querySelector('#alert_rule_severity');
     const enabledCheck = form.querySelector('#alert_rule_enabled');
-    
+
     if (nameInput) nameInput.value = existingRule?.name || '';
     if (typeSelect) typeSelect.value = existingRule?.type || 'threshold';
     if (metricSelect) metricSelect.value = existingRule?.metric || 'toner_level';
@@ -3594,17 +3596,17 @@ function showAlertRuleModal(existingRule = null) {
     if (durationInput) durationInput.value = existingRule?.duration_minutes || 5;
     if (severitySelect) severitySelect.value = existingRule?.severity || 'warning';
     if (enabledCheck) enabledCheck.checked = existingRule?.enabled !== false;
-    
+
     // Store ID for save
     modal.dataset.editId = isEdit ? existingRule.id : '';
-    
+
     // Update modal title
     const title = modal.querySelector('.modal-title');
     if (title) title.textContent = isEdit ? 'Edit Alert Rule' : 'New Alert Rule';
-    
+
     // Load notification channels for selection
     loadChannelsForAlertRule(existingRule?.channel_ids || []);
-    
+
     modal.style.display = 'flex';
 }
 
@@ -3612,24 +3614,24 @@ function showAlertRuleModal(existingRule = null) {
 async function loadChannelsForAlertRule(selectedIds = []) {
     const container = document.getElementById('alert_rule_channels');
     if (!container) return;
-    
+
     container.innerHTML = '<div class="muted-text" style="padding:12px;text-align:center;">Loading channels...</div>';
-    
+
     try {
         const resp = await fetch('/api/v1/notification-channels');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        
+
         const data = await resp.json();
         const channels = data.channels || [];
-        
+
         if (!channels || channels.length === 0) {
             container.innerHTML = '<div class="muted-text" style="padding:12px;text-align:center;">No notification channels configured. <a href="#" onclick="window.__alerting_showNotificationChannelModal();return false;">Create one</a></div>';
             return;
         }
-        
+
         // Ensure selectedIds is an array
         const selected = Array.isArray(selectedIds) ? selectedIds : [];
-        
+
         container.innerHTML = channels.map(ch => {
             const isChecked = selected.includes(ch.id);
             const icon = getChannelIcon(ch.type);
@@ -3667,10 +3669,10 @@ function getChannelIcon(type) {
 async function saveAlertRule() {
     const modal = document.getElementById('alert_rule_modal');
     if (!modal) return;
-    
+
     const form = modal.querySelector('form') || modal;
     const editId = modal.dataset.editId;
-    
+
     const payload = {
         name: form.querySelector('#alert_rule_name')?.value || '',
         type: form.querySelector('#alert_rule_type')?.value || 'threshold',
@@ -3685,12 +3687,12 @@ async function saveAlertRule() {
             .map(cb => parseInt(cb.value, 10))
             .filter(id => !isNaN(id))
     };
-    
+
     if (!payload.name) {
         window.__pm_shared.showToast('Name is required', 'error');
         return;
     }
-    
+
     try {
         const url = editId ? `/api/v1/alert-rules/${editId}` : '/api/v1/alert-rules';
         const method = editId ? 'PUT' : 'POST';
@@ -3700,7 +3702,7 @@ async function saveAlertRule() {
             body: JSON.stringify(payload)
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        
+
         window.__pm_shared.showToast(editId ? 'Alert rule updated' : 'Alert rule created', 'success');
         modal.style.display = 'none';
         loadAlertRules();
@@ -3713,23 +3715,23 @@ async function saveAlertRule() {
 function showNotificationChannelModal(existingChannel = null) {
     const modal = document.getElementById('notification_channel_modal');
     if (!modal) return;
-    
+
     const isEdit = existingChannel && existingChannel.id;
-    
+
     // Reset all fields
     const nameInput = document.getElementById('channel_name');
     const typeSelect = document.getElementById('channel_type');
     const enabledCheck = document.getElementById('channel_enabled');
     const minSeveritySelect = document.getElementById('channel_min_severity');
     const rateLimitInput = document.getElementById('channel_rate_limit');
-    
+
     // Reset basic fields
     if (nameInput) nameInput.value = existingChannel?.name || '';
     if (typeSelect) typeSelect.value = existingChannel?.type || 'email';
     if (enabledCheck) enabledCheck.checked = existingChannel?.enabled !== false;
     if (minSeveritySelect) minSeveritySelect.value = existingChannel?.min_severity || '';
     if (rateLimitInput) rateLimitInput.value = existingChannel?.rate_limit_per_hour || 0;
-    
+
     // Parse existing config if editing
     let config = {};
     if (existingChannel?.config_json) {
@@ -3737,16 +3739,16 @@ function showNotificationChannelModal(existingChannel = null) {
     } else if (existingChannel?.config) {
         config = existingChannel.config;
     }
-    
+
     // Populate type-specific fields based on channel type
     const channelType = existingChannel?.type || 'email';
-    
+
     // Email fields
     const emailTo = document.getElementById('channel_email_to');
     const emailSubject = document.getElementById('channel_email_subject');
     if (emailTo) emailTo.value = Array.isArray(config.to) ? config.to.join(', ') : (config.to || '');
     if (emailSubject) emailSubject.value = config.subject_prefix || '';
-    
+
     // Webhook fields
     const webhookUrl = document.getElementById('channel_webhook_url');
     const webhookMethod = document.getElementById('channel_webhook_method');
@@ -3754,7 +3756,7 @@ function showNotificationChannelModal(existingChannel = null) {
     if (webhookUrl) webhookUrl.value = config.url || '';
     if (webhookMethod) webhookMethod.value = config.method || 'POST';
     if (webhookHeaders) webhookHeaders.value = config.headers ? JSON.stringify(config.headers, null, 2) : '';
-    
+
     // Slack fields
     const slackUrl = document.getElementById('channel_slack_url');
     const slackChannel = document.getElementById('channel_slack_channel');
@@ -3762,29 +3764,29 @@ function showNotificationChannelModal(existingChannel = null) {
     if (slackUrl) slackUrl.value = config.webhook_url || '';
     if (slackChannel) slackChannel.value = config.channel || '';
     if (slackUsername) slackUsername.value = config.username || '';
-    
+
     // Discord fields
     const discordUrl = document.getElementById('channel_discord_url');
     const discordUsername = document.getElementById('channel_discord_username');
     if (discordUrl) discordUrl.value = config.webhook_url || '';
     if (discordUsername) discordUsername.value = config.username || '';
-    
+
     // Teams fields
     const teamsUrl = document.getElementById('channel_teams_url');
     if (teamsUrl) teamsUrl.value = config.webhook_url || '';
-    
+
     // Telegram fields
     const telegramToken = document.getElementById('channel_telegram_token');
     const telegramChat = document.getElementById('channel_telegram_chat');
     if (telegramToken) telegramToken.value = config.bot_token || '';
     if (telegramChat) telegramChat.value = config.chat_id || '';
-    
+
     // PagerDuty fields
     const pagerdutyKey = document.getElementById('channel_pagerduty_key');
     const pagerdutySeverity = document.getElementById('channel_pagerduty_severity');
     if (pagerdutyKey) pagerdutyKey.value = config.routing_key || '';
     if (pagerdutySeverity) pagerdutySeverity.value = config.severity || 'warning';
-    
+
     // Pushover fields
     const pushoverUser = document.getElementById('channel_pushover_user');
     const pushoverToken = document.getElementById('channel_pushover_token');
@@ -3794,7 +3796,7 @@ function showNotificationChannelModal(existingChannel = null) {
     if (pushoverToken) pushoverToken.value = config.api_token || '';
     if (pushoverDevice) pushoverDevice.value = config.device || '';
     if (pushoverSound) pushoverSound.value = config.sound || '';
-    
+
     // ntfy fields
     const ntfyServer = document.getElementById('channel_ntfy_server');
     const ntfyTopic = document.getElementById('channel_ntfy_topic');
@@ -3806,32 +3808,32 @@ function showNotificationChannelModal(existingChannel = null) {
     if (ntfyUsername) ntfyUsername.value = config.username || '';
     if (ntfyPassword) ntfyPassword.value = config.password || '';
     if (ntfyToken) ntfyToken.value = config.access_token || '';
-    
+
     modal.dataset.editId = isEdit ? existingChannel.id : '';
-    
+
     const title = modal.querySelector('.modal-title');
     if (title) title.textContent = isEdit ? 'Edit Notification Channel' : 'New Notification Channel';
-    
+
     // Show correct config section
     updateChannelConfigSection();
-    
+
     modal.style.display = 'flex';
 }
 
 function updateChannelConfigSection() {
     const typeSelect = document.getElementById('channel_type');
     if (!typeSelect) return;
-    
+
     const channelType = typeSelect.value;
     const sections = ['email', 'webhook', 'slack', 'discord', 'teams', 'telegram', 'pagerduty', 'pushover', 'ntfy'];
-    
+
     sections.forEach(section => {
         const el = document.getElementById(`channel_config_${section}`);
         if (el) {
             el.style.display = (section === channelType) ? 'block' : 'none';
         }
     });
-    
+
     // Update card selection visual
     document.querySelectorAll('.channel-type-card').forEach(card => {
         const radio = card.querySelector('input[type="radio"]');
@@ -3844,20 +3846,20 @@ function updateChannelConfigSection() {
 async function saveNotificationChannel() {
     const modal = document.getElementById('notification_channel_modal');
     if (!modal) return;
-    
+
     const editId = modal.dataset.editId;
     const channelType = document.getElementById('channel_type')?.value || 'email';
     const name = document.getElementById('channel_name')?.value?.trim() || '';
-    
+
     if (!name) {
         window.__pm_shared.showToast('Channel name is required', 'error');
         return;
     }
-    
+
     // Build config based on channel type
     let config = {};
     let validationError = null;
-    
+
     switch (channelType) {
         case 'email': {
             const toStr = document.getElementById('channel_email_to')?.value?.trim() || '';
@@ -3990,12 +3992,12 @@ async function saveNotificationChannel() {
             break;
         }
     }
-    
+
     if (validationError) {
         window.__pm_shared.showToast(validationError, 'error');
         return;
     }
-    
+
     const payload = {
         name,
         type: channelType,
@@ -4004,7 +4006,7 @@ async function saveNotificationChannel() {
         min_severity: document.getElementById('channel_min_severity')?.value || '',
         rate_limit_per_hour: parseInt(document.getElementById('channel_rate_limit')?.value, 10) || 0
     };
-    
+
     try {
         const url = editId ? `/api/v1/notification-channels/${editId}` : '/api/v1/notification-channels';
         const method = editId ? 'PUT' : 'POST';
@@ -4017,7 +4019,7 @@ async function saveNotificationChannel() {
             const errorText = await resp.text();
             throw new Error(errorText || `HTTP ${resp.status}`);
         }
-        
+
         window.__pm_shared.showToast(editId ? 'Channel updated' : 'Channel created', 'success');
         modal.style.display = 'none';
         loadAlertRules();
@@ -4031,15 +4033,15 @@ async function saveNotificationChannel() {
 async function testNotificationChannel() {
     const modal = document.getElementById('notification_channel_modal');
     if (!modal) return;
-    
+
     const testBtn = document.getElementById('channel_test');
     const errorDiv = document.getElementById('channel_error');
-    
+
     // Build config from form
     const channelType = document.getElementById('channel_type')?.value || 'email';
     const channelName = document.getElementById('channel_name')?.value || 'Test Channel';
     const config = buildChannelConfig(channelType);
-    
+
     // Basic validation
     if (!channelName.trim()) {
         if (errorDiv) {
@@ -4048,13 +4050,13 @@ async function testNotificationChannel() {
         }
         return;
     }
-    
+
     // Show loading state
     if (testBtn) {
         testBtn.disabled = true;
         testBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" class="spin" style="margin-right:6px;"><path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm1 14.5a6.5 6.5 0 1 1 0-13 6.5 6.5 0 0 1 0 13z" opacity="0.3"/><path d="M8 0a8 8 0 0 1 8 8h-1.5a6.5 6.5 0 0 0-6.5-6.5V0z"/></svg>Testing...';
     }
-    
+
     try {
         const resp = await fetch('/api/v1/notification-channels/test', {
             method: 'POST',
@@ -4065,12 +4067,12 @@ async function testNotificationChannel() {
                 config_json: JSON.stringify(config)
             })
         });
-        
+
         if (!resp.ok) {
             const errorText = await resp.text();
             throw new Error(errorText || `HTTP ${resp.status}`);
         }
-        
+
         window.__pm_shared.showToast('Test notification sent successfully!', 'success');
         if (errorDiv) errorDiv.style.display = 'none';
     } catch (err) {
@@ -4092,7 +4094,7 @@ async function testNotificationChannel() {
 // Helper to build channel config from form fields
 function buildChannelConfig(channelType) {
     const config = {};
-    
+
     switch (channelType) {
         case 'email':
             const emailTo = document.getElementById('channel_email_to')?.value || '';
@@ -4143,29 +4145,29 @@ function buildChannelConfig(channelType) {
             }
             break;
     }
-    
+
     return config;
 }
 
 function showEscalationPolicyModal(existingPolicy = null) {
     const modal = document.getElementById('escalation_policy_modal');
     if (!modal) return;
-    
+
     const isEdit = existingPolicy && existingPolicy.id;
-    
+
     const nameInput = document.getElementById('escalation_name');
     const descInput = document.getElementById('escalation_description');
     const enabledCheck = document.getElementById('escalation_enabled');
     const stepsContainer = document.getElementById('escalation_steps_container');
     const errorDiv = document.getElementById('escalation_error');
-    
+
     // Reset form
     if (nameInput) nameInput.value = existingPolicy?.name || '';
     if (descInput) descInput.value = existingPolicy?.description || '';
     if (enabledCheck) enabledCheck.checked = existingPolicy?.enabled !== false;
     if (stepsContainer) stepsContainer.innerHTML = '';
     if (errorDiv) errorDiv.style.display = 'none';
-    
+
     // Populate existing steps or add a default one
     const steps = existingPolicy?.steps || [];
     if (steps.length > 0) {
@@ -4178,31 +4180,31 @@ function showEscalationPolicyModal(existingPolicy = null) {
         // Add a default first step
         addEscalationStep(15, '');
     }
-    
+
     modal.dataset.editId = isEdit ? existingPolicy.id : '';
-    
+
     const title = modal.querySelector('.modal-title');
     if (title) title.textContent = isEdit ? 'Edit Escalation Policy' : 'New Escalation Policy';
-    
+
     modal.style.display = 'flex';
 }
 
 async function saveEscalationPolicy() {
     const modal = document.getElementById('escalation_policy_modal');
     if (!modal) return;
-    
+
     const editId = modal.dataset.editId;
     const errorDiv = document.getElementById('escalation_error');
-    
+
     // Gather steps from the UI
     const stepsContainer = document.getElementById('escalation_steps_container');
     const steps = [];
     let hasError = false;
-    
+
     stepsContainer?.querySelectorAll('.escalation-step').forEach((stepDiv, idx) => {
         const delay = parseInt(stepDiv.querySelector('.step-delay')?.value) || 0;
         const channelId = stepDiv.querySelector('.step-channel')?.value;
-        
+
         if (!channelId) {
             hasError = true;
             if (errorDiv) {
@@ -4211,7 +4213,7 @@ async function saveEscalationPolicy() {
             }
             return;
         }
-        
+
         if (delay < 1) {
             hasError = true;
             if (errorDiv) {
@@ -4220,22 +4222,22 @@ async function saveEscalationPolicy() {
             }
             return;
         }
-        
+
         steps.push({
             delay_minutes: delay,
             channel_ids: [parseInt(channelId)]
         });
     });
-    
+
     if (hasError) return;
-    
+
     const payload = {
         name: document.getElementById('escalation_name')?.value || '',
         description: document.getElementById('escalation_description')?.value || '',
         steps: steps,
         enabled: document.getElementById('escalation_enabled')?.checked !== false
     };
-    
+
     if (!payload.name) {
         if (errorDiv) {
             errorDiv.textContent = 'Policy name is required';
@@ -4244,7 +4246,7 @@ async function saveEscalationPolicy() {
         window.__pm_shared.showToast('Name is required', 'error');
         return;
     }
-    
+
     if (steps.length === 0) {
         if (errorDiv) {
             errorDiv.textContent = 'At least one escalation step is required';
@@ -4253,7 +4255,7 @@ async function saveEscalationPolicy() {
         window.__pm_shared.showToast('At least one escalation step is required', 'error');
         return;
     }
-    
+
     try {
         const url = editId ? `/api/v1/escalation-policies/${editId}` : '/api/v1/escalation-policies';
         const method = editId ? 'PUT' : 'POST';
@@ -4263,7 +4265,7 @@ async function saveEscalationPolicy() {
             body: JSON.stringify(payload)
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        
+
         window.__pm_shared.showToast(editId ? 'Policy updated' : 'Policy created', 'success');
         modal.style.display = 'none';
         loadAlertRules();
@@ -4276,29 +4278,29 @@ async function saveEscalationPolicy() {
 function showMaintenanceWindowModal(existingWindow = null) {
     const modal = document.getElementById('maintenance_window_modal');
     if (!modal) return;
-    
+
     const form = modal.querySelector('form') || modal;
     const isEdit = existingWindow && existingWindow.id;
-    
+
     const nameInput = form.querySelector('#maintenance_name');
     const startInput = form.querySelector('#maintenance_start');
     const endInput = form.querySelector('#maintenance_end');
     const scopeInput = form.querySelector('#maintenance_scope');
     const recurringCheck = form.querySelector('#maintenance_recurring');
     const patternInput = form.querySelector('#maintenance_pattern');
-    
+
     if (nameInput) nameInput.value = existingWindow?.name || '';
     if (startInput) startInput.value = existingWindow?.start_time ? formatDatetimeLocal(existingWindow.start_time) : '';
     if (endInput) endInput.value = existingWindow?.end_time ? formatDatetimeLocal(existingWindow.end_time) : '';
     if (scopeInput) scopeInput.value = existingWindow?.scope || 'all';
     if (recurringCheck) recurringCheck.checked = existingWindow?.recurring === true;
     if (patternInput) patternInput.value = existingWindow?.recurrence_pattern || '';
-    
+
     modal.dataset.editId = isEdit ? existingWindow.id : '';
-    
+
     const title = modal.querySelector('.modal-title');
     if (title) title.textContent = isEdit ? 'Edit Maintenance Window' : 'New Maintenance Window';
-    
+
     modal.style.display = 'flex';
 }
 
@@ -4307,10 +4309,10 @@ function showMaintenanceWindowModal(existingWindow = null) {
 async function saveMaintenanceWindow() {
     const modal = document.getElementById('maintenance_window_modal');
     if (!modal) return;
-    
+
     const form = modal.querySelector('form') || modal;
     const editId = modal.dataset.editId;
-    
+
     const payload = {
         name: form.querySelector('#maintenance_name')?.value || '',
         start_time: form.querySelector('#maintenance_start')?.value || '',
@@ -4319,7 +4321,7 @@ async function saveMaintenanceWindow() {
         recurring: form.querySelector('#maintenance_recurring')?.checked === true,
         recurrence_pattern: form.querySelector('#maintenance_pattern')?.value || ''
     };
-    
+
     if (!payload.name) {
         window.__pm_shared.showToast('Name is required', 'error');
         return;
@@ -4328,7 +4330,7 @@ async function saveMaintenanceWindow() {
         window.__pm_shared.showToast('Start and end times are required', 'error');
         return;
     }
-    
+
     try {
         const url = editId ? `/api/v1/maintenance-windows/${editId}` : '/api/v1/maintenance-windows';
         const method = editId ? 'PUT' : 'POST';
@@ -4338,7 +4340,7 @@ async function saveMaintenanceWindow() {
             body: JSON.stringify(payload)
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        
+
         window.__pm_shared.showToast(editId ? 'Window updated' : 'Window created', 'success');
         modal.style.display = 'none';
         loadAlertRules();
@@ -4351,39 +4353,39 @@ async function saveMaintenanceWindow() {
 function showScheduledReportModal(existingSchedule = null) {
     const modal = document.getElementById('scheduled_report_modal');
     if (!modal) return;
-    
+
     const form = modal.querySelector('form') || modal;
     const isEdit = existingSchedule && existingSchedule.id;
-    
+
     const nameInput = form.querySelector('#schedule_name');
     const typeSelect = form.querySelector('#schedule_report_type');
     const formatSelect = form.querySelector('#schedule_format');
     const frequencySelect = form.querySelector('#schedule_frequency');
     const emailInput = form.querySelector('#schedule_email');
     const enabledCheck = form.querySelector('#schedule_enabled');
-    
+
     if (nameInput) nameInput.value = existingSchedule?.name || '';
     if (typeSelect) typeSelect.value = existingSchedule?.report_type || 'device_inventory';
     if (formatSelect) formatSelect.value = existingSchedule?.output_format || 'csv';
     if (frequencySelect) frequencySelect.value = existingSchedule?.frequency || 'weekly';
     if (emailInput) emailInput.value = existingSchedule?.delivery_email || '';
     if (enabledCheck) enabledCheck.checked = existingSchedule?.enabled !== false;
-    
+
     modal.dataset.editId = isEdit ? existingSchedule.id : '';
-    
+
     const title = modal.querySelector('.modal-title');
     if (title) title.textContent = isEdit ? 'Edit Scheduled Report' : 'New Scheduled Report';
-    
+
     modal.style.display = 'flex';
 }
 
 async function saveScheduledReport() {
     const modal = document.getElementById('scheduled_report_modal');
     if (!modal) return;
-    
+
     const form = modal.querySelector('form') || modal;
     const editId = modal.dataset.editId;
-    
+
     const payload = {
         name: form.querySelector('#schedule_name')?.value || '',
         report_type: form.querySelector('#schedule_report_type')?.value || 'device_inventory',
@@ -4392,12 +4394,12 @@ async function saveScheduledReport() {
         delivery_email: form.querySelector('#schedule_email')?.value || '',
         enabled: form.querySelector('#schedule_enabled')?.checked !== false
     };
-    
+
     if (!payload.name) {
         window.__pm_shared.showToast('Name is required', 'error');
         return;
     }
-    
+
     try {
         const url = editId ? `/api/v1/report-schedules/${editId}` : '/api/v1/report-schedules';
         const method = editId ? 'PUT' : 'POST';
@@ -4407,7 +4409,7 @@ async function saveScheduledReport() {
             body: JSON.stringify(payload)
         });
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        
+
         window.__pm_shared.showToast(editId ? 'Schedule updated' : 'Schedule created', 'success');
         modal.style.display = 'none';
         loadAlertRules();
@@ -5035,32 +5037,32 @@ function switchTab(targetTab, updateHash = true) {
     document.querySelectorAll('[data-tab]').forEach(tab => {
         tab.classList.add('hidden');
     });
-    
+
     // Remove active class from all tab buttons
     document.querySelectorAll('.tab').forEach(tab => {
         tab.classList.remove('active');
     });
-    
+
     // Show target tab
     const target = document.querySelector(`[data-tab="${targetTab}"]`);
     if (target) {
         target.classList.remove('hidden');
     }
-    
+
     // Add active class to clicked tab buttons
     document.querySelectorAll(`.tab[data-target="${targetTab}"]`).forEach(tab => {
         tab.classList.add('active');
     });
-    
+
     // Update mobile bottom tabs active state
     updateMobileBottomTabsActiveState(targetTab);
-    
+
     // Update mobile menu label
     const label = document.getElementById('current_tab_label');
     if (label) {
         label.textContent = 'Menu - ' + getTabLabel(targetTab);
     }
-    
+
     // Update URL hash for browser history (enables back button)
     if (updateHash && targetTab) {
         const newHash = '#' + targetTab;
@@ -5068,7 +5070,7 @@ function switchTab(targetTab, updateHash = true) {
             history.pushState({ tab: targetTab }, '', newHash);
         }
     }
-    
+
     // Load data for specific tabs
     if (targetTab === 'dashboard') {
         initDashboard();
@@ -5130,14 +5132,14 @@ function restorePreferredTab() {
         switchTab(hashTab, false); // Don't push to history since we're restoring
         return;
     }
-    
+
     // Second priority: localStorage saved tab
     const stored = getPersistedUIState(SERVER_UI_STATE_KEYS.ACTIVE_TAB, null);
     if (stored && isTabSelectable(stored)) {
         switchTab(stored);
         return;
     }
-    
+
     // Default: dashboard
     switchTab('dashboard');
 }
@@ -5146,7 +5148,7 @@ function restorePreferredTab() {
 function initHashNavigation() {
     window.addEventListener('popstate', (event) => {
         let targetTab = null;
-        
+
         // Try to get tab from state first (more reliable)
         if (event.state && event.state.tab) {
             targetTab = event.state.tab;
@@ -5154,7 +5156,7 @@ function initHashNavigation() {
             // Fall back to hash
             targetTab = getTabFromHash();
         }
-        
+
         if (targetTab && isTabSelectable(targetTab)) {
             switchTab(targetTab, false); // Don't push new history entry
         }
@@ -5189,7 +5191,7 @@ function initDashboard() {
         sidebarToggle.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
-        
+
         // Start collapsed on mobile for cleaner UX
         if (window.innerWidth <= 900) {
             sidebar.classList.add('collapsed');
@@ -5380,7 +5382,7 @@ function countDashboardMatches() {
                 result.agents++;
             }
             for (const device of agent.devices || []) {
-                if (matchesSearch(device.serial) || matchesSearch(device.manufacturer) || 
+                if (matchesSearch(device.serial) || matchesSearch(device.manufacturer) ||
                     matchesSearch(device.model) || matchesSearch(device.ip) || matchesSearch(device.location)) {
                     result.devices++;
                 }
@@ -5418,7 +5420,7 @@ function expandAllDashboardNodes() {
 async function loadDashboard() {
     const container = document.getElementById('dashboard_tree');
     const refreshBtn = document.getElementById('dashboard_refresh');
-    
+
     if (refreshBtn) {
         refreshBtn.classList.add('refreshing');
     }
@@ -5536,12 +5538,12 @@ function buildDashboardTreeHTML(tenants) {
         });
 
         // Check if any content matches search (for auto-expand)
-        const hasMatchingContent = tenantMatches || 
+        const hasMatchingContent = tenantMatches ||
             (tenant.sites || []).some(site => matchesSearch(site.name) || matchesSearch(site.description)) ||
             filteredAgents.some(agent => {
                 if (matchesSearch(agent.name) || matchesSearch(agent.agent_id)) return true;
-                return (agent.devices || []).some(d => 
-                    matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
+                return (agent.devices || []).some(d =>
+                    matchesSearch(d.serial) || matchesSearch(d.manufacturer) ||
                     matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
                 );
             });
@@ -5621,7 +5623,7 @@ function buildTenantNodeHTML(tenant, isMatch) {
     // Children (sites + unassigned agents)
     if (hasChildren) {
         html += `<ul class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
-        
+
         // Sites first
         if (dashboardFilters.showSites) {
             for (const site of sites) {
@@ -5638,7 +5640,7 @@ function buildTenantNodeHTML(tenant, isMatch) {
                 }
             }
         }
-        
+
         // Unassigned agents (shown at tenant level)
         if (dashboardFilters.showAgents) {
             for (const agent of unassignedAgents) {
@@ -5646,7 +5648,7 @@ function buildTenantNodeHTML(tenant, isMatch) {
                 if (agentHTML) html += agentHTML;
             }
         }
-        
+
         html += `</ul>`;
     }
 
@@ -5667,8 +5669,8 @@ function buildSiteNodeHTML(site, tenantId) {
     // Check if any agent matches search
     const hasMatchingAgent = filteredAgents.some(agent => {
         if (matchesSearch(agent.name) || matchesSearch(agent.agent_id)) return true;
-        return (agent.devices || []).some(d => 
-            matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
+        return (agent.devices || []).some(d =>
+            matchesSearch(d.serial) || matchesSearch(d.manufacturer) ||
             matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
         );
     });
@@ -5730,8 +5732,8 @@ function buildAgentNodeHTML(agent, tenantId, siteId) {
     });
 
     // Check if any device matches search
-    const hasMatchingDevice = filteredDevices.some(d => 
-        matchesSearch(d.serial) || matchesSearch(d.manufacturer) || 
+    const hasMatchingDevice = filteredDevices.some(d =>
+        matchesSearch(d.serial) || matchesSearch(d.manufacturer) ||
         matchesSearch(d.model) || matchesSearch(d.ip) || matchesSearch(d.location)
     );
 
@@ -5770,12 +5772,12 @@ function buildAgentNodeHTML(agent, tenantId, siteId) {
     if (dashboardFilters.showDevices && hasChildren) {
         html += `<ul class="dashboard-tree-children${isExpanded ? '' : ' collapsed'}">`;
         for (const device of filteredDevices) {
-            const deviceMatches = matchesSearch(device.serial) || matchesSearch(device.manufacturer) || 
-                                   matchesSearch(device.model) || matchesSearch(device.ip) || matchesSearch(device.location);
-            
+            const deviceMatches = matchesSearch(device.serial) || matchesSearch(device.manufacturer) ||
+                matchesSearch(device.model) || matchesSearch(device.ip) || matchesSearch(device.location);
+
             // Skip if searching and this device doesn't match
             if (dashboardSearchQuery && !deviceMatches && !agentMatches) continue;
-            
+
             html += buildDeviceNodeHTML(device, agent.agent_id, deviceMatches);
         }
         html += `</ul>`;
@@ -5800,12 +5802,12 @@ function buildDeviceNodeHTML(device, agentId, isMatch) {
     html += `<span class="dashboard-tree-subtitle">${highlightMatch(escapeHtml(device.serial))}</span>`;
     html += `</div>`;
     html += `<div class="dashboard-tree-metrics">`;
-    
+
     // Status badge
     if (deviceStatus !== 'healthy') {
         html += `<span class="dashboard-status-badge ${deviceStatus}">${deviceStatus}</span>`;
     }
-    
+
     // Supply indicator
     if (supplyLevel >= 0) {
         html += `<div class="dashboard-supply-indicator" title="Lowest supply: ${supplyLevel}%">`;
@@ -5813,7 +5815,7 @@ function buildDeviceNodeHTML(device, agentId, isMatch) {
         html += `<span>${supplyLevel}%</span>`;
         html += `</div>`;
     }
-    
+
     if (device.page_count > 0) {
         html += `<span class="dashboard-tree-metric" title="Page count">${device.page_count.toLocaleString()} pages</span>`;
     }
@@ -5863,7 +5865,7 @@ function attachDashboardTreeListeners(container) {
     container.querySelectorAll('.dashboard-tree-row').forEach(row => {
         row.addEventListener('click', () => {
             const type = row.dataset.type;
-            
+
             if (type === 'tenant') {
                 // Could navigate to tenant detail or filter devices by tenant
                 const tenantId = row.dataset.id;
@@ -6128,10 +6130,10 @@ function formatBytes(bytes) {
 
 function handleReleaseSyncProgress(data) {
     releaseSyncProgress = data;
-    
+
     const btn = document.getElementById('releases_sync_btn');
     const progressContainer = document.getElementById('releases_sync_progress');
-    
+
     if (data.phase === 'complete') {
         // Sync finished
         releasesSyncPending = false;
@@ -6150,7 +6152,7 @@ function handleReleaseSyncProgress(data) {
         }, 500);
         return;
     }
-    
+
     if (data.phase === 'error') {
         // Sync failed
         releasesSyncPending = false;
@@ -6164,12 +6166,12 @@ function handleReleaseSyncProgress(data) {
         showToast(data.error || data.message || 'Release sync failed', 'error');
         return;
     }
-    
+
     // Ongoing sync - update progress display
     if (btn) {
         btn.disabled = true;
     }
-    
+
     // Create progress container if it doesn't exist
     if (!progressContainer) {
         const card = document.getElementById('releases_artifacts_card');
@@ -6180,18 +6182,18 @@ function handleReleaseSyncProgress(data) {
             card.insertBefore(container, card.firstChild.nextSibling);
         }
     }
-    
+
     const container = document.getElementById('releases_sync_progress');
     if (container) {
         container.style.display = 'block';
-        
+
         let progressHtml = `<div style="font-size:13px;color:var(--text);margin-bottom:8px;">${escapeHtml(data.message || 'Syncing...')}</div>`;
-        
+
         if (data.phase === 'downloading' && data.total_files > 0) {
             const pct = data.percent_complete || 0;
             const completedBytes = formatBytes(data.completed_bytes || 0);
             const totalBytes = formatBytes(data.total_bytes || 0);
-            
+
             progressHtml += `
                 <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:4px;">
                     <span>File ${data.completed_files + 1} of ${data.total_files}${data.current_file ? ': ' + escapeHtml(data.current_file) : ''}</span>
@@ -6209,10 +6211,10 @@ function handleReleaseSyncProgress(data) {
                 </div>
             `;
         }
-        
+
         container.innerHTML = progressHtml;
     }
-    
+
     // Update button text
     if (btn) {
         if (data.phase === 'downloading' && data.percent_complete !== undefined) {
@@ -6232,7 +6234,7 @@ async function triggerReleasesSync() {
         btn.disabled = true;
         btn.textContent = 'Syncing...';
     }
-    
+
     // Show initial progress state
     handleReleaseSyncProgress({
         phase: 'fetching',
@@ -6506,14 +6508,14 @@ const onboardingState = {
 async function checkOnboardingStatus() {
     // Only check for admin users
     if (!currentUser || currentUser.role !== 'admin') return;
-    
+
     try {
         const response = await fetch('/api/v1/onboarding/status');
         if (!response.ok) return;
-        
+
         const data = await response.json();
         onboardingState.data = data;
-        
+
         if (data.needs_onboarding) {
             showOnboardingWizard();
         }
@@ -6525,35 +6527,35 @@ async function checkOnboardingStatus() {
 function showOnboardingWizard() {
     const modal = document.getElementById('onboarding_modal');
     if (!modal) return;
-    
+
     if (!onboardingState.initialized) {
         initOnboardingWizard();
         onboardingState.initialized = true;
     }
-    
+
     // Reset to first step
     onboardingState.currentStep = 'welcome';
     updateOnboardingStep();
-    
+
     modal.style.display = 'flex';
 }
 
 function initOnboardingWizard() {
     const modal = document.getElementById('onboarding_modal');
     if (!modal) return;
-    
+
     const skipBtn = document.getElementById('onboarding_skip');
     const nextBtn = document.getElementById('onboarding_next');
     const nameInput = document.getElementById('onboarding_tenant_name');
-    
+
     if (skipBtn) {
         skipBtn.addEventListener('click', closeOnboardingWizard);
     }
-    
+
     if (nextBtn) {
         nextBtn.addEventListener('click', handleOnboardingNext);
     }
-    
+
     if (nameInput) {
         nameInput.addEventListener('input', () => {
             // Clear error when typing
@@ -6566,7 +6568,7 @@ function initOnboardingWizard() {
             }
         });
     }
-    
+
     // Listen for onboarding complete event via SSE/WebSocket
     if (window.__pm_ws_eventHandlers) {
         window.__pm_ws_eventHandlers['onboarding_complete'] = (data) => {
@@ -6584,12 +6586,12 @@ function updateOnboardingStep() {
     const steps = document.querySelectorAll('#onboarding_modal .onboarding-step');
     const nextBtn = document.getElementById('onboarding_next');
     const skipBtn = document.getElementById('onboarding_skip');
-    
+
     steps.forEach(step => {
         const stepName = step.getAttribute('data-step');
         step.classList.toggle('hidden', stepName !== onboardingState.currentStep);
     });
-    
+
     // Update button text based on step
     if (nextBtn) {
         switch (onboardingState.currentStep) {
@@ -6604,12 +6606,12 @@ function updateOnboardingStep() {
                 break;
         }
     }
-    
+
     // Hide skip on success step
     if (skipBtn) {
         skipBtn.style.display = onboardingState.currentStep === 'success' ? 'none' : '';
     }
-    
+
     // Focus input on tenant step
     if (onboardingState.currentStep === 'tenant') {
         const nameInput = document.getElementById('onboarding_tenant_name');
@@ -6619,59 +6621,59 @@ function updateOnboardingStep() {
 
 async function handleOnboardingNext() {
     const nextBtn = document.getElementById('onboarding_next');
-    
+
     switch (onboardingState.currentStep) {
         case 'welcome':
             onboardingState.currentStep = 'tenant';
             updateOnboardingStep();
             break;
-            
+
         case 'tenant':
             // Validate and create tenant
             const nameInput = document.getElementById('onboarding_tenant_name');
             const emailInput = document.getElementById('onboarding_tenant_email');
             const errorEl = document.getElementById('onboarding_error');
-            
+
             const name = nameInput?.value?.trim();
             const email = emailInput?.value?.trim();
-            
+
             if (!name) {
                 if (errorEl) errorEl.textContent = 'Please enter a tenant name';
                 if (nameInput) nameInput.focus();
                 return;
             }
-            
+
             // Disable button and show loading
             if (nextBtn) {
                 nextBtn.disabled = true;
                 nextBtn.textContent = 'Creating...';
             }
-            
+
             try {
                 const payload = { name };
                 if (email) payload.contact_email = email;
-                
+
                 const response = await fetch('/api/v1/tenants', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
                 });
-                
+
                 if (!response.ok) {
                     const err = await response.json().catch(() => ({}));
                     throw new Error(err.error || `Failed to create tenant (${response.status})`);
                 }
-                
+
                 const tenant = await response.json();
                 window.__pm_shared.log('Tenant created via onboarding', tenant);
-                
+
                 // Refresh tenant list
                 await ensureTenantDirectory(true);
-                
+
                 // Move to success step
                 onboardingState.currentStep = 'success';
                 updateOnboardingStep();
-                
+
             } catch (error) {
                 window.__pm_shared.error('Failed to create tenant:', error);
                 if (errorEl) errorEl.textContent = error.message || 'Failed to create tenant';
@@ -6682,7 +6684,7 @@ async function handleOnboardingNext() {
                 }
             }
             break;
-            
+
         case 'success':
             closeOnboardingWizard();
             // Refresh agents list to show newly connected agents
@@ -6706,12 +6708,12 @@ async function loadServerStatus() {
             else window.__pm_shared.warn('server_status element not found in DOM');
             return;
         }
-        
+
         const data = await response.json();
         const el = document.getElementById('server_status');
         if (el) el.innerHTML = `<span style="color:var(--success);">● Online</span> v${data.version}`;
         else window.__pm_shared.warn('server_status element not found in DOM');
-        
+
         // Store tenancy_enabled flag globally for other UI components
         window.__pm_tenancy_enabled = Boolean(data.tenancy_enabled);
     } catch (error) {
@@ -7032,14 +7034,14 @@ function updateCheckAllUpdatesButton() {
 }
 
 // ====== Tenants UI ======
-function initTenantsUI(){
+function initTenantsUI() {
     if (tenantsUIInitialized) return;
     tenantsUIInitialized = true;
     initTenantModal();
     initTenantsSubTabs();
     initSitesUI();
     switchTenantsView(activeTenantsView, true);
-    
+
     // Sidebar toggle
     const sidebarToggle = document.getElementById('tenants_sidebar_toggle');
     const sidebar = document.querySelector('.tenants-sidebar');
@@ -7048,7 +7050,7 @@ function initTenantsUI(){
             sidebar.classList.toggle('collapsed');
         });
     }
-    
+
     // Search filter
     const searchInput = document.getElementById('tenants_search');
     if (searchInput) {
@@ -7059,7 +7061,7 @@ function initTenantsUI(){
         }, 200);
         searchInput.addEventListener('input', handleSearch);
     }
-    
+
     // Sort dropdown
     const sortSelect = document.getElementById('tenants_sort_select');
     if (sortSelect) {
@@ -7069,7 +7071,7 @@ function initTenantsUI(){
             applyTenantFilters();
         });
     }
-    
+
     // Sort direction button
     const sortDirBtn = document.getElementById('tenants_sort_dir_btn');
     if (sortDirBtn) {
@@ -7080,7 +7082,7 @@ function initTenantsUI(){
             applyTenantFilters();
         });
     }
-    
+
     // Reset filters button
     const resetBtn = document.getElementById('tenants_reset_filters');
     if (resetBtn) {
@@ -7094,10 +7096,10 @@ function initTenantsUI(){
             applyTenantFilters();
         });
     }
-    
+
     const btn = document.getElementById('new_tenant_btn');
-    if(btn){
-        btn.addEventListener('click', ()=> openTenantModal());
+    if (btn) {
+        btn.addEventListener('click', () => openTenantModal());
     }
     loadTenants();
 }
@@ -7113,7 +7115,7 @@ function updateTenantSortDirButton() {
 function applyTenantFilters() {
     const { query, sortKey, sortDir } = tenantsVM.filters;
     let filtered = [...tenantsVM.items];
-    
+
     // Text search
     if (query) {
         filtered = filtered.filter(t => {
@@ -7129,7 +7131,7 @@ function applyTenantFilters() {
             return searchText.includes(query);
         });
     }
-    
+
     // Sort
     filtered.sort((a, b) => {
         let aVal, bVal;
@@ -7154,20 +7156,20 @@ function applyTenantFilters() {
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
     });
-    
+
     tenantsVM.filtered = filtered;
     tenantsVM.stats.filtered = filtered.length;
-    
+
     // Update counts
     const totalEl = document.getElementById('tenants_total_count');
     const showingEl = document.getElementById('tenants_showing_count');
     if (totalEl) totalEl.textContent = tenantsVM.stats.total;
     if (showingEl) showingEl.textContent = tenantsVM.stats.filtered;
-    
+
     renderTenantsFiltered();
 }
 
-function initTenantModal(){
+function initTenantModal() {
     const modal = document.getElementById('tenant_modal');
     if (!modal || tenantModalInitialized) return;
     tenantModalInitialized = true;
@@ -7177,12 +7179,12 @@ function initTenantModal(){
     if (closeBtn) closeBtn.addEventListener('click', closeTenantModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeTenantModal);
     if (saveBtn) saveBtn.addEventListener('click', submitTenantForm);
-    modal.addEventListener('click', (e)=>{
+    modal.addEventListener('click', (e) => {
         if (e.target === modal) closeTenantModal();
     });
 }
 
-function initTenantsSubTabs(){
+function initTenantsSubTabs() {
     if (tenantsSubtabsInitialized) return;
     const bar = document.getElementById('tenants_subtab_bar');
     if (!bar) return;
@@ -7195,7 +7197,7 @@ function initTenantsSubTabs(){
     });
 }
 
-function switchTenantsView(view, force = false){
+function switchTenantsView(view, force = false) {
     if (!view) return;
     if (!force && view === activeTenantsView) return;
     const container = document.querySelector('[data-tab="tenants"]');
@@ -7235,16 +7237,16 @@ let _tenantDropdownCallback = null;
  */
 function populateTenantDropdown(selectEl, options = {}) {
     if (!selectEl) return;
-    const { 
-        selectedId = '', 
-        placeholder = 'Select tenant…', 
+    const {
+        selectedId = '',
+        placeholder = 'Select tenant…',
         showAddOption = true,
-        required = false 
+        required = false
     } = options;
-    
+
     const tenants = window._tenants || [];
     selectEl.innerHTML = '';
-    
+
     // Add placeholder option if not required
     if (!required) {
         const emptyOpt = document.createElement('option');
@@ -7252,7 +7254,7 @@ function populateTenantDropdown(selectEl, options = {}) {
         emptyOpt.textContent = placeholder;
         selectEl.appendChild(emptyOpt);
     }
-    
+
     // Add tenant options
     tenants.forEach(t => {
         const opt = document.createElement('option');
@@ -7261,7 +7263,7 @@ function populateTenantDropdown(selectEl, options = {}) {
         if (t.id === selectedId) opt.selected = true;
         selectEl.appendChild(opt);
     });
-    
+
     // Add "Add Tenant" option
     if (showAddOption) {
         const addOpt = document.createElement('option');
@@ -7271,7 +7273,7 @@ function populateTenantDropdown(selectEl, options = {}) {
         addOpt.style.fontStyle = 'italic';
         selectEl.appendChild(addOpt);
     }
-    
+
     // Remove any existing listener to avoid duplicates
     selectEl.removeEventListener('change', handleTenantDropdownChange);
     if (showAddOption) {
@@ -7282,21 +7284,21 @@ function populateTenantDropdown(selectEl, options = {}) {
 function handleTenantDropdownChange(e) {
     const selectEl = e.target;
     if (selectEl.value !== '__add_new_tenant__') return;
-    
+
     // Reset to first option to prevent showing "Add Tenant" as selected
     selectEl.selectedIndex = 0;
-    
+
     // Store callback to update this dropdown after tenant is created
     _tenantDropdownCallback = {
         selectEl: selectEl,
         previousValue: selectEl.value
     };
-    
+
     // Open tenant modal for new tenant
     openTenantModal(null);
 }
 
-function openTenantModal(tenant){
+function openTenantModal(tenant) {
     const modal = document.getElementById('tenant_modal');
     if (!modal) return;
     const isEdit = tenant && tenant.id;
@@ -7320,20 +7322,20 @@ function openTenantModal(tenant){
     document.getElementById('tenant_description').value = safe('description');
     const errEl = document.getElementById('tenant_error');
     if (errEl) errEl.textContent = '';
-    
+
     // Show/hide onboarding section based on new vs edit mode
     const onboardingSection = document.getElementById('tenant_onboarding_section');
     if (onboardingSection) {
         onboardingSection.style.display = isEdit ? 'none' : 'block';
     }
-    
+
     // Reset onboarding toggles and fields
     const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
     const agentToggle = document.getElementById('tenant_send_agent_toggle');
     const inviteFields = document.getElementById('tenant_invite_admin_fields');
     const agentFields = document.getElementById('tenant_send_agent_fields');
     const smtpWarning = document.getElementById('tenant_smtp_warning');
-    
+
     if (inviteToggle) {
         inviteToggle.checked = false;
         inviteToggle.onchange = () => {
@@ -7350,7 +7352,7 @@ function openTenantModal(tenant){
     }
     if (inviteFields) inviteFields.style.display = 'none';
     if (agentFields) agentFields.style.display = 'none';
-    
+
     // Reset onboarding field values
     const adminEmailEl = document.getElementById('tenant_admin_email');
     const adminUsernameEl = document.getElementById('tenant_admin_username');
@@ -7360,14 +7362,14 @@ function openTenantModal(tenant){
     if (adminUsernameEl) adminUsernameEl.value = '';
     if (agentEmailEl) agentEmailEl.value = '';
     if (agentPlatformEl) agentPlatformEl.value = 'windows';
-    
+
     // Auto-populate from contact email if available
     const contactEmail = safe('contact_email');
     if (!isEdit && contactEmail) {
         if (adminEmailEl) adminEmailEl.value = contactEmail;
         if (agentEmailEl) agentEmailEl.value = contactEmail;
     }
-    
+
     // Auto-sync contact email to onboarding fields when changed (for new tenants only)
     const contactEmailEl = document.getElementById('tenant_contact_email');
     if (!isEdit && contactEmailEl) {
@@ -7382,7 +7384,7 @@ function openTenantModal(tenant){
             }
         };
     }
-    
+
     // Track manual edits to onboarding email fields
     if (adminEmailEl) {
         adminEmailEl.dataset.manuallyEdited = '';
@@ -7392,49 +7394,49 @@ function openTenantModal(tenant){
         agentEmailEl.dataset.manuallyEdited = '';
         agentEmailEl.oninput = () => { agentEmailEl.dataset.manuallyEdited = 'true'; };
     }
-    
+
     // Update SMTP warning visibility
     updateOnboardingSMTPWarning();
-    
+
     modal.style.display = 'flex';
-    setTimeout(()=>{
-        try { document.getElementById('tenant_name').focus(); } catch (e) {}
+    setTimeout(() => {
+        try { document.getElementById('tenant_name').focus(); } catch (e) { }
     }, 10);
 }
 
 // Update SMTP warning for onboarding section
-function updateOnboardingSMTPWarning(){
+function updateOnboardingSMTPWarning() {
     const smtpWarning = document.getElementById('tenant_smtp_warning');
     const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
     const agentToggle = document.getElementById('tenant_send_agent_toggle');
-    
+
     if (!smtpWarning) return;
-    
+
     const needsSMTP = (inviteToggle && inviteToggle.checked) || (agentToggle && agentToggle.checked);
     smtpWarning.style.display = (!smtpEnabled && needsSMTP) ? 'flex' : 'none';
 }
 
-function closeTenantModal(){
+function closeTenantModal() {
     const modal = document.getElementById('tenant_modal');
     if (!modal) return;
     modal.style.display = 'none';
     modal.removeAttribute('data-edit-id');
     const errEl = document.getElementById('tenant_error');
     if (errEl) errEl.textContent = '';
-    
+
     // Reset onboarding fields
     const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
     const agentToggle = document.getElementById('tenant_send_agent_toggle');
     const inviteFields = document.getElementById('tenant_invite_admin_fields');
     const agentFields = document.getElementById('tenant_send_agent_fields');
-    
+
     if (inviteToggle) inviteToggle.checked = false;
     if (agentToggle) agentToggle.checked = false;
     if (inviteFields) inviteFields.style.display = 'none';
     if (agentFields) agentFields.style.display = 'none';
 }
 
-function collectTenantFormData(){
+function collectTenantFormData() {
     return {
         name: (document.getElementById('tenant_name').value || '').trim(),
         description: (document.getElementById('tenant_description').value || '').trim(),
@@ -7447,7 +7449,7 @@ function collectTenantFormData(){
     };
 }
 
-async function submitTenantForm(){
+async function submitTenantForm() {
     const modal = document.getElementById('tenant_modal');
     const errEl = document.getElementById('tenant_error');
     if (errEl) errEl.style.display = 'none';
@@ -7460,13 +7462,13 @@ async function submitTenantForm(){
         return;
     }
     const editId = modal ? modal.getAttribute('data-edit-id') : '';
-    
+
     // Collect onboarding options (only for new tenants)
     const inviteToggle = document.getElementById('tenant_invite_admin_toggle');
     const agentToggle = document.getElementById('tenant_send_agent_toggle');
     const inviteAdmin = !editId && inviteToggle && inviteToggle.checked;
     const sendAgentEmail = !editId && agentToggle && agentToggle.checked;
-    
+
     // Validate onboarding fields if enabled
     if (inviteAdmin) {
         const adminEmail = (document.getElementById('tenant_admin_email').value || '').trim();
@@ -7485,7 +7487,7 @@ async function submitTenantForm(){
             return;
         }
     }
-    
+
     if (sendAgentEmail) {
         const agentEmail = (document.getElementById('tenant_agent_email').value || '').trim();
         if (!agentEmail) {
@@ -7503,11 +7505,11 @@ async function submitTenantForm(){
             return;
         }
     }
-    
+
     try {
         let newTenantId = null;
         let tenantName = payload.name;
-        
+
         if (editId) {
             await updateTenant(editId, payload);
             window.__pm_shared.showToast('Tenant updated', 'success');
@@ -7515,27 +7517,27 @@ async function submitTenantForm(){
             const result = await createTenant(payload);
             newTenantId = result && result.id ? result.id : null;
             window.__pm_shared.showToast('Customer created', 'success');
-            
+
             // Handle onboarding actions after tenant is created
             if (newTenantId) {
                 const onboardingResults = [];
-                
+
                 // Invite admin if enabled
                 if (inviteAdmin && smtpEnabled) {
                     const adminEmail = (document.getElementById('tenant_admin_email').value || '').trim();
                     const adminUsername = (document.getElementById('tenant_admin_username').value || '').trim();
                     try {
-                        const invitePayload = { 
-                            email: adminEmail, 
-                            role: 'admin', 
-                            tenant_id: newTenantId 
+                        const invitePayload = {
+                            email: adminEmail,
+                            role: 'admin',
+                            tenant_id: newTenantId
                         };
                         if (adminUsername) invitePayload.username = adminUsername;
-                        
-                        const r = await fetch('/api/v1/users/invite', { 
-                            method: 'POST', 
-                            headers: {'content-type':'application/json'}, 
-                            body: JSON.stringify(invitePayload) 
+
+                        const r = await fetch('/api/v1/users/invite', {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify(invitePayload)
                         });
                         if (r.ok) {
                             onboardingResults.push({ type: 'invite', success: true, email: adminEmail });
@@ -7547,23 +7549,23 @@ async function submitTenantForm(){
                         onboardingResults.push({ type: 'invite', success: false, email: adminEmail, error: invErr.message || 'Unknown error' });
                     }
                 }
-                
+
                 // Send agent deployment email if enabled
                 if (sendAgentEmail && smtpEnabled) {
                     const agentEmail = (document.getElementById('tenant_agent_email').value || '').trim();
                     const agentPlatform = document.getElementById('tenant_agent_platform').value || 'windows';
                     try {
-                        const agentPayload = { 
-                            tenant_id: newTenantId, 
-                            platform: agentPlatform, 
-                            email: agentEmail, 
+                        const agentPayload = {
+                            tenant_id: newTenantId,
+                            platform: agentPlatform,
+                            email: agentEmail,
                             ttl_minutes: 1440 // 24 hours
                         };
-                        
-                        const r = await fetch('/api/v1/packages/send-email', { 
-                            method: 'POST', 
-                            headers: {'content-type':'application/json'}, 
-                            body: JSON.stringify(agentPayload) 
+
+                        const r = await fetch('/api/v1/packages/send-email', {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify(agentPayload)
                         });
                         if (r.ok) {
                             onboardingResults.push({ type: 'agent', success: true, email: agentEmail });
@@ -7575,7 +7577,7 @@ async function submitTenantForm(){
                         onboardingResults.push({ type: 'agent', success: false, email: agentEmail, error: agErr.message || 'Unknown error' });
                     }
                 }
-                
+
                 // Show onboarding results summary
                 if (onboardingResults.length > 0) {
                     showOnboardingResults(tenantName, onboardingResults);
@@ -7584,7 +7586,7 @@ async function submitTenantForm(){
         }
         closeTenantModal();
         await loadTenants();
-        
+
         // If we have a dropdown callback and this was a new tenant, update the dropdown
         if (_tenantDropdownCallback && newTenantId) {
             const { selectEl } = _tenantDropdownCallback;
@@ -7606,9 +7608,9 @@ async function submitTenantForm(){
 function showOnboardingResults(tenantName, results) {
     const successes = results.filter(r => r.success);
     const failures = results.filter(r => !r.success);
-    
+
     let message = '';
-    
+
     if (successes.length > 0 && failures.length === 0) {
         // All successful
         const parts = [];
@@ -7644,192 +7646,192 @@ function showOnboardingResults(tenantName, results) {
 // ====== Users UI ======
 let smtpEnabled = false;
 
-function initUsersUI(){
+function initUsersUI() {
     if (usersUIInitialized) return;
     usersUIInitialized = true;
-    
+
     const btn = document.getElementById('new_user_btn');
-    if(btn){
-        btn.addEventListener('click', ()=>{
+    if (btn) {
+        btn.addEventListener('click', () => {
             openUserModal();
         });
     }
-    
+
     // Invite user button
     const inviteBtn = document.getElementById('invite_user_btn');
-    if(inviteBtn){
-        inviteBtn.addEventListener('click', ()=>{
+    if (inviteBtn) {
+        inviteBtn.addEventListener('click', () => {
             openInviteModal();
         });
     }
-    
+
     // Wire user modal close/buttons
     const userModal = document.getElementById('user_modal');
-    if(userModal){
-        document.getElementById('user_modal_close_x').addEventListener('click', ()=> closeUserModal());
-        document.getElementById('user_cancel').addEventListener('click', ()=> closeUserModal());
+    if (userModal) {
+        document.getElementById('user_modal_close_x').addEventListener('click', () => closeUserModal());
+        document.getElementById('user_cancel').addEventListener('click', () => closeUserModal());
         document.getElementById('user_submit').addEventListener('click', submitCreateUser);
-        
+
         // Password field live validation
         const pwField = document.getElementById('user_password');
         const pwConfirmField = document.getElementById('user_password_confirm');
-        if(pwField){
+        if (pwField) {
             pwField.addEventListener('input', updatePasswordStrength);
         }
-        if(pwConfirmField){
+        if (pwConfirmField) {
             pwConfirmField.addEventListener('input', updatePasswordStrength);
         }
-        
+
         // Change password toggle for edit mode
         const changePwCheckbox = document.getElementById('user_change_password');
-        if(changePwCheckbox){
+        if (changePwCheckbox) {
             changePwCheckbox.addEventListener('change', (e) => {
                 const fields = document.getElementById('user_password_fields');
-                if(fields){
+                if (fields) {
                     fields.classList.toggle('collapsed', !e.target.checked);
                 }
             });
         }
     }
-    
+
     // Wire invite modal close/buttons
     const inviteModal = document.getElementById('invite_user_modal');
-    if(inviteModal){
-        document.getElementById('invite_user_modal_close_x').addEventListener('click', ()=> closeInviteModal());
-        document.getElementById('invite_user_cancel').addEventListener('click', ()=> closeInviteModal());
+    if (inviteModal) {
+        document.getElementById('invite_user_modal_close_x').addEventListener('click', () => closeInviteModal());
+        document.getElementById('invite_user_cancel').addEventListener('click', () => closeInviteModal());
         document.getElementById('invite_user_submit').addEventListener('click', submitInviteUser);
     }
-    
+
     // Check SMTP status
     checkSMTPStatus();
 
     loadUsers();
 }
 
-async function checkSMTPStatus(){
-    try{
+async function checkSMTPStatus() {
+    try {
         const r = await fetch('/api/v1/server/settings');
-        if(r.ok){
+        if (r.ok) {
             const data = await r.json();
             smtpEnabled = data.smtp?.enabled === true && data.smtp?.host;
         }
-    }catch(e){
+    } catch (e) {
         smtpEnabled = false;
     }
 }
 
-function closeUserModal(){
+function closeUserModal() {
     const modal = document.getElementById('user_modal');
-    if(modal){
+    if (modal) {
         modal.style.display = 'none';
         modal.removeAttribute('data-edit-id');
     }
 }
 
-function closeInviteModal(){
+function closeInviteModal() {
     const modal = document.getElementById('invite_user_modal');
-    if(modal){
+    if (modal) {
         modal.style.display = 'none';
     }
 }
 
-function openInviteModal(){
+function openInviteModal() {
     const modal = document.getElementById('invite_user_modal');
-    if(!modal) return;
-    
+    if (!modal) return;
+
     // Reset form
     document.getElementById('invite_email').value = '';
     document.getElementById('invite_username').value = '';
     document.getElementById('invite_role').value = 'viewer';
     document.getElementById('invite_error').textContent = '';
-    
+
     // Populate tenant select with "Add Tenant" option
     const tenantSel = document.getElementById('invite_tenant');
-    if(tenantSel){
-        populateTenantDropdown(tenantSel, { 
-            placeholder: '(Global / Server)', 
-            showAddOption: true 
+    if (tenantSel) {
+        populateTenantDropdown(tenantSel, {
+            placeholder: '(Global / Server)',
+            showAddOption: true
         });
     }
-    
+
     // Show/hide SMTP warning
     const smtpWarning = document.getElementById('invite_smtp_warning');
     const submitBtn = document.getElementById('invite_user_submit');
-    if(smtpEnabled){
-        if(smtpWarning) smtpWarning.style.display = 'none';
-        if(submitBtn) submitBtn.disabled = false;
+    if (smtpEnabled) {
+        if (smtpWarning) smtpWarning.style.display = 'none';
+        if (submitBtn) submitBtn.disabled = false;
     } else {
-        if(smtpWarning) smtpWarning.style.display = 'flex';
-        if(submitBtn) submitBtn.disabled = true;
+        if (smtpWarning) smtpWarning.style.display = 'flex';
+        if (submitBtn) submitBtn.disabled = true;
     }
-    
+
     modal.style.display = 'flex';
 }
 
-async function submitInviteUser(){
+async function submitInviteUser() {
     const email = document.getElementById('invite_email').value.trim();
     const username = document.getElementById('invite_username').value.trim();
     const role = document.getElementById('invite_role').value;
     const tenant = document.getElementById('invite_tenant').value;
     const errEl = document.getElementById('invite_error');
-    
+
     errEl.textContent = '';
-    
-    if(!email){
+
+    if (!email) {
         errEl.textContent = 'Email address is required';
         return;
     }
-    
+
     // Basic email validation
-    if(!email.includes('@') || !email.includes('.')){
+    if (!email.includes('@') || !email.includes('.')) {
         errEl.textContent = 'Please enter a valid email address';
         return;
     }
-    
-    try{
+
+    try {
         const payload = { email, role };
-        if(username) payload.username = username;
-        if(tenant) payload.tenant_id = tenant;
-        
-        const r = await fetch('/api/v1/users/invite', { 
-            method: 'POST', 
-            headers: {'content-type':'application/json'}, 
-            body: JSON.stringify(payload) 
+        if (username) payload.username = username;
+        if (tenant) payload.tenant_id = tenant;
+
+        const r = await fetch('/api/v1/users/invite', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-        
-        if(!r.ok){
+
+        if (!r.ok) {
             const txt = await r.text();
             throw new Error(txt || 'Failed to send invitation');
         }
-        
+
         closeInviteModal();
         window.__pm_shared.showToast('Invitation sent to ' + email, 'success');
         loadUsers();
-    }catch(err){
+    } catch (err) {
         errEl.textContent = (err && err.message) ? err.message : 'Failed to send invitation';
     }
 }
 
-async function loadUsers(){
+async function loadUsers() {
     const el = document.getElementById('users_list');
-    if(!el) return;
+    if (!el) return;
     el.innerHTML = '<div style="color:var(--muted)">Loading users...</div>';
-    try{
+    try {
         // Ensure tenant directory is loaded so we can resolve IDs to names
         await ensureTenantDirectory();
         const r = await fetch('/api/v1/users');
-        if(!r.ok) throw new Error(await r.text());
+        if (!r.ok) throw new Error(await r.text());
         const users = await r.json();
         renderUsers(users);
-    }catch(err){
-        el.innerHTML = '<div style="color:var(--danger)">Error loading users: '+(err.message||err)+'</div>';
+    } catch (err) {
+        el.innerHTML = '<div style="color:var(--danger)">Error loading users: ' + (err.message || err) + '</div>';
     }
 }
 
-function renderUsers(list){
+function renderUsers(list) {
     const el = document.getElementById('users_list');
-    if(!el) return;
-    if(!Array.isArray(list) || list.length===0){
+    if (!el) return;
+    if (!Array.isArray(list) || list.length === 0) {
         el.innerHTML = '<div class="users-empty-state"><div class="muted-text">No users found.</div></div>';
         return;
     }
@@ -7840,7 +7842,7 @@ function renderUsers(list){
         return `<span class="role-badge role-${r}">${escapeHtml(r)}</span>`;
     };
 
-    const rows = list.map(u=>{
+    const rows = list.map(u => {
         const username = escapeHtml(u.username || '—');
         const email = escapeHtml(u.email || '');
         const role = u.role || 'viewer';
@@ -7921,28 +7923,28 @@ function renderUsers(list){
     `;
 
     // Attach handlers for edit/delete
-    el.querySelectorAll('button[data-action="edit-user"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    el.querySelectorAll('button[data-action="edit-user"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const id = b.getAttribute('data-id');
             openUserEditModal(id);
         });
     });
-    el.querySelectorAll('button[data-action="delete-user"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    el.querySelectorAll('button[data-action="delete-user"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const id = b.getAttribute('data-id');
-            if(!confirm('Delete user ID '+id+'? This cannot be undone.')) return;
-            try{
-                const r = await fetch('/api/v1/users/'+encodeURIComponent(id), { method: 'DELETE' });
-                if(!r.ok) throw new Error(await r.text());
+            if (!confirm('Delete user ID ' + id + '? This cannot be undone.')) return;
+            try {
+                const r = await fetch('/api/v1/users/' + encodeURIComponent(id), { method: 'DELETE' });
+                if (!r.ok) throw new Error(await r.text());
                 window.__pm_shared.showToast('User deleted', 'success');
                 loadUsers();
-            }catch(err){
-                window.__pm_shared.showAlert('Failed to delete user: '+(err.message||err), 'Error', true, false);
+            } catch (err) {
+                window.__pm_shared.showAlert('Failed to delete user: ' + (err.message || err), 'Error', true, false);
             }
         });
     });
-    el.querySelectorAll('button[data-action="user-sessions"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    el.querySelectorAll('button[data-action="user-sessions"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const id = b.getAttribute('data-id');
             const username = b.getAttribute('data-username') || '';
             await loadUserSessions(id, username);
@@ -7953,35 +7955,35 @@ function renderUsers(list){
 // Track active sessions modal for proper updates
 let activeSessionsModal = null;
 
-async function loadUserSessions(userId, username){
-    try{
-        const r = await fetch('/api/v1/sessions?user_id='+encodeURIComponent(userId));
-        if(!r.ok) throw new Error(await r.text());
+async function loadUserSessions(userId, username) {
+    try {
+        const r = await fetch('/api/v1/sessions?user_id=' + encodeURIComponent(userId));
+        if (!r.ok) throw new Error(await r.text());
         const sessions = await r.json();
         showSessionsModal(sessions, username, userId);
-    }catch(err){
-        window.__pm_shared.showAlert('Failed to load sessions: '+(err.message||err), 'Error', true, false);
+    } catch (err) {
+        window.__pm_shared.showAlert('Failed to load sessions: ' + (err.message || err), 'Error', true, false);
     }
 }
 
 // Sessions modal sort state
 let sessionsSort = { key: 'created_at', dir: 'desc' };
 
-function showSessionsModal(sessions, username, userId){
+function showSessionsModal(sessions, username, userId) {
     // Remove existing modal if present (prevents stacking)
     if (activeSessionsModal && activeSessionsModal.parentNode) {
         activeSessionsModal.parentNode.removeChild(activeSessionsModal);
     }
-    
+
     const currentTokenHash = currentUser?.session_token_hash || '';
-    
+
     const modal = document.createElement('div');
     modal.className = 'sessions-modal-overlay';
     activeSessionsModal = modal;
-    
+
     const box = document.createElement('div');
     box.className = 'sessions-modal';
-    
+
     // Sort sessions
     const sortedSessions = [...(sessions || [])].sort((a, b) => {
         const aVal = a[sessionsSort.key] || '';
@@ -7989,15 +7991,15 @@ function showSessionsModal(sessions, username, userId){
         const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
         return sessionsSort.dir === 'asc' ? cmp : -cmp;
     });
-    
+
     const hasCurrentSession = sortedSessions.some(s => s.token === currentTokenHash);
     const hasOtherSessions = sortedSessions.some(s => s.token !== currentTokenHash);
-    
+
     const sortIcon = (key) => {
         if (sessionsSort.key !== key) return '';
         return sessionsSort.dir === 'asc' ? ' ▲' : ' ▼';
     };
-    
+
     let content = `
         <div class="sessions-modal-header">
             <div class="sessions-modal-title">
@@ -8008,7 +8010,7 @@ function showSessionsModal(sessions, username, userId){
         </div>
         <div class="sessions-modal-body">
     `;
-    
+
     if (!sortedSessions.length) {
         content += '<div class="sessions-empty">No active sessions found.</div>';
     } else {
@@ -8025,7 +8027,7 @@ function showSessionsModal(sessions, username, userId){
                     </thead>
                     <tbody>
         `;
-        
+
         sortedSessions.forEach(s => {
             const created = s.created_at ? new Date(s.created_at) : null;
             const expires = s.expires_at ? new Date(s.expires_at) : null;
@@ -8035,7 +8037,7 @@ function showSessionsModal(sessions, username, userId){
             const expiresFull = expires ? expires.toLocaleString() : '';
             const isCurrent = s.token === currentTokenHash;
             const isExpired = expires && expires < new Date();
-            
+
             content += `
                 <tr class="${isCurrent ? 'current-session' : ''} ${isExpired ? 'expired-session' : ''}">
                     <td title="${escapeHtml(createdFull)}">${createdStr}</td>
@@ -8055,16 +8057,16 @@ function showSessionsModal(sessions, username, userId){
                 </tr>
             `;
         });
-        
+
         content += `
                     </tbody>
                 </table>
             </div>
         `;
     }
-    
+
     content += '</div>';
-    
+
     // Footer with bulk actions
     if (sortedSessions.length > 0) {
         content += `
@@ -8085,11 +8087,11 @@ function showSessionsModal(sessions, username, userId){
             </div>
         `;
     }
-    
+
     box.innerHTML = content;
     modal.appendChild(box);
     document.body.appendChild(modal);
-    
+
     // Close handlers - use querySelectorAll for both close button and X button
     modal.querySelectorAll('[data-action="close"]').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -8109,7 +8111,7 @@ function showSessionsModal(sessions, username, userId){
             activeSessionsModal = null;
         }
     });
-    
+
     // Sort handlers
     modal.querySelectorAll('th[data-sort-key]').forEach(th => {
         th.addEventListener('click', () => {
@@ -8123,7 +8125,7 @@ function showSessionsModal(sessions, username, userId){
             showSessionsModal(sessions, username, userId);
         });
     });
-    
+
     // Revoke single session
     modal.querySelectorAll('button[data-action="revoke-session"]').forEach(b => {
         b.addEventListener('click', async () => {
@@ -8139,7 +8141,7 @@ function showSessionsModal(sessions, username, userId){
             }
         });
     });
-    
+
     // Revoke all other sessions
     modal.querySelectorAll('button[data-action="revoke-others"]').forEach(b => {
         b.addEventListener('click', async () => {
@@ -8160,12 +8162,12 @@ function showSessionsModal(sessions, username, userId){
             }
         });
     });
-    
+
     // Revoke all sessions
     modal.querySelectorAll('button[data-action="revoke-all"]').forEach(b => {
         b.addEventListener('click', async () => {
             const willLogOut = sortedSessions.some(s => s.token === currentTokenHash);
-            const msg = willLogOut 
+            const msg = willLogOut
                 ? `End all ${sortedSessions.length} session${sortedSessions.length !== 1 ? 's' : ''}? You will be logged out.`
                 : `End all ${sortedSessions.length} session${sortedSessions.length !== 1 ? 's' : ''}?`;
             if (!await window.__pm_shared.showConfirm(msg, 'Confirm')) return;
@@ -8240,7 +8242,7 @@ function validatePasswordClient(password) {
 // Password strength evaluation
 function evaluatePasswordStrength(password) {
     if (!password) return { score: 0, label: 'Enter a password', strength: '' };
-    
+
     let score = 0;
     const checks = {
         length: password.length >= (passwordPolicy?.min_length || 8),
@@ -8249,7 +8251,7 @@ function evaluatePasswordStrength(password) {
         number: /[0-9]/.test(password),
         special: /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]/.test(password),
     };
-    
+
     if (checks.length) score++;
     if (checks.uppercase) score++;
     if (checks.lowercase) score++;
@@ -8257,13 +8259,13 @@ function evaluatePasswordStrength(password) {
     if (checks.special) score++;
     if (password.length >= 12) score++;
     if (password.length >= 16) score++;
-    
+
     let strength, label;
     if (score <= 2) { strength = 'weak'; label = 'Weak password'; }
     else if (score <= 3) { strength = 'fair'; label = 'Fair password'; }
     else if (score <= 5) { strength = 'good'; label = 'Good password'; }
     else { strength = 'strong'; label = 'Strong password'; }
-    
+
     return { score, label, strength, checks };
 }
 
@@ -8273,16 +8275,16 @@ function updatePasswordStrength() {
     const fill = document.getElementById('user_password_strength_fill');
     const text = document.getElementById('user_password_strength_text');
     const requirements = document.getElementById('user_password_requirements');
-    
+
     const result = evaluatePasswordStrength(password);
-    
+
     if (fill) {
         fill.setAttribute('data-strength', result.strength);
     }
     if (text) {
         text.textContent = result.label;
     }
-    
+
     if (requirements) {
         // Update each requirement indicator
         const reqs = {
@@ -8293,7 +8295,7 @@ function updatePasswordStrength() {
             special: !passwordPolicy?.require_special || /[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;'`~]/.test(password),
             match: password && confirmPassword && password === confirmPassword,
         };
-        
+
         requirements.querySelectorAll('.requirement').forEach(el => {
             const reqType = el.getAttribute('data-req');
             // Hide requirement if policy doesn't require it
@@ -8316,7 +8318,7 @@ function updatePasswordStrength() {
             el.style.display = '';
             el.classList.toggle('met', reqs[reqType] === true);
         });
-        
+
         // Update min length text
         const lengthReq = requirements.querySelector('[data-req="length"]');
         if (lengthReq) {
@@ -8326,29 +8328,29 @@ function updatePasswordStrength() {
     }
 }
 
-async function openUserModal(editMode = false){
+async function openUserModal(editMode = false) {
     const modal = document.getElementById('user_modal');
-    if(!modal) return;
-    
+    if (!modal) return;
+
     // Load password policy if not cached
     if (!passwordPolicy) await loadPasswordPolicy();
-    
+
     // Populate tenant select from cached tenants with "Add Tenant" option
     const sel = document.getElementById('user_tenant');
-    if(sel){
-        populateTenantDropdown(sel, { 
-            placeholder: '(Global / Server)', 
-            showAddOption: true 
+    if (sel) {
+        populateTenantDropdown(sel, {
+            placeholder: '(Global / Server)',
+            showAddOption: true
         });
     }
-    
+
     // Clear edit mode
     modal.removeAttribute('data-edit-id');
-    
+
     // Set title and button text
     document.getElementById('user_modal_title').textContent = 'Add User';
     document.getElementById('user_submit').textContent = 'Create User';
-    
+
     // Reset fields
     document.getElementById('user_username').value = '';
     document.getElementById('user_email').value = '';
@@ -8357,28 +8359,28 @@ async function openUserModal(editMode = false){
     document.getElementById('user_role').value = 'viewer';
     document.getElementById('user_tenant').value = '';
     document.getElementById('user_error').textContent = '';
-    
+
     // Show password section for new users, hide change password toggle
     const changePwToggle = document.getElementById('user_change_password_toggle');
     const changePwCheckbox = document.getElementById('user_change_password');
     const pwFields = document.getElementById('user_password_fields');
     const pwRequired = document.getElementById('user_password_required');
     const pwConfirmRequired = document.getElementById('user_password_confirm_required');
-    
+
     if (changePwToggle) changePwToggle.style.display = 'none';
     if (changePwCheckbox) changePwCheckbox.checked = false;
     if (pwFields) pwFields.classList.remove('collapsed');
     if (pwRequired) pwRequired.style.display = '';
     if (pwConfirmRequired) pwConfirmRequired.style.display = '';
-    
+
     // Reset password strength
     updatePasswordStrength();
-    
+
     modal.style.display = 'flex';
     document.getElementById('user_username').focus();
 }
 
-async function submitCreateUser(){
+async function submitCreateUser() {
     const modal = document.getElementById('user_modal');
     const username = document.getElementById('user_username').value.trim();
     const email = document.getElementById('user_email').value.trim();
@@ -8390,25 +8392,25 @@ async function submitCreateUser(){
     const editId = modal.getAttribute('data-edit-id');
     const changePwCheckbox = document.getElementById('user_change_password');
     const isChangingPassword = !editId || (changePwCheckbox && changePwCheckbox.checked);
-    
+
     errEl.textContent = '';
 
-    if(!username){
-        errEl.textContent = 'Username is required'; 
+    if (!username) {
+        errEl.textContent = 'Username is required';
         return;
     }
 
     // Password required for new users, optional for edit (only if checkbox checked)
-    if(!editId && !password){
-        errEl.textContent = 'Password is required for new users'; 
+    if (!editId && !password) {
+        errEl.textContent = 'Password is required for new users';
         return;
     }
-    
+
     // Validate password if changing it
-    if(isChangingPassword && password){
+    if (isChangingPassword && password) {
         if (!passwordPolicy) await loadPasswordPolicy();
         const pwError = validatePasswordClient(password);
-        if(pwError){
+        if (pwError) {
             errEl.textContent = pwError;
             return;
         }
@@ -8418,20 +8420,20 @@ async function submitCreateUser(){
         }
     }
 
-    try{
+    try {
         const payload = { username, role };
-        if(email) payload.email = email;
-        if(isChangingPassword && password) payload.password = password;
-        if(tenant) payload.tenant_id = tenant;
+        if (email) payload.email = email;
+        if (isChangingPassword && password) payload.password = password;
+        if (tenant) payload.tenant_id = tenant;
 
         let r;
-        if(editId) {
+        if (editId) {
             // update existing
-            r = await fetch('/api/v1/users/'+encodeURIComponent(editId), { method: 'PUT', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+            r = await fetch('/api/v1/users/' + encodeURIComponent(editId), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
         } else {
-            r = await fetch('/api/v1/users', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
+            r = await fetch('/api/v1/users', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
         }
-        if(!r.ok){
+        if (!r.ok) {
             const txt = await r.text();
             throw new Error(txt || 'Request failed');
         }
@@ -8439,35 +8441,35 @@ async function submitCreateUser(){
         closeUserModal();
         window.__pm_shared.showToast(editId ? 'User updated' : 'User created', 'success');
         loadUsers();
-    }catch(err){
+    } catch (err) {
         errEl.textContent = (err && err.message) ? err.message : 'Failed to save user';
     }
 }
 
 // Open modal for editing an existing user
-async function openUserEditModal(id){
-    try{
+async function openUserEditModal(id) {
+    try {
         // Load password policy if not cached
         if (!passwordPolicy) await loadPasswordPolicy();
-        
+
         // Populate tenant select with "Add Tenant" option
         const sel = document.getElementById('user_tenant');
-        if(sel){
-            populateTenantDropdown(sel, { 
-                placeholder: '(Global / Server)', 
-                showAddOption: true 
+        if (sel) {
+            populateTenantDropdown(sel, {
+                placeholder: '(Global / Server)',
+                showAddOption: true
             });
         }
-        
-        const r = await fetch('/api/v1/users/'+encodeURIComponent(id));
-        if(!r.ok) throw new Error(await r.text());
+
+        const r = await fetch('/api/v1/users/' + encodeURIComponent(id));
+        if (!r.ok) throw new Error(await r.text());
         const u = await r.json();
         const modal = document.getElementById('user_modal');
-        
+
         // Set title and button for edit mode
         document.getElementById('user_modal_title').textContent = 'Edit User';
         document.getElementById('user_submit').textContent = 'Save Changes';
-        
+
         // Populate fields
         document.getElementById('user_username').value = u.username || '';
         document.getElementById('user_email').value = u.email || '';
@@ -8476,57 +8478,57 @@ async function openUserEditModal(id){
         document.getElementById('user_role').value = u.role || 'viewer';
         document.getElementById('user_tenant').value = u.tenant_id || '';
         document.getElementById('user_error').textContent = '';
-        
+
         // Store editing id on modal
         modal.setAttribute('data-edit-id', id);
-        
+
         // Show change password toggle, hide password fields by default
         const changePwToggle = document.getElementById('user_change_password_toggle');
         const changePwCheckbox = document.getElementById('user_change_password');
         const pwFields = document.getElementById('user_password_fields');
         const pwRequired = document.getElementById('user_password_required');
         const pwConfirmRequired = document.getElementById('user_password_confirm_required');
-        
+
         if (changePwToggle) changePwToggle.style.display = '';
         if (changePwCheckbox) changePwCheckbox.checked = false;
         if (pwFields) pwFields.classList.add('collapsed');
         if (pwRequired) pwRequired.style.display = 'none';
         if (pwConfirmRequired) pwConfirmRequired.style.display = 'none';
-        
+
         // Reset password strength
         updatePasswordStrength();
-        
+
         modal.style.display = 'flex';
-    }catch(err){
-        window.__pm_shared.showAlert('Failed to load user: '+(err.message||err), 'Error', true, false);
+    } catch (err) {
+        window.__pm_shared.showAlert('Failed to load user: ' + (err.message || err), 'Error', true, false);
     }
 }
 
-async function loadTenants(){
+async function loadTenants() {
     const el = document.getElementById('tenants_list');
-    if(!el) return;
+    if (!el) return;
     el.innerHTML = '<div style="color:var(--muted)">Loading tenants...</div>';
-    try{
+    try {
         const r = await fetch('/api/v1/tenants');
-        if(!r.ok) throw new Error(await r.text());
+        if (!r.ok) throw new Error(await r.text());
         const data = await r.json();
         // Cache tenants for use in other UI flows (e.g. add-agent modal)
         updateTenantDirectory(Array.isArray(data) ? data : []);
         syncSSOTenants(data);
-        
+
         // Store in view model and apply filters
         tenantsVM.items = Array.isArray(data) ? data : [];
         tenantsVM.stats.total = tenantsVM.items.length;
         tenantsVM.loaded = true;
         applyTenantFilters();
-        
+
         notifyManagedSettingsTenantDirectory(data);
-    }catch(err){
-        el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: '+(err.message||err)+'</div>';
+    } catch (err) {
+        el.innerHTML = '<div style="color:var(--danger)">Error loading tenants: ' + (err.message || err) + '</div>';
     }
 }
 
-function tenantDisplayNameById(tenantId){
+function tenantDisplayNameById(tenantId) {
     if (!tenantId) return '';
     const cached = getTenantInfo(tenantId);
     if (cached) {
@@ -8540,15 +8542,15 @@ function tenantDisplayNameById(tenantId){
     return tenantId;
 }
 
-function formatTenantDisplay(tenantId){
+function formatTenantDisplay(tenantId) {
     if (!tenantId) return 'Global';
     return tenantDisplayNameById(tenantId) || tenantId;
 }
 
-function renderTenants(list){
+function renderTenants(list) {
     const el = document.getElementById('tenants_list');
-    if(!el) return;
-    if(!Array.isArray(list) || list.length===0){
+    if (!el) return;
+    if (!Array.isArray(list) || list.length === 0) {
         el.innerHTML = '<div class="muted-text">No tenants yet. Click New Tenant to add one.</div>';
         return;
     }
@@ -8634,33 +8636,33 @@ function renderTenants(list){
         });
     });
 
-    el.querySelectorAll('button[data-action="create-token"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    el.querySelectorAll('button[data-action="create-token"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const tenant = b.getAttribute('data-tenant');
             await handleCreateToken(tenant);
         });
     });
-    el.querySelectorAll('button[data-action="view-tokens"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    el.querySelectorAll('button[data-action="view-tokens"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const tenant = b.getAttribute('data-tenant');
             await showTokensList(tenant);
         });
     });
-    el.querySelectorAll('button[data-action="tenant-settings"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    el.querySelectorAll('button[data-action="tenant-settings"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const tenantId = b.getAttribute('data-tenant') || '';
             await openFleetSettingsForTenant(tenantId);
         });
     });
-    el.querySelectorAll('button[data-action="edit-tenant"]').forEach(b=>{
-        b.addEventListener('click', ()=>{
+    el.querySelectorAll('button[data-action="edit-tenant"]').forEach(b => {
+        b.addEventListener('click', () => {
             const tenantId = b.getAttribute('data-tenant') || '';
             const tenant = (window._tenants || []).find(t => (t.id || t.uuid || '') === tenantId);
             openTenantModal(tenant || null);
         });
     });
-    el.querySelectorAll('button[data-action="delete-tenant"]').forEach(b=>{
-        b.addEventListener('click', async ()=>{
+    el.querySelectorAll('button[data-action="delete-tenant"]').forEach(b => {
+        b.addEventListener('click', async () => {
             const tenantId = b.getAttribute('data-tenant') || '';
             const tenantName = b.getAttribute('data-tenant-name') || tenantId;
             await handleDeleteTenant(tenantId, tenantName);
@@ -8672,7 +8674,7 @@ function renderTenantsFiltered() {
     const list = tenantsVM.filtered;
     const el = document.getElementById('tenants_list');
     if (!el) return;
-    
+
     if (!Array.isArray(list) || list.length === 0) {
         if (tenantsVM.stats.total === 0) {
             el.innerHTML = '<div class="muted-text">No tenants yet. Click + New Tenant to add one.</div>';
@@ -8681,34 +8683,34 @@ function renderTenantsFiltered() {
         }
         return;
     }
-    
+
     // Use the existing renderTenants for the actual rendering
     renderTenants(list);
 }
 
-async function createTenant(body){
-    const r = await fetch('/api/v1/tenants', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
-    if(!r.ok) throw new Error(await r.text());
+async function createTenant(body) {
+    const r = await fetch('/api/v1/tenants', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await r.text());
     return r.json();
 }
 
-async function updateTenant(id, body){
-    const r = await fetch('/api/v1/tenants/'+encodeURIComponent(id), {method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify(body)});
-    if(!r.ok) throw new Error(await r.text());
+async function updateTenant(id, body) {
+    const r = await fetch('/api/v1/tenants/' + encodeURIComponent(id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(await r.text());
     return r.json();
 }
 
-async function deleteTenant(id, force = false){
+async function deleteTenant(id, force = false) {
     const url = '/api/v1/tenants/' + encodeURIComponent(id) + (force ? '?force=true' : '');
-    const r = await fetch(url, {method:'DELETE'});
-    if (r.status === 204) return {success: true};
+    const r = await fetch(url, { method: 'DELETE' });
+    if (r.status === 204) return { success: true };
     if (r.status === 409) {
         // Conflict - has agents
         const data = await r.json();
-        return {success: false, conflict: true, ...data};
+        return { success: false, conflict: true, ...data };
     }
     if (!r.ok) throw new Error(await r.text());
-    return {success: true};
+    return { success: true };
 }
 
 async function handleDeleteTenant(tenantId, tenantName) {
@@ -8752,10 +8754,10 @@ async function toggleTenantSites(tenantId, btn) {
     const row = btn.closest('tr');
     const sitesRow = row.nextElementSibling;
     if (!sitesRow || !sitesRow.classList.contains('sites-expansion-row')) return;
-    
+
     const container = sitesRow.querySelector('.sites-expansion-content');
     const isExpanded = !sitesRow.classList.contains('hidden');
-    
+
     if (isExpanded) {
         // Collapse
         sitesRow.classList.add('hidden');
@@ -8764,7 +8766,7 @@ async function toggleTenantSites(tenantId, btn) {
         // Expand - load sites if not loaded
         sitesRow.classList.remove('hidden');
         btn.classList.add('expanded');
-        
+
         if (!container.hasAttribute('data-loaded')) {
             container.innerHTML = '<div class="loading-text">Loading sites...</div>';
             try {
@@ -8805,7 +8807,7 @@ function renderSitesTree(tenantId, sites, agents) {
             </div>
         `;
     }
-    
+
     // Build a map of site -> agents
     const siteAgents = {};
     const unassignedAgents = [];
@@ -8820,14 +8822,14 @@ function renderSitesTree(tenantId, sites, agents) {
             });
         }
     });
-    
+
     let html = '<div class="sites-tree">';
-    
+
     // Toolbar
     html += `<div class="sites-tree-toolbar">
         <button class="btn btn-xs btn-primary" onclick="openSiteModal('${tenantId}', null)">+ Add Site</button>
     </div>`;
-    
+
     // Sites with their agents
     sites.forEach(site => {
         const siteAgentList = siteAgents[site.id] || [];
@@ -8857,7 +8859,7 @@ function renderSitesTree(tenantId, sites, agents) {
             </div>
         `;
     });
-    
+
     // Unassigned agents
     if (unassignedAgents.length > 0) {
         html += `
@@ -8879,7 +8881,7 @@ function renderSitesTree(tenantId, sites, agents) {
             </div>
         `;
     }
-    
+
     html += '</div>';
     return html;
 }
@@ -8896,7 +8898,7 @@ async function deleteSiteInline(tenantId, siteId, siteName) {
     );
     if (!confirmed) return;
     try {
-        const r = await fetch(`/api/v1/tenants/${encodeURIComponent(tenantId)}/sites/${encodeURIComponent(siteId)}`, {method: 'DELETE'});
+        const r = await fetch(`/api/v1/tenants/${encodeURIComponent(tenantId)}/sites/${encodeURIComponent(siteId)}`, { method: 'DELETE' });
         if (!r.ok) throw new Error(await r.text());
         window.__pm_shared.showToast('Site deleted', 'success');
         // Refresh the tree
@@ -8932,7 +8934,7 @@ async function refreshTenantSitesTree(tenantId) {
 }
 
 // Global function called from onclick handlers in tree
-window.openSiteModal = async function(tenantId, siteId) {
+window.openSiteModal = async function (tenantId, siteId) {
     currentSitesTenantId = tenantId;
     await openSiteEditModal(siteId);
 };
@@ -8952,13 +8954,13 @@ async function openSitesListModal(tenantId) {
 
     const tenant = (window._tenants || []).find(t => (t.id || t.uuid || '') === tenantId);
     const tenantName = tenant ? tenant.name : tenantId;
-    
+
     document.getElementById('sites_list_modal_title').textContent = `Sites - ${tenantName}`;
     document.getElementById('sites_list_subtitle').textContent = `Manage sites for ${tenantName}`;
     document.getElementById('sites_list_content').innerHTML = '<div class="muted-text">Loading sites...</div>';
-    
+
     modal.style.display = 'flex';
-    
+
     await loadSitesList(tenantId);
 }
 
@@ -8980,10 +8982,10 @@ function renderSitesList(sites) {
         container.innerHTML = '<div class="muted-text">No sites defined yet. Click "Add Site" to create one.</div>';
         return;
     }
-    
+
     const rows = sites.map(site => {
         const agentBadge = `<span class="site-agents-badge">${site.agent_count || 0} agent${site.agent_count !== 1 ? 's' : ''}</span>`;
-        const rulesBadge = site.filter_rules && site.filter_rules.length > 0 
+        const rulesBadge = site.filter_rules && site.filter_rules.length > 0
             ? `<span class="site-rules-badge">${site.filter_rules.length} rule${site.filter_rules.length !== 1 ? 's' : ''}</span>`
             : '';
         return `
@@ -9043,7 +9045,7 @@ function closeSitesListModal() {
 async function openSiteEditModal(siteId) {
     currentSiteEditId = siteId || null;
     currentSiteFilterRules = [];
-    
+
     const modal = document.getElementById('site_modal');
     if (!modal) return;
 
@@ -9062,7 +9064,7 @@ async function openSiteEditModal(siteId) {
     document.getElementById('site_description').value = '';
     document.getElementById('site_error').textContent = '';
     document.getElementById('site_filter_rules').innerHTML = '';
-    
+
     // Load agents for this tenant
     await loadSiteAgentsList([]);
 
@@ -9071,14 +9073,14 @@ async function openSiteEditModal(siteId) {
             const r = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(siteId)}`);
             if (!r.ok) throw new Error(await r.text());
             const site = await r.json();
-            
+
             document.getElementById('site_name').value = site.name || '';
             document.getElementById('site_address').value = site.address || '';
             document.getElementById('site_description').value = site.description || '';
-            
+
             currentSiteFilterRules = site.filter_rules || [];
             renderSiteFilterRules();
-            
+
             // Load assigned agents
             const agentsR = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(siteId)}/agents`);
             if (agentsR.ok) {
@@ -9096,17 +9098,17 @@ async function openSiteEditModal(siteId) {
 async function loadSiteAgentsList(selectedAgentIds) {
     const container = document.getElementById('site_agents_list');
     container.innerHTML = '<div class="muted-text">Loading agents...</div>';
-    
+
     try {
         const r = await fetch('/api/v1/agents/list');
         if (!r.ok) throw new Error(await r.text());
         const agents = await r.json() || [];
-        
+
         // Filter to agents belonging to this tenant (or no tenant)
-        const tenantAgents = agents.filter(a => 
+        const tenantAgents = agents.filter(a =>
             !a.tenant_id || a.tenant_id === currentSitesTenantId
         );
-        
+
         if (tenantAgents.length === 0) {
             container.innerHTML = '<div class="muted-text">No agents available for this tenant.</div>';
             return;
@@ -9124,7 +9126,7 @@ async function loadSiteAgentsList(selectedAgentIds) {
                 </label>
             `;
         }).join('');
-        
+
         container.innerHTML = items;
     } catch (err) {
         container.innerHTML = `<div style="color:var(--danger);">Failed to load agents: ${escapeHtml(err.message || err)}</div>`;
@@ -9146,11 +9148,11 @@ function renderSiteFilterRules() {
     ];
 
     const html = currentSiteFilterRules.map((rule, index) => {
-        const typeOptions = ruleTypes.map(t => 
+        const typeOptions = ruleTypes.map(t =>
             `<option value="${t.value}" ${rule.type === t.value ? 'selected' : ''}>${t.label}</option>`
         ).join('');
         const placeholder = ruleTypes.find(t => t.value === rule.type)?.placeholder || '';
-        
+
         return `
             <div class="site-filter-rule" data-index="${index}">
                 <select class="rule-type">${typeOptions}</select>
@@ -9195,9 +9197,9 @@ async function saveSite() {
     const address = document.getElementById('site_address').value.trim();
     const description = document.getElementById('site_description').value.trim();
     const errEl = document.getElementById('site_error');
-    
+
     errEl.textContent = '';
-    
+
     if (!name) {
         errEl.textContent = 'Site name is required';
         return;
@@ -9219,7 +9221,7 @@ async function saveSite() {
 
     try {
         let siteId = currentSiteEditId;
-        
+
         if (currentSiteEditId) {
             // Update existing site
             const r = await fetch(`/api/v1/tenants/${encodeURIComponent(currentSitesTenantId)}/sites/${encodeURIComponent(currentSiteEditId)}`, {
@@ -9290,7 +9292,7 @@ function initSitesUI() {
     }
 }
 
-async function handleCreateToken(tenantID){
+async function handleCreateToken(tenantID) {
     // Open the unified Add Agent modal and preselect the tenant
     try {
         openAddAgentModal({ tenantID });
@@ -9299,23 +9301,23 @@ async function handleCreateToken(tenantID){
     }
 }
 
-async function showTokensList(tenantID){
-    try{
-        const r = await fetch('/api/v1/join-tokens?tenant_id='+encodeURIComponent(tenantID));
-        if(!r.ok) throw new Error(await r.text());
+async function showTokensList(tenantID) {
+    try {
+        const r = await fetch('/api/v1/join-tokens?tenant_id=' + encodeURIComponent(tenantID));
+        if (!r.ok) throw new Error(await r.text());
         const tokens = await r.json();
         renderTokenModal(tenantID, tokens);
-    }catch(err){
-        window.__pm_shared.showAlert('Failed to load tokens: '+(err.message||err), 'Error', true, false);
+    } catch (err) {
+        window.__pm_shared.showAlert('Failed to load tokens: ' + (err.message || err), 'Error', true, false);
     }
 }
 
-function renderTokenModal(tenantID, tokens){
-    if(!Array.isArray(tokens) || tokens.length===0){
+function renderTokenModal(tenantID, tokens) {
+    if (!Array.isArray(tokens) || tokens.length === 0) {
         window.__pm_shared.showAlert('No tokens for tenant: ' + escapeHtml(tenantID), 'Tokens', false, false);
         return;
     }
-    
+
     let html = '<div style="max-height: 400px; overflow-y: auto;">';
     html += '<table style="width: 100%; border-collapse: collapse; font-size: 13px;">';
     html += '<thead><tr style="background: var(--bg-secondary); text-align: left;">';
@@ -9325,17 +9327,17 @@ function renderTokenModal(tenantID, tokens){
     html += '<th style="padding: 8px; border-bottom: 1px solid var(--border);">Used At</th>';
     html += '<th style="padding: 8px; border-bottom: 1px solid var(--border);">Expires</th>';
     html += '</tr></thead><tbody>';
-    
+
     tokens.forEach(t => {
         const isRevoked = t.revoked;
         const isUsed = !!t.used_at;
         const isExpired = t.expires_at && new Date(t.expires_at) < new Date();
-        
+
         let status = '<span style="color: var(--success);">Active</span>';
         if (isRevoked) status = '<span style="color: var(--danger);">Revoked</span>';
         else if (isUsed && t.one_time) status = '<span style="color: var(--muted);">Used</span>';
         else if (isExpired) status = '<span style="color: var(--warning);">Expired</span>';
-        
+
         html += `<tr style="border-bottom: 1px solid var(--border);">`;
         html += `<td style="padding: 8px; font-family: monospace;">${escapeHtml(t.id)}</td>`;
         html += `<td style="padding: 8px;">${t.one_time ? 'One-time' : 'Reusable'}</td>`;
@@ -9345,23 +9347,23 @@ function renderTokenModal(tenantID, tokens){
         html += `</tr>`;
     });
     html += '</tbody></table></div>';
-    
+
     // Ask user if they want to revoke a token via input modal
     window.__pm_shared.showAlert(html, 'Tokens for tenant: ' + escapeHtml(tenantID), false, false, true);
     showInputModal('Revoke token', 'Enter the token ID to revoke (leave empty to cancel)', '').then(id => {
         if (!id) return;
-        revokeToken(id.trim()).then(()=>{
+        revokeToken(id.trim()).then(() => {
             window.__pm_shared.showToast('Revoked ' + id.trim(), 'success');
             showTokensList(tenantID);
-        }).catch(err=>{
-            window.__pm_shared.showAlert('Failed to revoke: '+(err.message||err), 'Error', true, false);
+        }).catch(err => {
+            window.__pm_shared.showAlert('Failed to revoke: ' + (err.message || err), 'Error', true, false);
         });
-    }).catch(()=>{});
+    }).catch(() => { });
 }
 
-async function revokeToken(id){
-    const r = await fetch('/api/v1/join-token/revoke', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({id})});
-    if(!r.ok) throw new Error(await r.text());
+async function revokeToken(id) {
+    const r = await fetch('/api/v1/join-token/revoke', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
+    if (!r.ok) throw new Error(await r.text());
     return r.json();
 }
 
@@ -9383,7 +9385,7 @@ function initAgentsUI() {
         sidebarToggle.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
-        
+
         // Start collapsed on mobile for cleaner UX
         if (window.innerWidth <= 900) {
             sidebar.classList.add('collapsed');
@@ -9571,7 +9573,7 @@ function initAgentsUI() {
     syncAgentQuickFilters();
     syncTenantFilterOptions('agents');
     initAgentsTableCustomizer();
-    
+
     // Initialize context menu for agents table and cards
     if (window.PMContextMenu) {
         const agentsTable = document.getElementById('agents_table');
@@ -9587,7 +9589,7 @@ function initAgentsUI() {
 
 function initAgentsTableCustomizer() {
     if (agentsVM.tableCustomizer) return;
-    
+
     // Only initialize if TableCustomizer is available
     if (typeof window.TableCustomizer === 'undefined') {
         console.warn('TableCustomizer not available');
@@ -9654,8 +9656,8 @@ function renderAgentsLoading() {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            const visibleColumns = agentsVM.tableCustomizer 
-                ? agentsVM.tableCustomizer.getVisibleColumns().length 
+            const visibleColumns = agentsVM.tableCustomizer
+                ? agentsVM.tableCustomizer.getVisibleColumns().length
                 : 8;
             tbody.innerHTML = `<tr><td colspan="${visibleColumns}" class="muted-text">Loading agents…</td></tr>`;
         }
@@ -9677,8 +9679,8 @@ function renderAgentsError(error) {
     if (wrapper) {
         const tbody = wrapper.querySelector('tbody');
         if (tbody) {
-            const visibleColumns = agentsVM.tableCustomizer 
-                ? agentsVM.tableCustomizer.getVisibleColumns().length 
+            const visibleColumns = agentsVM.tableCustomizer
+                ? agentsVM.tableCustomizer.getVisibleColumns().length
                 : 8;
             tbody.innerHTML = `<tr><td colspan="${visibleColumns}" class="error-text">Failed to load agents: ${escapeHtml(message)}</td></tr>`;
         }
@@ -10115,7 +10117,7 @@ function renderAgentVersionCell(agent, forTable = false) {
     const latestVersion = agentsVM.latestVersion;
     const displayVersion = escapeHtml(currentVersion || 'N/A');
     const agentId = agent.agent_id || '';
-    
+
     // Check if there's an active update for this agent
     const updateState = agentsVM.updateState[agentId];
     if (updateState) {
@@ -10135,15 +10137,15 @@ function renderAgentVersionCell(agent, forTable = false) {
                     return rawStatus;
             }
         })();
-        
+
         // Calculate smooth progress percentage based on phase
         const smoothProgress = getSmoothedUpdateProgress(agentId, status, updateState);
-        
+
         // Show progress button for active states
         if (status === 'checking' || status === 'downloading' || status === 'ready' || status === 'restarting' || status === 'verifying') {
             const canCancel = status !== 'ready' && status !== 'restarting' && status !== 'verifying';
-            const cancelBtn = canCancel 
-                ? `<button class="update-btn cancel" data-action="cancel-update" data-agent-id="${escapeHtml(agentId)}" title="Cancel update">✕</button>` 
+            const cancelBtn = canCancel
+                ? `<button class="update-btn cancel" data-action="cancel-update" data-agent-id="${escapeHtml(agentId)}" title="Cancel update">✕</button>`
                 : '';
             // Progress button with fill effect
             const progressBtn = `<button class="update-btn progress-btn" data-agent-id="${escapeHtml(agentId)}" disabled style="--progress: ${smoothProgress}%">${Math.round(smoothProgress)}%</button>`;
@@ -10153,7 +10155,7 @@ function renderAgentVersionCell(agent, forTable = false) {
             }
             return `${displayVersion} ${content}`;
         }
-        
+
         // Show failed state briefly
         if (status === 'failed') {
             const errorMsg = updateState.error || 'Failed';
@@ -10172,7 +10174,7 @@ function renderAgentVersionCell(agent, forTable = false) {
             }
             return `${displayVersion} ${content}`;
         }
-        
+
         // Show complete state briefly
         if (status === 'complete') {
             const content = `<span class="update-complete">✓ Updated</span>`;
@@ -10182,7 +10184,7 @@ function renderAgentVersionCell(agent, forTable = false) {
             return `${displayVersion} ${content}`;
         }
     }
-    
+
     // Check if update is available (normal state) - only show if latest is actually newer
     if (latestVersion && currentVersion && currentVersion !== 'N/A' && compareVersions(latestVersion, currentVersion) > 0) {
         // Check for WebSocket connection using connection_type field
@@ -10205,7 +10207,7 @@ function getSmoothedUpdateProgress(agentId, status, updateState) {
     const now = Date.now();
     const startTime = updateState.timestamp || now;
     const elapsed = now - startTime;
-    
+
     // Initialize or get animation state
     if (!agentsVM.updateAnimations) {
         agentsVM.updateAnimations = {};
@@ -10223,10 +10225,10 @@ function getSmoothedUpdateProgress(agentId, status, updateState) {
         };
         agentsVM.updateAnimations[agentId] = anim;
     }
-    
+
     const phaseEnd = getPhaseEndPercent(status);
     const phaseDuration = getPhaseDuration(status);
-    
+
     // For downloading, use actual progress from agent (scaled to 5-55% range)
     if (status === 'downloading') {
         const rawProgress = updateState.progress || 0;
@@ -10236,18 +10238,18 @@ function getSmoothedUpdateProgress(agentId, status, updateState) {
         anim.displayProgress += progressDiff * 0.3; // Ease towards target
         return Math.min(anim.displayProgress, phaseEnd);
     }
-    
+
     // For other phases, animate time-based towards phase end
     const phaseElapsed = now - anim.startTime;
     const phaseProgress = Math.min(phaseElapsed / phaseDuration, 1);
     // Ease out cubic for smooth deceleration at phase end
     const easedProgress = 1 - Math.pow(1 - phaseProgress, 3);
     const targetProgress = anim.startProgress + (phaseEnd - anim.startProgress) * easedProgress * 0.95; // Don't quite reach end
-    
+
     // Smooth update
     const diff = targetProgress - anim.displayProgress;
     anim.displayProgress += diff * 0.2;
-    
+
     return Math.min(Math.max(anim.displayProgress, 0), 99);
 }
 
@@ -10287,7 +10289,7 @@ function getPhaseDuration(status) {
 function renderAgentsTableHeader() {
     const thead = document.getElementById('agents_table_header');
     if (!thead) return;
-    
+
     if (!agentsVM.tableCustomizer) {
         // Fallback to static headers if customizer not available
         // Actions column removed - using context menu instead (right-click)
@@ -10305,7 +10307,7 @@ function renderAgentsTableHeader() {
 
     // Use table customizer to render dynamic headers
     thead.innerHTML = agentsVM.tableCustomizer.renderHeader();
-    
+
     // Bind header events (sorting, resize handles)
     const table = document.getElementById('agents_table');
     if (table) {
@@ -10326,17 +10328,17 @@ function renderAgentTable(agents) {
     wrapper.classList.remove('hidden');
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
-    
+
     // Calculate visible column count for colspan
-    const visibleColumns = agentsVM.tableCustomizer 
-        ? agentsVM.tableCustomizer.getVisibleColumns().length 
+    const visibleColumns = agentsVM.tableCustomizer
+        ? agentsVM.tableCustomizer.getVisibleColumns().length
         : 8;
-    
+
     if (!agents || agents.length === 0) {
         tbody.innerHTML = `<tr><td colspan="${visibleColumns}" class="muted-text">No agents match the current filters.</td></tr>`;
         return;
     }
-    
+
     // Use table customizer if available
     if (agentsVM.tableCustomizer) {
         const rows = agents.map(agent => {
@@ -10350,7 +10352,7 @@ function renderAgentTable(agents) {
         tbody.innerHTML = rows;
         return;
     }
-    
+
     // Fallback to original rendering if no customizer
     // Actions column removed - using context menu instead (right-click)
     const rows = agents.map(agent => {
@@ -10543,7 +10545,7 @@ async function fetchSingleAgent(agentId) {
 // Handle agent reconnecting after an update restart
 async function handleAgentReconnectAfterUpdate(agentId, updateState) {
     const agentName = agentsVM.items.find(a => a.agent_id === agentId)?.name || agentId;
-    
+
     // Transition to "verifying" state
     agentsVM.updateState[agentId] = {
         ...updateState,
@@ -10552,10 +10554,10 @@ async function handleAgentReconnectAfterUpdate(agentId, updateState) {
         timestamp: Date.now()
     };
     refreshAgentVersionCell(agentId);
-    
+
     // Small delay to let agent settle after restart
     await new Promise(r => setTimeout(r, 1500));
-    
+
     // Fetch fresh agent data
     const updatedAgent = await fetchSingleAgent(agentId);
     if (!updatedAgent) {
@@ -10565,11 +10567,11 @@ async function handleAgentReconnectAfterUpdate(agentId, updateState) {
         refreshAgentVersionCell(agentId);
         return;
     }
-    
+
     const newVersion = updatedAgent.version;
     const previousVersion = updateState.previousVersion;
     const targetVersion = updateState.targetVersion;
-    
+
     // Check if version changed
     if (previousVersion && newVersion && newVersion !== previousVersion) {
         // Version changed - update succeeded!
@@ -10751,14 +10753,14 @@ function updateDeviceSelectionUI() {
  */
 function handleAgentSelection(agentId, event) {
     const selection = agentsVM.selection;
-    
+
     if (event.shiftKey && selection.lastSelected) {
         // Shift+click: select range
         const filtered = agentsVM.filtered;
         const ids = filtered.map(a => a.id);
         const lastIdx = ids.indexOf(selection.lastSelected);
         const currIdx = ids.indexOf(agentId);
-        
+
         if (lastIdx !== -1 && currIdx !== -1) {
             const start = Math.min(lastIdx, currIdx);
             const end = Math.max(lastIdx, currIdx);
@@ -10784,7 +10786,7 @@ function handleAgentSelection(agentId, event) {
         selection.selectedIds.add(agentId);
         selection.lastSelected = agentId;
     }
-    
+
     updateAgentSelectionUI();
 }
 
@@ -10795,14 +10797,14 @@ function handleAgentSelection(agentId, event) {
  */
 function handleDeviceSelection(deviceId, event) {
     const selection = devicesVM.selection;
-    
+
     if (event.shiftKey && selection.lastSelected) {
         // Shift+click: select range
         const filtered = devicesVM.filtered;
         const ids = filtered.map(d => d.serial || d.ip);
         const lastIdx = ids.indexOf(selection.lastSelected);
         const currIdx = ids.indexOf(deviceId);
-        
+
         if (lastIdx !== -1 && currIdx !== -1) {
             const start = Math.min(lastIdx, currIdx);
             const end = Math.max(lastIdx, currIdx);
@@ -10828,7 +10830,7 @@ function handleDeviceSelection(deviceId, event) {
         selection.selectedIds.add(deviceId);
         selection.lastSelected = deviceId;
     }
-    
+
     updateDeviceSelectionUI();
 }
 
@@ -10857,16 +10859,16 @@ async function viewAgentDetails(agentId) {
         const overlay = document.getElementById('agent_details_overlay');
         const body = document.getElementById('agent_details_body');
         const title = document.getElementById('agent_details_title');
-        
+
         overlay.style.display = 'flex';
         body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">Loading agent details...</div>';
         title.textContent = 'Agent Details';
-        
+
         const response = await fetch(`/api/v1/agents/${agentId}`);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        
+
         const agent = await response.json();
         renderAgentDetailsModal(agent);
     } catch (error) {
@@ -10880,9 +10882,9 @@ async function viewAgentDetails(agentId) {
 function renderAgentDetailsModal(agent) {
     const title = document.getElementById('agent_details_title');
     const body = document.getElementById('agent_details_body');
-    
+
     title.textContent = `Agent: ${getAgentDisplayName(agent)}`;
-    
+
     const lastSeenDate = agent.last_seen ? new Date(agent.last_seen) : null;
     const registeredDate = agent.registered_at ? new Date(agent.registered_at) : null;
     const lastHeartbeatDate = agent.last_heartbeat ? new Date(agent.last_heartbeat) : null;
@@ -10894,7 +10896,7 @@ function renderAgentDetailsModal(agent) {
     const commandHint = commandEnabled
         ? 'Commands are delivered instantly over the active WebSocket tunnel.'
         : 'Agent must be connected via WebSocket to receive remote commands.';
-    
+
     // Calculate uptime
     let uptimeText = 'N/A';
     if (registeredDate && lastSeenDate) {
@@ -10903,14 +10905,14 @@ function renderAgentDetailsModal(agent) {
         const hours = Math.floor((uptimeMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
         uptimeText = `${days}d ${hours}h`;
     }
-    
+
     const statusColors = {
         'active': 'var(--success)',
         'degraded': 'var(--warning)',
         'offline': 'var(--error)'
     };
     const statusColor = statusColors[agent.status] || 'var(--muted)';
-    
+
     body.innerHTML = `
         <div class="agent-details-grid">
             <!-- Basic Info -->
@@ -11147,7 +11149,7 @@ function _attachAgentDetailsNameEditor(agent) {
             // Create edit UI with proper mobile-friendly input styling
             // Use flex-start to prevent mobile cursor position bugs with flex-end
             displayEl.innerHTML = `<span style="display:flex;align-items:center;gap:6px;justify-content:flex-start;width:100%;">
-                <input id="agent_details_name_input" value="${(agent.name||'').replace(/"/g,'&quot;')}" 
+                <input id="agent_details_name_input" value="${(agent.name || '').replace(/"/g, '&quot;')}" 
                     style="flex:1;min-width:120px;max-width:200px;text-align:left;direction:ltr;font-size:14px;padding:4px 8px;" 
                     autocomplete="off" data-1p-ignore data-lpignore="true" />
                 <button id="agent_details_save_name">Save</button>
@@ -11183,7 +11185,7 @@ function _attachAgentDetailsNameEditor(agent) {
                     if (nameDisplay) nameDisplay.textContent = updated.name || '';
                     if (title) title.textContent = `Agent: ${updated.name || updated.hostname || updated.agent_id}`;
                     // Update agent card in list
-                    try { upsertAgentRecord(updated); } catch (e) {}
+                    try { upsertAgentRecord(updated); } catch (e) { }
                     window.__pm_shared.showToast('Agent name updated', 'success');
                 } catch (err) {
                     window.__pm_shared.showToast('Failed to update agent name', 'error');
@@ -11329,7 +11331,7 @@ function _attachAgentUpdateHandler(agent) {
 function handleAgentUpdateProgress(data) {
     const agentId = data.agent_id;
     if (!agentId) return;
-    
+
     // Normalize status values emitted by agent auto-update pipeline
     const rawStatus = (data.status || 'unknown').toLowerCase();
     const status = (() => {
@@ -11354,13 +11356,13 @@ function handleAgentUpdateProgress(data) {
     const message = data.message || '';
     const targetVersion = data.target_version || '';
     const errorMsg = data.error || '';
-    
+
     // Update state tracking - preserve previousVersion and _shownToasts if already set
     const existingState = agentsVM.updateState[agentId] || {};
     const agent = agentsVM.items.find(a => a.agent_id === agentId);
     const previousVersion = existingState.previousVersion || agent?.version || '';
     const shownToasts = existingState._shownToasts || {};
-    
+
     agentsVM.updateState[agentId] = {
         status,
         progress,
@@ -11371,16 +11373,16 @@ function handleAgentUpdateProgress(data) {
         timestamp: Date.now(),
         _shownToasts: shownToasts  // Preserve toast tracking across updates
     };
-    
+
     // Start animation loop if an update is active
-    if (status === 'checking' || status === 'downloading' || status === 'ready' || 
+    if (status === 'checking' || status === 'downloading' || status === 'ready' ||
         status === 'restarting' || status === 'verifying') {
         startUpdateProgressAnimation();
     }
-    
+
     // Show toast notifications for key events
     const agentName = agent?.name || agent?.hostname || agentId;
-    
+
     switch (status) {
         case 'checking':
             // No toast for checking, just UI update
@@ -11448,7 +11450,7 @@ function handleAgentUpdateProgress(data) {
             if (agentsVM.updateAnimations) delete agentsVM.updateAnimations[agentId];
             break;
     }
-    
+
     // Refresh the version cell for this agent
     refreshAgentVersionCell(agentId);
 }
@@ -11457,7 +11459,7 @@ function handleAgentUpdateProgress(data) {
 function refreshAgentVersionCell(agentId) {
     const agent = agentsVM.items.find(a => a.agent_id === agentId);
     if (!agent) return;
-    
+
     // Update in table view
     const tableRow = document.querySelector(`tr[data-agent-id="${agentId}"]`);
     if (tableRow) {
@@ -11489,17 +11491,17 @@ function refreshAgentVersionCell(agentId) {
 let updateProgressAnimationFrame = null;
 function startUpdateProgressAnimation() {
     if (updateProgressAnimationFrame) return; // Already running
-    
+
     function animate() {
         // Check if any updates are in progress
         const activeUpdates = Object.keys(agentsVM.updateState || {}).filter(id => {
             const state = agentsVM.updateState[id];
             const status = state?.status;
-            return status === 'checking' || status === 'downloading' || status === 'ready' || 
-                   status === 'restarting' || status === 'verifying' ||
-                   status === 'pending' || status === 'staging' || status === 'applying';
+            return status === 'checking' || status === 'downloading' || status === 'ready' ||
+                status === 'restarting' || status === 'verifying' ||
+                status === 'pending' || status === 'staging' || status === 'applying';
         });
-        
+
         if (activeUpdates.length === 0) {
             // No active updates, stop animation
             updateProgressAnimationFrame = null;
@@ -11509,7 +11511,7 @@ function startUpdateProgressAnimation() {
             }
             return;
         }
-        
+
         // Update progress for each active update
         activeUpdates.forEach(agentId => {
             // Update the progress button directly without full re-render
@@ -11530,11 +11532,11 @@ function startUpdateProgressAnimation() {
                 progressBtn.textContent = `${Math.round(smoothProgress)}%`;
             }
         });
-        
+
         // Continue animation
         updateProgressAnimationFrame = requestAnimationFrame(animate);
     }
-    
+
     updateProgressAnimationFrame = requestAnimationFrame(animate);
 }
 
@@ -11549,25 +11551,25 @@ function stopUpdateProgressAnimation() {
 // Cancel an in-progress update
 async function cancelAgentUpdate(agentId) {
     if (!agentId) return;
-    
+
     const state = agentsVM.updateState[agentId];
     if (!state || state.status === 'restarting') {
         window.__pm_shared.showToast('Cannot cancel update at this stage', 'warning');
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/v1/agents/command/${agentId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: 'cancel_update' })
         });
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         window.__pm_shared.showToast('Cancel request sent', 'info');
     } catch (error) {
         window.__pm_shared.error('Failed to cancel update:', error);
@@ -11580,7 +11582,7 @@ async function updateAgent(agentId) {
         window.__pm_shared.showToast('No agent ID provided', 'error');
         return;
     }
-    
+
     // Set initial updating state
     agentsVM.updateState[agentId] = {
         status: 'checking',
@@ -11593,19 +11595,19 @@ async function updateAgent(agentId) {
     refreshAgentVersionCell(agentId);
     // Start smooth animation loop
     startUpdateProgressAnimation();
-    
+
     try {
         const response = await fetch(`/api/v1/agents/command/${agentId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: 'check_update' })
         });
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         const result = await response.json();
         if (result.success) {
             // Update state to show we're waiting for agent response
@@ -11666,38 +11668,38 @@ try {
 // ====== Delete Agent ======
 async function deleteAgent(agentId, displayName) {
     window.__pm_shared.log('deleteAgent called:', agentId, displayName);
-    
+
     const confirmed = await window.__pm_shared.showConfirm(
         `Are you sure you want to delete agent "${displayName}"?\n\nThis will permanently remove the agent and all its associated devices and metrics. This action cannot be undone.`,
         'Delete Agent',
         true
     );
-    
+
     window.__pm_shared.log('User confirmed:', confirmed);
-    
+
     if (!confirmed) {
         return;
     }
-    
+
     try {
         window.__pm_shared.log('Sending DELETE request to:', `/api/v1/agents/${agentId}`);
         const response = await fetch(`/api/v1/agents/${agentId}`, {
             method: 'DELETE'
         });
-        
+
         window.__pm_shared.log('Response status:', response.status, response.statusText);
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             window.__pm_shared.error('Delete failed:', errorText);
             throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         const result = await response.json();
         window.__pm_shared.log('Delete successful:', result);
-        
-    window.__pm_shared.showToast(`Agent "${displayName}" deleted successfully`, 'success');
-        
+
+        window.__pm_shared.showToast(`Agent "${displayName}" deleted successfully`, 'success');
+
         // Remove agent card with animation
         const card = document.querySelector(`[data-agent-id="${agentId}"]`);
         if (card) {
@@ -11719,29 +11721,29 @@ async function deleteAgent(agentId, displayName) {
 // ====== Restart Agent ======
 async function restartAgent(agentId, displayName) {
     window.__pm_shared.log('restartAgent called:', agentId, displayName);
-    
+
     const confirmed = await window.__pm_shared.showConfirm(
         `Are you sure you want to restart agent "${displayName || agentId}"?\n\nThe agent will temporarily disconnect and should reconnect within a few seconds.`,
         'Restart Agent',
         { confirmText: 'Restart', confirmClass: 'btn-warning' }
     );
-    
+
     if (!confirmed) {
         return;
     }
-    
+
     try {
         const response = await fetch(`/api/v1/agents/command/${agentId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ command: 'restart' })
         });
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         const result = await response.json();
         if (result.success) {
             window.__pm_shared.showToast('Restart command sent. Agent will reconnect shortly.', 'success');
@@ -11767,15 +11769,15 @@ try {
  */
 async function deleteDevice(serial, agentId) {
     window.__pm_shared.log('deleteDevice called:', serial, agentId);
-    
+
     // Create custom confirmation modal with checkboxes
     const result = await showDeleteDeviceConfirm(serial, agentId);
-    
+
     if (!result.confirmed) {
         window.__pm_shared.log('Delete device cancelled');
         return;
     }
-    
+
     try {
         window.__pm_shared.log('Sending delete request:', {
             serial,
@@ -11783,7 +11785,7 @@ async function deleteDevice(serial, agentId) {
             delete_metrics: result.deleteMetrics,
             delete_from_agent: result.deleteFromAgent
         });
-        
+
         const response = await fetch('/api/v1/devices/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -11794,16 +11796,16 @@ async function deleteDevice(serial, agentId) {
                 delete_from_agent: result.deleteFromAgent
             })
         });
-        
+
         if (!response.ok) {
             const errorText = await response.text();
             window.__pm_shared.error('Delete failed:', errorText);
             throw new Error(`HTTP ${response.status}: ${errorText}`);
         }
-        
+
         const responseData = await response.json();
         window.__pm_shared.log('Delete successful:', responseData);
-        
+
         let message = `Device "${serial}" deleted successfully`;
         if (responseData.deleted_from_agent) {
             message += ' (also removed from agent)';
@@ -11812,12 +11814,12 @@ async function deleteDevice(serial, agentId) {
             message += ' with metrics history';
         }
         window.__pm_shared.showToast(message, 'success');
-        
+
         // Remove device from UI with animation
         const card = document.querySelector(`[data-serial="${serial}"]`);
         const row = document.querySelector(`tr[data-serial="${serial}"]`);
         const target = card || row;
-        
+
         if (target) {
             target.classList.add('removing');
             setTimeout(() => {
@@ -11828,13 +11830,13 @@ async function deleteDevice(serial, agentId) {
             // Element not found, just reload
             loadDevices();
         }
-        
+
         // Close any open device modal
         const modal = document.getElementById('printer_details_modal');
         if (modal && modal.style.display !== 'none') {
             modal.style.display = 'none';
         }
-        
+
     } catch (error) {
         window.__pm_shared.error('Failed to delete device:', error);
         window.__pm_shared.showToast(`Failed to delete device: ${error.message}`, 'error');
@@ -11851,17 +11853,17 @@ function showDeleteDeviceConfirm(serial, agentId) {
     return new Promise((resolve) => {
         // Helper to escape HTML
         const safeEscape = (s) => (typeof escapeHtml === 'function' ? escapeHtml(s) : String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;"));
-        
+
         const wrapper = document.createElement('div');
         wrapper.className = 'modal-overlay';
         wrapper.style.display = 'flex';
         const uid = 'delete_device_confirm_' + Date.now();
         wrapper.id = uid;
-        
+
         const hasAgent = agentId && agentId !== '';
         const deleteMetricsId = `${uid}_delete_metrics`;
         const deleteFromAgentId = `${uid}_delete_from_agent`;
-        
+
         wrapper.innerHTML = `
             <div class="modal-content" style="max-width:520px;">
                 <div class="modal-header">
@@ -11907,7 +11909,6 @@ function showDeleteDeviceConfirm(serial, agentId) {
             </div>
         `;
         document.body.appendChild(wrapper);
-        document.body.style.overflow = 'hidden';
 
         const btnConfirm = wrapper.querySelector('[data-action="confirm"]');
         const btnCancel = wrapper.querySelector('[data-action="cancel"]');
@@ -11975,7 +11976,7 @@ function initDevicesUI() {
         sidebarToggle.addEventListener('click', () => {
             sidebar.classList.toggle('collapsed');
         });
-        
+
         // Start collapsed on mobile for cleaner UX
         if (window.innerWidth <= 900) {
             sidebar.classList.add('collapsed');
@@ -12164,7 +12165,7 @@ function initDevicesUI() {
     syncDeviceQuickFilters();
     renderDevicesOverview();
     syncTenantFilterOptions('devices');
-    
+
     // Initialize context menu for devices table and cards
     if (window.PMContextMenu) {
         const devicesTable = document.getElementById('devices_table');
@@ -12183,7 +12184,7 @@ function initDevicesUI() {
  */
 function initDevicesTableCustomizer() {
     if (devicesVM.tableCustomizer) return;
-    
+
     // Only initialize if TableCustomizer is available
     if (typeof window.TableCustomizer === 'undefined') {
         console.warn('TableCustomizer not available');
@@ -12559,32 +12560,32 @@ function renderDeviceCards(devices, append = false) {
         tableWrapper.classList.add('hidden');
     }
     cards.classList.remove('hidden');
-    
+
     if (!devices || devices.length === 0) {
         cards.innerHTML = '<div class="muted-text">No devices match the current filters.</div>';
         cleanupDevicesInfiniteScroll();
         return;
     }
-    
+
     // Progressive rendering - only render a page at a time
     if (!append) {
         devicesVM.render.displayed = 0;
         cards.innerHTML = '';
     }
-    
+
     const startIdx = devicesVM.render.displayed;
     const endIdx = Math.min(startIdx + devicesVM.render.pageSize, devices.length);
     const pageDevices = devices.slice(startIdx, endIdx);
-    
+
     // Remove existing sentinel
     const existingSentinel = document.getElementById('devices_load_more_sentinel');
     if (existingSentinel) existingSentinel.remove();
-    
+
     // Render this page
     const html = pageDevices.map(device => renderServerDeviceCard(device)).join('');
     cards.insertAdjacentHTML('beforeend', html);
     devicesVM.render.displayed = endIdx;
-    
+
     // Add sentinel if more items available
     if (endIdx < devices.length) {
         const sentinel = document.createElement('div');
@@ -12604,7 +12605,7 @@ function renderDeviceCards(devices, append = false) {
 function renderDevicesTableHeader() {
     const headerRow = document.getElementById('devices_table_header');
     if (!headerRow) return;
-    
+
     if (devicesVM.tableCustomizer) {
         headerRow.innerHTML = devicesVM.tableCustomizer.renderHeader();
         // Re-bind header events for sorting/resizing
@@ -12636,45 +12637,45 @@ function renderDeviceTable(devices, append = false) {
         cards.classList.add('hidden');
     }
     wrapper.classList.remove('hidden');
-    
+
     // Initialize horizontal scroll indicators for the table
     const tableWrapper = wrapper.querySelector('.table-wrapper');
     if (tableWrapper) {
         initTableScrollIndicators(tableWrapper);
     }
-    
+
     const tbody = wrapper.querySelector('tbody');
     if (!tbody) return;
-    
+
     // Get visible columns count for colspan
     const visibleColCount = devicesVM.tableCustomizer?.getVisibleColumns()?.length || 9;
-    
+
     if (!devices || devices.length === 0) {
         tbody.innerHTML = `<tr><td colspan="${visibleColCount}" class="muted-text">No devices match the current filters.</td></tr>`;
         cleanupDevicesInfiniteScroll();
         return;
     }
-    
+
     // Progressive rendering - only render a page at a time
     if (!append) {
         devicesVM.render.displayed = 0;
         tbody.innerHTML = '';
     }
-    
+
     const startIdx = devicesVM.render.displayed;
     const endIdx = Math.min(startIdx + devicesVM.render.pageSize, devices.length);
     const pageDevices = devices.slice(startIdx, endIdx);
-    
+
     // Remove existing sentinel
     const existingSentinel = document.getElementById('devices_load_more_sentinel');
     if (existingSentinel) existingSentinel.remove();
-    
+
     // Use customizer to render rows if available
     const rows = pageDevices.map(device => {
         const meta = device.__meta || {};
         const serial = escapeHtml(device.serial || '');
         const ip = escapeHtml(device.ip || '');
-        
+
         let rowContent;
         if (devicesVM.tableCustomizer) {
             rowContent = devicesVM.tableCustomizer.renderRow(device, meta);
@@ -12702,13 +12703,13 @@ function renderDeviceTable(devices, append = false) {
                 <td title="${escapeHtml(meta.lastSeenTooltip || 'Never')}">${escapeHtml(meta.lastSeenRelative || 'Never')}</td>
             `;
         }
-        
+
         return `<tr data-serial="${serial}" data-ip="${ip}" data-agent-id="${escapeHtml(device.agent_id || '')}" class="device-row-clickable" title="Click to view details, right-click for actions">${rowContent}</tr>`;
     }).join('');
-    
+
     tbody.insertAdjacentHTML('beforeend', rows);
     devicesVM.render.displayed = endIdx;
-    
+
     // Add sentinel row if more items available
     if (endIdx < devices.length) {
         const sentinelRow = document.createElement('tr');
@@ -12725,10 +12726,10 @@ function renderDeviceTable(devices, append = false) {
 // Setup IntersectionObserver for devices infinite scroll
 function setupDevicesInfiniteScroll() {
     cleanupDevicesInfiniteScroll();
-    
+
     const sentinel = document.getElementById('devices_load_more_sentinel');
     if (!sentinel) return;
-    
+
     devicesVM.render.observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && devicesVM.render.displayed < devicesVM.filtered.length) {
@@ -12740,7 +12741,7 @@ function setupDevicesInfiniteScroll() {
         rootMargin: '200px',
         threshold: 0
     });
-    
+
     devicesVM.render.observer.observe(sentinel);
 }
 
@@ -12822,7 +12823,7 @@ function renderDeviceStatusBadge(statusMeta) {
 function renderDeviceCapabilityBadges(device) {
     const badges = [];
     const rd = device.raw_data || {};
-    
+
     // Device type badge (most descriptive)
     if (rd.device_type) {
         badges.push(`<span class="capability-badge type">${escapeHtml(rd.device_type)}</span>`);
@@ -12834,26 +12835,26 @@ function renderDeviceCapabilityBadges(device) {
             badges.push('<span class="capability-badge mono">Mono</span>');
         }
     }
-    
+
     // Function capabilities (only show if device_type not set, to avoid redundancy)
     if (!rd.device_type) {
         if (rd.is_copier) badges.push('<span class="capability-badge function">Copier</span>');
         if (rd.is_scanner) badges.push('<span class="capability-badge function">Scanner</span>');
         if (rd.is_fax) badges.push('<span class="capability-badge function">Fax</span>');
     }
-    
+
     // Technology badge
     if (rd.is_laser) {
         badges.push('<span class="capability-badge tech">Laser</span>');
     } else if (rd.is_inkjet) {
         badges.push('<span class="capability-badge tech">Inkjet</span>');
     }
-    
+
     // Duplex badge
     if (rd.has_duplex) {
         badges.push('<span class="capability-badge feature">Duplex</span>');
     }
-    
+
     return badges.join('');
 }
 
@@ -13188,13 +13189,13 @@ function syncDeviceSortControls() {
 function syncDeviceTableSortIndicators() {
     const head = document.querySelector('#devices_table thead');
     if (!head) return;
-    
+
     // Update customizer sort state if available
     if (devicesVM.tableCustomizer) {
         devicesVM.tableCustomizer.sortState.key = devicesVM.filters.sortKey;
         devicesVM.tableCustomizer.sortState.dir = devicesVM.filters.sortDir;
     }
-    
+
     head.querySelectorAll('th[data-sort-key]').forEach(th => {
         const key = th.getAttribute('data-sort-key');
         if (key === devicesVM.filters.sortKey) {
@@ -13556,7 +13557,7 @@ async function showPrinterDetails(ipOrSerial, source) {
 // ====== Utility Functions ======
 function copyToClipboard(text) {
     if (!text) return;
-    
+
     navigator.clipboard.writeText(text).then(() => {
         window.__pm_shared.showToast('Copied to clipboard', 'success', 1500);
     }).catch(err => {
@@ -14101,7 +14102,7 @@ async function loadAgentUpdatePolicyForUpdatesTab() {
 
 function renderAgentUpdatePolicyInUpdatesTab(root, enabled, policy) {
     const canEdit = userCan('settings.fleet.write');
-    
+
     let html = `
         <div class="settings-section-panel auto-update-policy" style="margin-bottom:0;">
             <div class="settings-section-header">
@@ -14129,13 +14130,13 @@ function renderAgentUpdatePolicyInUpdatesTab(root, enabled, policy) {
 
     if (enabled) {
         const disabled = !canEdit ? 'disabled' : '';
-        
+
         // Check cadence
         html += buildUpdatesTabPolicyRow('Check cadence (days)', 'Set to 0 to pause unattended update checks.',
             `<input type="number" class="policy-input" id="updates_policy_check_days" value="${policy.update_check_days || 1}" min="0" max="365" ${disabled} data-policy-field="update_check_days" autocomplete="off" data-1p-ignore data-lpignore="true">`);
 
         // Version pin strategy
-        const pinOptions = POLICY_VERSION_PIN_OPTIONS.map(opt => 
+        const pinOptions = POLICY_VERSION_PIN_OPTIONS.map(opt =>
             `<option value="${opt.value}" ${policy.version_pin_strategy === opt.value ? 'selected' : ''}>${opt.label}</option>`
         ).join('');
         html += buildUpdatesTabPolicyRow('Version pin strategy', 'Controls whether agents stay on major, minor, or patch lines.',
@@ -14225,7 +14226,7 @@ function buildUpdatesTabPolicyRow(label, description, controlHtml) {
 async function saveAgentUpdatePolicyFromUpdatesTab() {
     const statusEl = document.getElementById('updates_policy_status');
     const saveBtn = document.getElementById('updates_policy_save_btn');
-    
+
     if (saveBtn) saveBtn.disabled = true;
     if (statusEl) {
         statusEl.textContent = 'Saving…';
@@ -14234,7 +14235,7 @@ async function saveAgentUpdatePolicyFromUpdatesTab() {
 
     try {
         const enabled = document.getElementById('updates_policy_enabled')?.checked || false;
-        
+
         const policy = {
             update_check_days: parseInt(document.getElementById('updates_policy_check_days')?.value || '1', 10),
             version_pin_strategy: document.getElementById('updates_policy_pin_strategy')?.value || 'latest',
@@ -14255,7 +14256,7 @@ async function saveAgentUpdatePolicyFromUpdatesTab() {
             statusEl.textContent = 'Saved successfully';
             statusEl.style.color = 'var(--success)';
         }
-        
+
         // Also update the fleet settings state if loaded
         if (settingsUIState.updatePolicy && settingsUIState.updatePolicy.global) {
             applyPolicySnapshot('global', enabled, policy);
@@ -14300,7 +14301,7 @@ async function loadTenantDirectory() {
             updateSettingsTenantDirectory(tenantList);
             return;
         }
-        
+
         const tenants = await fetchJSON('/api/v1/tenants');
         updateSettingsTenantDirectory(tenants);
     } catch (err) {
@@ -14503,19 +14504,19 @@ function renderScopeButtons() {
     const tenantScoped = isTenantScopedUser();
     document.querySelectorAll('.settings-scope-btn').forEach(btn => {
         const scope = btn.dataset.scope || 'global';
-        
+
         // Hide Global scope button for tenant-scoped users
         if (scope === 'global' && tenantScoped) {
             btn.style.display = 'none';
             return;
         }
         btn.style.display = '';
-        
+
         // Update button text for tenant-scoped users
         if (scope === 'tenant' && tenantScoped) {
             btn.textContent = 'Defaults';
         }
-        
+
         btn.classList.toggle('active', scope === settingsUIState.scope);
     });
 }
@@ -14611,7 +14612,7 @@ function renderSettingsForm() {
         // Check if this section is managed (only relevant for global scope)
         const isSectionManaged = settingsUIState.managedSections.has(sectionKey);
         const isSectionEnforced = scope === 'agent' && settingsUIState.agentEnforcedSections && settingsUIState.agentEnforcedSections.has(sectionKey);
-        
+
         const sectionEl = document.createElement('div');
         sectionEl.className = 'settings-section-panel';
         if (scope === 'global' && !isSectionManaged) {
@@ -14633,7 +14634,7 @@ function renderSettingsForm() {
 
         const list = document.createElement('div');
         list.className = 'settings-field-list';
-        
+
         // Use subsections for discovery, otherwise render flat list
         if (sectionKey === 'discovery') {
             renderDiscoveryWithSubsections(list, fields, draft, scope, isSectionManaged, isSectionEnforced);
@@ -14795,20 +14796,20 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
     const fieldMap = {};
     fields.forEach(f => { fieldMap[f.path] = f; });
     const rendered = new Set();
-    
+
     DISCOVERY_SUBSECTIONS.forEach((subsection, idx) => {
         const subsectionFields = subsection.fields
             .map(path => fieldMap[path])
             .filter(f => f && !rendered.has(f.path));
-        
+
         if (!subsectionFields.length) return;
-        
+
         // Add subsection header
         const subHeader = document.createElement('div');
         subHeader.className = 'settings-subsection-header';
         subHeader.textContent = subsection.label;
         container.appendChild(subHeader);
-        
+
         // Add fields in this subsection
         subsectionFields.forEach(field => {
             rendered.add(field.path);
@@ -14819,7 +14820,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
             }
         });
     });
-    
+
     // Render any remaining fields not in a subsection
     const remaining = fields.filter(f => !rendered.has(f.path));
     if (remaining.length) {
@@ -14827,7 +14828,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
         subHeader.className = 'settings-subsection-header';
         subHeader.textContent = 'Other';
         container.appendChild(subHeader);
-        
+
         remaining.forEach(field => {
             const value = getValueByPath(draft, field.path);
             const row = renderSettingsFieldRow(field, value, scope, isSectionManaged, isSectionEnforced);
@@ -14836,7 +14837,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
             }
         });
     }
-    
+
     // After rendering, update visibility of dependent fields
     updateDependentFieldVisibility(container);
 }
@@ -14848,7 +14849,7 @@ function renderDiscoveryWithSubsections(container, fields, draft, scope, isSecti
 function updateDependentFieldVisibility(container) {
     if (!container) container = document.getElementById('settings_form_root');
     if (!container) return;
-    
+
     const dependentRows = container.querySelectorAll('[data-depends-on]');
     dependentRows.forEach(row => {
         const dependsOnPath = row.dataset.dependsOn;
@@ -14865,7 +14866,7 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true, is
     row.className = 'settings-field-row';
     row.dataset.fieldType = (field.type || 'text').toLowerCase();
     row.dataset.settingsPath = field.path;
-    
+
     // Field dependencies: show/hide based on another field's value
     const FIELD_DEPENDENCIES = {
         'discovery.ranges_text': 'discovery.manual_ranges'
@@ -14873,19 +14874,19 @@ function renderSettingsFieldRow(field, value, scope, isSectionManaged = true, is
     if (FIELD_DEPENDENCIES[field.path]) {
         row.dataset.dependsOn = FIELD_DEPENDENCIES[field.path];
     }
-    
+
     // Check if this field is locked by environment variable
     const isLocked = settingsUIState.lockedKeys.has(field.path);
     // Section not managed means fields are read-only indicators
     const sectionNotManaged = (scope === 'global' || scope === 'agent') && !isSectionManaged;
     const sectionTenantEnforced = scope === 'agent' && !!isSectionEnforced;
-    
+
     // For locked fields, use the effective runtime value instead of DB value
     let displayValue = value;
     if (isLocked && settingsUIState.effectiveValues && settingsUIState.effectiveValues.hasOwnProperty(field.path)) {
         displayValue = settingsUIState.effectiveValues[field.path];
     }
-    
+
     const label = document.createElement('div');
     label.className = 'settings-field-label';
     label.innerHTML = `
@@ -15349,7 +15350,7 @@ function handleSettingsFieldChange(event) {
     } else {
         updateAgentDraft(path, newValue);
     }
-    
+
     // Update visibility of fields that depend on this checkbox
     if (fieldType === 'bool') {
         updateDependentFieldVisibility();
@@ -15453,12 +15454,12 @@ function handleSettingsScopeChange(scope) {
     if (!scope || scope === settingsUIState.scope) {
         return;
     }
-    
+
     // Prevent tenant-scoped users from accessing global scope
     if (scope === 'global' && isTenantScopedUser()) {
         return;
     }
-    
+
     settingsUIState.scope = scope;
     renderSettingsUI();
 
@@ -15532,7 +15533,7 @@ async function saveGlobalSettings() {
     const managedSectionsChanged = !!settingsUIState.managedSectionsDirty;
     const policyState = getPolicyState('global');
     const policyChanged = !!(policyState && policyState.dirty);
-    
+
     // If settings or managed sections changed, save both together
     if (settingsChanged || managedSectionsChanged) {
         const payload = {
@@ -15734,14 +15735,14 @@ function renderOverrideSummary() {
     const container = document.getElementById('settings_override_list');
     const titleEl = document.getElementById('settings_summary_title');
     if (!container) return;
-    
+
     // In global scope, show managed sections summary
     if (settingsUIState.scope === 'global') {
         if (titleEl) titleEl.textContent = 'Management Summary';
         const managedArr = Array.from(settingsUIState.managedSections);
         const allSections = ['discovery', 'snmp', 'features'];
         const agentControlled = allSections.filter(s => !settingsUIState.managedSections.has(s));
-        
+
         if (agentControlled.length === 0) {
             container.innerHTML = `
                 <div class="override-summary-count">All sections centrally managed</div>
@@ -15766,7 +15767,7 @@ function renderOverrideSummary() {
         }
         return;
     }
-    
+
     // Tenant/Agent scope: show override details
     titleEl.textContent = 'Override Summary';
     const scope = settingsUIState.scope;
@@ -15785,7 +15786,7 @@ function renderOverrideSummary() {
             : '<div class="override-summary-empty"><span>No overrides. This tenant inherits all global defaults.</span></div>';
         return;
     }
-    
+
     // Group overrides by section for better organization
     const grouped = {};
     overrides.forEach(item => {
@@ -15795,9 +15796,9 @@ function renderOverrideSummary() {
         }
         grouped[section].push(item);
     });
-    
+
     let html = `<div class="override-summary-count">${overrides.length} override${overrides.length > 1 ? 's' : ''} active</div>`;
-    
+
     Object.entries(grouped).forEach(([section, items]) => {
         const sectionLabel = SETTINGS_SECTION_LABELS[section] || section;
         html += `<div style="font-size:11px;text-transform:uppercase;color:var(--muted);margin:12px 0 6px;letter-spacing:0.05em;">${escapeHtml(sectionLabel)}</div>`;
@@ -15816,7 +15817,7 @@ function renderOverrideSummary() {
             `;
         });
     });
-    
+
     container.innerHTML = html;
 }
 
@@ -15850,7 +15851,7 @@ function updateActionButtons() {
         const showTenantControls = settingsUIState.scope === 'tenant' && settingsUIState.tenantList.length > 0;
         const tenantScoped = isTenantScopedUser();
         tenantControls.classList.toggle('hidden', !showTenantControls);
-        
+
         // For tenant-scoped users with only one tenant, hide the dropdown but show controls
         const tenantSelect = document.getElementById('settings_tenant_select');
         const tenantSelectLabel = tenantSelect?.parentElement;
@@ -16398,14 +16399,14 @@ async function clearLogs() {
             'Clear Logs'
         );
         if (!confirmed) return;
-        
+
         const resp = await fetch('/api/logs/clear', { method: 'POST' });
         if (!resp.ok) {
             const text = await resp.text();
             window.__pm_shared.showToast('Clear logs failed: ' + text, 'error');
             return;
         }
-        
+
         // Clear the display and reset state
         currentLogLines = [];
         logsState.entries = [];
@@ -16414,7 +16415,7 @@ async function clearLogs() {
         logsState.hasMore = false;
         logsState.hasPrevious = false;
         cleanupLogsInfiniteScroll();
-        
+
         const logEl = document.getElementById('log');
         if (logEl) {
             logEl.innerHTML = '<span style="color:#586e75">(logs cleared - waiting for new entries)</span>';
@@ -16424,7 +16425,7 @@ async function clearLogs() {
             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#586e75">(logs cleared - waiting for new entries)</td></tr>';
         }
         updateLogsShowingCount(0);
-        
+
         window.__pm_shared.showToast('Logs cleared and rotated', 'success');
     } catch (e) {
         window.__pm_shared.error('Clear logs failed:', e);
@@ -16434,7 +16435,7 @@ async function clearLogs() {
 
 async function loadLogs(options = {}) {
     const { append = false, prepend = false } = options;
-    
+
     if (logsState.loading) return;
     logsState.loading = true;
 
@@ -16442,7 +16443,7 @@ async function loadLogs(options = {}) {
         // Build query params
         const params = new URLSearchParams();
         params.set('limit', String(logsState.limit));
-        
+
         // Calculate offset based on append/prepend mode
         let requestOffset = logsState.offset;
         if (append && logsState.entries.length > 0) {
@@ -16709,18 +16710,18 @@ function renderMetricsLoading() {
 function renderMetricsDashboard() {
     // Hide/show server-only sections based on role
     updateMetricsServerVisibility();
-    
+
     renderMetricsOverview(metricsVM.summary, metricsVM.aggregated);
     renderFleetCharts(metricsVM.aggregated);
     renderConsumablesTimeSeriesCharts(serverMetricsVM.timeseries);
     renderAgentFleetCharts(serverMetricsVM.timeseries);
-    
+
     // Only render server metrics for global admins
     if (isGlobalAdmin()) {
         renderServerTimeSeriesCharts(serverMetricsVM.timeseries);
         renderServerPanel(metricsVM.aggregated?.server);
     }
-    
+
     renderConsumables(metricsVM.aggregated?.fleet);
     renderMetricsActivity(metricsVM.aggregated);
     updateMetricsRangeButtons();
@@ -16734,7 +16735,7 @@ function updateMetricsServerVisibility() {
     const serverSection = document.getElementById('metrics_server_section');
     const serverPanel = document.getElementById('metrics_server_panel');
     const showServer = isGlobalAdmin();
-    
+
     if (serverSection) {
         serverSection.style.display = showServer ? '' : 'none';
     }
@@ -16938,7 +16939,7 @@ function renderChartCardsSmooth(grid, cards, drawFn, noDataHtml) {
     if (!grid) return;
 
     // Filter to cards with actual data
-    const validCards = cards.filter(card => 
+    const validCards = cards.filter(card =>
         card.series && card.series.some(s => s.points && s.points.length > 0)
     );
 
@@ -16967,7 +16968,7 @@ function renderChartCardsSmooth(grid, cards, drawFn, noDataHtml) {
         validCards.forEach(card => {
             const canvas = document.getElementById(card.id);
             if (canvas) {
-                drawFn(canvas, card.series, { 
+                drawFn(canvas, card.series, {
                     label: card.title,
                     formatY: card.formatY,
                 });
@@ -17015,24 +17016,24 @@ function renderConsumablesTimeSeriesCharts(timeseries) {
             id: 'consumables_history_chart',
             title: 'Consumables Distribution Over Time',
             series: [
-                { 
-                    label: 'High (>50%)', 
-                    color: SERVER_SERIES_COLORS.toner_high, 
+                {
+                    label: 'High (>50%)',
+                    color: SERVER_SERIES_COLORS.toner_high,
                     points: normalizeChartSeriesPoints(chartSeries.toner_high) || buildSeriesFromSnapshots('toner_high', s => s.fleet?.toner_high),
                 },
-                { 
-                    label: 'Medium (25-50%)', 
-                    color: SERVER_SERIES_COLORS.toner_medium, 
+                {
+                    label: 'Medium (25-50%)',
+                    color: SERVER_SERIES_COLORS.toner_medium,
                     points: normalizeChartSeriesPoints(chartSeries.toner_medium) || buildSeriesFromSnapshots('toner_medium', s => s.fleet?.toner_medium),
                 },
-                { 
-                    label: 'Low (10-25%)', 
-                    color: SERVER_SERIES_COLORS.toner_low, 
+                {
+                    label: 'Low (10-25%)',
+                    color: SERVER_SERIES_COLORS.toner_low,
                     points: normalizeChartSeriesPoints(chartSeries.toner_low) || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
                 },
-                { 
-                    label: 'Critical (<10%)', 
-                    color: SERVER_SERIES_COLORS.toner_critical, 
+                {
+                    label: 'Critical (<10%)',
+                    color: SERVER_SERIES_COLORS.toner_critical,
                     points: normalizeChartSeriesPoints(chartSeries.toner_critical) || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
                 },
             ],
@@ -17041,14 +17042,14 @@ function renderConsumablesTimeSeriesCharts(timeseries) {
             id: 'consumables_alerts_chart',
             title: 'Low & Critical Consumables Trend',
             series: [
-                { 
-                    label: 'Low', 
-                    color: SERVER_SERIES_COLORS.toner_low, 
+                {
+                    label: 'Low',
+                    color: SERVER_SERIES_COLORS.toner_low,
                     points: normalizeChartSeriesPoints(chartSeries.toner_low) || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
                 },
-                { 
-                    label: 'Critical', 
-                    color: SERVER_SERIES_COLORS.toner_critical, 
+                {
+                    label: 'Critical',
+                    color: SERVER_SERIES_COLORS.toner_critical,
                     points: normalizeChartSeriesPoints(chartSeries.toner_critical) || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
                 },
             ],
@@ -17113,14 +17114,14 @@ function renderAgentFleetCharts(timeseries) {
             id: 'agent_count_chart',
             title: 'Agent & Device Count',
             series: [
-                { 
-                    label: 'Agents', 
-                    color: SERVER_SERIES_COLORS.agents, 
+                {
+                    label: 'Agents',
+                    color: SERVER_SERIES_COLORS.agents,
                     points: normalizeChartSeriesPoints(chartSeries.agents) || buildSeriesFromSnapshots('agents', s => s.fleet?.total_agents),
                 },
-                { 
-                    label: 'Devices', 
-                    color: SERVER_SERIES_COLORS.devices, 
+                {
+                    label: 'Devices',
+                    color: SERVER_SERIES_COLORS.devices,
                     points: normalizeChartSeriesPoints(chartSeries.devices) || buildSeriesFromSnapshots('devices', s => s.fleet?.total_devices),
                 },
             ],
@@ -17129,14 +17130,14 @@ function renderAgentFleetCharts(timeseries) {
             id: 'device_health_chart',
             title: 'Device Health',
             series: [
-                { 
-                    label: 'Online', 
-                    color: SERVER_SERIES_COLORS.devices_online, 
+                {
+                    label: 'Online',
+                    color: SERVER_SERIES_COLORS.devices_online,
                     points: normalizeChartSeriesPoints(chartSeries.devices_online) || buildSeriesFromSnapshots('devices_online', s => s.fleet?.devices_online),
                 },
-                { 
-                    label: 'Errors', 
-                    color: SERVER_SERIES_COLORS.devices_error, 
+                {
+                    label: 'Errors',
+                    color: SERVER_SERIES_COLORS.devices_error,
                     points: normalizeChartSeriesPoints(chartSeries.devices_error) || buildSeriesFromSnapshots('devices_error', s => s.fleet?.devices_error),
                 },
             ],
@@ -17207,18 +17208,18 @@ function renderServerTimeSeriesCharts(timeseries) {
         {
             id: 'server_goroutines_chart',
             title: 'Goroutines',
-            series: [{ 
-                label: 'Goroutines', 
-                color: SERVER_SERIES_COLORS.goroutines, 
-                points: normalizeChartSeriesPoints(chartSeries.goroutines) || buildSeriesFromSnapshots('goroutines', s => s.server?.goroutines) 
+            series: [{
+                label: 'Goroutines',
+                color: SERVER_SERIES_COLORS.goroutines,
+                points: normalizeChartSeriesPoints(chartSeries.goroutines) || buildSeriesFromSnapshots('goroutines', s => s.server?.goroutines)
             }],
         },
         {
             id: 'server_memory_chart',
             title: 'Memory (Heap)',
-            series: [{ 
-                label: 'Heap Alloc', 
-                color: SERVER_SERIES_COLORS.heap_alloc, 
+            series: [{
+                label: 'Heap Alloc',
+                color: SERVER_SERIES_COLORS.heap_alloc,
                 points: normalizeChartSeriesPoints(chartSeries.heap_alloc) || buildSeriesFromSnapshots('heap_alloc', s => s.server?.heap_alloc_mb),
             }],
             formatY: v => formatBytes(v * 1024 * 1024), // heap_alloc_mb is in MB
@@ -17226,9 +17227,9 @@ function renderServerTimeSeriesCharts(timeseries) {
         {
             id: 'server_db_chart',
             title: 'Database Size',
-            series: [{ 
-                label: 'DB Size', 
-                color: SERVER_SERIES_COLORS.db_size, 
+            series: [{
+                label: 'DB Size',
+                color: SERVER_SERIES_COLORS.db_size,
                 points: normalizeChartSeriesPoints(chartSeries.db_size) || buildSeriesFromSnapshots('db_size', s => s.server?.db_size_bytes),
             }],
             formatY: formatBytes,
@@ -17237,19 +17238,19 @@ function renderServerTimeSeriesCharts(timeseries) {
             id: 'server_ws_chart',
             title: 'Agent Connections',
             series: [
-                { 
-                    label: 'WebSocket', 
-                    color: SERVER_SERIES_COLORS.agents_ws, 
+                {
+                    label: 'WebSocket',
+                    color: SERVER_SERIES_COLORS.agents_ws,
                     points: normalizeChartSeriesPoints(chartSeries.agents_ws) || buildSeriesFromSnapshots('agents_ws', s => s.fleet?.agents_ws),
                 },
-                { 
-                    label: 'HTTP', 
-                    color: SERVER_SERIES_COLORS.agents_http, 
+                {
+                    label: 'HTTP',
+                    color: SERVER_SERIES_COLORS.agents_http,
                     points: normalizeChartSeriesPoints(chartSeries.agents_http) || buildSeriesFromSnapshots('agents_http', s => s.fleet?.agents_http),
                 },
-                { 
-                    label: 'Offline', 
-                    color: SERVER_SERIES_COLORS.agents_offline, 
+                {
+                    label: 'Offline',
+                    color: SERVER_SERIES_COLORS.agents_offline,
                     points: normalizeChartSeriesPoints(chartSeries.agents_offline) || buildSeriesFromSnapshots('agents_offline', s => s.fleet?.agents_offline),
                 },
             ],
@@ -17258,19 +17259,19 @@ function renderServerTimeSeriesCharts(timeseries) {
             id: 'server_pages_chart',
             title: 'Fleet Page Counts',
             series: [
-                { 
-                    label: 'Total', 
-                    color: SERVER_SERIES_COLORS.total_pages, 
+                {
+                    label: 'Total',
+                    color: SERVER_SERIES_COLORS.total_pages,
                     points: normalizeChartSeriesPoints(chartSeries.total_pages) || buildSeriesFromSnapshots('total_pages', s => s.fleet?.total_pages),
                 },
-                { 
-                    label: 'Color', 
-                    color: SERVER_SERIES_COLORS.color_pages, 
+                {
+                    label: 'Color',
+                    color: SERVER_SERIES_COLORS.color_pages,
                     points: normalizeChartSeriesPoints(chartSeries.color_pages) || buildSeriesFromSnapshots('color_pages', s => s.fleet?.color_pages),
                 },
-                { 
-                    label: 'Mono', 
-                    color: SERVER_SERIES_COLORS.mono_pages, 
+                {
+                    label: 'Mono',
+                    color: SERVER_SERIES_COLORS.mono_pages,
                     points: normalizeChartSeriesPoints(chartSeries.mono_pages) || buildSeriesFromSnapshots('mono_pages', s => s.fleet?.mono_pages),
                 },
             ],
@@ -17279,14 +17280,14 @@ function renderServerTimeSeriesCharts(timeseries) {
             id: 'server_toner_chart',
             title: 'Toner Levels',
             series: [
-                { 
-                    label: 'Low', 
-                    color: SERVER_SERIES_COLORS.toner_low, 
+                {
+                    label: 'Low',
+                    color: SERVER_SERIES_COLORS.toner_low,
                     points: normalizeChartSeriesPoints(chartSeries.toner_low) || buildSeriesFromSnapshots('toner_low', s => s.fleet?.toner_low),
                 },
-                { 
-                    label: 'Critical', 
-                    color: SERVER_SERIES_COLORS.toner_critical, 
+                {
+                    label: 'Critical',
+                    color: SERVER_SERIES_COLORS.toner_critical,
                     points: normalizeChartSeriesPoints(chartSeries.toner_critical) || buildSeriesFromSnapshots('toner_critical', s => s.fleet?.toner_critical),
                 },
             ],
@@ -17383,7 +17384,7 @@ function renderConsumables(fleet) {
     const totals = fleet.totals || {};
     const consumables = fleet.consumables;
     const totalDevices = (consumables.critical || 0) + (consumables.low || 0) + (consumables.medium || 0) + (consumables.high || 0) + (consumables.unknown || 0);
-    
+
     if (totalDevices === 0) {
         card.innerHTML += '<div class="muted-text">No devices with consumable data.</div>';
         return;
@@ -17545,11 +17546,11 @@ function initMetricsFilterControls() {
     const tenantSelect = document.getElementById('metrics_tenant_filter');
     const agentSelect = document.getElementById('metrics_agent_filter');
     const deviceSelect = document.getElementById('metrics_device_filter');
-    
+
     if (!filtersContainer) return;
     if (filtersContainer._filtersBound) return;
     filtersContainer._filtersBound = true;
-    
+
     // Cascading filter setup: hide downstream filters initially
     if (isGlobalAdmin()) {
         // Global admins start with tenant filter only
@@ -17569,13 +17570,13 @@ function initMetricsFilterControls() {
             agentSelect.addEventListener('change', onMetricsAgentChange);
         }
     }
-    
+
     // Device filter always hidden until agent selected
     if (deviceSelect) {
         deviceSelect.style.display = 'none';
         deviceSelect.addEventListener('change', onMetricsDeviceChange);
     }
-    
+
     // Initial population of filters
     populateMetricsFilters();
 }
@@ -17590,7 +17591,7 @@ async function populateMetricsFilters() {
     const tenantSelect = document.getElementById('metrics_tenant_filter');
     const agentSelect = document.getElementById('metrics_agent_filter');
     const deviceSelect = document.getElementById('metrics_device_filter');
-    
+
     // Populate tenant filter (global admins only)
     if (tenantSelect && isGlobalAdmin()) {
         try {
@@ -17611,7 +17612,7 @@ async function populateMetricsFilters() {
         // Agent filter stays hidden until tenant is selected (for global admins)
         return;
     }
-    
+
     // For non-global users: populate agent filter immediately (scoped to their tenant)
     if (agentSelect) {
         try {
@@ -17630,7 +17631,7 @@ async function populateMetricsFilters() {
             window.__pm_shared.warn('Failed to load agents for metrics filter', err);
         }
     }
-    
+
     // Device filter starts empty - populated when agent is selected
     if (deviceSelect) {
         deviceSelect.innerHTML = '<option value="">All Devices</option>';
@@ -17643,10 +17644,10 @@ function onMetricsTenantChange(evt) {
     metricsVM.filters.tenantId = tenantId;
     metricsVM.filters.agentId = '';
     metricsVM.filters.deviceSerial = '';
-    
+
     // Update visual state
     evt.target.classList.toggle('has-value', !!tenantId);
-    
+
     // Reset agent/device filters
     const agentSelect = document.getElementById('metrics_agent_filter');
     const deviceSelect = document.getElementById('metrics_device_filter');
@@ -17664,10 +17665,10 @@ function onMetricsTenantChange(evt) {
         // Hide device filter when tenant changes
         deviceSelect.style.display = 'none';
     }
-    
+
     // Reload metrics with new filter
     loadMetrics(true);
-    
+
     // Re-populate agent filter for selected tenant
     if (tenantId) {
         populateAgentFilterForTenant(tenantId);
@@ -17677,7 +17678,7 @@ function onMetricsTenantChange(evt) {
 async function populateAgentFilterForTenant(tenantId) {
     const agentSelect = document.getElementById('metrics_agent_filter');
     if (!agentSelect) return;
-    
+
     try {
         let url = '/api/v1/agents/list';
         if (tenantId) {
@@ -17703,15 +17704,15 @@ function onMetricsAgentChange(evt) {
     const agentId = evt.target.value;
     metricsVM.filters.agentId = agentId;
     metricsVM.filters.deviceSerial = '';
-    
+
     // Update visual state
     evt.target.classList.toggle('has-value', !!agentId);
-    
+
     const deviceSelect = document.getElementById('metrics_device_filter');
     if (deviceSelect) {
         deviceSelect.value = '';
         deviceSelect.classList.remove('has-value');
-        
+
         if (agentId) {
             // Show and populate device filter for selected agent
             deviceSelect.style.display = '';
@@ -17723,7 +17724,7 @@ function onMetricsAgentChange(evt) {
             deviceSelect.disabled = true;
         }
     }
-    
+
     // Reload metrics with new filter
     loadMetrics(true);
 }
@@ -17731,10 +17732,10 @@ function onMetricsAgentChange(evt) {
 async function populateDeviceFilterForAgent(agentId) {
     const deviceSelect = document.getElementById('metrics_device_filter');
     if (!deviceSelect) return;
-    
+
     deviceSelect.disabled = false;
     deviceSelect.innerHTML = '<option value="">All Devices</option>';
-    
+
     try {
         // Fetch all devices and filter by agent_id client-side
         const resp = await fetch('/api/v1/devices/list');
@@ -17752,7 +17753,7 @@ async function populateDeviceFilterForAgent(agentId) {
                 }
                 deviceSelect.appendChild(opt);
             });
-            
+
             if (agentDevices.length === 0) {
                 deviceSelect.innerHTML = '<option value="">No devices</option>';
                 deviceSelect.disabled = true;
@@ -17767,10 +17768,10 @@ async function populateDeviceFilterForAgent(agentId) {
 function onMetricsDeviceChange(evt) {
     const serial = evt.target.value;
     metricsVM.filters.deviceSerial = serial;
-    
+
     // Update visual state
     evt.target.classList.toggle('has-value', !!serial);
-    
+
     // Reload metrics with new filter
     loadMetrics(true);
 }
@@ -18041,9 +18042,9 @@ function renderLogsTable(entries, isAppend = false) {
             : '';
 
         const contextHtml = Object.keys(entry.context).length > 0
-            ? Object.entries(entry.context).map(([k, v]) => 
+            ? Object.entries(entry.context).map(([k, v]) =>
                 `<span class="log-context-tag"><span class="tag-key">${escapeHtml(k)}</span>=<span class="tag-value">${escapeHtml(String(v))}</span></span>`
-              ).join('')
+            ).join('')
             : '';
 
         return `<tr>
@@ -18134,10 +18135,10 @@ function updateLogsShowingCount(count) {
 // Setup IntersectionObserver for logs infinite scroll (load older logs when sentinel becomes visible)
 function setupLogsInfiniteScroll() {
     cleanupLogsInfiniteScroll();
-    
+
     const sentinel = document.getElementById('logs_load_more_sentinel');
     if (!sentinel || !logsState.hasMore) return;
-    
+
     logsState.scrollObserver = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && !logsState.loading && logsState.hasMore) {
@@ -18156,7 +18157,7 @@ function setupLogsInfiniteScroll() {
         rootMargin: '100px',
         threshold: 0.1
     });
-    
+
     logsState.scrollObserver.observe(sentinel);
 }
 
@@ -18175,7 +18176,7 @@ function renderAuditLogs(entries, options = {}) {
         window.__pm_shared.warn('renderAuditLogs: container not found');
         return;
     }
-    
+
     const append = Boolean(options.append);
 
     if (!Array.isArray(entries) || entries.length === 0) {
@@ -18206,14 +18207,14 @@ function renderAuditLogs(entries, options = {}) {
             </table>
         `;
     }
-    
+
     const tbody = container.querySelector('tbody');
     if (!tbody) return;
-    
+
     const startIdx = auditRenderState.displayed;
     const endIdx = Math.min(startIdx + auditRenderState.pageSize, entries.length);
     const pageEntries = entries.slice(startIdx, endIdx);
-    
+
     // Remove existing sentinel
     const existingSentinel = document.getElementById('audit_load_more_sentinel');
     if (existingSentinel) existingSentinel.remove();
@@ -18284,10 +18285,10 @@ function renderAuditLogs(entries, options = {}) {
             </tr>
         `;
     }).join('');
-    
+
     tbody.insertAdjacentHTML('beforeend', rows);
     auditRenderState.displayed = endIdx;
-    
+
     // Add sentinel row if more items available
     if (endIdx < entries.length) {
         const sentinelRow = document.createElement('tr');
@@ -18304,10 +18305,10 @@ function renderAuditLogs(entries, options = {}) {
 // Setup IntersectionObserver for audit logs infinite scroll
 function setupAuditInfiniteScroll() {
     cleanupAuditInfiniteScroll();
-    
+
     const sentinel = document.getElementById('audit_load_more_sentinel');
     if (!sentinel) return;
-    
+
     auditRenderState.observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting && auditRenderState.displayed < auditRenderState.filteredEntries.length) {
@@ -18319,7 +18320,7 @@ function setupAuditInfiniteScroll() {
         rootMargin: '200px',
         threshold: 0
     });
-    
+
     auditRenderState.observer.observe(sentinel);
 }
 
@@ -18373,7 +18374,7 @@ document.getElementById('agent_details_close')?.addEventListener('click', () => 
 window.addEventListener('click', (event) => {
     const agentOverlay = document.getElementById('agent_details_overlay');
     const confirmModal = document.getElementById('confirm_modal');
-    
+
     if (event.target === agentOverlay) {
         agentOverlay.style.display = 'none';
     }
@@ -18406,7 +18407,7 @@ function toggleAdvancedSettings() {
         });
 
         // Persist preference
-        try { localStorage.setItem('settings_advanced', enabled ? 'true' : 'false'); } catch (e) {}
+        try { localStorage.setItem('settings_advanced', enabled ? 'true' : 'false'); } catch (e) { }
     } catch (e) {
         window.__pm_shared.error('toggleAdvancedSettings failed', e);
         throw e;
@@ -18414,24 +18415,24 @@ function toggleAdvancedSettings() {
 }
 
 // ====== Add Agent Modal UI ======
-function initAddAgentUI(){
+function initAddAgentUI() {
     if (addAgentUIInitialized) return;
     addAgentUIInitialized = true;
     // Wire header Join button if present
     const joinBtn = document.getElementById('join_token_btn');
-    if(joinBtn) joinBtn.addEventListener('click', ()=> openAddAgentModal({}));
+    if (joinBtn) joinBtn.addEventListener('click', () => openAddAgentModal({}));
 
     // Wire modal chrome
     const closeX = document.getElementById('add_agent_close_x');
     const cancelBtn = document.getElementById('add_agent_cancel');
     const primaryBtn = document.getElementById('add_agent_primary');
 
-    if(closeX) closeX.addEventListener('click', closeAddAgentModal);
-    if(cancelBtn) cancelBtn.addEventListener('click', closeAddAgentModal);
-    if(primaryBtn) primaryBtn.addEventListener('click', handleAddAgentPrimary);
+    if (closeX) closeX.addEventListener('click', closeAddAgentModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeAddAgentModal);
+    if (primaryBtn) primaryBtn.addEventListener('click', handleAddAgentPrimary);
 }
 
-function openAddAgentModal(opts){
+function openAddAgentModal(opts) {
     // opts: { tenantID?: string }
     window._addAgentState = {
         step: 1,
@@ -18446,27 +18447,27 @@ function openAddAgentModal(opts){
     };
     renderAddAgentStep(1);
     const modal = document.getElementById('add_agent_modal');
-    if(modal){ modal.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+    if (modal) { modal.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
 }
 
-function closeAddAgentModal(){
+function closeAddAgentModal() {
     const modal = document.getElementById('add_agent_modal');
-    if(modal){ modal.style.display = 'none'; document.body.style.overflow = ''; }
+    if (modal) { modal.style.display = 'none'; document.body.style.overflow = ''; }
     // Clean up floating dropdown if it exists
     const dropdown = document.getElementById('add_agent_options_dropdown');
-    if(dropdown) dropdown.remove();
-    try{ delete window._addAgentState; }catch(e){}
+    if (dropdown) dropdown.remove();
+    try { delete window._addAgentState; } catch (e) { }
 }
 
-async function handleAddAgentPrimary(){
-    const st = window._addAgentState || {step:1};
-    if(st.step === 1){
+async function handleAddAgentPrimary() {
+    const st = window._addAgentState || { step: 1 };
+    if (st.step === 1) {
         // Read form values
         const tenantSel = document.getElementById('add_agent_tenant');
         const ttlEl = document.getElementById('add_agent_ttl');
         const oneTimeEl = document.getElementById('add_agent_one_time');
         const tenantID = tenantSel ? tenantSel.value : (st.tenantID || null);
-        const ttl = ttlEl ? parseInt(ttlEl.value,10) || 60 : 60;
+        const ttl = ttlEl ? parseInt(ttlEl.value, 10) || 60 : 60;
         const one_time = oneTimeEl ? oneTimeEl.checked : true;
         const platformSel = document.getElementById('add_agent_platform');
         const formatSel = document.getElementById('add_agent_format');
@@ -18483,17 +18484,17 @@ async function handleAddAgentPrimary(){
         st.arch = arch;
 
         // Basic validation
-        if(!tenantID){ window.__pm_shared.showAlert('Please select a tenant (customer) to assign this token to.', 'Missing tenant', true, false); return; }
+        if (!tenantID) { window.__pm_shared.showAlert('Please select a tenant (customer) to assign this token to.', 'Missing tenant', true, false); return; }
 
         // Decide whether user wants a raw token or a generated bootstrap script
         const selectedActionEl = document.querySelector('input[name="add_agent_action"]:checked');
         const action = selectedActionEl ? selectedActionEl.value : 'token';
-        if(action === 'token'){
+        if (action === 'token') {
             // Create join token
-            try{
+            try {
                 const payload = { tenant_id: tenantID, ttl_minutes: ttl, one_time: one_time };
-                const r = await fetch('/api/v1/join-token', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
-                if(!r.ok) throw new Error(await r.text());
+                const r = await fetch('/api/v1/join-token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!r.ok) throw new Error(await r.text());
                 const data = await r.json();
                 st.token = data.token;
                 st.script = null;
@@ -18501,15 +18502,15 @@ async function handleAddAgentPrimary(){
                 st.step = 2;
                 window._addAgentState = st;
                 renderAddAgentStep(2);
-            }catch(err){
+            } catch (err) {
                 window.__pm_shared.showAlert('Failed to create join token: ' + (err && err.message ? err.message : err), 'Error', true, false);
             }
-        } else if(action === 'script'){
+        } else if (action === 'script') {
             // Generate bootstrap script via server packages API
-            try{
+            try {
                 const payload = { tenant_id: tenantID, platform: platform, installer_type: 'script', ttl_minutes: ttl };
-                const r = await fetch('/api/v1/packages', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
-                if(!r.ok) {
+                const r = await fetch('/api/v1/packages', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!r.ok) {
                     throw new Error(await r.text());
                 }
                 // Handle JSON or plain text responses
@@ -18518,7 +18519,7 @@ async function handleAddAgentPrimary(){
                 let filename = 'bootstrap.sh';
                 let downloadURL = null;
                 let oneLiner = null;
-                if(ct.includes('application/json')){
+                if (ct.includes('application/json')) {
                     const data = await r.json();
                     scriptText = data.script || '';
                     filename = data.filename || filename;
@@ -18527,11 +18528,11 @@ async function handleAddAgentPrimary(){
                 } else {
                     scriptText = await r.text();
                     const cd = r.headers.get('content-disposition');
-                    if(cd){
+                    if (cd) {
                         const m = cd.match(/filename="?([^";]+)"?/);
-                        if(m && m[1]) filename = m[1];
-                    } else if(platform === 'windows') filename = 'bootstrap.ps1';
-                    else if(platform === 'darwin') filename = 'bootstrap.sh';
+                        if (m && m[1]) filename = m[1];
+                    } else if (platform === 'windows') filename = 'bootstrap.ps1';
+                    else if (platform === 'darwin') filename = 'bootstrap.sh';
                 }
 
                 st.script = scriptText;
@@ -18543,26 +18544,26 @@ async function handleAddAgentPrimary(){
                 st.step = 2;
                 window._addAgentState = st;
                 renderAddAgentStep(2);
-            }catch(err){
+            } catch (err) {
                 window.__pm_shared.showAlert('Failed to generate bootstrap script: ' + (err && err.message ? err.message : err), 'Error', true, false);
             }
-        } else if(action === 'email'){
+        } else if (action === 'email') {
             // Send bootstrap script via email
             const emailEl = document.getElementById('add_agent_email');
             const emailAddr = emailEl ? emailEl.value.trim() : '';
-            if(!emailAddr){
+            if (!emailAddr) {
                 window.__pm_shared.showAlert('Please enter a recipient email address.', 'Missing email', true, false);
                 return;
             }
             // Basic email validation
-            if(!emailAddr.includes('@') || !emailAddr.includes('.')){
+            if (!emailAddr.includes('@') || !emailAddr.includes('.')) {
                 window.__pm_shared.showAlert('Please enter a valid email address.', 'Invalid email', true, false);
                 return;
             }
-            try{
+            try {
                 const payload = { tenant_id: tenantID, platform: platform, email: emailAddr, ttl_minutes: ttl };
-                const r = await fetch('/api/v1/packages/send-email', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(payload) });
-                if(!r.ok) {
+                const r = await fetch('/api/v1/packages/send-email', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!r.ok) {
                     const errText = await r.text();
                     throw new Error(errText);
                 }
@@ -18573,38 +18574,38 @@ async function handleAddAgentPrimary(){
                 st.step = 2;
                 window._addAgentState = st;
                 renderAddAgentStep(2);
-            }catch(err){
+            } catch (err) {
                 window.__pm_shared.showAlert('Failed to send deployment email: ' + (err && err.message ? err.message : err), 'Error', true, false);
             }
         } else {
             window.__pm_shared.showAlert('Unsupported onboarding option selected.', 'Error', true, false);
         }
-    } else if(st.step === 2){
+    } else if (st.step === 2) {
         // Done
         closeAddAgentModal();
         // Optionally refresh tokens/tenants list
-        try{ loadTenants(); }catch(e){}
+        try { loadTenants(); } catch (e) { }
     }
 }
 
-function renderAddAgentStep(step){
+function renderAddAgentStep(step) {
     const indicator = document.getElementById('add_agent_step_indicator');
     const content = document.getElementById('add_agent_content');
     const primaryBtn = document.getElementById('add_agent_primary');
-    if(!content) return;
-    if(indicator){
-        if(step === 1){
+    if (!content) return;
+    if (indicator) {
+        if (step === 1) {
             indicator.textContent = 'Step 1/2 — Create onboarding asset';
         } else {
             const mode = (window._addAgentState && window._addAgentState.mode) ? window._addAgentState.mode : 'token';
             let label = 'Token (shown once)';
-            if(mode === 'script') label = 'Bootstrap script';
-            else if(mode === 'email') label = 'Email sent';
+            if (mode === 'script') label = 'Bootstrap script';
+            else if (mode === 'email') label = 'Email sent';
             indicator.textContent = 'Step 2/2 — ' + label;
         }
     }
 
-    if(step === 1){
+    if (step === 1) {
         // Tenant select - handled by populateTenantDropdown after content is set
         const state = window._addAgentState || {};
         const ttlValue = state.ttl && state.ttl > 0 ? state.ttl : 60;
@@ -18662,23 +18663,23 @@ function renderAddAgentStep(step){
 
         // Populate tenant dropdown with "Add Tenant" option
         const tenantSelect = content.querySelector('#add_agent_tenant');
-        if(tenantSelect){
-            populateTenantDropdown(tenantSelect, { 
-                placeholder: '-- select customer --', 
+        if (tenantSelect) {
+            populateTenantDropdown(tenantSelect, {
+                placeholder: '-- select customer --',
                 selectedId: state.tenantID || '',
-                showAddOption: true 
+                showAddOption: true
             });
             // Also track state change when tenant is selected (but not for "Add Tenant")
-            tenantSelect.addEventListener('change', ()=>{ 
-                if(tenantSelect.value !== '__add_new_tenant__'){
-                    state.tenantID = tenantSelect.value; 
+            tenantSelect.addEventListener('change', () => {
+                if (tenantSelect.value !== '__add_new_tenant__') {
+                    state.tenantID = tenantSelect.value;
                 }
             });
         }
 
         const ttlInput = content.querySelector('#add_agent_ttl');
-        if(ttlInput){
-            ttlInput.addEventListener('change', ()=>{
+        if (ttlInput) {
+            ttlInput.addEventListener('change', () => {
                 const parsed = parseInt(ttlInput.value, 10);
                 state.ttl = (isNaN(parsed) || parsed <= 0) ? 60 : parsed;
                 ttlInput.value = state.ttl;
@@ -18686,16 +18687,16 @@ function renderAddAgentStep(step){
         }
 
         const oneTimeInput = content.querySelector('#add_agent_one_time');
-        if(oneTimeInput){
+        if (oneTimeInput) {
             oneTimeInput.checked = oneTimeChecked;
-            oneTimeInput.addEventListener('change', ()=>{ state.one_time = oneTimeInput.checked; });
+            oneTimeInput.addEventListener('change', () => { state.one_time = oneTimeInput.checked; });
         }
 
         const platformSelect = content.querySelector('#add_agent_platform');
-        if(platformSelect){
+        if (platformSelect) {
             platformSelect.value = defaultPlatform;
             state.platform = platformSelect.value;
-            platformSelect.addEventListener('change', ()=>{
+            platformSelect.addEventListener('change', () => {
                 state.platform = platformSelect.value;
             });
         }
@@ -18705,18 +18706,18 @@ function renderAddAgentStep(step){
         const emailRow = content.querySelector('#add_agent_email_row');
         const updatePrimaryLabel = () => {
             const sel = content.querySelector('input[name="add_agent_action"]:checked');
-            if(!sel || !primaryBtn) return;
-            if(sel.value === 'script') primaryBtn.textContent = 'Generate Script';
-            else if(sel.value === 'email') primaryBtn.textContent = 'Send Email';
+            if (!sel || !primaryBtn) return;
+            if (sel.value === 'script') primaryBtn.textContent = 'Generate Script';
+            else if (sel.value === 'email') primaryBtn.textContent = 'Send Email';
             else primaryBtn.textContent = 'Create Token';
         };
         const updateFieldVisibility = () => {
             const sel = content.querySelector('input[name="add_agent_action"]:checked');
             const mode = sel ? sel.value : 'token';
-            if(platRow) platRow.style.display = (mode === 'script' || mode === 'email') ? '' : 'none';
-            if(emailRow) emailRow.style.display = mode === 'email' ? '' : 'none';
+            if (platRow) platRow.style.display = (mode === 'script' || mode === 'email') ? '' : 'none';
+            if (emailRow) emailRow.style.display = mode === 'email' ? '' : 'none';
         };
-        actionRadios.forEach(r => r.addEventListener('change', ()=>{
+        actionRadios.forEach(r => r.addEventListener('change', () => {
             state.mode = r.value;
             updatePrimaryLabel();
             updateFieldVisibility();
@@ -18731,8 +18732,8 @@ function renderAddAgentStep(step){
         const filename = (window._addAgentState && window._addAgentState.scriptFilename) ? window._addAgentState.scriptFilename : 'bootstrap';
         const emailSent = (window._addAgentState && window._addAgentState.emailSent) ? window._addAgentState.emailSent : false;
         const emailTo = (window._addAgentState && window._addAgentState.emailTo) ? window._addAgentState.emailTo : '';
-        
-        if(emailSent && mode === 'email'){
+
+        if (emailSent && mode === 'email') {
             content.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center;padding:20px;">
                     <div style="font-size:48px;">✉️</div>
@@ -18742,50 +18743,50 @@ function renderAddAgentStep(step){
                     <p style="color:var(--muted);font-size:13px;margin:0;">The email contains the one-liner command and full bootstrap script for the selected platform. The recipient can follow the instructions to install and register the agent.</p>
                 </div>
             `;
-        } else if(script && mode === 'script'){
+        } else if (script && mode === 'script') {
             const oneLiner = (window._addAgentState && window._addAgentState.oneLiner) ? window._addAgentState.oneLiner : null;
             content.innerHTML = `
                 <div style="display:flex;flex-direction:column;gap:12px;">
-                    ${ oneLiner ? `<div style="font-family:monospace;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);word-break:break-all;">${escapeHtml(oneLiner)}</div>` : `<div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` }
+                    ${oneLiner ? `<div style="font-family:monospace;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);word-break:break-all;">${escapeHtml(oneLiner)}</div>` : `<div style="font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>`}
                     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <button id="add_agent_copy" class="modal-button" style="flex:1;min-width:200px;font-weight:600;">${ oneLiner ? 'Copy one-liner' : 'Copy script' }</button>
-                        ${ oneLiner ? `<button id="add_agent_more_options" class="modal-button modal-button-secondary" style="padding:8px 12px;">More options ▾</button>` : `<button id="add_agent_download" class="modal-button modal-button-secondary">Download script</button>` }
+                        <button id="add_agent_copy" class="modal-button" style="flex:1;min-width:200px;font-weight:600;">${oneLiner ? 'Copy one-liner' : 'Copy script'}</button>
+                        ${oneLiner ? `<button id="add_agent_more_options" class="modal-button modal-button-secondary" style="padding:8px 12px;">More options ▾</button>` : `<button id="add_agent_download" class="modal-button modal-button-secondary">Download script</button>`}
                     </div>
                     <div style="color:var(--muted);font-size:13px">This script was generated for the selected platform. Download or copy it and execute it on the target machine to install and register the agent.</div>
-                    ${ oneLiner ? `<div id="add_agent_full_script" style="display:none;margin-top:8px;font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` : '' }
+                    ${oneLiner ? `<div id="add_agent_full_script" style="display:none;margin-top:8px;font-family:monospace;white-space:pre-wrap;padding:12px;background:var(--panel);border-radius:6px;border:1px dashed var(--border);">${escapeHtml(script)}</div>` : ''}
                 </div>
             `;
             // Create floating dropdown for more options (appended to body to escape modal overflow)
             let existingDropdown = document.getElementById('add_agent_options_dropdown');
-            if(existingDropdown) existingDropdown.remove();
-            if(oneLiner){
+            if (existingDropdown) existingDropdown.remove();
+            if (oneLiner) {
                 const dropdown = document.createElement('div');
                 dropdown.id = 'add_agent_options_dropdown';
                 dropdown.style.cssText = 'display:none;position:fixed;background:var(--bg);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:100000;min-width:180px;';
                 dropdown.innerHTML = `
                     <button id="add_agent_download" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;">Download script</button>
-                    ${ (window._addAgentState && window._addAgentState.scriptDownloadURL) ? `<a id="add_agent_download_url" href="${escapeHtml(window._addAgentState.scriptDownloadURL)}" target="_blank" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;text-decoration:none;border-top:1px solid var(--border);">Open hosted URL</a>` : '' }
+                    ${(window._addAgentState && window._addAgentState.scriptDownloadURL) ? `<a id="add_agent_download_url" href="${escapeHtml(window._addAgentState.scriptDownloadURL)}" target="_blank" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;text-decoration:none;border-top:1px solid var(--border);">Open hosted URL</a>` : ''}
                     <button id="add_agent_show_full" style="display:block;width:100%;text-align:left;padding:10px 14px;background:none;border:none;color:var(--text);cursor:pointer;font-size:14px;border-top:1px solid var(--border);">Show full script</button>
                 `;
                 document.body.appendChild(dropdown);
             }
             const copyBtn = document.getElementById('add_agent_copy');
-            if(copyBtn) copyBtn.addEventListener('click', ()=>{
+            if (copyBtn) copyBtn.addEventListener('click', () => {
                 const textToCopy = oneLiner ? oneLiner : script;
-                navigator.clipboard?.writeText(textToCopy).then(()=>{ window.__pm_shared.showToast((oneLiner ? 'One-liner' : 'Script') + ' copied to clipboard','success'); }).catch(err=>{ window.__pm_shared.showAlert('Failed to copy: ' + (err && err.message ? err.message : err), 'Error', true, false); });
+                navigator.clipboard?.writeText(textToCopy).then(() => { window.__pm_shared.showToast((oneLiner ? 'One-liner' : 'Script') + ' copied to clipboard', 'success'); }).catch(err => { window.__pm_shared.showAlert('Failed to copy: ' + (err && err.message ? err.message : err), 'Error', true, false); });
             });
             // Wire up dropdown toggle for more options
             const moreOptionsBtn = document.getElementById('add_agent_more_options');
             const dropdown = document.getElementById('add_agent_options_dropdown');
-            if(moreOptionsBtn && dropdown){
-                const positionDropdown = ()=>{
+            if (moreOptionsBtn && dropdown) {
+                const positionDropdown = () => {
                     const rect = moreOptionsBtn.getBoundingClientRect();
                     dropdown.style.top = (rect.bottom + 4) + 'px';
                     dropdown.style.left = rect.left + 'px';
                 };
-                moreOptionsBtn.addEventListener('click', (e)=>{
+                moreOptionsBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    if(dropdown.style.display === 'none'){
+                    if (dropdown.style.display === 'none') {
                         positionDropdown();
                         dropdown.style.display = 'block';
                     } else {
@@ -18793,33 +18794,33 @@ function renderAddAgentStep(step){
                     }
                 });
                 // Close dropdown when clicking outside
-                document.addEventListener('click', (e)=>{
-                    if(!moreOptionsBtn.contains(e.target) && !dropdown.contains(e.target)){
+                document.addEventListener('click', (e) => {
+                    if (!moreOptionsBtn.contains(e.target) && !dropdown.contains(e.target)) {
                         dropdown.style.display = 'none';
                     }
                 });
                 // Add hover effect to dropdown items
-                dropdown.querySelectorAll('button, a').forEach(item=>{
-                    item.addEventListener('mouseenter', ()=>{ item.style.background = 'var(--panel)'; });
-                    item.addEventListener('mouseleave', ()=>{ item.style.background = 'none'; });
+                dropdown.querySelectorAll('button, a').forEach(item => {
+                    item.addEventListener('mouseenter', () => { item.style.background = 'var(--panel)'; });
+                    item.addEventListener('mouseleave', () => { item.style.background = 'none'; });
                 });
             }
             const dlBtn = document.getElementById('add_agent_download');
-            if(dlBtn) dlBtn.addEventListener('click', ()=>{
-                const blob = new Blob([script], {type:'application/octet-stream'});
+            if (dlBtn) dlBtn.addEventListener('click', () => {
+                const blob = new Blob([script], { type: 'application/octet-stream' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-                if(dropdown) dropdown.style.display = 'none';
+                if (dropdown) dropdown.style.display = 'none';
             });
             const showFull = document.getElementById('add_agent_show_full');
-            if(showFull){
-                showFull.addEventListener('click', ()=>{
+            if (showFull) {
+                showFull.addEventListener('click', () => {
                     const full = document.getElementById('add_agent_full_script');
-                    if(!full) return;
-                    if(full.style.display === 'none'){
+                    if (!full) return;
+                    if (full.style.display === 'none') {
                         full.style.display = 'block'; showFull.textContent = 'Hide full script';
                     } else { full.style.display = 'none'; showFull.textContent = 'Show full script'; }
-                    if(dropdown) dropdown.style.display = 'none';
+                    if (dropdown) dropdown.style.display = 'none';
                 });
             }
         } else {
@@ -18835,32 +18836,32 @@ function renderAddAgentStep(step){
             `;
             // Wire copy/download for token
             const copyBtn = document.getElementById('add_agent_copy');
-            if(copyBtn) copyBtn.addEventListener('click', copyTokenToClipboard);
+            if (copyBtn) copyBtn.addEventListener('click', copyTokenToClipboard);
             const dlBtn = document.getElementById('add_agent_download');
-            if(dlBtn) dlBtn.addEventListener('click', ()=>{
-                const blob = new Blob([token], {type:'text/plain'});
+            if (dlBtn) dlBtn.addEventListener('click', () => {
+                const blob = new Blob([token], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url; a.download = 'join-token.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
             });
         }
-        if(primaryBtn) primaryBtn.textContent = 'Done';
+        if (primaryBtn) primaryBtn.textContent = 'Done';
     }
 }
 
-function copyTokenToClipboard(){
+function copyTokenToClipboard() {
     const token = (window._addAgentState && window._addAgentState.token) ? window._addAgentState.token : '';
-    if(!token) return;
-    navigator.clipboard?.writeText(token).then(()=>{
+    if (!token) return;
+    navigator.clipboard?.writeText(token).then(() => {
         window.__pm_shared.showToast('Token copied to clipboard', 'success');
-    }).catch(err=>{
+    }).catch(err => {
         window.__pm_shared.showAlert('Failed to copy token: ' + (err && err.message ? err.message : err), 'Error', true, false);
     });
 }
 
 // Update the compact time filter display label from slider index
 function updateTimeFilter(index) {
-    const labels = ['1m','2m','5m','10m','15m','30m','1h','2h','3h','6h','12h','1d','3d','All Time'];
+    const labels = ['1m', '2m', '5m', '10m', '15m', '30m', '1h', '2h', '3h', '6h', '12h', '1d', '3d', 'All Time'];
     let idx = parseInt(index, 10);
     if (isNaN(idx) || idx < 0) idx = labels.length - 1;
     if (idx >= labels.length) idx = labels.length - 1;
@@ -18878,7 +18879,7 @@ function updateTimeFilter(index) {
         if (detailsOverlay) {
             detailsOverlay.style.display = 'none';
             document.body.style.overflow = '';
-            try { delete detailsOverlay.dataset.currentPrinterIp; } catch (e) {}
+            try { delete detailsOverlay.dataset.currentPrinterIp; } catch (e) { }
         }
     }
 
@@ -18897,13 +18898,13 @@ function updateTimeFilter(index) {
     function closeModal(modal) {
         if (modal) modal.style.display = 'none';
     }
-    
+
     // Helper to wire a modal's close buttons
     function wireModalClose(modalId, closeXId, cancelId) {
         const modal = document.getElementById(modalId);
         const closeX = document.getElementById(closeXId);
         const cancel = document.getElementById(cancelId);
-        
+
         if (closeX) closeX.addEventListener('click', () => closeModal(modal));
         if (cancel) cancel.addEventListener('click', () => closeModal(modal));
         if (modal) {
@@ -18912,19 +18913,19 @@ function updateTimeFilter(index) {
             });
         }
     }
-    
+
     // Alert Rule Modal
     wireModalClose('alert_rule_modal', 'alert_rule_modal_close_x', 'alert_rule_cancel');
     const alertRuleSaveBtn = document.getElementById('alert_rule_save');
     if (alertRuleSaveBtn) alertRuleSaveBtn.addEventListener('click', saveAlertRule);
-    
+
     // Notification Channel Modal
     wireModalClose('notification_channel_modal', 'notification_channel_modal_close_x', 'channel_cancel');
     const channelSaveBtn = document.getElementById('channel_save');
     if (channelSaveBtn) channelSaveBtn.addEventListener('click', saveNotificationChannel);
     const channelTypeSelect = document.getElementById('channel_type');
     if (channelTypeSelect) channelTypeSelect.addEventListener('change', updateChannelConfigSection);
-    
+
     // Wire up channel type cards click handlers
     document.querySelectorAll('.channel-type-card').forEach(card => {
         card.addEventListener('click', () => {
@@ -18935,22 +18936,22 @@ function updateTimeFilter(index) {
             }
         });
     });
-    
+
     // Escalation Policy Modal
     wireModalClose('escalation_policy_modal', 'escalation_policy_modal_close_x', 'escalation_cancel');
     const escalationSaveBtn = document.getElementById('escalation_save');
     if (escalationSaveBtn) escalationSaveBtn.addEventListener('click', saveEscalationPolicy);
-    
+
     // Maintenance Window Modal
     wireModalClose('maintenance_window_modal', 'maintenance_window_modal_close_x', 'maintenance_cancel');
     const maintenanceSaveBtn = document.getElementById('maintenance_save');
     if (maintenanceSaveBtn) maintenanceSaveBtn.addEventListener('click', saveMaintenanceWindow);
-    
+
     // Scheduled Report Modal
     wireModalClose('scheduled_report_modal', 'scheduled_report_modal_close_x', 'schedule_cancel');
     const scheduleSaveBtn = document.getElementById('schedule_save');
     if (scheduleSaveBtn) scheduleSaveBtn.addEventListener('click', saveScheduledReport);
-    
+
     // Schedule frequency change handler - show/hide day fields
     const frequencySelect = document.getElementById('schedule_frequency');
     if (frequencySelect) {
@@ -18958,12 +18959,12 @@ function updateTimeFilter(index) {
             const freq = frequencySelect.value;
             const dayField = document.getElementById('schedule_day_field');
             const dayOfMonthField = document.getElementById('schedule_day_of_month_field');
-            
+
             if (dayField) dayField.style.display = freq === 'weekly' ? 'block' : 'none';
             if (dayOfMonthField) dayOfMonthField.style.display = freq === 'monthly' ? 'block' : 'none';
         });
     }
-    
+
     // Report Download Modal
     wireModalClose('report_download_modal', 'report_download_close_x', 'report_download_close');
 })();
