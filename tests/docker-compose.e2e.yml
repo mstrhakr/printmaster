@@ -103,7 +103,7 @@ services:
   # Test Runner - Runs E2E tests against the environment
   # ==========================================================================
   test-runner:
-    image: golang:1.24-alpine
+    image: golang:1.25-alpine
     container_name: pm-e2e-runner
     depends_on:
       server:

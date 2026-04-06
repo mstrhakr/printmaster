@@ -319,8 +319,8 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
 
   const deleteMetricsOption = modal.locator('label').filter({ hasText: 'Also delete metrics history' });
   const deleteFromAgentOption = modal.locator('label').filter({ hasText: 'Also delete from agent' });
-  const deleteMetricsCheckbox = deleteMetricsOption.locator('input[type="checkbox"]');
-  const deleteFromAgentCheckbox = deleteFromAgentOption.locator('input[type="checkbox"]');
+  const deleteMetricsCheckbox = modal.locator('input[id$="_delete_metrics"]');
+  const deleteFromAgentCheckbox = modal.locator('input[id$="_delete_from_agent"]');
   
   // --- Test 7: Modal checkboxes work ---
   await expect(deleteMetricsCheckbox).not.toBeChecked();

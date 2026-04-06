@@ -11875,26 +11875,26 @@ function showDeleteDeviceConfirm(serial, agentId) {
                     <p style="margin-bottom:16px;color:var(--text-muted);font-size:13px;">This will permanently remove the device from the server database.</p>
                     
                     <div style="background:var(--bg-tertiary);border-radius:8px;padding:12px;margin-bottom:12px;">
-                        <label for="${deleteMetricsId}" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;width:100%;">
+                        <div style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;width:100%;">
                             <input type="checkbox" id="${deleteMetricsId}" style="margin-top:3px;cursor:pointer;flex-shrink:0;">
-                            <div>
+                            <label for="${deleteMetricsId}" style="cursor:pointer;">
                                 <span style="font-weight:500;">Also delete metrics history</span>
                                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
                                     Remove all historical page counts, toner levels, and other metrics data for this device
                                 </div>
-                            </div>
-                        </label>
+                            </label>
+                        </div>
                         
                         ${hasAgent ? `
-                        <label for="${deleteFromAgentId}" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;width:100%;">
+                        <div style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;width:100%;">
                             <input type="checkbox" id="${deleteFromAgentId}" style="margin-top:3px;cursor:pointer;flex-shrink:0;">
-                            <div>
+                            <label for="${deleteFromAgentId}" style="cursor:pointer;">
                                 <span style="font-weight:500;">Also delete from agent</span>
                                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">
                                     Remove the device from the agent's local database as well. The device may be re-discovered on the next scan.
                                 </div>
-                            </div>
-                        </label>
+                            </label>
+                        </div>
                         ` : `
                         <div style="font-size:12px;color:var(--text-muted);font-style:italic;">
                             This device has no associated agent, so it will only be deleted from the server.
