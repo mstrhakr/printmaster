@@ -11907,6 +11907,7 @@ function showDeleteDeviceConfirm(serial, agentId) {
             </div>
         `;
         document.body.appendChild(wrapper);
+        document.body.style.overflow = 'hidden';
 
         const btnConfirm = wrapper.querySelector('[data-action="confirm"]');
         const btnCancel = wrapper.querySelector('[data-action="cancel"]');
@@ -11920,6 +11921,7 @@ function showDeleteDeviceConfirm(serial, agentId) {
             try { closeX && closeX.removeEventListener('click', onCancel); } catch (e) {}
             try { wrapper.removeEventListener('click', onBackdrop); } catch (e) {}
             try { wrapper.parentNode && wrapper.parentNode.removeChild(wrapper); } catch (e) {}
+            try { document.body.style.overflow = ''; } catch (e) {}
         }
 
         function onConfirm() {
