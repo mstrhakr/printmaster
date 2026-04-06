@@ -211,6 +211,10 @@ body::before {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
+  /* Promote to own compositor layer so interactive state changes (e.g. checkbox
+     toggles) don't trigger backdrop-filter re-compositing in WebKit, which causes
+     sub-pixel bounding-box instability across animation frames. */
+  transform: translateZ(0);
 }
 
 .modal-header {
