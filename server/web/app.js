@@ -11916,12 +11916,18 @@ function showDeleteDeviceConfirm(serial, agentId) {
         const chkAgent = wrapper.querySelector(`#${deleteFromAgentId}`);
 
         function cleanup() {
-            try { btnConfirm && btnConfirm.removeEventListener('click', onConfirm); } catch (e) {}
-            try { btnCancel && btnCancel.removeEventListener('click', onCancel); } catch (e) {}
-            try { closeX && closeX.removeEventListener('click', onCancel); } catch (e) {}
-            try { wrapper.removeEventListener('click', onBackdrop); } catch (e) {}
-            try { wrapper.parentNode && wrapper.parentNode.removeChild(wrapper); } catch (e) {}
-            try { document.body.style.overflow = ''; } catch (e) {}
+            try { btnConfirm && btnConfirm.removeEventListener('click', onConfirm); } catch (e) { }
+            try { btnCancel && btnCancel.removeEventListener('click', onCancel); } catch (e) { }
+            try { closeX && closeX.removeEventListener('click', onCancel); } catch (e) { }
+            try { wrapper.removeEventListener('click', onBackdrop); } catch (e) { }
+            // Hide immediately so Playwright sees it as gone, then remove on next frame
+            // to let WebKit's backdrop-filter compositor layer settle before the next
+            // action (synchronous removal causes brief layout instability in WebKit).
+            wrapper.style.visibility = 'hidden';
+            wrapper.style.pointerEvents = 'none';
+            requestAnimationFrame(() => {
+                try { wrapper.parentNode && wrapper.parentNode.removeChild(wrapper); } catch (e) { }
+            });
         }
 
         function onConfirm() {
