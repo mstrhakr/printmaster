@@ -288,6 +288,8 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
   await expect(contextMenu).not.toBeVisible({ timeout: 2000 });
   
   // --- Test 4: Copy serial shows toast ---
+  // Wait for outside-click listener cleanup (showContextMenu registers it with a 10ms setTimeout)
+  await page.waitForTimeout(50);
   await deviceElement.click({ button: 'right' });
   await expect(contextMenu).toBeVisible({ timeout: 5000 });
   await contextMenu.locator('[data-action="copy-serial"]').click();
@@ -295,8 +297,8 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
   await expect(page.locator('.toast:visible').first()).toBeVisible({ timeout: 3000 });
   await expect(page.locator('.toast:visible').first()).toContainText('copied');
   
-  // Wait for toast to disappear fully
-  await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 5000 });
+  // Wait for all toasts to clear from DOM (3s display + 300ms exit animation)
+  await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 8000 });
   
   // --- Test 5: Copy IP shows toast ---
   await deviceElement.click({ button: 'right' });
@@ -304,7 +306,7 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
   await contextMenu.locator('[data-action="copy-device-ip"]').click();
   
   await expect(page.locator('.toast:visible').first()).toBeVisible({ timeout: 3000 });
-  await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 5000 });
+  await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 8000 });
   
   // --- Test 6: Delete device shows confirmation modal ---
   await deviceElement.click({ button: 'right' });
