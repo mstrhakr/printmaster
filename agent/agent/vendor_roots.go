@@ -1,17 +1,10 @@
 package agent
 
+import "printmaster/agent/scanner/vendor"
+
 // Mapping of known enterprise OID numeric identifiers and recommended vendor
 // MIB roots to probe when that vendor is detected. This is a small, safe
 // conservative mapping; we can expand it as we see more devices in the logs.
-
-var enterpriseToManufacturer = map[string]string{
-	"11":   "HP",
-	"2435": "Brother",
-	"1602": "Canon",
-	"641":  "Lexmark",
-	"231":  "Epson",
-	"9":    "Dell",
-}
 
 var vendorProbeRoots = map[string][]string{
 	"HP":      {"1.3.6.1.4.1.11"},
@@ -40,8 +33,5 @@ func VendorRootsFor(manufacturer string) []string {
 // numeric enterprise id string (e.g., "11" -> "HP"). Returns empty string
 // if unknown.
 func ManufacturerForEnterprise(ent string) string {
-	if m, ok := enterpriseToManufacturer[ent]; ok {
-		return m
-	}
-	return ""
+	return vendor.ManufacturerForEnterprise(ent)
 }

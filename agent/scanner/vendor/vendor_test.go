@@ -80,6 +80,14 @@ func TestEnterpriseNumberExtraction(t *testing.T) {
 	}
 }
 
+func TestManufacturerForSysObjectID(t *testing.T) {
+	t.Parallel()
+
+	if got := ManufacturerForSysObjectID(".1.3.6.1.4.1.367.1.1"); got != "Ricoh" {
+		t.Errorf("ManufacturerForSysObjectID() = %q, want Ricoh", got)
+	}
+}
+
 func TestGenericVendorParse(t *testing.T) {
 	pdus := []gosnmp.SnmpPDU{
 		{Name: ".1.3.6.1.2.1.43.10.2.1.4.1.1", Value: 12345}, // prtMarkerLifeCount
