@@ -204,6 +204,8 @@ func startAutoUpdateManager(
 
 			sendUpdateProgress(autoupdate.StatusSucceeded, currentVersion, 100,
 				"Update completed successfully from "+fromVersion+" to "+currentVersion, nil)
+
+			go runPostUpdateIdentityRefresh(ctx, deviceStore, log)
 		}
 	}
 
