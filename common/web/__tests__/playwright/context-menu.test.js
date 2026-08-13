@@ -110,16 +110,16 @@ test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(async () => {
   server = startAppFixtureServer();
-  
+
   server.on('connection', (conn) => {
     activeConnections.add(conn);
     conn.on('close', () => activeConnections.delete(conn));
   });
-  
+
   await new Promise(resolve => server.listen(0, resolve));
   const { port } = server.address();
   global.__PM_BASE_URL__ = `http://127.0.0.1:${port}`;
-  
+
   await waitForServerReady(`${global.__PM_BASE_URL__}/`);
 });
 
@@ -164,13 +164,13 @@ function createApiHandler(apiCalls = []) {
   return route => {
     const url = route.request().url();
     const method = route.request().method();
-    
+
     // Track POST calls for verification
     if (method === 'POST') {
       const postData = route.request().postData();
       apiCalls.push({ url, method, body: postData ? JSON.parse(postData) : null });
     }
-    
+
     if (url.includes('/api/v1/auth/me')) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(adminUser) });
     }
@@ -199,6 +199,21 @@ function isMobileViewport(page) {
   return size && size.width < 768;
 }
 
+async function openContextMenu(page, target, contextMenu) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await target.click({ button: 'right' });
+    try {
+      await expect(contextMenu).toBeVisible({ timeout: 2000 });
+      await expect(contextMenu.locator('.pm-context-menu-item').first()).toBeVisible({ timeout: 2000 });
+      return;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(50);
+    }
+  }
+}
+
 // ========== Device Context Menu - Single Page Load ==========
 
 test('device context menu: appearance, actions, delete flow', async ({ page, browserName }) => {
@@ -207,112 +222,94 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
   if (browserName === 'chromium') {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   }
-  
+
   const apiCalls = [];
-  
+
   // Setup mocks
   await page.addInitScript(() => {
     window.EventSource = class {
       constructor() { this.readyState = 1; }
-      addEventListener() {}
-      close() {}
+      addEventListener() { }
+      close() { }
     };
     window.WebSocket = class {
-      constructor() {}
-      addEventListener() {}
-      close() {}
+      constructor() { }
+      addEventListener() { }
+      close() { }
     };
   });
   await page.route('**/api/**', createApiHandler(apiCalls));
-  
+
   // Load app once
   await page.goto(`${global.__PM_BASE_URL__}/app`, { waitUntil: 'networkidle' });
   await page.waitForSelector('#desktop_tabs .tab[data-target="devices"]', { timeout: 10000 });
-  
+
   // Navigate to devices
   await page.locator('#desktop_tabs [data-target="devices"]').first().click();
   await page.waitForSelector('[data-serial="ABC123"]', { timeout: 10000 });
-  
+
   // Wait for context menu handlers to be bound (race condition fix)
   // The DOM element appears before initDeviceContextMenu() runs
   await page.waitForFunction(() => {
     const table = document.getElementById('devices_table');
     const cards = document.getElementById('devices_cards');
     return (table && table.dataset.contextMenuBound === 'true') ||
-           (cards && cards.dataset.contextMenuBound === 'true');
+      (cards && cards.dataset.contextMenuBound === 'true');
   }, { timeout: 5000 });
-  
+
   // Small stabilization wait to ensure event handlers are fully attached
   await page.waitForTimeout(100);
-  
+
   // --- Test 1: Context menu appears on right-click ---
   const deviceElement = page.locator('[data-serial="ABC123"]').first();
-  
-  // Retry right-click if context menu doesn't appear (handles timing edge cases)
+
   const contextMenu = page.locator('.pm-context-menu');
-  for (let attempt = 0; attempt < 3; attempt++) {
-    await deviceElement.click({ button: 'right' });
-    try {
-      await expect(contextMenu).toBeVisible({ timeout: 2000 });
-      // Wait for menu items to be populated (menu can be visible before items render)
-      await expect(contextMenu.locator('.pm-context-menu-item').first()).toBeVisible({ timeout: 2000 });
-      break;
-    } catch (e) {
-      if (attempt === 2) throw e;
-      // Close any partial menu and retry
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(50);
-    }
-  }
-  
+  await openContextMenu(page, deviceElement, contextMenu);
+
   // Verify menu items exist (increase timeout for stability)
   await expect(contextMenu.locator('[data-action="show-printer-details"]')).toBeVisible({ timeout: 5000 });
   await expect(contextMenu.locator('[data-action="copy-serial"]')).toBeVisible({ timeout: 5000 });
   await expect(contextMenu.locator('[data-action="delete-device"]')).toBeVisible({ timeout: 5000 });
-  
+
   // Verify delete has danger styling
   const deleteItem = contextMenu.locator('[data-action="delete-device"]');
   await expect(deleteItem).toHaveClass(/danger/);
-  
+
   // Verify dividers exist
   await expect(contextMenu.locator('.pm-context-menu-divider').first()).toBeVisible();
-  
+
   // --- Test 2: Menu closes on escape ---
   await page.keyboard.press('Escape');
   await expect(contextMenu).not.toBeVisible({ timeout: 2000 });
-  
+
   // --- Test 3: Menu closes on outside click ---
-  await deviceElement.click({ button: 'right' });
-  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+  await openContextMenu(page, deviceElement, contextMenu);
   await page.click('body', { position: { x: 10, y: 10 } });
   await expect(contextMenu).not.toBeVisible({ timeout: 2000 });
-  
+
   // --- Test 4: Copy serial shows toast ---
   // Wait for outside-click listener cleanup (showContextMenu registers it with a 10ms setTimeout)
   await page.waitForTimeout(50);
-  await deviceElement.click({ button: 'right' });
-  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+  await openContextMenu(page, deviceElement, contextMenu);
   await contextMenu.locator('[data-action="copy-serial"]').click();
-  
+
   await expect(page.locator('.toast:visible').first()).toBeVisible({ timeout: 3000 });
   await expect(page.locator('.toast:visible').first()).toContainText('copied');
-  
+
   // Wait for all toasts to clear from DOM (3s display + 300ms exit animation)
   await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 8000 });
-  
+
   // --- Test 5: Copy IP shows toast ---
-  await deviceElement.click({ button: 'right' });
-  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+  await openContextMenu(page, deviceElement, contextMenu);
   await contextMenu.locator('[data-action="copy-device-ip"]').click();
-  
+
   await expect(page.locator('.toast:visible').first()).toBeVisible({ timeout: 3000 });
   await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 8000 });
-  
+
   // --- Test 6: Delete device shows confirmation modal ---
-  await deviceElement.click({ button: 'right' });
-  await expect(contextMenu).toBeVisible({ timeout: 5000 });
+  await openContextMenu(page, deviceElement, contextMenu);
   await contextMenu.locator('[data-action="delete-device"]').click();
-  
+
   const modal = page.locator('.modal-overlay:visible');
   await expect(modal).toBeVisible({ timeout: 5000 });
   await expect(modal.locator('text=ABC123')).toBeVisible();
@@ -321,35 +318,35 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
 
   const deleteMetricsCheckbox = modal.locator('input[id$="_delete_metrics"]');
   const deleteFromAgentCheckbox = modal.locator('input[id$="_delete_from_agent"]');
-  
+
   // --- Test 7: Modal checkboxes work ---
   await expect(deleteMetricsCheckbox).not.toBeChecked();
   await deleteMetricsCheckbox.check();
   await expect(deleteMetricsCheckbox).toBeChecked();
   await deleteFromAgentCheckbox.check();
   await expect(deleteFromAgentCheckbox).toBeChecked();
-  
+
   // --- Test 8: Cancel closes modal without API call ---
   apiCalls.length = 0; // Clear tracked calls
   await modal.locator('button:has-text("Cancel")').click();
   await expect(modal).not.toBeVisible({ timeout: 2000 });
   expect(apiCalls.filter(c => c.url.includes('/delete'))).toHaveLength(0);
-  
+
   // --- Test 9: Delete sends correct API request ---
-  await deviceElement.click({ button: 'right' });
+  await openContextMenu(page, deviceElement, contextMenu);
   await contextMenu.locator('[data-action="delete-device"]').click();
   await expect(modal).toBeVisible({ timeout: 5000 });
-  
+
   // Check both options
   await deleteMetricsCheckbox.check();
   await deleteFromAgentCheckbox.check();
-  
+
   // Click delete
   await modal.locator('button:has-text("Delete")').click();
-  
+
   // Wait for API call
   await page.waitForTimeout(500);
-  
+
   const deleteCall = apiCalls.find(c => c.url.includes('/devices/delete'));
   expect(deleteCall).toBeTruthy();
   expect(deleteCall.body.serial).toBe('ABC123');
@@ -362,48 +359,48 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
 
 test('agent context menu: appearance and actions', async ({ page, browserName }) => {
   test.skip(isMobileViewport(page), 'Context menus are desktop-only (mobile uses different navigation)');
-  
+
   // Grant clipboard permissions (Chromium only - Firefox/WebKit don't support these permissions)
   if (browserName === 'chromium') {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   }
-  
+
   await page.addInitScript(() => {
     window.EventSource = class {
       constructor() { this.readyState = 1; }
-      addEventListener() {}
-      close() {}
+      addEventListener() { }
+      close() { }
     };
     window.WebSocket = class {
-      constructor() {}
-      addEventListener() {}
-      close() {}
+      constructor() { }
+      addEventListener() { }
+      close() { }
     };
   });
   await page.route('**/api/**', createApiHandler());
-  
+
   await page.goto(`${global.__PM_BASE_URL__}/app`, { waitUntil: 'networkidle' });
   await page.waitForSelector('#desktop_tabs .tab[data-target="agents"]', { timeout: 10000 });
-  
+
   // Navigate to agents (should already be there by default)
   await page.locator('#desktop_tabs [data-target="agents"]').first().click();
   await page.waitForSelector('[data-agent-id="agent-001"]', { timeout: 10000 });
-  
+
   // Wait for context menu handlers to be bound (race condition fix)
   // The DOM element appears before initAgentContextMenu() runs
   await page.waitForFunction(() => {
     const table = document.getElementById('agents_table');
     const cards = document.getElementById('agents_cards');
     return (table && table.dataset.contextMenuBound === 'true') ||
-           (cards && cards.dataset.contextMenuBound === 'true');
+      (cards && cards.dataset.contextMenuBound === 'true');
   }, { timeout: 5000 });
-  
+
   // Small stabilization wait to ensure event handlers are fully attached
   await page.waitForTimeout(100);
-  
+
   const agentElement = page.locator('[data-agent-id="agent-001"]').first();
   await expect(agentElement).toBeVisible();
-  
+
   // --- Test 1: Context menu appears ---
   // Retry right-click if context menu doesn't appear (handles timing edge cases)
   const contextMenu = page.locator('.pm-context-menu');
@@ -419,31 +416,31 @@ test('agent context menu: appearance and actions', async ({ page, browserName })
       await page.waitForTimeout(50);
     }
   }
-  
+
   // Verify agent menu items
   await expect(contextMenu.locator('[data-action="view-agent"]')).toBeVisible();
   await expect(contextMenu.locator('[data-action="copy-agent-id"]')).toBeVisible();
   await expect(contextMenu.locator('[data-action="delete-agent"]')).toBeVisible();
-  
+
   // Verify delete has danger styling
   await expect(contextMenu.locator('[data-action="delete-agent"]')).toHaveClass(/danger/);
-  
+
   // --- Test 2: Copy agent ID shows toast ---
   await contextMenu.locator('[data-action="copy-agent-id"]').click();
-  
+
   await expect(page.locator('.toast:visible').first()).toBeVisible({ timeout: 3000 });
   await expect(page.locator('.toast:visible').first()).toContainText('Agent ID');
-  
+
   await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 5000 });
-  
+
   // --- Test 3: Copy IP shows toast ---
   await agentElement.click({ button: 'right' });
   await expect(contextMenu).toBeVisible({ timeout: 5000 });
   await contextMenu.locator('[data-action="copy-agent-ip"]').click();
-  
+
   await expect(page.locator('.toast:visible').first()).toBeVisible({ timeout: 3000 });
   await page.waitForFunction(() => document.querySelectorAll('.toast').length === 0, { timeout: 5000 });
-  
+
   // --- Test 4: Menu closes on escape ---
   await agentElement.click({ button: 'right' });
   await expect(contextMenu).toBeVisible({ timeout: 5000 });
