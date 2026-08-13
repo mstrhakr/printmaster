@@ -3219,6 +3219,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 	storageAdapter := &deviceStorageAdapter{store: deviceStore}
 	agent.SetDeviceStorage(storageAdapter)
 	appLogger.Info("Device storage connected", "mode", "auto_persist")
+	startIdentityRefreshForVersionChange(ctx, agentConfigStore, deviceStore, appLogger)
 
 	// Start garbage collection goroutine
 	retentionConfig := agent.GetRetentionConfig()

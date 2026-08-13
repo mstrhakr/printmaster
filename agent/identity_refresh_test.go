@@ -9,6 +9,37 @@ import (
 	"printmaster/agent/storage"
 )
 
+func TestShouldRefreshIdentitiesForVersion(t *testing.T) {
+	configStore := newFakeConfigStore()
+
+	shouldRefresh, err := shouldRefreshIdentitiesForVersion(configStore, "0.30.6+abc123")
+	if err != nil {
+		t.Fatalf("shouldRefreshIdentitiesForVersion() error = %v", err)
+	}
+	if !shouldRefresh {
+		t.Fatal("expected first startup to schedule an identity refresh")
+	}
+
+	if err := configStore.SetConfigValue(identityRefreshVersionConfigKey, "0.30.6+abc123"); err != nil {
+		t.Fatalf("SetConfigValue() error = %v", err)
+	}
+	shouldRefresh, err = shouldRefreshIdentitiesForVersion(configStore, "0.30.6+abc123")
+	if err != nil {
+		t.Fatalf("shouldRefreshIdentitiesForVersion() error = %v", err)
+	}
+	if shouldRefresh {
+		t.Fatal("did not expect refresh when the version marker matches")
+	}
+
+	shouldRefresh, err = shouldRefreshIdentitiesForVersion(configStore, "0.30.7+def456")
+	if err != nil {
+		t.Fatalf("shouldRefreshIdentitiesForVersion() error = %v", err)
+	}
+	if !shouldRefresh {
+		t.Fatal("expected refresh after a version change")
+	}
+}
+
 func TestRefreshKnownDeviceIdentitiesPersistsMatchingSerial(t *testing.T) {
 	device := &storage.Device{}
 	device.IP = "192.168.100.99"

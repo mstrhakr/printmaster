@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -10,7 +11,10 @@ import (
 	"printmaster/common/logger"
 )
 
-const identityRefreshWorkers = 5
+const (
+	identityRefreshWorkers          = 5
+	identityRefreshVersionConfigKey = "identity_refresh_version"
+)
 
 type identityRefreshResult struct {
 	Attempted int
@@ -74,35 +78,94 @@ func refreshKnownDeviceIdentities(
 
 	for _, device := range devices {
 		if device == nil || device.IP == "" || device.Serial == "" {
+			mu.Lock()
 			result.Skipped++
+			mu.Unlock()
 			continue
 		}
+		mu.Lock()
 		result.Attempted++
-		jobs <- device
+		mu.Unlock()
+		select {
+		case jobs <- device:
+		case <-ctx.Done():
+			close(jobs)
+			workers.Wait()
+			return result
+		}
 	}
 	close(jobs)
 	workers.Wait()
 	return result
 }
 
-// runPostUpdateIdentityRefresh applies the identity-maintenance workflow after
-// a verified agent update. Other maintenance triggers can reuse it directly.
-func runPostUpdateIdentityRefresh(ctx context.Context, store storage.DeviceStore, log *logger.Logger) {
+func currentIdentityRefreshVersion() string {
+	if strings.TrimSpace(GitCommit) == "" {
+		return Version
+	}
+	return Version + "+" + GitCommit
+}
+
+func shouldRefreshIdentitiesForVersion(configStore storage.AgentConfigStore, version string) (bool, error) {
+	if configStore == nil {
+		return false, fmt.Errorf("agent config store is unavailable")
+	}
+
+	var lastRefreshedVersion string
+	if err := configStore.GetConfigValue(identityRefreshVersionConfigKey, &lastRefreshedVersion); err != nil {
+		return false, err
+	}
+	return lastRefreshedVersion != version, nil
+}
+
+func refreshKnownDeviceIdentitiesFromStore(ctx context.Context, store storage.DeviceStore, log *logger.Logger) (identityRefreshResult, error) {
 	if store == nil {
-		return
+		return identityRefreshResult{}, fmt.Errorf("device store is unavailable")
 	}
 
 	devices, err := store.List(ctx, storage.DeviceFilter{})
 	if err != nil {
-		log.Warn("Post-update identity refresh: failed to list devices", "error", err)
-		return
+		return identityRefreshResult{}, err
 	}
 
 	adapter := &deviceStorageAdapter{store: store}
 	result := refreshKnownDeviceIdentities(ctx, devices, LiveDiscoveryDetect, adapter.StoreDiscoveredDevice)
-	log.Info("Post-update identity refresh completed",
+	log.Info("Identity refresh completed",
 		"attempted", result.Attempted,
 		"refreshed", result.Refreshed,
 		"skipped", result.Skipped,
 		"failed", result.Failed)
+	return result, nil
+}
+
+// startIdentityRefreshForVersionChange refreshes known devices when the
+// running build differs from the build that last completed a refresh. The
+// marker is written only after all queried devices are processed without
+// query or persistence failures, so an interrupted refresh retries later.
+func startIdentityRefreshForVersionChange(ctx context.Context, configStore storage.AgentConfigStore, store storage.DeviceStore, log *logger.Logger) {
+	version := currentIdentityRefreshVersion()
+	shouldRefresh, err := shouldRefreshIdentitiesForVersion(configStore, version)
+	if err != nil {
+		log.Warn("Identity refresh version check failed", "error", err)
+		return
+	}
+	if !shouldRefresh {
+		return
+	}
+
+	log.Info("Identity refresh scheduled for new agent version", "version", version)
+	go func() {
+		result, err := refreshKnownDeviceIdentitiesFromStore(ctx, store, log)
+		if err != nil {
+			log.Warn("Identity refresh failed", "error", err)
+			return
+		}
+		if result.Failed > 0 {
+			log.Warn("Identity refresh incomplete; it will retry on the next startup", "failed", result.Failed)
+			return
+		}
+		if err := configStore.SetConfigValue(identityRefreshVersionConfigKey, version); err != nil {
+			log.Warn("Failed to record identity refresh version", "error", err, "version", version)
+		}
+	}()
 }
