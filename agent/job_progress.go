@@ -166,7 +166,7 @@ func collectMetricsAsync(jobID, serial, ip string, device *storage.Device) {
 	sendJobProgress(jobID, jobType, JobStatusRunning, 5, "Starting metrics collection...", "", nil)
 
 	// Check for USB device type
-	if device != nil && (device.DeviceType == "usb" || device.IsUSB) {
+	if device != nil && (device.DeviceType == "usb" || device.IsUSB) && usbProxySupported() {
 		sendJobProgress(jobID, jobType, JobStatusRunning, 10, "Detected USB device, collecting metrics...", "", nil)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

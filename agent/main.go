@@ -5959,7 +5959,7 @@ func runInteractive(ctx context.Context, configFlag string) {
 		// Check if this is a USB printer - if so, we'll use USB transport with the standard proxy flow
 		// This ensures all URL rewriting logic is applied consistently
 		var usbTransport http.RoundTripper
-		isUSBDevice := CanUSBProxySerial(serial)
+		isUSBDevice := CanUSBProxySerial(serial) && usbProxySupported()
 		if isUSBDevice {
 			var err error
 			usbTransport, err = GetUSBTransportForSerial(serial)
@@ -6273,9 +6273,12 @@ window.top.location.href = '/proxy/%s/';
 		// Capture sessionJar for safe closure access (avoid races)
 		capturedJar := sessionJar
 
-		// Attach Basic Auth header or session cookies
-		rproxy.Director = func(req *http.Request) {
-			// Base director behavior to set URL/Host/Path
+		// Rewrite requests using the modern ReverseProxy hook.
+		rproxy.Rewrite = func(pr *httputil.ProxyRequest) {
+			req := pr.Out
+
+			// Base rewrite behavior to set URL/Host/Path
+			pr.SetURL(target)
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
 			req.URL.Path = targetPath
@@ -6286,7 +6289,7 @@ window.top.location.href = '/proxy/%s/';
 
 			// Rewrite Referer and Origin headers to the upstream origin so vendor UIs that enforce
 			// CSRF/host checks don't reject proxied form posts or XHR requests.
-			if ref := req.Header.Get("Referer"); ref != "" {
+			if ref := pr.In.Header.Get("Referer"); ref != "" {
 				if u, err := url.Parse(ref); err == nil {
 					if strings.HasPrefix(u.Path, proxyPrefix) {
 						upPath := strings.TrimPrefix(u.Path, proxyPrefix)
@@ -6300,15 +6303,15 @@ window.top.location.href = '/proxy/%s/';
 						if u.Fragment != "" {
 							newRef += "#" + u.Fragment
 						}
-						appLogger.TraceTag("proxy_director", "Rewriting Referer header", "original", ref, "rewritten", newRef)
+						appLogger.TraceTag("proxy_rewrite", "Rewriting Referer header", "original", ref, "rewritten", newRef)
 						req.Header.Set("Referer", newRef)
 					}
 				}
 			}
 
-			if origOrigin := req.Header.Get("Origin"); origOrigin != "" {
+			if origOrigin := pr.In.Header.Get("Origin"); origOrigin != "" {
 				newOrigin := target.Scheme + "://" + target.Host
-				appLogger.TraceTag("proxy_director", "Rewriting Origin header", "original", origOrigin, "rewritten", newOrigin)
+				appLogger.TraceTag("proxy_rewrite", "Rewriting Origin header", "original", origOrigin, "rewritten", newOrigin)
 				req.Header.Set("Origin", newOrigin)
 			}
 
@@ -6330,17 +6333,17 @@ window.top.location.href = '/proxy/%s/';
 						}
 					}()
 					if cookies := capturedJar.Cookies(target); len(cookies) > 0 {
-						appLogger.Debug("Proxy Director: attaching cookies", "path", req.URL.Path, "cookie_count", len(cookies))
+						appLogger.Debug("Proxy Rewrite: attaching cookies", "path", req.URL.Path, "cookie_count", len(cookies))
 						for _, c := range cookies {
-							appLogger.Debug("Proxy Director: adding cookie", "name", c.Name, "value_length", len(c.Value))
+							appLogger.Debug("Proxy Rewrite: adding cookie", "name", c.Name, "value_length", len(c.Value))
 							req.AddCookie(c)
 						}
 					} else {
-						appLogger.Debug("Proxy Director: no cookies to attach", "path", req.URL.Path, "has_jar", capturedJar != nil)
+						appLogger.Debug("Proxy Rewrite: no cookies to attach", "path", req.URL.Path, "has_jar", capturedJar != nil)
 					}
 				}()
 			} else {
-				appLogger.Debug("Proxy Director: skipping cookies", "has_jar", capturedJar != nil, "has_target", target != nil, "path", req.URL.Path)
+				appLogger.Debug("Proxy Rewrite: skipping cookies", "has_jar", capturedJar != nil, "has_target", target != nil, "path", req.URL.Path)
 			}
 		}
 
@@ -7551,7 +7554,7 @@ window.top.location.href = '/proxy/%s/';
 
 		// Synchronous mode (original behavior)
 		// Check for USB device type
-		if device != nil && (device.DeviceType == "usb" || device.IsUSB) {
+		if device != nil && (device.DeviceType == "usb" || device.IsUSB) && usbProxySupported() {
 			// USB device - use USB proxy metrics collection
 			appLogger.Info("Collecting USB metrics", "serial", req.Serial)
 
