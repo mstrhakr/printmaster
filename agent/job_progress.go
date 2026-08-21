@@ -172,10 +172,10 @@ func collectMetricsAsync(jobID, serial, ip string, device *storage.Device) {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		storageSnapshot, err := CollectUSBMetricsSnapshot(ctx, serial)
-		if err != nil {
-			appLogger.Warn("USB metrics collection failed", "serial", serial, "error", err.Error())
-			sendJobProgress(jobID, jobType, JobStatusFailed, 0, "USB metrics collection failed", err.Error(), nil)
+		storageSnapshot, ok := usbProxyMetricsSnapshot(ctx, serial)
+		if !ok {
+			appLogger.Warn("USB metrics collection failed", "serial", serial)
+			sendJobProgress(jobID, jobType, JobStatusFailed, 0, "USB metrics collection failed", "USB metrics unavailable", nil)
 			return
 		}
 

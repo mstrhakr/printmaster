@@ -14,3 +14,7 @@ func IsSupported() bool {
 func NewEnumerator(logger Logger) (USBDeviceEnumerator, error) {
 	return nil, errors.New("USB proxy not supported on this platform")
 }
+
+func usbProxyNewEnumerator(logger Logger) (USBDeviceEnumerator, bool) {
+	return nil, false
+}

@@ -118,6 +118,14 @@ func NewEnumerator(logger Logger) (USBDeviceEnumerator, error) {
 	return &WindowsEnumerator{logger: logger}, nil
 }
 
+func usbProxyNewEnumerator(logger Logger) (USBDeviceEnumerator, bool) {
+	enumerator, err := NewEnumerator(logger)
+	if err != nil {
+		return nil, false
+	}
+	return enumerator, true
+}
+
 // Enumerate finds all USB printers that might support IPP-USB via WinUSB
 func (e *WindowsEnumerator) Enumerate() ([]*USBPrinter, error) {
 	var printers []*USBPrinter

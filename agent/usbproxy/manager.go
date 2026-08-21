@@ -40,9 +40,9 @@ func NewManager(config Config) (*Manager, error) {
 		config.Logger = nullLogger{}
 	}
 
-	enumerator, err := NewEnumerator(config.Logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create USB enumerator: %w", err)
+	enumerator, ok := usbProxyNewEnumerator(config.Logger)
+	if !ok {
+		return nil, fmt.Errorf("USB proxy not supported on this platform")
 	}
 
 	return &Manager{

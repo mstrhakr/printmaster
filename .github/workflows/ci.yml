@@ -49,7 +49,7 @@ jobs:
         working-directory: ./common
         run: go test -v -coverprofile=coverage.out ./...
 
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v7
         with:
           file: ./common/coverage.out
           flags: common
@@ -79,7 +79,7 @@ jobs:
         working-directory: ./agent
         run: go test -v -coverprofile=coverage.out ./...
 
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v7
         with:
           file: ./agent/coverage.out
           flags: agent
@@ -109,7 +109,7 @@ jobs:
         working-directory: ./server
         run: go test -v -coverprofile=coverage.out ./...
 
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v7
         with:
           file: ./server/coverage.out
           flags: server
@@ -119,7 +119,7 @@ jobs:
         working-directory: ./server
         run: go test -v -tags=integration -coverprofile=coverage-integration.out ./storage/...
 
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v7
         with:
           file: ./server/coverage-integration.out
           flags: server-integration

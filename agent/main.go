@@ -5961,11 +5961,11 @@ func runInteractive(ctx context.Context, configFlag string) {
 		var usbTransport http.RoundTripper
 		isUSBDevice := CanUSBProxySerial(serial) && usbProxySupported()
 		if isUSBDevice {
-			var err error
-			usbTransport, err = GetUSBTransportForSerial(serial)
-			if err != nil {
-				appLogger.Warn("Proxy: USB transport error", "serial", serial, "error", err.Error())
-				http.Error(w, "USB printer connection failed: "+err.Error(), http.StatusBadGateway)
+			var ok bool
+			usbTransport, ok = usbProxyTransportForSerial(serial)
+			if !ok {
+				appLogger.Warn("Proxy: USB transport unavailable", "serial", serial)
+				http.Error(w, "USB printer connection failed", http.StatusBadGateway)
 				return
 			}
 			appLogger.Debug("Proxy: using USB transport", "serial", serial, "path", r.URL.Path)
@@ -7558,10 +7558,10 @@ window.top.location.href = '/proxy/%s/';
 			// USB device - use USB proxy metrics collection
 			appLogger.Info("Collecting USB metrics", "serial", req.Serial)
 
-			storageSnapshot, err := CollectUSBMetricsSnapshot(r.Context(), req.Serial)
-			if err != nil {
-				appLogger.Warn("USB metrics collection failed", "serial", req.Serial, "error", err.Error())
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+			storageSnapshot, ok := usbProxyMetricsSnapshot(r.Context(), req.Serial)
+			if !ok {
+				appLogger.Warn("USB metrics collection failed", "serial", req.Serial)
+				http.Error(w, "USB metrics collection failed", http.StatusInternalServerError)
 				return
 			}
 
