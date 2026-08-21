@@ -260,8 +260,19 @@ test('device context menu: appearance, actions, delete flow', async ({ page, bro
   // Small stabilization wait to ensure event handlers are fully attached
   await page.waitForTimeout(100);
 
+  // Clear any lingering selection state so this test always exercises the
+  // single-device menu path, even if a prior interaction left multiple items
+  // selected in the same browser context.
+  await page.evaluate(() => {
+    const selection = window.devicesVM?.selection;
+    if (selection) {
+      selection.selectedIds.clear();
+      selection.lastSelected = null;
+    }
+  });
+
   // --- Test 1: Context menu appears on right-click ---
-  const deviceElement = page.locator('[data-serial="ABC123"]').first();
+  const deviceElement = page.locator('.saved-device-card[data-serial="ABC123"], .device-card[data-serial="ABC123"], tr[data-serial="ABC123"]').first();
 
   const contextMenu = page.locator('.pm-context-menu');
   await openContextMenu(page, deviceElement, contextMenu);
