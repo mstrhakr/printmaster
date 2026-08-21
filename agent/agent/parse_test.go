@@ -87,6 +87,25 @@ func TestParsePDUs_VendorDeviceIDSetsModelAndSerial(t *testing.T) {
 	}
 }
 
+func TestParsePDUs_RicohEnterpriseOID(t *testing.T) {
+	t.Parallel()
+
+	vars := []gosnmp.SnmpPDU{
+		{Name: "1.3.6.1.2.1.1.2.0", Type: gosnmp.ObjectIdentifier, Value: ".1.3.6.1.4.1.367.1.1"},
+		{Name: "1.3.6.1.2.1.1.1.0", Type: gosnmp.OctetString, Value: []byte("RICOH IM C4510 2.07 / RICOH Network Printer C model")},
+		{Name: "1.3.6.1.4.1.367.3.2.1.1.1.11.0", Type: gosnmp.OctetString, Value: []byte("MFG:RICOH;MDL:IM C4510;SN:9175R401338;DES:RICOH IM C4510;")},
+		{Name: "1.3.6.1.2.1.43.10.2.1.4.1.1", Type: gosnmp.Integer, Value: 207124},
+	}
+
+	pi, ok := ParsePDUs("192.168.100.99", vars, nil, nil)
+	if !ok {
+		t.Fatal("expected Ricoh device to be detected as a printer")
+	}
+	if pi.Manufacturer != "Ricoh" {
+		t.Errorf("Manufacturer = %q, want Ricoh", pi.Manufacturer)
+	}
+}
+
 func TestMergeVendorMetrics_EpsonICEOIDs(t *testing.T) {
 	t.Parallel()
 

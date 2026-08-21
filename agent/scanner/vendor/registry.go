@@ -81,6 +81,7 @@ var EnterpriseOIDMap = map[string]string{
 	"1248": "Epson",   // Seiko Epson Corporation
 	"236":  "Samsung", // Samsung Electronics
 	"253":  "Xerox",   // Xerox Corporation
+	"9":    "Dell",    // Dell Inc.
 	// Add more as needed
 }
 
@@ -168,6 +169,18 @@ func extractEnterpriseNumber(sysObjectID string) string {
 	}
 
 	return ""
+}
+
+// ManufacturerForEnterprise returns the normalized manufacturer name for an
+// IANA enterprise number, or an empty string when it is not known.
+func ManufacturerForEnterprise(enterprise string) string {
+	return EnterpriseOIDMap[enterprise]
+}
+
+// ManufacturerForSysObjectID returns the normalized manufacturer name for a
+// standard SNMP enterprise OID, or an empty string when it is not known.
+func ManufacturerForSysObjectID(sysObjectID string) string {
+	return ManufacturerForEnterprise(extractEnterpriseNumber(sysObjectID))
 }
 
 // GetVendorName returns the human-readable vendor name for a device.

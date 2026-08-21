@@ -923,26 +923,10 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 		reasons = append(reasons, "sysDescr")
 	}
 
-	// determine manufacturer: prefer sysObjectID enterprise roots, then sysDescr, then heuristic guesses
+	// Determine manufacturer: prefer sysObjectID enterprise roots, then sysDescr, then heuristic guesses.
 	manufacturer := ""
 	if soidPdu, ok := pduByOid["1.3.6.1.2.1.1.2.0"]; ok {
-		soid := pduToString(soidPdu.Value)
-		if strings.Contains(soid, "1.3.6.1.4.1.11") {
-			manufacturer = "HP"
-		} else if strings.Contains(soid, "1.3.6.1.4.1.2435") {
-			manufacturer = "Brother"
-		} else if strings.Contains(soid, "1.3.6.1.4.1.1602") {
-			manufacturer = "Canon"
-		} else if strings.Contains(soid, "1.3.6.1.4.1.641") {
-			manufacturer = "Lexmark"
-		} else if strings.Contains(soid, "1.3.6.1.4.1.367") || strings.Contains(soid, "1.3.6.1.4.1.231") {
-			// Epson enterprise is 367; include 231 legacy mapping if observed
-			manufacturer = "Epson"
-		} else if strings.Contains(soid, "1.3.6.1.4.1.1347") {
-			manufacturer = "Kyocera"
-		} else if strings.Contains(soid, "1.3.6.1.4.1.9") {
-			manufacturer = "Dell"
-		}
+		manufacturer = vendor.ManufacturerForSysObjectID(pduToString(soidPdu.Value))
 	}
 	if manufacturer == "" {
 		if sdescPdu, ok := pduByOid["1.3.6.1.2.1.1.1.0"]; ok {
@@ -993,30 +977,9 @@ func ParsePDUs(scanIP string, vars []gosnmp.SnmpPDU, meta *ScanMeta, logFn func(
 		// scan any returned OID names for enterprise prefix as a last resort
 		for _, v := range allVars {
 			name := strings.TrimPrefix(v.Name, ".")
-			if strings.HasPrefix(name, "1.3.6.1.4.1.") {
-				parts := strings.Split(name, ".")
-				if len(parts) >= 7 {
-					ent := parts[6]
-					switch ent {
-					case "11":
-						manufacturer = "HP"
-					case "2435":
-						manufacturer = "Brother"
-					case "1602":
-						manufacturer = "Canon"
-					case "641":
-						manufacturer = "Lexmark"
-					case "367", "231":
-						manufacturer = "Epson"
-					case "1347":
-						manufacturer = "Kyocera"
-					case "9":
-						manufacturer = "Dell"
-					}
-					if manufacturer != "" {
-						break
-					}
-				}
+			manufacturer = vendor.ManufacturerForSysObjectID(name)
+			if manufacturer != "" {
+				break
 			}
 		}
 	}
