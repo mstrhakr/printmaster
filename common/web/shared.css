@@ -270,7 +270,7 @@ body::before {
   border-radius: 6px;
   border: 1px solid var(--border);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   font-weight: 500;
 }
 
@@ -282,7 +282,6 @@ body::before {
 
 .modal-button-primary:hover {
   background: var(--btn-primary-hover);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
 
@@ -294,7 +293,6 @@ body::before {
 
 .modal-button-secondary:hover {
   background: var(--bg);
-  transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
 
@@ -306,7 +304,6 @@ body::before {
 
 .modal-button-danger:hover {
   background: #b33030;
-  transform: translateY(-1px);
   box-shadow: var(--shadow-md);
 }
 
