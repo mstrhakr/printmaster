@@ -12,6 +12,7 @@
   },
   "scripts": {
     "test:js": "jest --runInBand",
-    "test:playwright": "npx playwright test common/web/__tests__/playwright --config=playwright.config.js"
+    "test:playwright": "npx playwright test common/web/__tests__/playwright --config=playwright.config.js",
+    "test:playwright:all": "PW_ALL_BROWSERS=1 npx playwright test common/web/__tests__/playwright --config=playwright.config.js"
   }
 }

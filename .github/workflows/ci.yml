@@ -176,8 +176,10 @@ jobs:
           (cd agent && go build -o printmaster-agent .)
           (cd server && go build -o printmaster-server .)
 
-      - name: Playwright tests
-        run: npm run test:playwright
+      - name: Playwright tests (cross-browser)
+        env:
+          PW_ALL_BROWSERS: '1'
+        run: npm run test:playwright:all
 
       - uses: actions/upload-artifact@v7
         if: always()
