@@ -989,7 +989,7 @@ func TestAgentRegistrationWithMetadata(t *testing.T) {
 		"ip":               "192.168.1.200",
 		"platform":         "linux",
 		"os_version":       "Ubuntu 22.04",
-		"go_version":       "go1.21.0",
+			"go_version":       "go1.27.0",
 		"architecture":     "amd64",
 		"num_cpu":          8,
 		"total_memory_mb":  16384,
@@ -1035,8 +1035,8 @@ func TestAgentRegistrationWithMetadata(t *testing.T) {
 	if agent.OSVersion != "Ubuntu 22.04" {
 		t.Errorf("Expected OSVersion=Ubuntu 22.04, got %s", agent.OSVersion)
 	}
-	if agent.GoVersion != "go1.21.0" {
-		t.Errorf("Expected GoVersion=go1.21.0, got %s", agent.GoVersion)
+	if agent.GoVersion != "go1.27.0" {
+		t.Errorf("Expected GoVersion=go1.27.0, got %s", agent.GoVersion)
 	}
 	if agent.Architecture != "amd64" {
 		t.Errorf("Expected Architecture=amd64, got %s", agent.Architecture)
@@ -1074,7 +1074,7 @@ func TestAgentDetailsEndpoint(t *testing.T) {
 		LastSeen:        time.Now(),
 		Status:          "active",
 		OSVersion:       "macOS 14.0",
-		GoVersion:       "go1.21.0",
+		GoVersion:       "go1.27.0",
 		Architecture:    "arm64",
 		NumCPU:          10,
 		TotalMemoryMB:   32768,

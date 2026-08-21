@@ -236,7 +236,7 @@ Settings configured via Web UI are stored in SQLite and override `config.json`.
 
 ### Prerequisites
 
-- Go 1.21+ (uses modern Go features)
+- Go 1.27+ (uses modern Go features)
 - No CGO required (pure Go SQLite driver)
 - Cross-platform (Windows, macOS, Linux)
 

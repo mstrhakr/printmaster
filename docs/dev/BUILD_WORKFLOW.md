@@ -312,10 +312,10 @@ For cross-platform validation, test on Linux using WSL (Windows Subsystem for Li
 #### Install Go in WSL (one-time setup)
 
 ```bash
-# Download and install Go 1.23.3
-wget https://go.dev/dl/go1.23.3.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.23.3.linux-amd64.tar.gz
-rm go1.23.3.linux-amd64.tar.gz
+# Download and install Go 1.27.0
+wget https://go.dev/dl/go1.27.0.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.27.0.linux-amd64.tar.gz
+rm go1.27.0.linux-amd64.tar.gz
 
 # Add to PATH (append to ~/.bashrc)
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
