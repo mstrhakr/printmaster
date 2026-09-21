@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "devDependencies": {
-    "jest": "^30.5.1",
-    "jest-environment-jsdom": "^30.5.1",
+    "jest": "^30.5.2",
+    "jest-environment-jsdom": "^30.5.2",
     "@playwright/test": "^1.63.0"
   },
   "jest": {
