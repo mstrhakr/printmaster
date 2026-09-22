@@ -6,7 +6,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 LOG_DIR="$PROJECT_ROOT/logs"
 LOG_FILE="$LOG_DIR/build.log"
-MAX_LOG_FILES=10
 
 TARGET="agent"
 RELEASE=0
@@ -20,7 +19,6 @@ fi
 color_reset=$'\033[0m'
 color_dim=$'\033[2m'
 color_red=$'\033[31m'
-color_green=$'\033[32m'
 color_yellow=$'\033[33m'
 color_blue=$'\033[34m'
 
@@ -145,13 +143,14 @@ run_playwright_tests() {
     return 0
   fi
   log "Running Playwright smoke tests..."
-  (cd "$PROJECT_ROOT" && npx playwright install >/dev/null 2>&1 || true)
+  (cd "$PROJECT_ROOT" && npx playwright install >/dev/null 2>&1) || true
   (cd "$PROJECT_ROOT" && npm run test:playwright)
   playwright_passed=1
   export PRINTMASTER_PLAYWRIGHT_PASSED=1
 }
 
 test_prerequisites() {
+  local go_path
   log "Checking build prerequisites..."
   ensure_cmd go
   ensure_cmd git
@@ -160,7 +159,8 @@ test_prerequisites() {
   if ! command -v staticcheck >/dev/null 2>&1; then
     log "staticcheck not found - installing..." WARN
     go install honnef.co/go/tools/cmd/staticcheck@latest
-    export PATH="$(go env GOPATH)/bin:$PATH"
+    go_path="$(go env GOPATH)"
+    export PATH="$go_path/bin:$PATH"
   fi
   log "Found: $(go version)"
   log "Found staticcheck: $(staticcheck -version 2>/dev/null || echo installed)"
@@ -186,7 +186,7 @@ component_build_files() {
 
 build_component() {
   local component="$1"
-  local display_name output_name version_file version last_version build_number_file last_version_file build_number version_string build_type git_commit build_time ldflags out_dir build_args extra_flags
+  local display_name output_name version_file version last_version build_number_file last_version_file build_number version_string build_type git_commit build_time ldflags out_dir build_args
   display_name="${component^}"
   out_dir="$PROJECT_ROOT/$component"
   output_name="printmaster-$component"

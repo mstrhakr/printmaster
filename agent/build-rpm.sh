@@ -61,7 +61,8 @@ cp "$AGENT_DIR/fedora/printmaster-agent.spec" "$BUILD_ROOT/SPECS/"
 
 # Export environment variables for spec file
 export PRINTMASTER_VERSION="$VERSION"
-export PRINTMASTER_BINARY="$(realpath "$BINARY")"
+PRINTMASTER_BINARY="$(realpath "$BINARY")"
+export PRINTMASTER_BINARY
 
 # Build the RPM
 rpmbuild --define "_topdir $BUILD_ROOT" \

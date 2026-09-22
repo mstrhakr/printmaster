@@ -60,7 +60,6 @@ done
 color_reset=$'\033[0m'
 color_dim=$'\033[2m'
 color_red=$'\033[31m'
-color_green=$'\033[32m'
 color_yellow=$'\033[33m'
 color_blue=$'\033[34m'
 
@@ -318,7 +317,7 @@ push_release() {
 }
 
 create_github_release() {
-  local tag title changelog other_component other_version compatibility_note release_notes gh_available
+  local gh_available
   [[ "$CREATE_GITHUB_RELEASE" == "1" ]] || return 0
   if [[ "$DRY_RUN" == "1" ]]; then
     status "[DRY RUN] Would create GitHub release" WARN
@@ -328,14 +327,6 @@ create_github_release() {
   if [[ -z "$gh_available" ]]; then
     status "GitHub CLI (gh) not found - skipping release creation" WARN
     return 0
-  fi
-  other_component="agent"
-  [[ "$COMPONENT" == "server" ]] && other_component="agent" || true
-  if [[ "$COMPONENT" == "agent" ]]; then other_component="server"; fi
-  other_version="$(tr -d '\r\n' < "$PROJECT_ROOT/$other_component/VERSION" 2>/dev/null || true)"
-  compatibility_note=""
-  if [[ -n "$other_version" ]]; then
-    compatibility_note=$'\n### Compatibility\n- Matching versions recommended\n'
   fi
   case "$COMPONENT" in
     both)
