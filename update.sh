@@ -44,10 +44,23 @@ run_cmd() {
   fi
 }
 
+if [[ $EUID -eq 0 ]]; then
+  sudo_cmd=()
+elif command -v sudo >/dev/null 2>&1; then
+  sudo_cmd=(sudo)
+else
+  err "Root privileges are required to update /usr/local/bin, and sudo is unavailable"
+  exit 1
+fi
+
+run_privileged() {
+  "${sudo_cmd[@]}" "$@"
+}
+
 stop_services() {
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl stop printmaster-server.service >/dev/null 2>&1 || true
-    systemctl stop printmaster-agent.service >/dev/null 2>&1 || true
+    run_privileged systemctl stop printmaster-server.service >/dev/null 2>&1 || true
+    run_privileged systemctl stop printmaster-agent.service >/dev/null 2>&1 || true
   fi
   pkill -f 'printmaster-server' >/dev/null 2>&1 || true
   pkill -f 'printmaster-agent' >/dev/null 2>&1 || true
@@ -60,12 +73,13 @@ copy_binary() {
     exit 1
   fi
   if [[ -f "$dst" ]]; then
-    local bak="$dst.$(date +'%Y%m%d-%H%M%S').bak"
+    local bak
+    bak="$dst.$(date +'%Y%m%d-%H%M%S').bak"
     log "Backing up $dst -> $bak"
-    mv "$dst" "$bak" || warn "Backup failed for $dst"
+    run_privileged mv "$dst" "$bak" || warn "Backup failed for $dst"
   fi
   log "Copying $src -> $dst"
-  install -m 755 "$src" "$dst"
+  run_privileged install -m 755 "$src" "$dst"
 }
 
 : > "$LOG_PATH"
@@ -84,22 +98,17 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
 fi
 
 install_dir="/usr/local/bin"
-if [[ $EUID -ne 0 && -x /usr/bin/sudo ]]; then
-  sudo_cmd=(sudo)
-else
-  sudo_cmd=()
-fi
 
 if [[ ! -d "$install_dir" ]]; then
-  ${sudo_cmd[@]} mkdir -p "$install_dir"
+  run_privileged mkdir -p "$install_dir"
 fi
 
 copy_binary "$SCRIPT_DIR/agent/printmaster-agent" "$install_dir/printmaster-agent"
 copy_binary "$SCRIPT_DIR/server/printmaster-server" "$install_dir/printmaster-server"
 
 if command -v systemctl >/dev/null 2>&1; then
-  run_cmd systemctl start printmaster-server.service || true
-  run_cmd systemctl start printmaster-agent.service || true
+  run_cmd run_privileged systemctl start printmaster-server.service || true
+  run_cmd run_privileged systemctl start printmaster-agent.service || true
 fi
 
 log "Update script completed successfully"
