@@ -168,6 +168,7 @@ get_changelog_since_last_tag() {
     [[ ${#chores[@]} -gt 0 ]] && { printf '### Maintenance\n\n'; printf '%s\n' "${chores[@]}"; printf '\n'; }
     [[ ${#other[@]} -gt 0 ]] && { printf '### Other Changes\n\n'; printf '%s\n' "${other[@]}"; printf '\n'; }
   }
+  return 0
 }
 
 is_changelog_meaningful() {
