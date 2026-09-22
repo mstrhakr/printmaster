@@ -56,60 +56,58 @@ cleanup() {
 
 trap cleanup EXIT
 
-# Seed test databases
-echo "Seeding test databases..."
-./seed-testdata.sh
-echo ""
-
 # Build and start containers
 echo "Starting Docker containers..."
 docker compose -f docker-compose.e2e.yml up -d $BUILD server agent
 
-# Wait for services
-echo ""
-echo "Waiting for services to be healthy..."
+wait_for_services() {
+    local server_ready=false agent_ready=false
+    echo ""
+    echo "Waiting for services to be healthy..."
 
-SERVER_READY=false
-AGENT_READY=false
-
-for i in {1..30}; do
-    if [ "$SERVER_READY" = false ]; then
-        if curl -sf http://localhost:8443/api/health > /dev/null 2>&1; then
+    for i in {1..30}; do
+        if [ "$server_ready" = false ] && curl -sf http://localhost:9090/health > /dev/null 2>&1; then
             echo "  Server is ready!"
-            SERVER_READY=true
-        elif [ "$VERBOSE" = true ]; then
-            echo "  Attempt $i: Server not ready yet..."
+            server_ready=true
         fi
-    fi
-    
-    if [ "$AGENT_READY" = false ]; then
-        if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then
+        if [ "$agent_ready" = false ] && curl -sf http://localhost:8080/health > /dev/null 2>&1; then
             echo "  Agent is ready!"
-            AGENT_READY=true
-        elif [ "$VERBOSE" = true ]; then
-            echo "  Attempt $i: Agent not ready yet..."
+            agent_ready=true
         fi
-    fi
-    
-    if [ "$SERVER_READY" = true ] && [ "$AGENT_READY" = true ]; then
-        break
-    fi
-    
-    sleep 2
-done
+        if [ "$server_ready" = true ] && [ "$agent_ready" = true ]; then
+            return 0
+        fi
+        if [ "$VERBOSE" = true ]; then
+            echo "  Attempt $i: waiting for services..."
+        fi
+        sleep 2
+    done
 
-if [ "$SERVER_READY" = false ] || [ "$AGENT_READY" = false ]; then
     echo "Services did not become healthy in time!"
     docker compose -f docker-compose.e2e.yml logs
-    exit 1
-fi
+    return 1
+}
+
+wait_for_services
+
+# Seed only after the applications create their schemas, with containers stopped
+# so sqlite3 does not race the applications' WAL connections.
+echo ""
+echo "Stopping containers before seeding test databases..."
+docker compose -f docker-compose.e2e.yml down
+./seed-testdata.sh
+
+echo ""
+echo "Restarting Docker containers with seeded databases..."
+docker compose -f docker-compose.e2e.yml up -d server agent
+wait_for_services
 
 # Run E2E tests
 echo ""
 echo "Running E2E tests..."
 echo ""
 
-export E2E_SERVER_URL="http://localhost:8443"
+export E2E_SERVER_URL="http://localhost:9090"
 export E2E_AGENT_URL="http://localhost:8080"
 export E2E_ADMIN_PASSWORD="e2e-test-password"
 
@@ -137,7 +135,8 @@ if [ "$KEEP_UP" = true ]; then
     echo ""
     echo "Containers left running. Stop with:"
     echo "  docker compose -f tests/docker-compose.e2e.yml down -v"
-    trap - EXIT  # Remove cleanup trap
 fi
 
+cleanup
+trap - EXIT
 exit $TEST_EXIT_CODE
