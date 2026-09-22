@@ -14,6 +14,7 @@ SKIP_PUSH=0
 CREATE_GITHUB_RELEASE=0
 FAIL_ON_EMPTY_CHANGELOG=1
 DRY_RUN=0
+RELEASE_COMMITTED=0
 
 usage() {
   cat <<EOF
@@ -72,6 +73,23 @@ status() {
     STEP) display_level="INFO" ;;
   esac
   printf '%b%s%b %b[%s]%b %s\n' "$color_dim" "$(date +'%Y-%m-%dT%H:%M:%S%z')" "$color_reset" "$color" "$display_level" "$color_reset" "$msg"
+}
+
+on_error() {
+  local exit_code=$? line="${BASH_LINENO[0]}" command="$BASH_COMMAND"
+  status "Release failed at line $line: $command (exit $exit_code)" ERROR
+  if [[ "$DRY_RUN" == "0" && "$RELEASE_COMMITTED" == "0" ]]; then
+    status "Reverting VERSION file changes..." WARN
+    case "$COMPONENT" in
+      both) git -C "$PROJECT_ROOT" restore agent/VERSION server/VERSION >/dev/null 2>&1 || true ;;
+      server) git -C "$PROJECT_ROOT" restore server/VERSION >/dev/null 2>&1 || true ;;
+      agent) git -C "$PROJECT_ROOT" restore agent/VERSION >/dev/null 2>&1 || true ;;
+    esac
+  elif [[ "$RELEASE_COMMITTED" == "1" ]]; then
+    status "Release commit already exists; VERSION files were not reverted" WARN
+  fi
+  status "Fix the issue and try again" WARN
+  exit "$exit_code"
 }
 
 git_status() { git -C "$PROJECT_ROOT" status --porcelain; }
@@ -197,6 +215,7 @@ save_commit_and_tag() {
         commit_msg="chore: Release agent v$agent_ver, server v$server_ver"
       fi
       git -C "$PROJECT_ROOT" commit -m "$commit_msg"
+      RELEASE_COMMITTED=1
       commit_sha="$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD)"
       git -C "$PROJECT_ROOT" tag -a "agent-v$agent_ver" "$commit_sha" -m "Agent Release v$agent_ver"
       git -C "$PROJECT_ROOT" tag -a "server-v$server_ver" "$commit_sha" -m "Server Release v$server_ver"
@@ -219,6 +238,7 @@ save_commit_and_tag() {
         commit_msg="chore: Release server v$version"
       fi
       git -C "$PROJECT_ROOT" commit -m "$commit_msg"
+      RELEASE_COMMITTED=1
       commit_sha="$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD)"
       git -C "$PROJECT_ROOT" tag -a "server-v$version" -m "Server Release v$version"
       git -C "$PROJECT_ROOT" tag -f -a "latest-server" "$commit_sha" -m "Latest Server Release (v$version)"
@@ -235,6 +255,7 @@ save_commit_and_tag() {
         commit_msg="chore: Release agent v$version"
       fi
       git -C "$PROJECT_ROOT" commit -m "$commit_msg"
+      RELEASE_COMMITTED=1
       commit_sha="$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD)"
       git -C "$PROJECT_ROOT" tag -a "agent-v$version" -m "Agent Release v$version"
       git -C "$PROJECT_ROOT" tag -f -a "latest-agent" "$commit_sha" -m "Latest Agent Release (v$version)"
@@ -360,7 +381,7 @@ main() {
   status "Dry Run: $DRY_RUN" INFO
   printf '\n'
 
-  trap 'status "Reverting VERSION file changes..." WARN; if [[ "$DRY_RUN" == "0" ]]; then case "$COMPONENT" in both) git -C "$PROJECT_ROOT" restore agent/VERSION server/VERSION >/dev/null 2>&1 || true ;; server) git -C "$PROJECT_ROOT" restore server/VERSION >/dev/null 2>&1 || true ;; agent) git -C "$PROJECT_ROOT" restore agent/VERSION >/dev/null 2>&1 || true ;; esac; fi; status "Fix the issue and try again" WARN' ERR
+  trap on_error ERR
 
   status "Running pre-flight checks..." STEP
   [[ -d "$PROJECT_ROOT/.git" ]] || { echo "Not in a git repository" >&2; exit 1; }
