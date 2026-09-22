@@ -243,7 +243,8 @@ build_component() {
 
   log "=== Build Log ==="
   log "Component: $display_name"
-  log "Version: $version.$build_number"
+  log "Version: $version_string"
+  log "Build Number: $build_number"
   log "Log File: $(basename "$LOG_FILE")"
 
   if [[ "$component" == "agent" || "$component" == "server" ]]; then
